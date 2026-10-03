@@ -7,11 +7,13 @@
  * other OUT packet never reaches ua_rx. RX DMA keeps the same four-byte guard
  * as USB MIDI. All SIE access stays in TIMER5, including SET_INTERFACE and
  * reset handling; register access goes through hal/fm1_usb.h. */
-static uint8_t ua_tx[UA_PACKET] __attribute__((aligned(4)));
-static uint8_t ua_rx[UA_PACKET + 4u] __attribute__((aligned(4)));
+#define UA_DMA_PACKET ((UA_PACKET + 3u) & ~3u)
+static uint8_t ua_tx[UA_DMA_PACKET] __attribute__((aligned(4)));
+static uint8_t ua_rx[UA_DMA_PACKET + 4u] __attribute__((aligned(4)));
 static uint8_t ua_fb[4] __attribute__((aligned(4)));
 static uint16_t ua_frame;
 static uint8_t ua_frame_valid, ua_paused;
+static uint8_t ua_rate_pending, ua_rate_reply[3];
 
 static void ua_play_config(void)
 {
@@ -42,6 +44,7 @@ static void ua_cap_config(void)
 static void ua_hw_stop(void)
 {
     ua_reset();
+    ua_rate_pending = 0;
     ua_frame_valid = ua_paused = 0;
     sie_wr(S_INTRRX1E, sie_rd(S_INTRRX1E) & ~0x04u);
     sie_wr(S_INDEX, 2);
@@ -81,7 +84,7 @@ static void ua_tx_fill(void)
 
 static int ua_set_interface(uint16_t interface, uint16_t alt)
 {
-    if (!usb.config || alt > 1u || (interface != 3u && interface != 4u))
+    if (!usb.config || alt > 2u || (interface != 3u && interface != 4u))
         return 0;
     if (interface == 3u) {
         ua_play_reset();
@@ -107,6 +110,57 @@ static int ua_set_interface(uint16_t interface, uint16_t alt)
     }
     if (alt)
         ua_tx_fill();                           /* ready for the host's first IN token */
+    return 1;
+}
+
+/* UAC1 endpoint sampling-frequency control; depth is selected by the AS
+ * alternate setting (1 = PCM16, 2 = packed PCM24). Each direction owns its
+ * rate so host setup order and mixed-rate duplex streams are both supported. */
+static int ua_control_setup(const uint8_t *s)
+{
+    uint32_t rate;
+    if (!usb.config || s[2] || s[3] != 1u || s[5] || s[6] != 3u || s[7] ||
+        (s[4] != 0x02u && s[4] != 0x82u))
+        return 0;
+    if (s[0] == 0x22u && s[1] == 1u) {       /* SET_CUR: three-byte OUT stage */
+        ua_rate_pending = s[4];
+        sie_wr(S_INDEX, 0);
+        sie_wr(S_CSR0, 0x40);
+        return 1;
+    }
+    if (s[0] != 0xA2u)
+        return 0;
+    switch (s[1]) {
+    case 0x81: rate = s[4] == 2u ? ua.play_rate : ua.cap_rate; break;
+    case 0x82: rate = UA_RATE; break;          /* GET_MIN */
+    case 0x83: rate = 48000u; break;          /* GET_MAX */
+    case 0x84: rate = 3900u; break;           /* GET_RES */
+    default: return 0;
+    }
+    ua_rate_reply[0] = (uint8_t)rate;
+    ua_rate_reply[1] = (uint8_t)(rate >> 8);
+    ua_rate_reply[2] = (uint8_t)(rate >> 16);
+    e0_send(ua_rate_reply, 3, 3);
+    return 1;
+}
+
+static int ua_control_data(const uint8_t *p, uint32_t n)
+{
+    uint8_t ep = ua_rate_pending;
+    uint32_t rate;
+    ua_rate_pending = 0;
+    if (!usb.config || !ep || n != 3u)
+        return 0;
+    rate = p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16;
+    /* UAC1 requires unsupported values to round to the closest discrete rate. */
+    rate = rate <= 46050u ? UA_RATE : 48000u;
+    if (ep == 2u && ua.play_rate != rate) {
+        ua.play_rate = rate;
+        ua_set_interface(3, ua.play_alt);
+    } else if (ep == 0x82u && ua.cap_rate != rate) {
+        ua.cap_rate = rate;
+        ua_set_interface(4, ua.cap_alt);
+    }
     return 1;
 }
 

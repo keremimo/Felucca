@@ -62,8 +62,29 @@ Build a USB Audio Class 1 + MIDI image with:
 FELUCCA_USB_AUDIO=1 ./build.sh
 ```
 
-This is a **build-time mode**, not a panel setting. It exposes stereo recording
-and stereo playback at **44.1 kHz, 16-bit PCM**, usable simultaneously:
+USB audio is enabled at **build time**, not from a panel setting. Once enabled,
+the computer can select **16-bit or packed 24-bit PCM**, at **44.1 or 48 kHz**,
+for stereo recording and playback. All four combinations are available in each
+direction, including simultaneous input/output with different formats.
+
+Select Felucca in the computer's audio-device settings (on macOS, Audio MIDI
+Setup), then choose the input and output formats. A DAW can also select the
+sample rate if its audio driver exposes that control; its recording-file bit
+depth may be a separate setting. No rebuild is needed to switch formats.
+Changing a format clears and re-primes that direction's audio buffer, so expect
+a short interruption. The default rate after USB reset/reconnect is 44.1 kHz;
+the host selects the bit depth when it starts each stream. Settings are not
+saved to Felucca's flash.
+
+The synth remains **16-bit internally**, and I2S continues at **44.1 kHz**. The 44.1 kHz USB
+path passes samples directly. At 48 kHz, USB service uses a 48-tap polyphase FIR
+converter with a 20 kHz cutoff, adding about 0.5 ms of filter delay per direction
+and rolling off the highest frequencies. This conversion preserves pitch and
+timing without changing synth tables, effects or sequencing. The 24-bit USB
+format does **not** add synth precision: capture pads the low eight bits with
+zero, and playback discards them before conversion/mixing.
+
+Routing is the same for every format:
 
 - **Recording:** Felucca's stereo synth/drum mix, after effects and the MASTER
   level, is sent to the computer.
@@ -84,15 +105,18 @@ addition to the existing 256-frame I2S half-buffer and the host's buffers. This
 first version prioritizes stable streaming over minimum latency. TIMER5 runs
 above the audio-render interrupt in this mode to meet USB frame deadlines.
 
-**Hardware validation is still required.** Host tests cover the descriptors,
-routing, malformed packets, stream recovery and simulated clock drift; they do
+**Hardware validation is still required.** Host tests cover all four formats,
+EP0 rate requests, routing, conversion pitch/levels, rejection of a 23 kHz
+playback tone, malformed packets, stream recovery and simulated clock drift; they do
 not establish USB0 DMA behavior or host-driver compatibility. On an FM-1, check:
 
-1. Enumeration as stereo input/output plus MIDI on the target OS, at 44.1 kHz.
+1. Enumeration as stereo input/output plus MIDI on the target OS, with all four
+   formats visible. Select each one and verify actual recording/playback.
 2. Recording alone, playback alone and both together, including sustained synth
-   load and simultaneous MIDI/web-editor traffic.
+   load and simultaneous MIDI/web-editor traffic. Pay particular attention to
+   48 kHz duplex CPU load and the larger 24-bit USB DMA packets.
 3. A long duplex recording for clicks, dropouts and drift; measure actual latency.
-4. DAW stream stop/restart, cable reconnect and host sleep/wake. MASTER should
+4. Rate/depth changes, DAW stream stop/restart, cable reconnect and host sleep/wake. MASTER should
    control local playback, and computer playback should not enter USB recording.
 
 Flash erase/program operations mask interrupts and can interrupt streaming;

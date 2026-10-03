@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,21 +39,32 @@ def descriptors(audio, cdc):
     for key, interface in interfaces.items():
         assert len(endpoints[key]) == interface[4]
     if audio:
-        assert len(data) == 291 and data[4] == 5
+        assert len(data) == 398 and data[4] == 5
         assert interfaces[3, 0][4] == interfaces[4, 0][4] == 0
-        playback, feedback = endpoints[3, 1]
-        capture, = endpoints[4, 1]
-        assert playback[2:4] == bytes([0x02, 0x05])
-        assert capture[2:4] == bytes([0x82, 0x05])
-        assert feedback[2:6] == bytes([0x83, 0x11, 3, 0])
-        assert playback[8] == feedback[2]
-        for ep in (playback, capture):
-            assert int.from_bytes(ep[4:6], "little") == 184 and ep[6] == 1
-        formats = [d for d in records if len(d) == 11 and d[1:3] == bytes([0x24, 2])]
-        assert len(formats) == 2
-        for fmt in formats:
-            assert fmt[3:8] == bytes([1, 2, 2, 16, 1])
+        for alt, width in ((1, 2), (2, 3)):
+            playback, feedback = endpoints[3, alt]
+            capture, = endpoints[4, alt]
+            assert playback[2:4] == bytes([0x02, 0x05])
+            assert capture[2:4] == bytes([0x82, 0x05])
+            assert feedback[2:6] == bytes([0x83, 0x11, 3, 0])
+            assert playback[8] == feedback[2]
+            for ep in (playback, capture):
+                assert int.from_bytes(ep[4:6], "little") == 49 * 2 * width and ep[6] == 1
+        current = None
+        formats = {}
+        for d in records:
+            if d[1] == 4:
+                current = (d[2], d[3])
+            elif len(d) == 14 and d[1:3] == bytes([0x24, 2]):
+                formats[current] = d
+            elif current and current[0] in (3, 4) and d[1] == 0x25:
+                assert d[3] == 1  # sampling-frequency control advertised
+        assert set(formats) == {(3, 1), (3, 2), (4, 1), (4, 2)}
+        for (_, alt), fmt in formats.items():
+            width = alt + 1
+            assert fmt[3:8] == bytes([1, 2, width, width * 8, 2])
             assert int.from_bytes(fmt[8:11], "little") == 44100
+            assert int.from_bytes(fmt[11:14], "little") == 48000
         # AC class-specific wTotalLength must include exactly its terminals.
         ac_start = next(i for i, d in enumerate(records) if d[1] == 4 and d[2] == 2)
         ac = []
@@ -68,3 +80,7 @@ def descriptors(audio, cdc):
 
 for mode in ((0, 0), (0, 1), (1, 0)):
     descriptors(*mode)
+
+generated = subprocess.check_output([sys.executable, str(ROOT / "tools/gen_usb_audio.py")], text=True)
+assert generated == (ROOT / "firmware/src/usb_audio_filter.h").read_text()
+print("USB audio FIR tables: reproducible, unity gain and int32 accumulator bounds: OK")

@@ -6,17 +6,27 @@
  *
  * The I2S clock is independent of USB SOF. A low-pass ring-fill servo adjusts
  * capture packet lengths and the playback endpoint's explicit 10.14 feedback.
- * This transfers original samples without inserting/dropping samples in normal
- * operation. The rings absorb the existing 256-frame render bursts. */
+ * The rings always hold native PCM16 at 44.1 kHz. At 48 kHz, rational FIR
+ * conversion runs in USB service, outside the audio ISR's masked copy. */
 #include <stdint.h>
 #define UA_RATE 44100u
-#define UA_PACKET 184u                         /* up to 46 stereo 16-bit frames */
+#define UA_PACKET 294u                         /* up to 49 stereo packed PCM24 frames */
 #define UA_RING 1024u
 #define UA_TARGET 512u
 #define UA_NOMINAL ((UA_RATE * 16384u) / 1000u)
+#include "usb_audio_filter.h"
+
+struct ua_converter {
+    /* Residual output-clock ticks, denominator 147 (play) or 160 (capture).
+     * History runs newest first from head. Exact 147:160 timing avoids drift. */
+    uint32_t phase, head;
+    int16_t history[UA_TAPS * 2u];
+};
 
 static struct {
     uint8_t play_alt, cap_alt, play_ready, cap_ready;
+    uint32_t play_rate, cap_rate;
+    struct ua_converter play_src, cap_src;
     uint32_t pw, pr, cw, cr, cap_frac;
     int32_t play_fill_q8, cap_fill_q8;
     uint32_t play_underruns, play_overruns, cap_underruns, cap_overruns, bad_packets;
@@ -29,11 +39,59 @@ static int32_t ua_clip(int32_t x)
     return x > 32767 ? 32767 : x < -32768 ? -32768 : x;
 }
 
+static void ua_src_reset(struct ua_converter *s)
+{
+    uint32_t i;
+    s->phase = s->head = 0;
+    for (i = 0; i < UA_TAPS * 2u; i++)
+        s->history[i] = 0;
+}
+
+static void ua_src_push(struct ua_converter *s, int16_t l, int16_t r)
+{
+    s->head = s->head ? s->head - 1u : UA_TAPS - 1u;
+    s->history[s->head * 2u] = l;
+    s->history[s->head * 2u + 1u] = r;
+}
+
+static void ua_src_sample(const struct ua_converter *s, const int16_t *coeff, int16_t *out)
+{
+    uint32_t k, at = s->head;
+    int32_t l = 0, r = 0;
+    for (k = 0; k < UA_TAPS; k++) {
+        l += s->history[at * 2u] * (int32_t)coeff[k];
+        r += s->history[at * 2u + 1u] * (int32_t)coeff[k];
+        if (++at == UA_TAPS)
+            at = 0;
+    }
+    out[0] = (int16_t)ua_clip((l + 8192) >> 14);
+    out[1] = (int16_t)ua_clip((r + 8192) >> 14);
+}
+
+static uint32_t ua_sample_bytes(uint8_t alt) { return alt == 2u ? 3u : 2u; }
+
+/* Packed little-endian PCM24 uses the same full-scale level as PCM16. The
+ * low byte is discarded on playback; recording pads it with zero. */
+static int16_t ua_decode(const uint8_t *p, uint32_t width)
+{
+    p += width - 2u;
+    return (int16_t)(p[0] | (uint16_t)p[1] << 8);
+}
+
+static void ua_encode(uint8_t *p, uint32_t width, int16_t sample)
+{
+    if (width == 3u)
+        *p++ = 0;
+    p[0] = (uint8_t)sample;
+    p[1] = (uint8_t)((uint16_t)sample >> 8);
+}
+
 static void ua_play_reset(void)
 {
     ua.pw = ua.pr = 0;
     ua.play_ready = 0;
     ua.play_fill_q8 = UA_TARGET * 256;
+    ua_src_reset(&ua.play_src);
 }
 
 static void ua_cap_reset(void)
@@ -41,21 +99,24 @@ static void ua_cap_reset(void)
     ua.cw = ua.cr = ua.cap_frac = 0;
     ua.cap_ready = 0;
     ua.cap_fill_q8 = UA_TARGET * 256;
+    ua_src_reset(&ua.cap_src);
 }
 
 static void ua_reset(void)
 {
     ua.play_alt = ua.cap_alt = 0;
+    ua.play_rate = ua.cap_rate = UA_RATE;
     ua_play_reset();
     ua_cap_reset();
 }
 
 static void ua_receive(const uint8_t *p, uint32_t bytes)
 {
-    uint32_t i, n = bytes / 4u;
+    uint32_t i, width = ua_sample_bytes(ua.play_alt), frame = width * 2u;
+    uint32_t n = bytes / frame;
     if (!ua.play_alt)
         return;
-    if (bytes > UA_PACKET || (bytes & 3u)) {
+    if (n > 49u || bytes % frame) {
         ua.bad_packets++;
         return;
     }
@@ -64,11 +125,22 @@ static void ua_receive(const uint8_t *p, uint32_t bytes)
         ua_play_reset();                       /* re-prime, never replay stale data */
     }
     for (i = 0; i < n; i++) {
-        uint32_t at = ((ua.pw + i) & (UA_RING - 1u)) * 2u;
-        ua.play[at] = (int16_t)(p[4u * i] | (uint16_t)p[4u * i + 1u] << 8);
-        ua.play[at + 1u] = (int16_t)(p[4u * i + 2u] | (uint16_t)p[4u * i + 3u] << 8);
+        uint32_t at = (ua.pw & (UA_RING - 1u)) * 2u;
+        int16_t l = ua_decode(p + frame * i, width);
+        int16_t r = ua_decode(p + frame * i + width, width);
+        if (ua.play_rate == 48000u) {
+            ua_src_push(&ua.play_src, l, r);
+            ua.play_src.phase += 147u;
+            if (ua.play_src.phase < 160u)
+                continue;
+            ua.play_src.phase -= 160u;
+            ua_src_sample(&ua.play_src, ua_play_filter[ua.play_src.phase], &ua.play[at]);
+        } else {
+            ua.play[at] = l;
+            ua.play[at + 1u] = r;
+        }
+        ua.pw++;
     }
-    ua.pw += n;
     ua.rx_packets++;
 }
 
@@ -81,49 +153,61 @@ static void ua_sof(void)
         ua.cap_fill_q8 += ((int32_t)(ua.cw - ua.cr) * 256 - ua.cap_fill_q8) / 32;
 }
 
-static uint32_t ua_rate(int32_t error_q8)
+static uint32_t ua_rate(uint32_t rate, int32_t error_q8)
 {
     int32_t correction = error_q8 / 16;         /* fill error / 1024, in 10.14 */
     if (correction > 8192)
         correction = 8192;
     if (correction < -8192)
         correction = -8192;
-    return (uint32_t)((int32_t)UA_NOMINAL + correction);
+    return (uint32_t)((int32_t)((rate * 16384u) / 1000u) + correction);
 }
 
 static uint32_t ua_feedback(void)
 {
-    return ua_rate(UA_TARGET * 256 - ua.play_fill_q8);
+    return ua_rate(ua.play_rate, UA_TARGET * 256 - ua.play_fill_q8);
 }
 
 static uint32_t ua_transmit(uint8_t *p)
 {
-    uint32_t i, n, take = 0;
-    ua.cap_frac += ua_rate(ua.cap_fill_q8 - UA_TARGET * 256);
+    uint32_t i, n, need, take = 0, width = ua_sample_bytes(ua.cap_alt);
+    ua.cap_frac += ua_rate(ua.cap_rate, ua.cap_fill_q8 - UA_TARGET * 256);
     n = ua.cap_frac >> 14;
     ua.cap_frac &= 16383u;
+    /* ceil((147 * USB frames - residual) / 160) native frames at 48 kHz. */
+    need = ua.cap_rate == 48000u ? (n * 147u + 159u - ua.cap_src.phase) / 160u : n;
     if (!ua.cap_ready && ua.cw - ua.cr >= UA_TARGET)
         ua.cap_ready = 1;
     if (ua.cap_ready) {
-        if (ua.cw - ua.cr >= n)
-            take = n;
+        if (ua.cw - ua.cr >= need)
+            take = 1;
         else {
             ua.cap_underruns++;
             ua_cap_reset();
         }
     }
     for (i = 0; i < n; i++) {
-        uint32_t at = ((ua.cr + i) & (UA_RING - 1u)) * 2u;
-        uint16_t l = take ? (uint16_t)ua.cap[at] : 0;
-        uint16_t r = take ? (uint16_t)ua.cap[at + 1u] : 0;
-        p[4u * i] = (uint8_t)l;
-        p[4u * i + 1u] = (uint8_t)(l >> 8);
-        p[4u * i + 2u] = (uint8_t)r;
-        p[4u * i + 3u] = (uint8_t)(r >> 8);
+        int16_t sample[2] = {0, 0};
+        if (take) {
+            if (ua.cap_rate == 48000u) {
+                if (ua.cap_src.phase < 147u) {
+                    uint32_t at = (ua.cr++ & (UA_RING - 1u)) * 2u;
+                    ua_src_push(&ua.cap_src, ua.cap[at], ua.cap[at + 1u]);
+                    ua.cap_src.phase += 160u;
+                }
+                ua.cap_src.phase -= 147u;
+                ua_src_sample(&ua.cap_src, ua_cap_filter[ua.cap_src.phase], sample);
+            } else {
+                uint32_t at = (ua.cr++ & (UA_RING - 1u)) * 2u;
+                sample[0] = ua.cap[at];
+                sample[1] = ua.cap[at + 1u];
+            }
+        }
+        ua_encode(p + i * width * 2u, width, sample[0]);
+        ua_encode(p + i * width * 2u + width, width, sample[1]);
     }
-    ua.cr += take;
     ua.tx_packets++;
-    return n * 4u;
+    return n * width * 2u;
 }
 
 /* Stereo Q15, after synth master processing; playback follows the MASTER knob.

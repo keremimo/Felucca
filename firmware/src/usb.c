@@ -84,10 +84,10 @@ static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 /* ------------------------------------------------------- descriptors --- */
 #if FELUCCA_USB_AUDIO
 #include "usb_audio_stream.c"
-static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x02, 0x03,
-                                     1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.02 */
+static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x03, 0x03,
+                                     1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.03 */
 static const uint8_t CFG_DESC[] = {
-    9, 2, 0x23, 0x01, 5, 1, 0, 0x80, 50,               /* 291 bytes, five interfaces */
+    9, 2, 0x8E, 0x01, 5, 1, 0, 0x80, 50,               /* 398 bytes, five interfaces */
     8, 0x0B, 0, 2, 1, 1, 0, 0,                          /* IAD: MIDI (IF 0-1) */
 #elif FELUCCA_CDC
 static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x01, 0x03,
@@ -291,6 +291,9 @@ static void ep0_service(void)
     if (csr & 0x04u) {                                  /* SentStall */
         sie_wr(S_CSR0, 0);
         usb.e0_tx = 0;
+#if FELUCCA_USB_AUDIO
+        ua_rate_pending = 0;
+#endif
 #if FELUCCA_CDC
         cdc.e0_rx = 0;
 #endif
@@ -299,6 +302,9 @@ static void ep0_service(void)
     if (csr & 0x10u) {                                  /* SetupEnd: the host abandoned the transfer */
         sie_wr(S_CSR0, 0x80);
         usb.e0_tx = 0;
+#if FELUCCA_USB_AUDIO
+        ua_rate_pending = 0;
+#endif
 #if FELUCCA_CDC
         cdc.e0_rx = 0;                                  /* else the next SETUP is taken as line coding */
 #endif
@@ -311,6 +317,13 @@ static void ep0_service(void)
     if (!(csr & 0x01u))
         return;
     fm1_usb_rx_sync();
+#if FELUCCA_USB_AUDIO
+    if (ua_rate_pending) {
+        if (ua_control_data(ep0buf, sie_rd(S_COUNT0)))
+            goto ack;
+        goto stall;
+    }
+#endif
 #if FELUCCA_CDC
     if (cdc.e0_rx) {                                    /* SET_LINE_CODING data stage */
         uint32_t n = sie_rd(S_COUNT0);
@@ -326,6 +339,16 @@ static void ep0_service(void)
     wvalue = (uint16_t)(s[2] | s[3] << 8);
     wlength = (uint16_t)(s[6] | s[7] << 8);
     switch ((uint32_t)s[0] << 8 | s[1]) {
+#if FELUCCA_USB_AUDIO
+    case 0x2201:                                        /* UAC1 sampling frequency */
+    case 0xA281:
+    case 0xA282:
+    case 0xA283:
+    case 0xA284:
+        if (ua_control_setup(s))
+            return;
+        goto stall;
+#endif
     case 0x0005:                                        /* SET_ADDRESS */
         usb.pend_addr = s[2] & 0x7Fu;
         usb.has_pend_addr = 1;
@@ -742,6 +765,7 @@ static void usb_start(void)                             /* boot, or main-loop re
 {
 #if FELUCCA_USB_AUDIO
     ua_reset();
+    ua_rate_pending = 0;
     ua_frame_valid = ua_paused = 0;
 #endif
     usb.timeouts = 0;
