@@ -37,7 +37,11 @@ extern void isr_timer5(void);
 
 static void timer5_start(void)                 /* OSC /4 = 6 MHz, PRD 600 -> 10 kHz */
 {
+#if FELUCCA_USB_AUDIO
+    fm1_timer5_start(isr_timer5, 4);   /* isochronous service cannot wait for a 5.8 ms render */
+#else
     fm1_timer5_start(isr_timer5, 1);   /* below ALNK0 (3): no nesting into audio */
+#endif
 }
 
 static void hexs(char *b, uint32_t v)

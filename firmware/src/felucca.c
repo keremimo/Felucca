@@ -32,8 +32,14 @@
 #ifndef FELUCCA_ID
 #define FELUCCA_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
 #endif
+#ifndef FELUCCA_USB_AUDIO
+#define FELUCCA_USB_AUDIO 0      /* experimental UAC1 + MIDI, replaces CDC */
+#endif
 #ifndef FELUCCA_CDC
-#define FELUCCA_CDC 1            /* USB CDC-ACM serial console */
+#define FELUCCA_CDC (!FELUCCA_USB_AUDIO) /* USB CDC-ACM serial console */
+#endif
+#if FELUCCA_USB_AUDIO && FELUCCA_CDC
+#error "USB audio uses the CDC endpoints; build with FELUCCA_CDC=0"
 #endif
 #include "usb.c"
 #ifndef FELUCCA_UART
