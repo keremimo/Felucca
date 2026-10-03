@@ -241,14 +241,15 @@ static void graph_steps(const track_t *t, uint16_t c)
 static void graph_roll(const track_t *t, uint16_t c)
 {
     uint32_t i, j, len = (uint32_t)t->p[P_SLEN], base = ui.bank * 16u;
-    int32_t lo = 127, hi = 0, prev_y = -1;
+    int32_t lo = 127, hi = 0;
     for (i = 0; i < len; i++)
-        for (j = 0; j < t->step[i].n; j++) {
-            if (t->step[i].note[j] < lo)
-                lo = t->step[i].note[j];
-            if (t->step[i].note[j] > hi)
-                hi = t->step[i].note[j];
-        }
+        if (step_on(&t->step[i]))
+            for (j = 0; j < t->step[i].n; j++) {
+                if (t->step[i].note[j] < lo)
+                    lo = t->step[i].note[j];
+                if (t->step[i].note[j] > hi)
+                    hi = t->step[i].note[j];
+            }
     if (lo > hi) {
         lo = 48;
         hi = 72;
@@ -258,6 +259,8 @@ static void graph_roll(const track_t *t, uint16_t c)
     for (i = 0; i < 16u; i++) {
         uint32_t si = base + i;
         const step_t *st = &t->step[si];
+        const step_t *source = st;
+        uint32_t tie = st->time == ST_TIE, start, next_tie;
         int32_t x = (int32_t)i * 15, yb = 86;
         if (si >= len)
             break;
@@ -265,23 +268,25 @@ static void graph_roll(const track_t *t, uint16_t c)
             cv_rect(x + 5, 92, 3, 3, C_WHITE);
         if (song.playing && si == t->seq_idx)
             cv_rect(x + 1, 97, 12, 1, C_WHITE);
-        if (st->time == ST_TIE && prev_y >= 0) {
-            cv_rect(x, prev_y, 14, 1, C_GRAY);
-            continue;
+        if (tie) {
+            start = step_note_start(t, si);
+            if (start < NSTEP)
+                source = &t->step[start];
         }
-        if (!step_on(st)) {
+        if (!step_on(source)) {
             cv_rect(x + 6, yb, 2, 1, C_DIM);
-            prev_y = -1;
             continue;
         }
-        for (j = 0; j < st->n; j++) {
-            int32_t y = 80 - (st->note[j] - lo) * 74 / (hi - lo);
-            cv_rect(x + 2, y, 10, 1, (st->flags & SF_ACCENT) ? C_WHITE : c);
-            if (j == 0)
-                prev_y = y;
+        next_tie = t->step[(si + 1u) % len].time == ST_TIE;
+        for (j = 0; j < source->n; j++) {
+            int32_t y = 80 - (source->note[j] - lo) * 74 / (hi - lo);
+            cv_rect(x + (tie ? 0 : 2), y, (tie ? 12 : 10) + (next_tie ? 3 : 0), 1,
+                    tie ? C_GRAY : (st->flags & SF_ACCENT) ? C_WHITE : c);
         }
-        if (st->flags & SF_SLIDE)
-            cv_line(x + 11, prev_y, x + 17, prev_y + 2, c);
+        if (st->flags & SF_SLIDE) {
+            int32_t y = 80 - (source->note[0] - lo) * 74 / (hi - lo);
+            cv_line(x + 11, y, x + 17, y + 2, c);
+        }
     }
 }
 static void graph_scale(const track_t *t, uint16_t c)
@@ -689,6 +694,19 @@ static void draw_graph(void)
     }
     top = !ui.home && !drum_note && (pg->graph == GR_BROWSE || pg->graph == GR_SLOTS || pg->graph == GR_USER);   /* these draw from the top */
     cv_oy = 0;
+    if (!ui.home && pg->scope == SC_STEP) {
+        uint32_t start = step_note_start(t, ui.cursor);
+        char hint[32] = "PRESETS: SELECT A NOTE";
+        if (is_drum(t)) {
+            str_cpy(hint, "DRUMS: ONE SHOT", sizeof hint);
+        } else if (start < NSTEP) {
+            str_cpy(hint, "PRESETS: LENGTH ", sizeof hint);
+            fmt_int(hint + str_len(hint), (int32_t)step_note_length(t, start));
+            str_cpy(hint + str_len(hint), " STP", 5);
+        }
+        cv_text(4, 2, &FONT_S, hint, C_HI);
+        top = 1;
+    }
     if (ui.hot_t && settings.zoom) {                 /* focus (menu ZOOM): the touched value, large and white */
         int32_t x;
         top = 1;

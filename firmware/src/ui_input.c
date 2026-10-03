@@ -135,6 +135,29 @@ static void step_edit(uint32_t slot, int32_t steps)
     }
 }
 
+/* PRESETS on STEP resizes a note from its onset or any of its ties. */
+static void step_length_edit(int32_t steps)
+{
+    track_t *t = TSEL;
+    uint32_t start = step_note_start(t, ui.cursor), n;
+    int32_t wanted;
+    if (is_drum(t)) {
+        ui_message("DRUMS: ONE SHOT");
+        return;
+    }
+    if (start == NSTEP) {
+        ui_message("SELECT A NOTE");
+        return;
+    }
+    wanted = clamp((int32_t)step_note_length(t, start) + steps, 1, (int32_t)step_pattern_len(t));
+    n = step_note_resize(t, start, wanted);
+    ui.cursor = (uint8_t)start;
+    ui.bank = (uint8_t)(start / 16u);
+    ui.hot_t = 0;                                      /* show the length hint, even with ZOOM on */
+    if (n < (uint32_t)wanted)
+        ui_message("NEXT NOTE");
+}
+
 static void edit_param(uint32_t slot, int32_t steps)
 {
     int16_t *vp;
@@ -225,7 +248,7 @@ static void edit_param(uint32_t slot, int32_t steps)
 }
 
 /* SEQ step entry, acid style: the keys pressed together (POLY: up to 4, MONO:
- * the last one) become the cursor step; releasing all keys moves on */
+ * the last one) become the cursor step; releasing all keys moves past its ties */
 static void seq_entry(uint32_t pressed)
 {
     track_t *t = TSEL;
@@ -251,8 +274,6 @@ static void seq_entry(uint32_t pressed)
         }
         last_note = (uint8_t)note;
     }
-    if (ui.entry_open && !fm1_in.notes)
-        cursor_set(ui.cursor + 1);
 }
 
 /* HOME / REC: tap on release, hold 0.7 s fires once. t0 = press time | 1,
@@ -375,13 +396,17 @@ static void ui_input(void)
     if (song.seq_mode && cur_page()->scope == SC_STEP)
         seq_entry(notes);
 
-    if ((s = panel_enc(EN_PRESET)) != 0 && (ui.home || cur_page()->graph == GR_BROWSE || cur_fam() == FAM_TRK)) {
-        /* PRESETS browses the selected part's presets (all engines, then user presets) on HOME, the PRESETS
-         * page and TRACKS only (the drum track: nothing):
-         * elsewhere a stray turn would throw away the sound being edited */
-        uint32_t total, cur = preset_pos(&total);
-        if (total)
-            preset_go((cur + (s > 0 ? 1u : total - 1u)) % total);   /* past the factory ones: user presets */
+    if ((s = panel_enc(EN_PRESET)) != 0) {
+        if (!ui.home && cur_page()->scope == SC_STEP) {
+            step_length_edit(s);
+        } else if (ui.home || cur_page()->graph == GR_BROWSE || cur_fam() == FAM_TRK) {
+            /* PRESETS browses the selected part's presets (all engines, then user presets) on HOME, the PRESETS
+             * page and TRACKS only (the drum track: nothing):
+             * elsewhere a stray turn would throw away the sound being edited */
+            uint32_t total, cur = preset_pos(&total);
+            if (total)
+                preset_go((cur + (s > 0 ? 1u : total - 1u)) % total);   /* past the factory ones: user presets */
+        }
     }
     if ((s = panel_enc(EN_ALGO)) != 0)             /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
@@ -406,6 +431,12 @@ static void ui_input(void)
         } else {
             edit_param(k, s);
         }
+    }
+    /* Apply the last length detent before advancing if the keys lift in the
+     * same UI frame. Drums keep their original one-step entry behavior. */
+    if (song.seq_mode && cur_page()->scope == SC_STEP && ui.entry_open && !fm1_in.notes) {
+        uint32_t n = is_drum(TSEL) ? 1u : step_note_length(TSEL, ui.cursor);
+        cursor_set(ui.cursor + (n ? n : 1u));
     }
 }
 

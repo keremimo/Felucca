@@ -60,6 +60,23 @@ whole-half diminished (DIMWH). Scales with other than seven notes continue acros
 the white keys without repeating notes; their roots need not fall on every C key.
 The drum track, GM sample kit and incoming MIDI retain their existing note mapping.
 
+## Sequencer note length
+
+On **SEQ > STEP**, turn **PRESETS** to change the selected note or chord's length
+in steps. The readout above the piano roll shows `PRESETS: LENGTH 4 STP`, for
+example. **TIME** on knob 3 still selects NOTE, TIE or REST.
+
+To enter a long note, hold its key (or chord), turn PRESETS to the desired length,
+then release the keys. The cursor advances past the whole note, ready for the next
+one. For an existing note, select its onset or any of its tied steps with **STEP**
+(knob 1) and turn PRESETS. Clockwise extends it; counterclockwise shortens it to a minimum
+of one step. Ties are added and removed automatically.
+
+Lengths can cross a 16-step bank or the pattern's loop boundary, up to one full
+pattern. Extensions stop before another note; shortening clears only the removed
+ties. Drum hits remain one-shot. The piano roll shows sustained chords across
+banks, and existing projects keep using the same NOTE/TIE representation.
+
 ## Layout
 
 | Path | What |
