@@ -37,7 +37,7 @@
 #endif
 #include "usb.c"
 #ifndef FELUCCA_UART
-#define FELUCCA_UART 0           /* 1 = TRS MIDI IN on UART1 (untested) */
+#define FELUCCA_UART 1           /* TRS MIDI IN on UART1, 31250 baud */
 #endif
 #if FELUCCA_UART
 #include "midi_uart.c"

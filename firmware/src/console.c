@@ -198,6 +198,12 @@ static void con_status(void)
     con_kv("usb_max_gap_polls", (int32_t)usb.max_gap);
     con_kv("midi_rx_pkts", (int32_t)usb.rx_pkts);
     con_kv("midi_tx_pkts", (int32_t)usb.tx_pkts);
+    con_kv("trs_midi", FELUCCA_UART);
+#if FELUCCA_UART
+    con_kv("trs_rx_bytes", (int32_t)um.bytes);
+    con_kv("trs_rx_msgs", (int32_t)um.msgs);
+    con_kv("trs_rx_drops", (int32_t)um.drops);
+#endif
 #if FELUCCA_FLASH
     con_kv("flash", flash_ok);
 #endif
