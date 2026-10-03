@@ -14,8 +14,21 @@ void fm1_timer5_irq(void)
     if (felucca_dbg.in_audio)
         felucca_dbg.nested++;                      /* only possible if this IRQ outranks ALNK0 */
     fm1_input_tick();
-    if (sub % 5u == 0u)
+    if (sub % 5u == 0u) {
+#if FELUCCA_USB_AUDIO
+        static uint32_t last_poll;
+        uint32_t start = fm1_ticks(), gap = start - last_poll, elapsed;
+        if (last_poll && gap > ua.poll_max_ticks)
+            ua.poll_max_ticks = gap;
+        last_poll = start;
+#endif
         usb_poll();                             /* 2 kHz: all USB SIE traffic lives here */
+#if FELUCCA_USB_AUDIO
+        elapsed = fm1_ticks() - start;
+        if (elapsed > ua.service_max_ticks)
+            ua.service_max_ticks = elapsed;
+#endif
+    }
 #if FELUCCA_UART
     if (sub % 5u == 2u)
         uart_midi_poll();                       /* 2 kHz: <= ~7 bytes per call at 31250 baud */

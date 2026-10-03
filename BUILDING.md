@@ -69,8 +69,33 @@ Build a USB Audio Class 1 + MIDI image with:
 FELUCCA_USB_AUDIO=1 ./build.sh
 ```
 
-This is a **build-time mode**, not a panel setting. It exposes stereo recording
-and stereo playback at **44.1 kHz, 16-bit PCM**, usable simultaneously:
+USB audio is enabled at **build time**, not from a panel setting. Once enabled,
+the computer sees two audio devices next to the Felucca MIDI port, as with the
+stock FM-1 firmware: **Felucca Out** (2 outputs, playback) and **Felucca In**
+(2 inputs, recording). Each can use **16-bit or packed 24-bit PCM** at **44.1 or
+48 kHz**, independently of the other.
+
+Choose the formats in the computer's audio-device settings (on macOS, Audio MIDI
+Setup). A DAW can also select the sample rate if its audio driver exposes that
+control; its recording-file bit depth may be a separate setting. A DAW that takes
+one device for both directions needs an aggregate device (Audio MIDI Setup: +,
+Create Aggregate Device) with drift correction on the device that is not the
+clock source. No rebuild is needed to switch formats.
+Changing a format clears and re-primes that direction's audio buffer, so expect
+a short interruption. The default rate after USB reset/reconnect is 44.1 kHz;
+the host selects the bit depth when it starts each stream. Settings are not
+saved to Felucca's flash.
+
+The synth remains **16-bit internally**, and I2S continues at **44.1 kHz**. The 44.1 kHz USB
+path passes samples directly. At 48 kHz, USB service uses a 48-tap polyphase FIR
+converter with a 20 kHz cutoff, adding about 0.5 ms of filter delay per direction
+and rolling off the highest frequencies. It takes about 0.1 ms of CPU time per
+millisecond in each direction (0.02 ms at 44.1 kHz). This conversion preserves pitch and
+timing without changing synth tables, effects or sequencing. The 24-bit USB
+format does **not** add synth precision: capture pads the low eight bits with
+zero, and playback discards them before conversion/mixing.
+
+Routing is the same for every format:
 
 - **Recording:** Felucca's stereo synth/drum mix, after effects and the MASTER
   level, is sent to the computer.
@@ -85,21 +110,31 @@ and stereo playback at **44.1 kHz, 16-bit PCM**, usable simultaneously:
   `FELUCCA_USB_AUDIO=1` and `FELUCCA_CDC=1` is a build error.
 
 The implementation uses asynchronous USB endpoints with explicit 10.14 playback
-feedback and variable recording packet lengths to follow the I2S clock. Each
+feedback and variable recording packet lengths to follow the I2S clock. Felucca
+Out and Felucca In are separate UAC1 functions, so the host times each one from
+its own endpoint. (macOS times a single duplex device from its recording
+packets, so there one late recording packet also cost playback.) Each
 direction has a 1024-frame ring with a 512-frame target (about 11.6 ms), in
 addition to the existing 256-frame I2S half-buffer and the host's buffers. This
 first version prioritizes stable streaming over minimum latency. TIMER5 runs
 above the audio-render interrupt in this mode to meet USB frame deadlines.
 
-**Hardware validation is still required.** Host tests cover the descriptors,
-routing, malformed packets, stream recovery and simulated clock drift; they do
-not establish USB0 DMA behavior or host-driver compatibility. On an FM-1, check:
+**Validation status.** Host tests cover the descriptors, all four formats, EP0
+rate and interface requests, routing, conversion pitch/levels, rejection of a
+23 kHz playback tone, malformed packets, stream recovery and simulated clock
+drift. On an FM-1 with macOS, both devices enumerate with all four formats;
+playback, recording and both together ran for 30–60 s in every rate combination
+with no ring underruns or overruns, bad packets, missed frames or late renders,
+and with no CoreAudio overloads. Format changes during streaming and repeated
+stream start/stop recovered. Those runs streamed silence with the synth idle.
+`tools/usb_audio_stats.py --window` prints the device's stream counters, USB
+service time and render load over MIDI. Still to check:
 
-1. Enumeration as stereo input/output plus MIDI on the target OS, at 44.1 kHz.
-2. Recording alone, playback alone and both together, including sustained synth
-   load and simultaneous MIDI/web-editor traffic.
-3. A long duplex recording for clicks, dropouts and drift; measure actual latency.
-4. DAW stream stop/restart, cable reconnect and host sleep/wake. MASTER should
+1. Listening with real program material, and with heavy synth patches during
+   48 kHz duplex (the conversion then takes about a fifth of the CPU; the voice
+   limiter sheds a voice whenever a render takes more than 85 % of its time).
+2. A long duplex recording for clicks, dropouts and drift; measure actual latency.
+3. Windows and Linux, cable reconnect, host sleep/wake and DAW use. MASTER should
    control local playback, and computer playback should not enter USB recording.
 
 Flash erase/program operations mask interrupts and can interrupt streaming;

@@ -36,6 +36,21 @@ after an engine change.
 
 ## Commands
 
+USB audio builds also accept the diagnostic command **33 AUDIO_STATS**, with an
+optional flags byte. The reply starts with schema version 2, then 20 unsigned
+32-bit integers, each encoded as five 7-bit bytes, least significant group first:
+playback alternate setting, capture alternate setting, playback rate, capture
+rate, playback ring fill, capture ring fill, playback underruns, playback
+overruns, capture underruns, capture overruns, bad packets, received packets,
+transmitted packets, missed USB frames, maximum poll-start gap in microseconds,
+maximum USB service duration in microseconds, late audio renders, current
+playback feedback in 10.14 samples per millisecond, maximum audio render time
+in microseconds (a 256-frame half; USB service preempting it included), and the
+smoothed render load in 1/256 of the half period. Counters are cumulative since
+boot. Flags bit 0 clears the three maxima after the snapshot, so the next one
+covers only the time in between; nothing else changes audio settings.
+`tools/usb_audio_stats.py` reads these snapshots over MIDI (`--window` sets bit 0).
+
 | cmd | Request args | Reply args |
 | --- | --- | --- |
 | 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4); older firmware ends after the names |

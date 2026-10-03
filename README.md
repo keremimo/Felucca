@@ -25,9 +25,10 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
 - **Web editor:** every parameter of every track, step grid, track mixer, preset library, sample upload
 - **USB:** class-compliant MIDI in and out (channels 1–3 for the parts, 10 for drums);
   updates over the same USB cable
-- **Experimental USB audio build:** simultaneous stereo synth recording and computer
-  playback, 16-bit / 44.1 kHz, alongside MIDI. Opt-in build mode; hardware validation
-  pending. See [USB audio build instructions](BUILDING.md#experimental-usb-audio-mode).
+- **Experimental USB audio build:** a stereo input device (synth recording) and a
+  separate stereo output device (computer playback), each host-selectable 16/24-bit and 44.1/48 kHz,
+  alongside MIDI. Opt-in build mode; tested on macOS, listening tests pending.
+  See [USB audio build instructions](BUILDING.md#experimental-usb-audio-mode).
 - **TRS MIDI IN:** enabled by default, with the same channel routing and scale
   mapping as USB MIDI; channel messages and running status supported
 
