@@ -67,7 +67,23 @@ Mixolydian (MIX), major pentatonic (PEN), minor pentatonic (MPEN), harmonic mino
 minor blues (BLUES), whole tone (WHOLE), half-whole diminished (DIMHW), and
 whole-half diminished (DIMWH). Scale degrees continue across keyboard octave
 boundaries; roots need not fall on every C key.
-The drum track, GM sample kit and incoming MIDI retain their existing note mapping.
+The drum track and GM sample kit retain their existing note mapping.
+
+Incoming MIDI uses the receiving track's **WHITE** or **ALL** layout: MIDI note 60
+(C4) plays ROOT, and each participating key advances one scale degree.
+**TRN** applies to the mapped notes. The FM-1's octave buttons affect
+only its own keys; use the external keyboard's octave controls for MIDI input.
+With QNT at OFF or SNAP, incoming MIDI notes pass through unchanged.
+
+Channels 1–3 play parts 1–3; the configured drum channel plays drums; other
+channels play the selected track. Set ROOT, SCL and QNT on that receiving part.
+Mapped notes feed its arpeggiator and live recording. Note-offs release the pitch
+and part chosen at note-on, even if settings or the selected track change.
+
+This applies to USB MIDI routed from a computer and to TRS MIDI input when it is
+enabled (`FELUCCA_UART`). TRS ignores MIDI clock, transport, system common and
+SysEx. End-to-end TRS reception still needs verification with an external MIDI
+source.
 
 ## Layout
 

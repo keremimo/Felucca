@@ -183,6 +183,7 @@ static void all_key_events_test(void)
     static const uint8_t expected[] = {60, 62, 63};
     memset(trk, 0, sizeof trk);
     memset(&song, 0, sizeof song);
+    memset(live_refs, 0, sizeof live_refs);
     host_tracks_init();
     kb_prev = 0;
     mo_w = mo_r = 0;
@@ -204,6 +205,7 @@ static void all_key_events_test(void)
     keyboard_block();
     assert(!t->nheld && !t->arp_phys && mo_w == 6);
     for (k = 0; k < 3; k++) {
+        assert(!live_refs[0][expected[k]]);
         assert(((midi_out_q[k + 3] >> 16) & 127u) == expected[k]);
     }
     puts("scales ALL: black keys feed arp, recording and MIDI out; mode/track changes preserve releases");

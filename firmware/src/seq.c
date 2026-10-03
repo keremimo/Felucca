@@ -31,6 +31,10 @@ static const uint16_t SCALE_MASK[] = {
 #define KB_SILENT 255u
 static uint32_t kb_prev;
 static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on which track */
+/* MIDI releases use the original destination, even after root/scale/track changes.
+ * Zero means no sounding note; high byte = track + 1, low byte = mapped note. */
+static uint16_t midi_notes[16][128];
+static uint16_t live_refs[NTRK][128];     /* overlapping local/MIDI keys sharing a pitch */
 static uint8_t last_note = 60;
 static volatile uint8_t transport_req;   /* 1 start, 2 stop (from the UI) */
 static volatile uint8_t panic_req;       /* bit per track: release every sounding note (preset / engine change) */
@@ -57,26 +61,26 @@ static uint32_t scale_mask(const track_t *t)
     return SCALE_MASK[clamp(t->p[P_SCALE], 0, sizeof SCALE_MASK / sizeof SCALE_MASK[0] - 1)];
 }
 
-static uint32_t kb_map(const track_t *t, uint32_t k)
+static int is_gm_sample(const track_t *t)          /* (the engine it switches to) */
+{
+    return !is_drum(t) && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && drum_set() >= 0 &&
+           (uint32_t)t->p[P_E0] % SMP_NSETS == (uint32_t)drum_set();
+}
+
+static int is_slice(const track_t *t)
+{
+#if FELUCCA_SLICE
+    return ENGINES[t->eng_req % NENGINES] == &ENG_SLICE;
+#else
+    (void)t;
+    return 0;
+#endif
+}
+
+/* Shared WHITE/ALL scale layouts. The octave buttons only offset local keys. */
+static uint32_t scale_map(const track_t *t, int32_t n, int32_t offset)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
-    int32_t n = 53 + (int32_t)k;
-    if (is_drum(t))
-        return DRUM_KEYS[k % 27u];
-    if (ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && drum_set() >= 0 &&   /* (the engine it switches to) */
-        (uint32_t)t->p[P_E0] % SMP_NSETS == (uint32_t)drum_set())   /* GM KIT: lowest key = kick (C2), no scale */
-        return (uint32_t)clamp(36 + 12 * song.octave + (int32_t)k, 0, 127);
-#if FELUCCA_SLICE
-    if (ENGINES[t->eng_req % NENGINES] == &ENG_SLICE)   /* SLICE: lowest key = slice 0 (C4 + ROOT), no scale */
-        return (uint32_t)clamp(SLC_BASE + t->p[P_ROOT] + 12 * song.octave + (int32_t)k, 0, 127);
-#endif
-    if (t->p[P_QUANT] == Q_SNAP) {               /* SNAP: every key, rounded down to the scale (the old ON) */
-        uint32_t mask = scale_mask(t), guard = 12;
-        n += 12 * song.octave + t->p[P_TRANS];
-        while (guard-- && !((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u))
-            n--;
-        return (uint32_t)clamp(n, 0, 127);
-    }
     if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL) {
         uint32_t mask = scale_mask(t), i;
         int32_t count = 0, degree, oct;
@@ -106,11 +110,40 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
             }
         n = 60 + t->p[P_ROOT] + 12 * oct + (int32_t)i;
     }
-    n += 12 * song.octave + t->p[P_TRANS];
+    n += offset + t->p[P_TRANS];
     /* ALL must not collapse out-of-range degrees onto repeated end notes. */
     if (t->p[P_QUANT] == Q_ALL && (n < 0 || n > 127))
         return KB_SILENT;
     return (uint32_t)clamp(n, 0, 127);
+}
+
+static uint32_t kb_map(const track_t *t, uint32_t k)
+{
+    int32_t n = 53 + (int32_t)k;
+    if (is_drum(t))
+        return DRUM_KEYS[k % 27u];
+    if (is_gm_sample(t))                              /* GM KIT: lowest key = kick (C2), no scale */
+        return (uint32_t)clamp(36 + 12 * song.octave + (int32_t)k, 0, 127);
+#if FELUCCA_SLICE
+    if (is_slice(t))                                  /* SLICE: lowest key = slice 0 (C4 + ROOT), no scale */
+        return (uint32_t)clamp(SLC_BASE + t->p[P_ROOT] + 12 * song.octave + (int32_t)k, 0, 127);
+#endif
+    if (t->p[P_QUANT] == Q_SNAP) {                    /* SNAP: every key, rounded down to the scale (the old ON) */
+        uint32_t mask = scale_mask(t), guard = 12;
+        n += 12 * song.octave + t->p[P_TRANS];
+        while (guard-- && !((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u))
+            n--;
+        return (uint32_t)clamp(n, 0, 127);
+    }
+    return scale_map(t, n, 12 * song.octave);
+}
+
+/* MIDI in follows the WHITE/ALL layouts only; SNAP stays a panel-keyboard mode. */
+static uint32_t midi_map(const track_t *t, uint32_t note)
+{
+    if ((t->p[P_QUANT] != Q_WHITE && t->p[P_QUANT] != Q_ALL) || is_drum(t) || is_gm_sample(t) || is_slice(t))
+        return note;
+    return scale_map(t, (int32_t)note, 0);
 }
 
 /* ------------------------------------------------------------- arp --- */
@@ -314,6 +347,7 @@ static void rec_release(track_t *t, uint32_t note)
 
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
+    live_refs[trk_index(t)][note]++;
     last_note = (uint8_t)note;
     if (((song.rec >> trk_index(t)) & 1u) && song.playing)
         rec_note(t, note, vel);
@@ -325,6 +359,14 @@ static void input_on(track_t *t, uint32_t note, uint32_t vel)
 
 static void input_off(track_t *t, uint32_t note)
 {
+    uint16_t *refs = &live_refs[trk_index(t)][note];
+    if (!*refs)
+        return;
+    if (--*refs) {                                  /* another live key still owns this pitch */
+        if (t->arp_phys)
+            t->arp_phys--;
+        return;
+    }
     rec_release(t, note);
     arp_remove(t, note);                            /* both: the note may have started in the */
     trk_note_off(t, note);                          /* other mode (ARP switched while held) */
@@ -487,21 +529,38 @@ static track_t *midi_track(uint32_t ch)
     return ch < NPART ? &trk[ch] : TSEL;
 }
 
-/* a channel that plays the selected track: its note-off goes to the track its note-on went to,
- * even when another track was selected in between (else that note would hang) */
-static uint8_t midi_sel_on[16][128];                  /* per channel and note: track + 1, 0 = none */
-static track_t *midi_route(uint32_t ch, uint32_t note, int on)
+static void midi_input_off(uint32_t ch, uint32_t note)
+{
+    uint32_t held = midi_notes[ch][note];
+    midi_notes[ch][note] = 0;
+    if (held)
+        input_off(&trk[(held >> 8) - 1u], held & 0x7Fu);
+}
+
+static void midi_input_on(uint32_t ch, uint32_t note, uint32_t vel)
 {
     track_t *t = midi_track(ch);
-    if (ch < NPART || (song.g[G_DRCH] && ch + 1u == (uint32_t)song.g[G_DRCH]))
-        return t;                                     /* a part's own channel, or the drum channel */
-    if (on)
-        midi_sel_on[ch & 15u][note & 127u] = (uint8_t)(song.sel + 1u);
-    else if (midi_sel_on[ch & 15u][note & 127u]) {
-        t = &trk[(midi_sel_on[ch & 15u][note & 127u] - 1u) % NTRK];
-        midi_sel_on[ch & 15u][note & 127u] = 0;
-    }
-    return t;
+    uint32_t mapped = midi_map(t, note);
+    /* A repeated note-on retriggers/replaces its previous mapping. */
+    midi_input_off(ch, note);
+    if (mapped == KB_SILENT)
+        return;
+    midi_notes[ch][note] = (uint16_t)(((trk_index(t) + 1u) << 8) | mapped);
+    input_on(t, mapped, vel);
+}
+
+static void live_forget(uint32_t track)
+{
+    uint32_t ch, note;
+    for (note = 0; note < 128u; note++)
+        live_refs[track][note] = 0;
+    for (ch = 0; ch < 16u; ch++)
+        for (note = 0; note < 128u; note++)
+            if ((midi_notes[ch][note] >> 8) == track + 1u)
+                midi_notes[ch][note] = 0;
+    for (note = 0; note < 27u; note++)
+        if (kb_trk[note] == track)
+            kb_note[note] = KB_SILENT;
 }
 
 /* everything that happens between two rendered blocks */
@@ -520,6 +579,7 @@ static void events_block(uint32_t n)
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
         if ((pr >> i) & 1u) {
+            live_forget(i);
             trk_all_off(t);
             t->nheld = 0;
             t->arp_phys = 0;
@@ -546,9 +606,9 @@ static void events_block(uint32_t n)
         uint32_t d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu;
         mi_r++;
         if (st == 0x90u && d2)
-            input_on(midi_route(ch, d1, 1), d1, d2);
+            midi_input_on(ch, d1, d2);
         else if (st == 0x80u || st == 0x90u)
-            input_off(midi_route(ch, d1, 0), d1);
+            midi_input_off(ch, d1);
     }
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], n);
