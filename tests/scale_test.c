@@ -81,6 +81,51 @@ static void mapping_test(void)
     puts("scales: all 16 scales, 12 roots, octave/transpose ranges, bypass, drums and SNAP ok");
 }
 
+static void all_mapping_test(void)
+{
+    track_t *t = &trk[0];
+    uint32_t s, k;
+    int root, oct, trans;
+    t->engine = t->eng_req = 0;
+    t->p[P_QUANT] = Q_ALL;
+    assert(TP[P_QUANT].max == Q_ALL);
+    assert(!strcmp(TP[P_QUANT].names[Q_SNAP], "SNAP"));
+    assert(!strcmp(TP[P_QUANT].names[Q_WHITE], "WHITE"));
+    assert(!strcmp(TP[P_QUANT].names[Q_ALL], "ALL"));
+    for (s = 0; s < sizeof EXPECTED / sizeof EXPECTED[0]; s++) {
+        t->p[P_SCALE] = (int16_t)s;
+        for (root = 0; root < 12; root++)
+            for (oct = -3; oct <= 3; oct++)
+                for (trans = -24; trans <= 24; trans++) {
+                    int previous = -1;
+                    t->p[P_ROOT] = (int16_t)root;
+                    t->p[P_TRANS] = (int16_t)trans;
+                    song.octave = (int8_t)oct;
+                    for (k = 0; k < 27u; k++) {
+                        int d = (int)k - 7 + 12 * EXPECTED[s].count;
+                        int want = 60 + root + trans + 12 * (oct + d / EXPECTED[s].count - 12)
+                            + EXPECTED[s].notes[d % EXPECTED[s].count];
+                        uint32_t actual = kb_map(t, k);
+                        if (want < 0 || want > 127) {
+                            assert(actual == KB_SILENT);
+                        } else {
+                            assert(actual == (uint32_t)want && want > previous);
+                            previous = want;
+                        }
+                    }
+                }
+    }
+    song.octave = 0;
+    TDRUM->p[P_QUANT] = Q_ALL;
+    for (k = 0; k < 27u; k++) assert(kb_map(TDRUM, k) == DRUM_KEYS[k]);
+    t->engine = t->eng_req = 4;
+    if (drum_set() >= 0) {
+        t->p[P_E0] = (int16_t)drum_set();
+        for (k = 0; k < 27u; k++) assert(kb_map(t, k) == 36u + k);
+    }
+    puts("scales ALL: every local key, all scales/roots/octaves/transpositions; strictly unique pitches and silent range limits ok");
+}
+
 static void key_events_test(void)
 {
     track_t *t = &trk[0];
@@ -131,10 +176,45 @@ static void key_events_test(void)
     puts("scales: silent keys, arp, live recording, MIDI out and held-note changes ok");
 }
 
+static void all_key_events_test(void)
+{
+    track_t *t = &trk[0];
+    uint32_t k;
+    static const uint8_t expected[] = {60, 62, 63};
+    memset(trk, 0, sizeof trk);
+    memset(&song, 0, sizeof song);
+    host_tracks_init();
+    kb_prev = 0;
+    mo_w = mo_r = 0;
+    usb.config = 1;
+    t->p[P_QUANT] = Q_ALL;
+    t->p[P_SCALE] = 2;
+    t->p[P_AMODE] = 1;
+    song.playing = song.rec = 1;
+    fm1_in.notes = (1u << 7) | (1u << 8) | (1u << 9); /* C, C#, D -> C, D, Eb */
+    keyboard_block();
+    assert(t->nheld == 3 && t->arp_phys == 3 && t->step[0].n == 3 && mo_w == 3);
+    for (k = 0; k < 3; k++) {
+        assert(t->held[k] == expected[k] && t->step[0].note[k] == expected[k]);
+        assert(((midi_out_q[k] >> 16) & 127u) == expected[k]);
+    }
+    t->p[P_QUANT] = Q_WHITE;              /* black key still releases its ALL pitch */
+    song.sel = 1;
+    fm1_in.notes = 0;
+    keyboard_block();
+    assert(!t->nheld && !t->arp_phys && mo_w == 6);
+    for (k = 0; k < 3; k++) {
+        assert(((midi_out_q[k + 3] >> 16) & 127u) == expected[k]);
+    }
+    puts("scales ALL: black keys feed arp, recording and MIDI out; mode/track changes preserve releases");
+}
+
 int main(void)
 {
     host_tracks_init();
     mapping_test();
+    all_mapping_test();
     key_events_test();
+    all_key_events_test();
     return 0;
 }

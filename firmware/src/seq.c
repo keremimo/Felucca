@@ -70,21 +70,26 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
     if (ENGINES[t->eng_req % NENGINES] == &ENG_SLICE)   /* SLICE: lowest key = slice 0 (C4 + ROOT), no scale */
         return (uint32_t)clamp(SLC_BASE + t->p[P_ROOT] + 12 * song.octave + (int32_t)k, 0, 127);
 #endif
-    if (t->p[P_QUANT] == 1) {                    /* SNAP: every key, rounded down to the scale (the old ON) */
+    if (t->p[P_QUANT] == Q_SNAP) {               /* SNAP: every key, rounded down to the scale (the old ON) */
         uint32_t mask = scale_mask(t), guard = 12;
         n += 12 * song.octave + t->p[P_TRANS];
         while (guard-- && !((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u))
             n--;
         return (uint32_t)clamp(n, 0, 127);
     }
-    if (t->p[P_QUANT] == 2) {                    /* WHITE: white keys walk the scale, black keys are silent */
+    if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL) {
         uint32_t mask = scale_mask(t), i;
-        int32_t count = 0, degree = DEGREE[n % 12], oct;
-        if (degree < 0)
-            return KB_SILENT;
-        /* C4 is the root. Walk scale degrees on successive white keys, including
-         * below C4; scales with 5, 6, 8 or 12 notes still have no duplicated degrees. */
-        degree += (n / 12 - 5) * 7;
+        int32_t count = 0, degree, oct;
+        /* C4 is the root. Each participating key advances one scale degree,
+         * without resetting at the next keyboard octave. */
+        if (t->p[P_QUANT] == Q_ALL) {
+            degree = n - 60;
+        } else {                                  /* WHITE: black keys are silent */
+            degree = DEGREE[n % 12];
+            if (degree < 0)
+                return KB_SILENT;
+            degree += (n / 12 - 5) * 7;
+        }
         for (i = 0; i < 12u; i++)
             count += (mask >> i) & 1u;
         oct = degree / count;
@@ -101,7 +106,11 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
             }
         n = 60 + t->p[P_ROOT] + 12 * oct + (int32_t)i;
     }
-    return (uint32_t)clamp(n + 12 * song.octave + t->p[P_TRANS], 0, 127);
+    n += 12 * song.octave + t->p[P_TRANS];
+    /* ALL must not collapse out-of-range degrees onto repeated end notes. */
+    if (t->p[P_QUANT] == Q_ALL && (n < 0 || n > 127))
+        return KB_SILENT;
+    return (uint32_t)clamp(n, 0, 127);
 }
 
 /* ------------------------------------------------------------- arp --- */
