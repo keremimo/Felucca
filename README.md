@@ -14,7 +14,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
 
 ## Features
 
-- **Nine engines** (below), each with its own factory presets
+- **Ten engines** (below), each with its own factory presets
 - **Four tracks:** three synth parts, each with its own engine and sound, plus a GM drum track;
   8 voices shared between the parts. ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent and slide; live loop recording
@@ -43,12 +43,46 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter (LP / BP / HP / notch)
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
 - **GRAIN**: granular textures from the built-in samples or a user slot
+- **FM6**: six-operator FM that plays DX7 voices: 32 algorithms, DX7 envelopes, key scaling,
+  pitch envelope and LFO; every operator edited on the device; DX7 voices and banks over USB-MIDI
+  ([below](#fm6))
 
 **SLICER** (FX page, every track including drums): a tempo-synced 16-step gate or stutter, with 16 patterns.
 
 - Install: [web installer](https://hugelton.github.io/Felucca/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://hugelton.github.io/Felucca/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## FM6
+
+FM6 plays DX7 voices: six operators, the 32 DX7 algorithms, four-rate / four-level envelopes,
+level and rate key scaling, velocity, feedback, pitch envelope and LFO, as measured on a DX7 by the
+MSFA and Dexed projects. 16 factory voices (VOICE R01–R16) come with presets of their own; 32 user
+voices (U01–U32) live in flash.
+
+**EDIT** steps through the pages. **PATCH** (also HOME's knobs): VOICE, then MOD (the modulators'
+levels: brightness), M.TIM and C.TIM (the modulators' and carriers' envelope times). Then the voice
+itself: **ALGO** (algorithm, feedback, key sync, transpose), six operator pages (**FREQ**, **OUT**,
+**EG RATE**, **EG LVL**, **SCALE**, **CURVE**), the pitch envelope, two LFO pages and **STORE**. On
+the operator pages **PRESETS** picks the operator (OP1–OP6); the graph shows the algorithm with it
+highlighted.
+
+Edits change the part's voice at once and stay until another VOICE or preset is loaded. **STORE**
+keeps them: SLOT picks a user voice, STORE writes it there (two detents, like the other GO
+buttons). SEND sends the voice as a DX7 single-voice dump, INIT starts from the DX7 init voice.
+Projects save each FM6 part's voice with its edits; user presets save its VOICE number.
+
+Over USB-MIDI FM6 takes DX7 SysEx on any channel, so Dexed or any DX7 librarian can edit a
+voice live or load a cartridge:
+
+| SysEx | What FM6 does |
+| --- | --- |
+| `F0 43 0n 00 01 1B` + 155 bytes + checksum `F7` (a voice) | into the FM6 part's voice |
+| `F0 43 0n 09 20 00` + 4096 bytes + checksum `F7` (32 voices) | into U01–U32, saved in flash |
+| `F0 43 1n gg pp dd F7` (a voice parameter) | into the FM6 part's voice |
+| `F0 43 2n 00 F7` / `F0 43 2n 09 F7` (dump requests) | sends the part's voice / the user bank |
+
+The FM6 part is the selected track when it plays FM6, else part n + 1, else the first FM6 part.
 
 ## Scale keyboard
 

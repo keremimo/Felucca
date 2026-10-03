@@ -104,6 +104,7 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 #endif
 #include "upreset.c"          /* user presets (RAM mirror; flash with FELUCCA_FLASH) */
 #include "project.c"
+#include "fm6_store.c"         /* FM6 user bank, DX7 SysEx, STORE */
 #if FELUCCA_OTA
 #include "ota.c"
 static uint32_t ota_now_ms(void) { return fm1_ms; }

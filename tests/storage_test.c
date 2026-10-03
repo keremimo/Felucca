@@ -87,9 +87,30 @@ int main(void)
     nor[st_sector(OBJ_PROJECT0 + 2, 0) + 8] ^= 0x01;    /* both headers broken */
     nor[st_sector(OBJ_PROJECT0 + 2, 1) + 8] ^= 0x01;
     bad += check("both headers broken -> nothing", st_load(OBJ_PROJECT0 + 2, got, sizeof got) < 0);
-    bad += check("data stays in the Felucca regions",
-                 st_sector(OBJ_SETTINGS, 1) + 4096 <= 0xFF000 && st_sector(OBJ_PROJECT0 + 3, 1) + 4096 <= 0xE0000 &&
-                     st_sector(OBJ_UPRESET0, 0) >= 0xDC000 && st_sector(OBJ_COUNT - 1, 1) + 4096 <= 0xE0000);
+    {   /* every copy of every object: inside the main store or the globals, none on another */
+        uint32_t o, c, o2, c2;
+        int ok = st_sector(OBJ_UPRESET0, 0) >= 0xDC000 && st_sector(OBJ_FM6, 0) == 0x9F000 &&
+                 st_sector(OBJ_FM6, 1) == 0xFE000;
+        for (o = 0; o < OBJ_COUNT; o++)
+            for (c = 0; c < 2u; c++) {
+                uint32_t s = st_sector(o, c);
+                ok &= (s >= 0x97000 && s + 4096 <= 0xE0000) || (s >= 0xFC000 && s + 4096 <= 0xFF000);
+                ok &= s != 0xA0000 && !(s > 0xA0000 && s < 0xDC000);     /* (the user sample slots) */
+                for (o2 = 0; o2 < OBJ_COUNT; o2++)
+                    for (c2 = 0; c2 < 2u; c2++)
+                        ok &= (o2 == o && c2 == c) || st_sector(o2, c2) != s;
+            }
+        bad += check("data stays in the Felucca regions, no two copies share a sector", ok);
+    }
+    {   /* the FM6 bank: its copies are not neighbours (0x9F000 / 0xFE000) */
+        static uint8_t big[3588], back[3588];
+        uint32_t i;
+        for (i = 0; i < sizeof big; i++)
+            big[i] = (uint8_t)(i * 13u);
+        bad += check("FM6 bank: save, save again, load the newer", st_save(OBJ_FM6, a, sizeof a) == 0 &&
+                     st_save(OBJ_FM6, big, sizeof big) == 0 && st_load(OBJ_FM6, back, sizeof back) == (int)sizeof big &&
+                     !memcmp(back, big, sizeof big));
+    }
     printf("%s\n", bad ? "STORAGE TEST FAILED" : "storage test passed");
     return bad != 0;
 }

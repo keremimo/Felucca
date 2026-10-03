@@ -20,6 +20,7 @@ static const char *const N_GO[] = {"--", "GO"};
 static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};             /* SL_OFF .. SL_STUT (slicer.c) */
 static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
 static const char *const N_ENGNAME[] = {"ANALOG", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
+                                             "FM6",
 #if FELUCCA_SLICE
                                              "SLICE",
 #endif
@@ -27,6 +28,59 @@ static const char *const N_ENGNAME[] = {"ANALOG", "DIGITAL", "PHASE", "LOFI", "S
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
 #define PE(l, n, df) {l, F_ENUM, 0, (int16_t)(sizeof(n) / sizeof(n[0]) - 1), df, n, 0}
+
+/* FM6 voice pages (eng_fm6.c): the selected part's edit buffer, DX7 ranges. The operator pages
+ * show fm6_op (PRESETS knob); the STORE page writes the user bank slot fm6_slot */
+static const char *const N_FM6ALG[32] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
+                                        "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28",
+                                        "29", "30", "31", "32"};
+static const char *const N_FMCRV[] = {"-LIN", "-EXP", "+EXP", "+LIN"};
+static const char *const N_FMMODE[] = {"RATIO", "FIXED"};
+static const char *const N_FMLFW[] = {"TRI", "SAWDN", "SAWUP", "SQR", "SIN", "S&H"};
+static uint8_t fm6_opsel, fm6_slot;                     /* OP1..OP6 = 0..5; user slot 0..31 */
+static const param_desc_t FM6_OPD[FO_N + 1] = {     /* an operator; FO_N: its switch */
+    [FO_R1] = PD("R1", F_INT, 0, 99, 99), [FO_R2] = PD("R2", F_INT, 0, 99, 99),
+    [FO_R3] = PD("R3", F_INT, 0, 99, 99), [FO_R4] = PD("R4", F_INT, 0, 99, 99),
+    [FO_L1] = PD("L1", F_INT, 0, 99, 99), [FO_L2] = PD("L2", F_INT, 0, 99, 99),
+    [FO_L3] = PD("L3", F_INT, 0, 99, 99), [FO_L4] = PD("L4", F_INT, 0, 99, 0),
+    [FO_BP] = PD("BRK", F_FMNOTE, 0, 99, 39), [FO_LD] = PD("LDEP", F_INT, 0, 99, 0),
+    [FO_RD] = PD("RDEP", F_INT, 0, 99, 0), [FO_LC] = PE("LCRV", N_FMCRV, 0), [FO_RC] = PE("RCRV", N_FMCRV, 0),
+    [FO_RS] = PD("RSCL", F_INT, 0, 7, 0), [FO_AMS] = PD("AMS", F_INT, 0, 3, 0), [FO_KVS] = PD("VEL", F_INT, 0, 7, 0),
+    [FO_OL] = PD("OUT", F_INT, 0, 99, 99), [FO_MODE] = PE("MODE", N_FMMODE, 0),
+    [FO_CRS] = PD("CRS", F_FMFRQ, 0, 31, 1), [FO_FINE] = PD("FINE", F_FMFRQ, 0, 99, 0),
+    [FO_DET] = PD("DTN", F_OFS, 0, 14, 7), [FO_N] = PE("ON", N_ONOFF, 1),
+};
+static const param_desc_t FM6_GD[FV_NAME - FV_PR] = {   /* the voice: FV_PR .. FV_TRNSP */
+    PD("R1", F_INT, 0, 99, 99), PD("R2", F_INT, 0, 99, 99), PD("R3", F_INT, 0, 99, 99), PD("R4", F_INT, 0, 99, 99),
+    PD("L1", F_INT, 0, 99, 50), PD("L2", F_INT, 0, 99, 50), PD("L3", F_INT, 0, 99, 50), PD("L4", F_INT, 0, 99, 50),
+    PE("ALG", N_FM6ALG, 0), PD("FB", F_INT, 0, 7, 0), PE("SYNC", N_ONOFF, 1),
+    PD("SPEED", F_INT, 0, 99, 35), PD("DELAY", F_INT, 0, 99, 0), PD("PMD", F_INT, 0, 99, 0), PD("AMD", F_INT, 0, 99, 0),
+    PE("KSYNC", N_ONOFF, 1), PE("WAVE", N_FMLFW, 0), PD("PMS", F_INT, 0, 7, 3), {"TRNS", F_OFS, 0, 48, 24, 0, "st"},
+};
+
+/* the frequency of operator fm6_opsel for its CRS and FINE columns: a ratio (CRS: its step 0.5, 1, 2 ..;
+ * FINE: the whole ratio) or, FIXED, Hz (CRS: 1, 10, 100, 1000) */
+static void fm6_freq_text(char *val, const char **unit, int coarse)
+{
+    const int16_t *op = &fm6_ed[song.sel % NPART][FM6_OPB(fm6_opsel + 1u)];
+    int32_t c = op[FO_CRS], f = coarse ? 0 : op[FO_FINE];
+    if (!op[FO_MODE]) {
+        if (coarse && c)
+            fmt_int(val, c);
+        else
+            fmt_fix(val, (c ? c * 100 : 50) * (100 + f) / 100, 2);
+        *unit = "";
+    } else {                                          /* Hz x 100 = 2^(log2(10) (COARSE % 4 + FINE / 100) + log2(100)) */
+        uint32_t h = fm6_pow2(217706 * ((c & 3) * 100 + f) / 100 + 435412 - (16 << 16));
+        if (h < 1000u)
+            fmt_fix(val, (int32_t)h, 2);
+        else if (h < 100000u)
+            fmt_fix(val, (int32_t)(h / 10u), 1);
+        else
+            fmt_int(val, (int32_t)(h / 100u));
+        *unit = "Hz";
+    }
+}
 
 static const param_desc_t TP[P_COUNT] = {
     [P_LEVEL] = PD("LVL", F_DB, 0, 127, 104),
@@ -212,6 +266,23 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
         fmt_int(val, v);
         *unit = "STEP";
         break;
+    case F_OFS: {                                     /* the middle of the range is 0 (DETUNE, TRANSPOSE) */
+        int32_t o = v - (d->min + d->max) / 2;
+        char t[8];
+        fmt_int(t, o);
+        val[0] = '+';
+        str_cpy(o > 0 ? val + 1 : val, t, 6);
+        if (d->unit)
+            *unit = d->unit;
+        break;
+    }
+    case F_FMNOTE:                                    /* DX7 break point: 0 = A-1, 39 = C4 here (MIDI 60) */
+        str_cpy(val, N_NOTE[(v + 21) % 12], 6);
+        fmt_int(val + str_len(val), (v + 21) / 12 - 1);
+        break;
+    case F_FMFRQ:                                     /* the operator's frequency: CRS its step, FINE the result */
+        fm6_freq_text(val, unit, d == &FM6_OPD[FO_CRS]);
+        break;
     default:
         if (d->names) {                               /* F_INT with a 0-terminated name list: the range */
             uint32_t k = 0;                           /* split evenly over the names (engine desc hooks) */
@@ -230,9 +301,10 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 /* ------------------------------------------------------------ pages --- */
 enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
        FAM_COUNT };
-enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
+enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,      /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
+       SC_FM6, SC_FMOP };                                      /* FM6: the voice; its operator fm6_opsel */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
-       GR_SLCR };
+       GR_SLCR, GR_FMALG, GR_FMEG, GR_FMPEG, GR_FMSTORE };
 
 typedef struct {
     const char *title;
@@ -252,6 +324,19 @@ static const page_t PAGES[] = {
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},
+    /* FM6 only (page_shown): the voice, then OP1..OP6 (the PRESETS knob picks one) */
+    {"ALGO", FAM_EDIT, SC_FM6, GR_FMALG, {FV_ALG, FV_FB, FV_OKS, FV_TRNSP}},
+    {"FREQ", FAM_EDIT, SC_FMOP, GR_FMALG, {FO_CRS, FO_FINE, FO_DET, FO_MODE}},
+    {"OUT", FAM_EDIT, SC_FMOP, GR_FMALG, {FO_OL, FO_KVS, FO_AMS, FO_N}},
+    {"EG RATE", FAM_EDIT, SC_FMOP, GR_FMEG, {FO_R1, FO_R2, FO_R3, FO_R4}},
+    {"EG LVL", FAM_EDIT, SC_FMOP, GR_FMEG, {FO_L1, FO_L2, FO_L3, FO_L4}},
+    {"SCALE", FAM_EDIT, SC_FMOP, GR_FMALG, {FO_BP, FO_LD, FO_RD, FO_RS}},
+    {"CURVE", FAM_EDIT, SC_FMOP, GR_FMALG, {FO_LC, FO_RC, 0xFF, 0xFF}},
+    {"PITCH EG", FAM_EDIT, SC_FM6, GR_FMPEG, {FV_PR, FV_PR + 1, FV_PR + 2, FV_PR + 3}},
+    {"PITCH LV", FAM_EDIT, SC_FM6, GR_FMPEG, {FV_PL, FV_PL + 1, FV_PL + 2, FV_PL + 3}},
+    {"FM LFO", FAM_EDIT, SC_FM6, GR_NONE, {FV_LFW, FV_LFS, FV_LFD, FV_LFKS}},
+    {"FM LFO 2", FAM_EDIT, SC_FM6, GR_NONE, {FV_LPMD, FV_LAMD, FV_LPMS, 0xFF}},
+    {"STORE", FAM_EDIT, SC_FM6, GR_FMSTORE, {0xF0, 0xF1, 0xF2, 0xF3}},   /* SLOT STORE SEND INIT (ui_input.c) */
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
     {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
     {"GLOBAL", FAM_GLO, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_CLOCK, G_TUNE}},
@@ -276,7 +361,24 @@ static int page_for_drum(const page_t *pg)
 {
     if (pg->scope == SC_GLOBAL)
         return pg->graph != GR_BROWSE && pg->graph != GR_USER;
-    return pg->scope != SC_ENGINE && (pg->scope != SC_TRACK || pg->fam == FAM_SEQ || pg->graph == GR_SLCR);
+    return pg->scope != SC_ENGINE && pg->scope != SC_FM6 && pg->scope != SC_FMOP &&
+           (pg->scope != SC_TRACK || pg->fam == FAM_SEQ || pg->graph == GR_SLCR);
+}
+
+static int fm6_shown(void) { return !is_drum(TSEL) && ENGINES[TSEL->eng_req % NENGINES] == &ENG_FM6; }
+
+/* pages the selected track has: the FM6 pages with FM6 only; EDIT 2 not when the engine has nothing there */
+static int page_shown(const page_t *pg)
+{
+    const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
+    uint32_t k, any = 0;
+    if (pg->scope == SC_FM6 || pg->scope == SC_FMOP)
+        return fm6_shown();
+    if (pg->scope != SC_ENGINE || pg->id[0] != P_E4 || is_drum(TSEL))
+        return 1;
+    for (k = 4; k < 8u; k++)
+        any |= e->edit[k].max > e->edit[k].min;
+    return (int)any;
 }
 
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
@@ -289,6 +391,20 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if (pg->scope == SC_STEP || pg->scope == SC_TRK) {
         *valp = 0;
         return 0;
+    }
+    if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {
+        int16_t *ed = fm6_ed[song.sel % NPART];
+        *valp = 0;
+        if (!fm6_shown())
+            return 0;
+        if (pg->scope == SC_FMOP) {
+            *valp = id == FO_N ? &ed[FV_ON + fm6_opsel] : &ed[FM6_OPB(fm6_opsel + 1u) + id];
+            return &FM6_OPD[id];
+        }
+        if (id < FV_PR || id >= FV_NAME)
+            return 0;                                 /* (STORE: ui_input.c, ui_draw.c) */
+        *valp = &ed[id];
+        return &FM6_GD[id - FV_PR];
     }
     if (pg->scope == SC_GLOBAL) {
         *valp = &song.g[id];

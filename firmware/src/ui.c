@@ -17,6 +17,9 @@ static uint32_t up_rank(uint32_t slot);
 static void up_name(uint32_t k, char *b);
 static void up_slot_label(char *b, uint32_t k);
 static void up_ui(uint32_t op, uint32_t k);
+static void fm6_store(uint32_t k);           /* FM6 STORE page: fm6_store.c */
+static void fm6_send(void);
+static void fm6_init_voice(void);
 static uint32_t user_of(const track_t *t)    /* user preset slot its sound came from, UP_SLOTS = none */
 {
     return t->user && up_used(t->user - 1u) ? t->user - 1u : UP_SLOTS;
@@ -126,18 +129,30 @@ static void note_name(char *b, uint32_t n)
 
 static void open_family(uint32_t fam)
 {
-    if (!ui.home && cur_page()->fam == fam) {          /* same button again: next page */
-        uint32_t i = ui.page + 1u;
-        if (i >= NPAGES || PAGES[i].fam != fam)
-            i = page_first(fam);
+    if (!ui.home && cur_page()->fam == fam) {          /* same button again: the next page the track has */
+        uint32_t i = ui.page;
+        do {
+            if (++i >= NPAGES || PAGES[i].fam != fam)
+                i = page_first(fam);
+        } while (!page_shown(&PAGES[i]) && i != ui.page);
         ui.page = (uint8_t)i;
     } else {
-        ui.page = ui.fam_last[fam] && PAGES[ui.fam_last[fam]].fam == fam ? ui.fam_last[fam]
-                                                                          : (uint8_t)page_first(fam);
+        ui.page = ui.fam_last[fam] && PAGES[ui.fam_last[fam]].fam == fam && page_shown(&PAGES[ui.fam_last[fam]])
+                      ? ui.fam_last[fam]
+                      : (uint8_t)page_first(fam);
     }
     ui.fam_last[fam] = ui.page;
     ui.home = 0;
     page_entered();
+}
+
+/* the page went away (another track or engine: the FM6 pages): to its family's first page */
+static void page_fix(void)
+{
+    if (!ui.home && !page_shown(cur_page())) {
+        ui.page = (uint8_t)page_first(cur_page()->fam);
+        page_entered();
+    }
 }
 
 static void go_home(void)
@@ -255,6 +270,8 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         return;
     pi %= e->npresets;
     t->preset = (uint8_t)pi;
+    if (e == &ENG_FM6)
+        fm6_cur[trk_index(t)] = 0;                   /* its VOICE afresh: edits of the buffer go */
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
         if (!param_kept(i))
             t->p[i] = TP[i].def;                     /* sounds the same after any edit (not the pattern, not the mix) */

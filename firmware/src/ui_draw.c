@@ -336,6 +336,138 @@ static void graph_slicer(const track_t *t, uint16_t c)
             cv_rect(x, 85, 11, 3, C_WHITE);
     }
 }
+
+/* ------------------------------------------------------------- FM6 --- */
+/* the algorithm as a DX7 draws it: carriers on the bottom row, each modulator over what it
+ * modulates (one modulating several: over their middle); the selected operator filled, a
+ * switched-off one dim, the feedback loop on its operator */
+static uint32_t fm_mods[7];                          /* bit m: OP m modulates OP n (FM6_ALG routing) */
+static int32_t fm_x[7], fm_next;                     /* column, in half columns */
+static uint8_t fm_done[7];
+
+static void fm_place(uint32_t op)
+{
+    uint32_t m;
+    int32_t sum = 0, n = 0;
+    fm_done[op] = 1;
+    for (m = 1; m <= 6u; m++)
+        if ((fm_mods[op] >> m) & 1u && !fm_done[m]) {
+            fm_place(m);
+            sum += fm_x[m];
+            n++;
+        }
+    fm_x[op] = n ? sum / n : 2 * fm_next++;
+}
+
+static void graph_fmalg(uint16_t c)
+{
+    const int16_t *ed = fm6_ed[song.sel % NPART];
+    uint32_t alg = (uint32_t)ed[FV_ALG] & 31u, bus[3] = {0, 0, 0}, car = 0, fb = 0, k, n, m;
+    uint32_t depth[7] = {0};
+    int32_t px[7], py[7];
+    for (k = 0; k < 6u; k++) {                       /* the routing, as the engine runs it */
+        uint32_t f = FM6_ALG[alg][k], op = 6u - k, dst = f & 3u, src = (f >> 4) & 3u;
+        fm_mods[op] = src ? bus[src] : 0u;
+        if (f & 0x40u)
+            fb = op;
+        if (!dst)
+            car |= 1u << op;
+        else
+            bus[dst] = (f & 4u ? bus[dst] : 0u) | 1u << op;
+    }
+    for (n = 1; n <= 6u; n++)                        /* modulators sit a row over their highest target */
+        for (m = n + 1u; m <= 6u; m++)
+            if ((fm_mods[n] >> m) & 1u && depth[m] < depth[n] + 1u)
+                depth[m] = depth[n] + 1u;
+    fm_next = 0;
+    for (n = 1; n <= 6u; n++)
+        fm_done[n] = 0;
+    for (n = 1; n <= 6u; n++)
+        if ((car >> n) & 1u && !fm_done[n])
+            fm_place(n);
+    for (m = 1; m <= 6u; m++) {                      /* one modulating several: over their middle */
+        int32_t sum = 0, cnt = 0;
+        for (n = 1; n < m; n++)
+            if ((fm_mods[n] >> m) & 1u) {
+                sum += fm_x[n];
+                cnt++;
+            }
+        if (cnt > 1)
+            fm_x[m] = sum / cnt;
+    }
+    for (n = 1; n <= 6u; n++) {
+        px[n] = 240 * (fm_x[n] + 1) / (2 * (fm_next ? fm_next : 1)) - 10;
+        py[n] = 64 - (int32_t)depth[n] * 21;
+    }
+    cv_line(8, 90, 231, 90, C_LINE);                 /* the output */
+    for (n = 1; n <= 6u; n++) {
+        if ((car >> n) & 1u)
+            cv_line(px[n] + 10, py[n] + 17, px[n] + 10, 90, C_LINE);
+        for (m = 1; m <= 6u; m++)
+            if ((fm_mods[n] >> m) & 1u)
+                cv_line(px[m] + 10, py[m] + 17, px[n] + 10, py[n] - 1, C_GRAY);
+    }
+    if (fb && ed[FV_FB]) {                           /* the feedback loop */
+        int32_t x = px[fb], y = py[fb];
+        cv_line(x + 20, y + 8, x + 25, y + 8, C_GRAY);
+        cv_line(x + 25, y + 8, x + 25, y - 4, C_GRAY);
+        cv_line(x + 25, y - 4, x + 10, y - 4, C_GRAY);
+        cv_line(x + 10, y - 4, x + 10, y - 1, C_GRAY);
+    }
+    for (n = 1; n <= 6u; n++) {
+        char d[2] = {(char)('0' + n), 0};
+        uint16_t col = ed[FV_ON + n - 1u] ? C_HI : C_DIM;
+        if (n == fm6_opsel + 1u) {
+            cv_rect(px[n], py[n], 20, 17, col == C_DIM ? C_GRAY : c);
+            cv_text(px[n] + 6, py[n] + 1, &FONT_S, d, C_BLACK);
+        } else {
+            cv_rect(px[n], py[n], 20, 1, col);
+            cv_rect(px[n], py[n] + 16, 20, 1, col);
+            cv_rect(px[n], py[n], 1, 17, col);
+            cv_rect(px[n] + 19, py[n], 1, 17, col);
+            cv_text(px[n] + 6, py[n] + 1, &FONT_S, d, col);
+        }
+    }
+}
+
+/* a DX7 envelope: from L4 through L1, L2, L3 (held), back to L4; segments longer for lower rates */
+static void graph_fmenv(const int16_t *r, const int16_t *l, int pitch, uint16_t c)
+{
+    int32_t x = 6, i, top = 6, bot = 84, y0, y1;
+#define FMY(v) (bot - (v) * (bot - top) / 99)
+    y0 = FMY(l[3]);
+    if (pitch)
+        cv_line(0, FMY(50), 239, FMY(50), C_LINE);   /* the note's own pitch */
+    for (i = 0; i < 4; i++) {
+        int32_t w = 6 + (99 - r[i]) * 42 / 99, xe;
+        if (i == 3) {                                /* held: L3, then the release */
+            cv_line(x, y0, x + 26, y0, c);
+            x += 26;
+        }
+        xe = x + w;
+        y1 = FMY(l[i]);
+        cv_line(x, y0, xe, y1, c);
+        x = xe;
+        y0 = y1;
+    }
+    cv_line(x, y0, 236, y0, C_DIM);
+    cv_line(0, bot + 2, 239, bot + 2, C_LINE);
+#undef FMY
+}
+
+static void graph_fmstore(uint16_t c)
+{
+    static int16_t ed[FM6_NP];
+    char nm[12], b[32];
+    fm6_unpack(ed, fm6_bank[fm6_slot % FM6_NUSER]);
+    fm6_name(nm, ed);
+    str_cpy(b, N_FM6V[FM6_NROM + fm6_slot % FM6_NUSER], sizeof b);
+    str_cpy(b + str_len(b), ": ", 4);
+    str_cpy(b + str_len(b), nm, 12);
+    cv_text(4, 20, &FONT_S, "IN THE SLOT", C_GRAY);
+    cv_text(4, 38, &FONT_S, b, c);
+    cv_text(4, 62, &FONT_S, "STORE PUTS THIS VOICE THERE", C_DIM);
+}
 static uint32_t steps_hash(const track_t *t)
 {
     uint32_t h = 2166136261u, i;
@@ -367,6 +499,15 @@ static uint32_t graph_signature(void)
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u;
+    if (fm6_shown() && (pg->scope == SC_FM6 || pg->scope == SC_FMOP || pg->scope == SC_ENGINE)) {
+        const int16_t *ed = fm6_ed[song.sel % NPART];   /* FM6: the voice, the operator, the STORE slot */
+        for (i = 0; i < FM6_NP; i++)
+            h = (h ^ (uint32_t)ed[i]) * 16777619u;
+        h ^= fm6_opsel * 2246822519u + fm6_slot * 3266489917u;
+        if (pg->graph == GR_FMSTORE)
+            for (i = 118; i < 128u; i++)
+                h = (h ^ fm6_bank[fm6_slot % FM6_NUSER][i]) * 16777619u;
+    }
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
     if (pg->graph == GR_SLOTS)                       /* (a checksum over each slot) */
@@ -481,6 +622,8 @@ static void trk_short_name(uint32_t c, char *b)      /* the track's sound, b hol
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
     if (c == TRK_DRUM)
         str_cpy(b, "DRUM", 13);
+    else if (e == &ENG_FM6)
+        fm6_name(b, fm6_ed[c % NPART]);              /* the voice playing */
     else if (user_of(t) < UP_SLOTS)
         up_name(user_of(t), b);
     else if (e->npresets)
@@ -676,6 +819,20 @@ static void draw_graph(void)
         case GR_SLCR:
             graph_slicer(t, c);
             break;
+        case GR_FMALG:
+            graph_fmalg(c);
+            break;
+        case GR_FMEG: {
+            const int16_t *op = &fm6_ed[song.sel % NPART][FM6_OPB(fm6_opsel + 1u)];
+            graph_fmenv(op + FO_R1, op + FO_L1, 0, c);
+            break;
+        }
+        case GR_FMPEG:
+            graph_fmenv(&fm6_ed[song.sel % NPART][FV_PR], &fm6_ed[song.sel % NPART][FV_PL], 1, c);
+            break;
+        case GR_FMSTORE:
+            graph_fmstore(c);
+            break;
         case GR_BROWSE:
             cv_oy = 0;
             graph_browse();
@@ -689,11 +846,24 @@ static void draw_graph(void)
             graph_user();
             break;
         default:
+            if (pg->scope == SC_ENGINE && fm6_shown() && pg->id[0] == P_E0)
+                graph_fmalg(c);                      /* FM6 PATCH: the voice's algorithm */
             break;
         }
     }
     top = !ui.home && !drum_note && (pg->graph == GR_BROWSE || pg->graph == GR_SLOTS || pg->graph == GR_USER);   /* these draw from the top */
     cv_oy = 0;
+    if (!ui.home && fm6_shown() && (pg->scope == SC_FM6 || pg->scope == SC_FMOP || pg->scope == SC_ENGINE)) {
+        char nm[24];                                 /* FM6: the voice name; on operator pages the operator */
+        fm6_name(nm, fm6_ed[song.sel % NPART]);
+        cv_text(4, 2, &FONT_S, nm, C_HI);
+        if (pg->scope == SC_FMOP || pg->graph == GR_FMALG) {
+            char o[8] = "OP1";
+            o[2] = (char)('1' + fm6_opsel);
+            cv_text(236 - text_w(&FONT_S, o), 2, &FONT_S, o, ACC);
+        }
+        top = 1;
+    }
     if (!ui.home && pg->scope == SC_STEP) {
         uint32_t start = step_note_start(t, ui.cursor);
         char hint[32] = "PRESETS: SELECT A NOTE";
@@ -732,6 +902,8 @@ static void draw_foot(void)
     pn[0] = 0;
     if (is_drum(t))
         str_cpy(pn, "GM KIT", sizeof pn);
+    else if (e == &ENG_FM6)
+        fm6_name(pn, fm6_ed[song.sel % NPART]);       /* FM6: the voice playing */
     else if (user_of(t) < UP_SLOTS)
         up_name(user_of(t), pn);                       /* a user preset */
     else if (e->npresets)
@@ -742,12 +914,18 @@ static void draw_foot(void)
         uint32_t i, n = 0, k = 0;
         const char *pt = pg->scope == SC_ENGINE ? e->page_title[pg->id[0] != P_E0] : 0;   /* EDIT: the engine's */
         for (i = 0; i < NPAGES; i++)
-            if (PAGES[i].fam == pg->fam) {
+            if (PAGES[i].fam == pg->fam && page_shown(&PAGES[i])) {
                 n++;
                 if (i == ui.page)
                     k = n;
             }
-        str_cpy(ti, pt ? pt : pg->title, 10);
+        if (pg->scope == SC_FMOP) {                  /* FM6 operator pages: "OP3 FREQ" */
+            str_cpy(ti, "OP1 ", 10);
+            ti[2] = (char)('1' + fm6_opsel);
+            str_cpy(ti + 4, pg->title, 10);
+        } else {
+            str_cpy(ti, pt ? pt : pg->title, 10);
+        }
         if (n > 1) {
             str_cpy(ti + str_len(ti), " ", 4);
             fmt_int(ti + str_len(ti), (int32_t)k);
@@ -853,6 +1031,14 @@ static void draw_columns(void)
         draw_column(1, "ENG", ENGINES[TSEL->eng_req]->name, "", VAL(1u), -1, engine_icon(ENGINES[TSEL->eng_req]->name));
         draw_column(2, "", "", "", C_HI, -1, ICON_AUTO);
         draw_column(3, "", "", "", C_HI, -1, ICON_AUTO);
+        return;
+    }
+    if (cur_page()->graph == GR_FMSTORE && fm6_shown()) {   /* FM6: user slot, then three GO buttons */
+        draw_column(0, "SLOT", N_FM6V[FM6_NROM + fm6_slot % FM6_NUSER], "", VAL(0u),
+                    (int32_t)fm6_slot * 1000 / (int32_t)(FM6_NUSER - 1u), ICON_AUTO);
+        draw_column(1, "STORE", "--", "", C_HI, -1, ICON_AUTO);
+        draw_column(2, "SEND", "--", "", C_HI, -1, ICON_AUTO);
+        draw_column(3, "INIT", "--", "", C_HI, -1, ICON_AUTO);
         return;
     }
     if (cur_page()->graph == GR_USER) {                  /* SLOT, then three GO buttons */

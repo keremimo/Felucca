@@ -61,6 +61,15 @@ static const icon_map_t ICON_MAP[] = {
     {"POS", ICON_PHASE}, {"DENS", ICON_GRAIN}, {"SPRD", ICON_NOISE},
     {"VOWL", ICON_VOICE}, {"VOWL2", ICON_VOICE}, {"TALK", ICON_SWEEP}, {"SHIFT", ICON_TRANSPOSE},
     {"BUZZ", ICON_PULSE}, {"BRTH", ICON_NOISE}, {"Q", ICON_RESO}, {"RAND", ICON_PROB},
+    /* FM6 (eng_fm6.c, params.c FM6 pages) */
+    {"VOICE", ICON_ALGORITHM}, {"MOD", ICON_MOD}, {"M.TIM", ICON_DECAY}, {"C.TIM", ICON_DECAY},
+    {"CRS", ICON_RATIO}, {"FINE", ICON_RATIO}, {"OUT", ICON_LEVEL}, {"VEL", ICON_ACCENT}, {"AMS", ICON_MOD},
+    {"ON", ICON_MUTE}, {"R1", ICON_ATTACK}, {"R2", ICON_DECAY}, {"R3", ICON_DECAY}, {"R4", ICON_DECAY},
+    {"L1", ICON_LEVEL}, {"L2", ICON_LEVEL}, {"L3", ICON_LEVEL}, {"L4", ICON_LEVEL}, {"BRK", ICON_KEYTRACK},
+    {"LDEP", ICON_KEYTRACK}, {"RDEP", ICON_KEYTRACK}, {"RSCL", ICON_KEYTRACK}, {"LCRV", ICON_SHAPE},
+    {"RCRV", ICON_SHAPE}, {"TRNS", ICON_TRANSPOSE}, {"SPEED", ICON_RATE}, {"DELAY", ICON_TIME},
+    {"PMD", ICON_VIBRATO}, {"AMD", ICON_MOD}, {"KSYNC", ICON_PHASE}, {"PMS", ICON_VIBRATO},
+    {"STORE", ICON_SAVE}, {"SEND", ICON_MIDI},
     /* fixed columns drawn by ui_draw.c (STEP page, preset browser, SYSTEM) */
     {"NOTE", ICON_PITCH}, {"STEP", ICON_STEPS}, {"FLAG", ICON_ACCENT}, {"ACC", ICON_ACCENT}, {"SLD", ICON_SLIDE}, {"USB", ICON_MIDI},
     {"TRACK", ICON_MIX},                  /* TRACKS page (LEVEL, LEN, PAN: above) */
@@ -100,6 +109,8 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
         return ICON_LFO_WAVE;                 /* "WAVE" is also the oscillator wave */
     if (d == &TP[P_ARATE] || d == &TP[P_SLRATE])
         return ICON_DIVISION;                 /* arp / SLICER RATE is a note division, not Hz */
+    if ((d >= FM6_OPD && d <= &FM6_OPD[FO_R4]) || (d >= FM6_GD && d <= &FM6_GD[3]))
+        return d->label[1] == '1' ? ICON_ATTACK : ICON_DECAY;   /* FM6 envelope rates (DIGITAL's R2..R4 are ratios) */
     if (d->names == N_TRIO_MODE)
         return ICON_CUTOFF;                   /* TRIO's MODE is the filter type, not the arp mode */
 #if FELUCCA_SLICE
@@ -120,7 +131,7 @@ static uint32_t engine_icon(const char *name)
         {"ANALOG", ICON_WAVE}, {"DIGITAL", ICON_ALGORITHM}, {"PHASE", ICON_PHASE}, {"LOFI", ICON_BITS},
         {"SAMPLE", ICON_SAMPLE}, {"VOICE", ICON_MOUTH}, {"TRIO", ICON_TRIO}, {"WHEEL", ICON_DRAWBAR},
         {"SLICE", ICON_SLICE},
-        {"GRAIN", ICON_GRAIN},
+        {"GRAIN", ICON_GRAIN}, {"FM6", ICON_ALGORITHM},
         {"DRUM", ICON_DRUM},
     };
     uint32_t i;

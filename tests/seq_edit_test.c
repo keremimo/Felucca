@@ -62,6 +62,9 @@ static uint32_t up_rank(uint32_t n) { return n; }
 static void up_name(uint32_t k, char *b) { (void)k; b[0] = 0; }
 static void up_slot_label(char *b, uint32_t k) { fmt_int(b, (int32_t)k + 1); }
 static void up_ui(uint32_t op, uint32_t k) { (void)op; (void)k; assert(0); }
+static void fm6_store(uint32_t k) { (void)k; assert(0); }
+static void fm6_send(void) { assert(0); }
+static void fm6_init_voice(void) { assert(0); }
 
 static void reset(uint32_t len)
 {

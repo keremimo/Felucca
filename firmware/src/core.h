@@ -18,13 +18,14 @@ enum { Q_OFF, Q_SNAP, Q_WHITE, Q_ALL };     /* P_QUANT; legacy ON = SNAP */
 #ifndef FELUCCA_SLICE
 #define FELUCCA_SLICE 0          /* the SLICE engine (eng_slice.c): kept in the tree, not built by default */
 #endif
-#define NENGINES (9 + FELUCCA_SLICE)   /* SLICE, when built, comes last: the other engines keep their numbers */
+#define NENGINES (10 + FELUCCA_SLICE)  /* SLICE, when built, comes last: the other engines keep their numbers */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 
 /* ------------------------------------------------------- parameters --- */
 enum {
     F_INT, F_PCT, F_BIPCT, F_TIME, F_LFOHZ, F_CUTOFF, F_DB, F_SEMI, F_ENUM, F_BPM, F_NOTE,
-    F_ONOFF, F_OCT, F_STEPS
+    F_ONOFF, F_OCT, F_STEPS,
+    F_OFS, F_FMNOTE, F_FMFRQ    /* FM6: 0 at the middle of the range, DX7 break point, operator frequency */
 };
 
 typedef struct {
@@ -125,6 +126,7 @@ typedef struct {
     const param_desc_t *(*desc)(const struct track *t, uint32_t k);
     /* optional: once per block and part, before its voices (also with no voice sounding) */
     void (*block)(struct track *t);
+    uint8_t vel_own;             /* 1 = velocity is the engine's (FM6: per operator); else it scales the voice */
 } engine_t;
 
 /* ------------------------------------------------------------ track --- */

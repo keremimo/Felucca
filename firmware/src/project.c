@@ -4,16 +4,19 @@
  * entry. With FELUCCA_FLASH every save also goes to flash through storage.c,
  * and an empty RAM slot is filled from flash on load.
  *
- * Formats: 3 ("FUN3", written) = format 2 with today's P_COUNT per track (the SLICER parameters);
- * 2 ("FUN2") and 1 ("FUN1") are read and converted: they hold PROJ_NP_V2 parameters per track,
+ * Formats: 4 ("FUN4", written) = format 3 and the voices of the FM6 parts (eng_fm6.c edit buffers,
+ * DX7 packed, with their operator switches); 3 ("FUN3") = format 2 with today's P_COUNT per track
+ * (the SLICER parameters), read and converted (FM6 parts load their VOICE); 2 ("FUN2") and 1
+ * ("FUN1") are read and converted: they hold PROJ_NP_V2 parameters per track,
  * mapped by count as user presets are (the first PROJ_NP_V2 - 8 are P_LEVEL.. in order, the last 8
  * P_E0..P_E7; the parameters added since take their defaults, so the SLICER is OFF). Their engine
  * bytes are kept: formats 1 and 2 had engines 0..7 (ANALOG .. WHEEL), and the engines added since
- * (SLICE 8, ..) were appended, no index moved; the drum track's byte (it has no engine) becomes 0.
+ * (GRAIN 8, FM6 9; SLICE, when built, after them) were appended, no index moved; the drum track's byte (it has no engine) becomes 0.
  *
  * Built on the host too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP), the engines and trk_def_engine (ui.c). */
-#define PROJ_MAGIC 0x46554E33u                 /* "FUN3": four tracks, P_COUNT parameters each (format 3) */
+#define PROJ_MAGIC 0x46554E34u                 /* "FUN4": format 3 + the FM6 parts' voices (format 4) */
+#define PROJ_MAGIC_V3 0x46554E33u              /* "FUN3": four tracks, P_COUNT parameters each; read only */
 #define PROJ_MAGIC_V2 0x46554E32u              /* "FUN2": four tracks, PROJ_NP_V2 parameters; read only */
 #define PROJ_MAGIC_V1 0x46554E31u              /* "FUN1": one instrument; loads into track 1 */
 #define PROJ_NP_V2 53u                         /* P_COUNT of formats 1 and 2 (P_E0 was 45) */
@@ -28,8 +31,17 @@ typedef struct {
     int16_t g[G_COUNT];
     uint8_t sel, rsv[3];                       /* the selected track */
     proj_trk_t t[NTRK];
+    uint8_t fm6[NPART][128];                   /* the FM6 parts' voices, DX7 packed (fm6_has: which) */
+    uint8_t fm6_on[NPART], fm6_has;            /* their operator switches (bit n - 1: OP n); bit k: part k */
     uint32_t sum;
 } project_t;
+typedef struct {                               /* format 3 (until FM6), read only */
+    uint32_t magic, size;
+    int16_t g[G_COUNT];
+    uint8_t sel, rsv[3];
+    proj_trk_t t[NTRK];
+    uint32_t sum;
+} project_v3_t;
 typedef struct {                               /* a track of formats 1 and 2, read only */
     int16_t p[PROJ_NP_V2];
     uint8_t engine, preset;
@@ -48,7 +60,8 @@ typedef struct {                               /* format 1 (until 0.5 beta), rea
     proj_trk_v2_t t;
     uint32_t sum;
 } project_v1_t;
-_Static_assert(sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u, "formats 1 / 2 as they were stored");
+_Static_assert(sizeof(project_v3_t) == 2584u && sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u,
+               "formats 1..3 as they were stored");
 project_t proj_slot[4] __attribute__((section(".noinit")));
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
@@ -83,7 +96,7 @@ static void proj_trk_from_v2(proj_trk_t *d, const proj_trk_v2_t *s, int drum)
     memcpy(d->step, s->step, sizeof d->step);
 }
 
-/* a format 2 project (n bytes in *v2) -> slot q as format 3 */
+/* a format 2 project (n bytes in *v2) -> slot q as format 4 */
 static int proj_from_v2(project_t *q, const project_v2_t *v2, int n)
 {
     uint32_t i;
@@ -101,7 +114,7 @@ static int proj_from_v2(project_t *q, const project_v2_t *v2, int n)
     return 1;
 }
 
-/* a format 1 project (n bytes in *v1) -> slot q as format 3: the instrument becomes track 1,
+/* a format 1 project (n bytes in *v1) -> slot q as format 4: the instrument becomes track 1,
  * tracks 2..4 start empty (their sounds as at power-on) */
 static int proj_from_v1(project_t *q, const project_v1_t *v1, int n)
 {
@@ -127,23 +140,41 @@ static int proj_from_v1(project_t *q, const project_v1_t *v1, int n)
     return 1;
 }
 
-/* n bytes of a stored project (any format) -> slot q as format 3; 0 = not a project */
+/* a format 3 project (n bytes in *v3) -> slot q as format 4: no FM6 voices (the parts load their VOICE) */
+static int proj_from_v3(project_t *q, const project_v3_t *v3, int n)
+{
+    if (n != (int)sizeof *v3 || v3->magic != PROJ_MAGIC_V3 || v3->size != sizeof *v3 ||
+        v3->sum != proj_hash(v3, sizeof *v3 - 4u))
+        return 0;
+    memset(q, 0, sizeof *q);
+    q->magic = PROJ_MAGIC;
+    q->size = sizeof *q;
+    memcpy(q->g, v3->g, sizeof q->g);
+    q->sel = v3->sel;
+    memcpy(q->t, v3->t, sizeof q->t);
+    q->sum = proj_sum(q);
+    return 1;
+}
+
+/* n bytes of a stored project (any format) -> slot q as format 4; 0 = not a project */
 static int proj_import(project_t *q, const void *b, int n)
 {
     if (n == (int)sizeof *q && proj_ok((const project_t *)b)) {
         memcpy(q, b, sizeof *q);
         return 1;
     }
-    return proj_from_v2(q, (const project_v2_t *)b, n) || proj_from_v1(q, (const project_v1_t *)b, n);
+    return proj_from_v3(q, (const project_v3_t *)b, n) || proj_from_v2(q, (const project_v2_t *)b, n) ||
+           proj_from_v1(q, (const project_v1_t *)b, n);
 }
 
 #ifndef PROJ_HOST
 #if FELUCCA_FLASH
-/* slot from flash into RAM (format 3, or format 2 / 1 converted) */
+/* slot from flash into RAM (format 4, or format 3 / 2 / 1 converted) */
 static void proj_fetch(uint32_t slot)
 {
     static union {
-        project_t v3;
+        project_t v4;
+        project_v3_t v3;
         project_v2_t v2;
         project_v1_t v1;
     } tmp;
@@ -170,6 +201,14 @@ static void project_save(uint32_t slot)
         p->t[i].preset = trk[i].preset;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
     }
+    for (i = 0; i < NPART; i++)                         /* the FM6 parts' voices, edits and all */
+        if (ENGINES[trk[i].eng_req % NENGINES] == &ENG_FM6) {
+            uint32_t k;
+            fm6_pack(p->fm6[i], fm6_ed[i]);
+            for (k = 0; k < 6u; k++)
+                p->fm6_on[i] |= (uint8_t)(fm6_ed[i][FV_ON + k] ? 1u << k : 0u);
+            p->fm6_has |= (uint8_t)(1u << i);
+        }
     p->sum = proj_sum(p);
 #if FELUCCA_FLASH
     if (flash_ok) {
@@ -209,6 +248,15 @@ static void project_load(uint32_t slot)
             t->p[i] = (int16_t)clamp(s->p[i], d->min, d->max);
         }
         t->preset = (uint8_t)(ENGINES[e]->npresets ? (s->preset == 0xFFu ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
+        if (k < NPART) {                                /* FM6: its saved voice, else its VOICE afresh */
+            fm6_cur[k] = 0;
+            if (ENGINES[e] == &ENG_FM6 && ((p->fm6_has >> k) & 1u)) {
+                fm6_unpack(fm6_ed[k], p->fm6[k]);
+                for (i = 0; i < 6u; i++)
+                    fm6_ed[k][FV_ON + i] = (int16_t)((p->fm6_on[k] >> i) & 1u);
+                fm6_cur[k] = (int16_t)(t->p[P_E0] + 1);
+            }
+        }
         memcpy(t->step, s->step, sizeof t->step);
         for (i = 0; i < NSTEP; i++) {
             step_t *st = &t->step[i];

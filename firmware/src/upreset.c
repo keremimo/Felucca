@@ -258,6 +258,7 @@ static int up_load(uint32_t k)
     for (i = 0; i < P_COUNT; i++)
         t->p[i] = v[i];
     t->preset = 0;
+    fm6_cur[song.sel % NPART] = 0;                      /* FM6: the VOICE it names, afresh */
     fm1_irq_on();
     if (!up_pat_empty(r) && seq_replaceable(t)) {
         load_pat16(t, r->note, r->flags);

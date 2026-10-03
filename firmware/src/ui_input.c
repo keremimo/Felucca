@@ -185,6 +185,33 @@ static void edit_param(uint32_t slot, int32_t steps)
         }
         return;
     }
+    if (pg->graph == GR_FMSTORE) {                        /* FM6: KNOB 1 user slot; STORE / SEND / INIT: GO buttons */
+        static const char *const FM_GO[3] = {"STORE", "SEND", "INIT"};
+        if (!fm6_shown())
+            return;
+        if (slot == 0u) {
+            fm6_slot = (uint8_t)clamp((int32_t)fm6_slot + steps, 0, FM6_NUSER - 1);
+            ui.arm = 0;
+            return;
+        }
+        if (steps <= 0)
+            return;
+        if (ui.arm != 0xE8u + slot) {                     /* one detent arms, a second one within ~1.5 s acts */
+            ui.arm = (uint8_t)(0xE8u + slot);
+            ui.arm_t = 90;
+            ui_say("AGAIN: ", FM_GO[slot - 1u]);
+            return;
+        }
+        ui.arm = 0;
+        if (slot == 1u)
+            fm6_store(fm6_slot);
+        else if (slot == 2u)
+            fm6_send();
+        else
+            fm6_init_voice();
+        ui.force = 1;
+        return;
+    }
     if (pg->graph == GR_USER) {                           /* KNOB 1 slot; LOAD / ERASE / SAVE: GO buttons */
         static const char *const UP_GO[3] = {"LOAD", "ERASE", "SAVE"};
         if (slot == 0u) {
@@ -357,6 +384,7 @@ static void ui_input(void)
     if (home == BT_TAP)                                 /* HOME acts on release: a hold opens the menu */
         go_home();
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
+    page_fix();                                         /* the track or its engine changed: FM6 pages */
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))
             continue;
@@ -399,6 +427,9 @@ static void ui_input(void)
     if ((s = panel_enc(EN_PRESET)) != 0) {
         if (!ui.home && cur_page()->scope == SC_STEP) {
             step_length_edit(s);
+        } else if (!ui.home && (cur_page()->scope == SC_FMOP || cur_page()->graph == GR_FMALG) && fm6_shown()) {
+            fm6_opsel = (uint8_t)clamp((int32_t)fm6_opsel + (s > 0 ? 1 : -1), 0, 5);   /* FM6: PRESETS picks the operator */
+            ui.force = 1;
         } else if (ui.home || cur_page()->graph == GR_BROWSE || cur_fam() == FAM_TRK) {
             /* PRESETS browses the selected part's presets (all engines, then user presets) on HOME, the PRESETS
              * page and TRACKS only (the drum track: nothing):
@@ -420,7 +451,7 @@ static void ui_input(void)
         if ((s = panel_enc(EN_K1 + k)) == 0)
             continue;
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
-            (pg->graph == GR_USER && k == 0u)) {     /* (not an empty column, nor "DRUM TRACK") */
+            ((pg->graph == GR_USER || pg->graph == GR_FMSTORE) && k == 0u)) {     /* (not an empty column, nor "DRUM TRACK") */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
         }
