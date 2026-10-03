@@ -101,15 +101,7 @@ static void page_entered(void)
     ui.force = 1;
 }
 
-static int step_on(const step_t *st) { return st->time == ST_NOTE && st->n; }
-
-static void step_clear(step_t *st)
-{
-    st->n = 0;
-    st->time = ST_REST;
-    st->flags = 0;
-    st->vel = 0;
-}
+#include "seq_edit.c"
 
 /* SEQ cursor: wraps inside the pattern length, the bank follows, a step entry ends */
 static void cursor_set(int32_t c)
