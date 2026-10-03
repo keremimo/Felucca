@@ -26,11 +26,19 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
 {
     uint32_t i;
     mix_block(out, n);
+#if FELUCCA_USB_AUDIO
+    /* TIMER5 outranks rendering in audio mode. Serialize only the short PCM
+     * copy, including stream resets/alt changes, not the synth/FX work. */
+    fm1_irq_off();
+    if (usb.up && usb.config && !usb.suspended)
+        ua_audio(out, n, song.master_q12);
+    fm1_irq_on();
+#endif
     for (i = 0; i < n; i++) {
         if (i & 1u)
             scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * i];
-        out[2u * i] <<= OUT_SHIFT;
-        out[2u * i + 1u] <<= OUT_SHIFT;
+        out[2u * i] *= 1 << OUT_SHIFT;
+        out[2u * i + 1u] *= 1 << OUT_SHIFT;
     }
 }
 
