@@ -12,6 +12,7 @@
 #define NTRK 4                   /* + the drum track */
 #define TRK_DRUM 3
 enum { V_POLY, V_MONO, V_LEGATO, V_UNISON };   /* P_VOICE */
+enum { Q_OFF, Q_SNAP, Q_WHITE, Q_ALL };     /* P_QUANT; legacy ON = SNAP */
 #define NSTEP 64
 #define HALF_FRAMES 256          /* I2S half buffer: 5.8 ms at 44.1 kHz */
 #ifndef FELUCCA_SLICE

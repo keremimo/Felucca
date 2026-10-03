@@ -46,18 +46,27 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
 
 ## Scale keyboard
 
-On the **SCL** page, set **QNT** to WHITE to play the selected scale using only the
-white keys (SNAP keeps every key and rounds it down to the scale). C4 plays **ROOT**; consecutive white keys play consecutive scale notes
-above and below it. Black keys are silent, including during live recording and
-step entry. **TRN** transposes the resulting notes; the octave buttons shift them
-by full octaves. Set QNT to OFF for the normal chromatic keyboard.
+On the **SCL** page, **QNT** selects the keyboard layout:
+
+- **OFF:** normal chromatic keyboard.
+- **SNAP:** every key plays, rounded down to the scale. This is the previous ON
+  mode; existing saved sounds and projects retain it.
+- **WHITE:** consecutive white keys play consecutive scale notes; black keys are
+  silent, including during live recording and step entry.
+- **ALL:** every key, white or black, advances one scale degree without duplicate
+  pitches. For C major, C, C#, D, D#, E, F, F#, G play C, D, E, F, G, A, B, C.
+
+In WHITE and ALL, C4 plays **ROOT** and the layout continues above and below
+it. **TRN** transposes the resulting notes; the octave buttons shift them by full
+octaves. In ALL, degrees outside MIDI's 0–127 pitch range are silent rather than
+clamped to duplicate end notes; use a different input octave to return to range.
 
 Available scales: chromatic (CHR), major (MAJ), natural minor (MIN), Dorian (DOR),
 Mixolydian (MIX), major pentatonic (PEN), minor pentatonic (MPEN), harmonic minor
 (HARM), Phrygian (PHRY), Lydian (LYD), Locrian (LOC), ascending melodic minor (MEL),
 minor blues (BLUES), whole tone (WHOLE), half-whole diminished (DIMHW), and
-whole-half diminished (DIMWH). Scales with other than seven notes continue across
-the white keys without repeating notes; their roots need not fall on every C key.
+whole-half diminished (DIMWH). Scale degrees continue across keyboard octave
+boundaries; roots need not fall on every C key.
 The drum track, GM sample kit and incoming MIDI retain their existing note mapping.
 
 ## Layout
