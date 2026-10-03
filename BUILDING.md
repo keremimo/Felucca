@@ -51,7 +51,13 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`):
 | `FELUCCA_FLASH` | 1 | settings, presets and projects in flash |
 | `FELUCCA_OTA` | 1 | update entry (needs `FELUCCA_FLASH`) |
 | `FELUCCA_CDC` | 1 | USB serial console |
-| `FELUCCA_UART` | 0 | TRS MIDI IN (not tested on hardware) |
+| `FELUCCA_UART` | 1 | TRS MIDI IN, 31250 baud (set to 0 to disable) |
+
+TRS MIDI IN shares the USB MIDI channel routing. It accepts channel messages and
+running status; MIDI clock, transport, system common and SysEx are ignored on TRS.
+The USB serial console's `status` command reports `trs_midi` (enabled),
+`trs_rx_bytes`, `trs_rx_msgs` and `trs_rx_drops` for hardware testing. End-to-end
+TRS reception still needs verification with an external MIDI source.
 
 ## Samples
 
