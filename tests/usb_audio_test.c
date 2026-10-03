@@ -4,7 +4,42 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#define UA_POOL
 #include "../firmware/src/usb_audio_stream.c"
+
+/* The doubled history must present exactly the last UA_TAPS frames, newest
+ * first, at every head position: compare with a plainly shifted window. */
+static void converter(void)
+{
+    struct ua_converter s;
+    int16_t window[UA_TAPS][2] = {{0}}, got[2];
+    uint32_t seed = 1, i, k, p;
+    assert(!memcmp(ua_play_taps, ua_play_filter, sizeof ua_play_taps));
+    assert(!memcmp(ua_cap_taps, ua_cap_filter, sizeof ua_cap_taps));
+    ua_src_reset(&s);
+    for (i = 0; i < 3u * UA_TAPS + 5u; i++) {
+        int16_t l, r;
+        seed = seed * 1664525u + 1013904223u;
+        l = (int16_t)(seed >> 16);
+        r = (int16_t)(seed >> 3);
+        ua_src_push(&s, l, r);
+        memmove(window[1], window[0], sizeof window - sizeof window[0]);
+        window[0][0] = l;
+        window[0][1] = r;
+        for (p = 0; p < 160u; p += 7u) {
+            const int16_t *coeff = p < 147u && (i & 1u) ? ua_play_taps[p] : ua_cap_taps[p];
+            int64_t want[2] = {0, 0};
+            for (k = 0; k < UA_TAPS; k++) {
+                want[0] += (int64_t)window[k][0] * coeff[k];
+                want[1] += (int64_t)window[k][1] * coeff[k];
+            }
+            ua_src_sample(&s, coeff, got);
+            assert(got[0] == ua_clip((int32_t)((want[0] + 8192) >> 14)));
+            assert(got[1] == ua_clip((int32_t)((want[1] + 8192) >> 14)));
+        }
+    }
+    puts("USB audio FIR: RAM taps, unwrapped history window: OK");
+}
 
 static void pcm(uint8_t *p, uint32_t frames, int16_t l, int16_t r)
 {
@@ -257,6 +292,8 @@ static void tone(int capture, double frequency)
 
 int main(void)
 {
+    ua_init();
+    converter();
     routing();
     recovery();
     pcm24();

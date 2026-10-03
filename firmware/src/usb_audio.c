@@ -7,6 +7,8 @@
  * other OUT packet never reaches ua_rx. RX DMA keeps the same four-byte guard
  * as USB MIDI. All SIE access stays in TIMER5, including SET_INTERFACE and
  * reset handling; register access goes through hal/fm1_usb.h. */
+#define UA_IF_PLAY 3u                           /* streaming interfaces (usb_audio_desc.h) */
+#define UA_IF_CAP 5u
 #define UA_DMA_PACKET ((UA_PACKET + 3u) & ~3u)
 static uint8_t ua_tx[UA_DMA_PACKET] __attribute__((aligned(4)));
 static uint8_t ua_rx[UA_DMA_PACKET + 4u] __attribute__((aligned(4)));
@@ -84,9 +86,9 @@ static void ua_tx_fill(void)
 
 static int ua_set_interface(uint16_t interface, uint16_t alt)
 {
-    if (!usb.config || alt > 2u || (interface != 3u && interface != 4u))
+    if (!usb.config || alt > 2u || (interface != UA_IF_PLAY && interface != UA_IF_CAP))
         return 0;
-    if (interface == 3u) {
+    if (interface == UA_IF_PLAY) {
         ua_play_reset();
         ua.play_alt = (uint8_t)alt;
         if (alt)
@@ -156,10 +158,10 @@ static int ua_control_data(const uint8_t *p, uint32_t n)
     rate = rate <= 46050u ? UA_RATE : 48000u;
     if (ep == 2u && ua.play_rate != rate) {
         ua.play_rate = rate;
-        ua_set_interface(3, ua.play_alt);
+        ua_set_interface(UA_IF_PLAY, ua.play_alt);
     } else if (ep == 0x82u && ua.cap_rate != rate) {
         ua.cap_rate = rate;
-        ua_set_interface(4, ua.cap_alt);
+        ua_set_interface(UA_IF_CAP, ua.cap_alt);
     }
     return 1;
 }
@@ -189,8 +191,10 @@ static void ua_hw_poll(void)
             ua_cap_config();
         ua_paused = 0;
     }
-    if (!ua.play_alt && !ua.cap_alt)
+    if (!ua.play_alt && !ua.cap_alt) {
+        ua_frame_valid = 0;                     /* idle frames are not missed ones */
         return;
+    }
     if (ua.play_alt) {
         sie_wr(S_INDEX, 2);
         csr = sie_rd(S_RXCSR1);

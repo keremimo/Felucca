@@ -14,13 +14,25 @@
 #define UA_RING 1024u
 #define UA_TARGET 512u
 #define UA_NOMINAL ((UA_RATE * 16384u) / 1000u)
+#ifndef UA_POOL
+#define UA_POOL __attribute__((section(".pool")))   /* zeroed RAM; the host tests define it empty */
+#endif
 #include "usb_audio_filter.h"
+#if UA_TAPS % 4u
+#error "ua_src_sample takes four taps per pass"
+#endif
+
+/* The taps run from RAM (ua_init): each 48 kHz sample reads a 96-byte row, and
+ * from XIP every row would be a flash-cache miss inside TIMER5 that also evicts
+ * the synth's code. */
+static int16_t ua_play_taps[147][UA_TAPS] UA_POOL, ua_cap_taps[160][UA_TAPS] UA_POOL;
 
 struct ua_converter {
     /* Residual output-clock ticks, denominator 147 (play) or 160 (capture).
-     * History runs newest first from head. Exact 147:160 timing avoids drift. */
+     * History runs newest first from head and is stored twice, so the FIR
+     * window never wraps. Exact 147:160 timing avoids drift. */
     uint32_t phase, head;
-    int16_t history[UA_TAPS * 2u];
+    int16_t history[UA_TAPS * 4u];
 };
 
 static struct {
@@ -31,6 +43,7 @@ static struct {
     int32_t play_fill_q8, cap_fill_q8;
     uint32_t play_underruns, play_overruns, cap_underruns, cap_overruns, bad_packets;
     uint32_t rx_packets, tx_packets, missed_frames;
+    uint32_t poll_max_ticks, service_max_ticks;
     int16_t play[UA_RING * 2u], cap[UA_RING * 2u];
 } ua;
 
@@ -39,33 +52,54 @@ static int32_t ua_clip(int32_t x)
     return x > 32767 ? 32767 : x < -32768 ? -32768 : x;
 }
 
+static void ua_init(void)                       /* before USB service starts */
+{
+    uint32_t p, k;
+    for (p = 0; p < 160u; p++)
+        for (k = 0; k < UA_TAPS; k++) {
+            if (p < 147u)
+                ua_play_taps[p][k] = ua_play_filter[p][k];
+            ua_cap_taps[p][k] = ua_cap_filter[p][k];
+        }
+}
+
 static void ua_src_reset(struct ua_converter *s)
 {
     uint32_t i;
     s->phase = s->head = 0;
-    for (i = 0; i < UA_TAPS * 2u; i++)
+    for (i = 0; i < UA_TAPS * 4u; i++)
         s->history[i] = 0;
 }
 
 static void ua_src_push(struct ua_converter *s, int16_t l, int16_t r)
 {
+    int16_t *h;
     s->head = s->head ? s->head - 1u : UA_TAPS - 1u;
-    s->history[s->head * 2u] = l;
-    s->history[s->head * 2u + 1u] = r;
+    h = &s->history[s->head * 2u];
+    h[0] = h[UA_TAPS * 2u] = l;
+    h[1] = h[UA_TAPS * 2u + 1u] = r;
 }
 
+/* 64-bit sums compile to the pi32v2 multiply-accumulate: with four taps per
+ * pass, 6 instructions per tap for both channels. */
 static void ua_src_sample(const struct ua_converter *s, const int16_t *coeff, int16_t *out)
 {
-    uint32_t k, at = s->head;
-    int32_t l = 0, r = 0;
-    for (k = 0; k < UA_TAPS; k++) {
-        l += s->history[at * 2u] * (int32_t)coeff[k];
-        r += s->history[at * 2u + 1u] * (int32_t)coeff[k];
-        if (++at == UA_TAPS)
-            at = 0;
-    }
-    out[0] = (int16_t)ua_clip((l + 8192) >> 14);
-    out[1] = (int16_t)ua_clip((r + 8192) >> 14);
+    const int16_t *x = &s->history[s->head * 2u], *end = coeff + UA_TAPS;
+    int64_t l = 0, r = 0;
+    do {
+        l += (int64_t)x[0] * coeff[0];
+        r += (int64_t)x[1] * coeff[0];
+        l += (int64_t)x[2] * coeff[1];
+        r += (int64_t)x[3] * coeff[1];
+        l += (int64_t)x[4] * coeff[2];
+        r += (int64_t)x[5] * coeff[2];
+        l += (int64_t)x[6] * coeff[3];
+        r += (int64_t)x[7] * coeff[3];
+        x += 8;
+        coeff += 4;
+    } while (coeff != end);
+    out[0] = (int16_t)ua_clip((int32_t)((l + 8192) >> 14));
+    out[1] = (int16_t)ua_clip((int32_t)((r + 8192) >> 14));
 }
 
 static uint32_t ua_sample_bytes(uint8_t alt) { return alt == 2u ? 3u : 2u; }
@@ -134,7 +168,7 @@ static void ua_receive(const uint8_t *p, uint32_t bytes)
             if (ua.play_src.phase < 160u)
                 continue;
             ua.play_src.phase -= 160u;
-            ua_src_sample(&ua.play_src, ua_play_filter[ua.play_src.phase], &ua.play[at]);
+            ua_src_sample(&ua.play_src, ua_play_taps[ua.play_src.phase], &ua.play[at]);
         } else {
             ua.play[at] = l;
             ua.play[at + 1u] = r;
@@ -196,7 +230,7 @@ static uint32_t ua_transmit(uint8_t *p)
                     ua.cap_src.phase += 160u;
                 }
                 ua.cap_src.phase -= 147u;
-                ua_src_sample(&ua.cap_src, ua_cap_filter[ua.cap_src.phase], sample);
+                ua_src_sample(&ua.cap_src, ua_cap_taps[ua.cap_src.phase], sample);
             } else {
                 uint32_t at = (ua.cr++ & (UA_RING - 1u)) * 2u;
                 sample[0] = ua.cap[at];

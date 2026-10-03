@@ -16,7 +16,8 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_UP_LIST, ED_UP_GET, ED_UP_PUT, ED_UP_STORE, ED_UP_LOAD, ED_UP_ERASE,   /* v2: user presets */
        ED_WATCH, ED_CHANGED, ED_RELOAD, ED_PING, ED_STEP_CHANGED,              /* v2: live sync */
        ED_TRACK, ED_TRACK_MIX, ED_TRACK_DUMP, ED_TRACK_STEP,                    /* v3: tracks */
-       ED_TRACK_PARAM, ED_TRACK_CHANGED };                                      /* v4: any track's parameters */
+       ED_TRACK_PARAM, ED_TRACK_CHANGED,                                        /* v4: any track's parameters */
+       ED_AUDIO_STATS };                                                        /* 33: USB audio diagnostics */
 
 static uint8_t ed_out[600];
 static uint32_t ed_n;
@@ -272,6 +273,40 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     const param_desc_t *d;
     ed_begin(cmd);
     switch (cmd) {
+#if FELUCCA_USB_AUDIO
+    case ED_AUDIO_STATS: {
+        uint32_t snapshot[20], k;
+        fm1_irq_off();
+        snapshot[0] = ua.play_alt;
+        snapshot[1] = ua.cap_alt;
+        snapshot[2] = ua.play_rate;
+        snapshot[3] = ua.cap_rate;
+        snapshot[4] = ua.pw - ua.pr;
+        snapshot[5] = ua.cw - ua.cr;
+        snapshot[6] = ua.play_underruns;
+        snapshot[7] = ua.play_overruns;
+        snapshot[8] = ua.cap_underruns;
+        snapshot[9] = ua.cap_overruns;
+        snapshot[10] = ua.bad_packets;
+        snapshot[11] = ua.rx_packets;
+        snapshot[12] = ua.tx_packets;
+        snapshot[13] = ua.missed_frames;
+        snapshot[14] = ua.poll_max_ticks / FM1_TICKS_PER_US;
+        snapshot[15] = ua.service_max_ticks / FM1_TICKS_PER_US;
+        snapshot[16] = felucca_dbg.late;
+        snapshot[17] = ua_feedback();
+        snapshot[18] = felucca_dbg.max_us;              /* render time, TIMER5 preemption included */
+        snapshot[19] = song.cpu_q8;
+        if (na && (a[0] & 1u))                          /* optional: start new maxima */
+            ua.poll_max_ticks = ua.service_max_ticks = felucca_dbg.max_us = 0;
+        fm1_irq_on();
+        ed_b(2);                                        /* snapshot schema version */
+        for (i = 0; i < 20u; i++)
+            for (k = 0; k < 5u; k++)
+                ed_b(snapshot[i] >> (7u * k));
+        break;
+    }
+#endif
     case ED_INFO:
         ed_str("FELUCCA " FELUCCA_VERSION, 24);
         ed_b(NENGINES);

@@ -69,6 +69,7 @@ static void mock_write(uint32_t r, uint32_t v)
 #define FELUCCA_USB_AUDIO 1
 #define FELUCCA_CDC 0
 #define FELUCCA_OTA 0
+#define UA_POOL
 #include "../firmware/src/usb.c"
 
 static void frame(uint16_t n)
@@ -119,10 +120,30 @@ static void controls(void)
     assert(ua_feedback() == 48000u * 16384u / 1000u);
     assert(get_rate(0x82, 0x81) == 44100);
     setup(1, 11, 2, 3, 0);
-    setup(1, 11, 2, 4, 0);
+    setup(1, 11, 2, 5, 0);
     assert(ua.play_alt == 2 && ua.cap_alt == 2 && ep_cnt[2] == 264);
     setup(0x81, 10, 0, 3, 1);
     assert(ep_cnt[0] == 1 && ep0buf[0] == 2);
+    setup(0x81, 10, 0, 5, 1);
+    assert(ep_cnt[0] == 1 && ep0buf[0] == 2);
+    /* Each function's control interface (IF2, IF4) has only alternate 0. */
+    setup(0x81, 10, 0, 4, 1);
+    assert(ep0_command == 0x0A && ep0buf[0] == 0);
+    setup(1, 11, 0, 4, 0);
+    assert(ep0_command == 0x48);
+    setup(1, 11, 1, 4, 0);
+    assert(ep0_command == 0x60 && ua.cap_alt == 2);
+    setup(1, 11, 0, 6, 0);
+    assert(ep0_command == 0x60);
+    setup(0x81, 10, 0, 6, 1);
+    assert(ep0_command == 0x60);
+    /* Device names of the two functions (iFunction / iInterface 3 and 4). */
+    setup(0x80, 6, 0x0303, 0x0409, 255);
+    assert(ep_cnt[0] == 24 && ep0buf[1] == 3 && !memcmp(ep0buf + 18, "O\0u\0t\0", 6));
+    setup(0x80, 6, 0x0304, 0x0409, 255);
+    assert(ep_cnt[0] == 22 && ep0buf[1] == 3 && !memcmp(ep0buf + 18, "I\0n\0", 4));
+    setup(0x80, 6, 0x0305, 0x0409, 255);
+    assert(ep0_command == 0x60);
     ua.pw = 600;
     ua.cw = 600;
     ua.play_src.phase = 123;
@@ -182,17 +203,19 @@ int main(void)
 {
     uint32_t count;
     uint8_t previous[UA_PACKET];
+    ua_init();
     usb.up = usb.config = 1;
     common[S_INTRRX1E] = 2;                    /* MIDI endpoint must survive */
     ua_hw_stop();
     assert(common[S_INTRRX1E] == 2);
     assert(!ua_set_interface(2, 1));
+    assert(!ua_set_interface(4, 1));            /* control interfaces, not streams */
     assert(!ua_set_interface(3, 3));
     usb.config = 0;
     assert(!ua_set_interface(3, 1));
     usb.config = 1;
     assert(ua_set_interface(3, 1));
-    assert(ua_set_interface(4, 1));
+    assert(ua_set_interface(5, 1));
     assert(ua.play_alt && ua.cap_alt);
     /* MaxP 0xFF keeps single packet buffering (an exact MaxP doubles it and loses
      * every other OUT packet); IN packets are queued before the first IN token */
@@ -246,6 +269,17 @@ int main(void)
     frame(300);
     ua_hw_poll();
     assert(!ua_paused && ua.tx_packets == count + 1 && !ua.missed_frames);
+    /* A stream that starts after an idle stretch has not missed those frames. */
+    assert(ua_set_interface(3, 0) && ua_set_interface(5, 0));
+    ua_hw_poll();
+    assert(!ua_frame_valid);
+    assert(ua_set_interface(5, 1));
+    frame(1300);
+    ua_hw_poll();
+    assert(ua_frame_valid && !ua.missed_frames);
+    frame(1302);
+    ua_hw_poll();
+    assert(ua.missed_frames == 1);
     ua_hw_stop();
     assert(!ua.play_alt && !ua.cap_alt && !ua_frame_valid);
     assert(common[S_INTRRX1E] == 2);
