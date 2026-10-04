@@ -55,6 +55,7 @@ enum {                          /* per-track parameters */
     P_GLMODE, P_PRIO, P_ALLOC, P_DETUNE,
     P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH,      /* SLICER insert (slicer.c); new common parameters go just
                                                 * before P_E0 (user presets and projects map by count) */
+    P_MPCDEG,                                /* scale degree on MPC H02, 1 = root */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };

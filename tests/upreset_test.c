@@ -139,14 +139,22 @@ int main(void)
     for (i = 0; i < 53u; i++)
         r.p[i] = (int16_t)(2000 + i);
     up_params(&r, v, def);
-    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_E0 && P_E0 == 49;
+    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_MPCDEG && P_MPCDEG + 1 == P_E0 && P_E0 == 50;
     for (i = 0; i < 45u; i++)
         ok &= v[i] == (int16_t)(2000 + i);
-    for (i = P_SLCR; i <= P_SLDEPTH; i++)
+    for (i = P_SLCR; i <= P_MPCDEG; i++)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(2000 + 45 + i);
-    bad += check("old record (np 53): SLICER defaults, E0..E7 kept", ok);
+    bad += check("old record (np 53): SLICER/degree defaults, E0..E7 kept", ok);
+    r.np = 57;                                  /* immediately before MPC degree */
+    def[P_MPCDEG] = 1;
+    for (i = 0; i < 57u; i++) r.p[i] = (int16_t)(3000 + i);
+    up_params(&r, v, def);
+    ok = v[P_MPCDEG] == 1;
+    for (i = 0; i < 49u; i++) ok &= v[i] == (int16_t)(3000 + i);
+    for (i = 0; i < 8u; i++) ok &= v[P_E0 + i] == (int16_t)(3049 + i);
+    bad += check("old record (np 57): degree 1, common/engine parameters kept", ok);
     r.np = P_COUNT;
     for (i = 0; i < P_COUNT; i++)
         r.p[i] = (int16_t)i;

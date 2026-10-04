@@ -88,6 +88,21 @@ static uint32_t scale_mask(const track_t *t)
     return SCALE_MASK[clamp(t->p[P_SCALE], 0, sizeof SCALE_MASK / sizeof SCALE_MASK[0] - 1)];
 }
 
+static uint32_t scale_count(const track_t *t)
+{
+    uint32_t mask = scale_mask(t), count = 0;
+    while (mask) {
+        count += mask & 1u;
+        mask >>= 1;
+    }
+    return count;
+}
+
+static int32_t mpc_degree(const track_t *t)
+{
+    return clamp(t->p[P_MPCDEG], 1, (int32_t)scale_count(t));
+}
+
 static int is_gm_sample(const track_t *t)          /* (the engine it switches to) */
 {
     return !is_drum(t) && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && drum_set() >= 0 &&
@@ -177,9 +192,8 @@ static uint32_t midi_map(const track_t *t, uint32_t note)
         return KB_SILENT;
     if (is_drum(t) || is_gm_sample(t) || is_slice(t))
         return note;
-    if (t->p[P_QUANT] == Q_MPC) {
-        return scale_degree_map(t, (int32_t)note - 21, 12 * song.octave, 1);
-    }
+    if (t->p[P_QUANT] == Q_MPC)
+        return scale_degree_map(t, (int32_t)note - 21 + mpc_degree(t) - 1, 12 * song.octave, 1);
     if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL)
         return scale_map(t, (int32_t)note, 0);
     return note;

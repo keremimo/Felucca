@@ -327,7 +327,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 set_engine((uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1));
             } else if (d->max > d->min) {
                 *vp = (int16_t)clamp(ed_rv(a + 2), d->min, d->max);
-                if (a[0] == 0 && (a[1] == P_SCALE || a[1] == P_QUANT))
+                if (a[0] == 0 && is_scale_setting(a[1]))
                     scale_setting_set(TSEL, a[1], *vp);
             }
             ui.force = 1;
@@ -660,7 +660,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (na >= 4u) {
             if (d->max > d->min)                           /* as SET: clamped; a fixed value stays */
                 t->p[a[1]] = (int16_t)clamp(ed_rv(a + 2), d->min, d->max);
-            if (a[1] == P_SCALE || a[1] == P_QUANT)
+            if (is_scale_setting(a[1]))
                 scale_setting_set(t, a[1], t->p[a[1]]);
             ed_known(a[0], a[1]);
             ui.force = 1;

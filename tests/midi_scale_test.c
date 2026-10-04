@@ -122,7 +122,8 @@ static void all_mapping_test(void)
 
 static void mpc_mapping_test(void)
 {
-    uint32_t s, root, pad;
+    static const uint8_t COUNTS[] = {12, 7, 7, 7, 7, 5, 5, 7, 7, 7, 7, 7, 6, 6, 8, 8};
+    uint32_t s, root, pad, deg;
     int oct;
     reset();
     trk[0].p[P_QUANT] = Q_MPC;
@@ -132,20 +133,26 @@ static void mpc_mapping_test(void)
                 trk[0].p[P_SCALE] = (int16_t)s;
                 trk[0].p[P_ROOT] = (int16_t)root;
                 song.octave = (int8_t)oct;
-                for (pad = 0; pad < 16; pad++) {
-                    int degree = (int)pad - 1, offset = 0, want;
-                    while (degree) {
-                        int dir = degree > 0 ? 1 : -1;
-                        offset += dir;
-                        if (SCALE_MASK[s] & (1u << ((offset % 12 + 12) % 12))) degree -= dir;
+                assert(scale_count(&trk[0]) == COUNTS[s]);
+                assert(track_desc(&trk[0], P_MPCDEG)->max == COUNTS[s]);
+                for (deg = 1; deg <= COUNTS[s]; deg++) {
+                    trk[0].p[P_MPCDEG] = (int16_t)deg;
+                    for (pad = 0; pad < 16; pad++) {
+                        int degree = (int)pad - 1 + (int)deg - 1, offset = 0, want;
+                        while (degree) {
+                            int dir = degree > 0 ? 1 : -1;
+                            offset += dir;
+                            if (SCALE_MASK[s] & (1u << ((offset % 12 + 12) % 12))) degree -= dir;
+                        }
+                        want = 60 + (int)root + 12 * oct + offset;
+                        assert(midi_map(&trk[0], 20 + pad) ==
+                               (want < 0 || want > 127 ? KB_SILENT : (uint32_t)want));
                     }
-                    want = 60 + (int)root + 12 * oct + offset;
-                    assert(midi_map(&trk[0], 20 + pad) ==
-                           (want < 0 || want > 127 ? KB_SILENT : (uint32_t)want));
                 }
             }
     song.octave = 0;
     trk[0].p[P_SCALE] = 1;
+    trk[0].p[P_MPCDEG] = 1;
     trk[0].p[P_ROOT] = 0;
     trk[0].p[P_TRANS] = 12;
     assert(midi_map(&trk[0], 21) == 72);
@@ -155,6 +162,7 @@ static void mpc_mapping_test(void)
 
     send(0x90, 21, 97);
     assert(gated(&trk[0], 72) && midi_notes[0][21] == (1u << 8 | 72u));
+    trk[0].p[P_MPCDEG] = 3;
     song.octave = 1;
     trk[0].p[P_ROOT] = 2;
     trk[0].p[P_QUANT] = Q_OFF;
@@ -167,11 +175,16 @@ static void mpc_mapping_test(void)
     song.octave = 1;
     um_byte(0x90); um_byte(21); um_byte(100);
     events_block(0);
-    assert(gated(&trk[0], 72) && midi_notes[0][21] == (1u << 8 | 72u));
+    assert(gated(&trk[0], 75) && midi_notes[0][21] == (1u << 8 | 75u));
+    trk[0].p[P_MPCDEG] = 5;
     um_byte(0x80); um_byte(21); um_byte(0);
     events_block(0);
-    assert(!gated(&trk[0], 72));
-    puts("MIDI MPC: H01-H16 notes 20-35 across scales/roots/octaves; TRS H02 and release ok");
+    assert(!gated(&trk[0], 75));
+    trk[0].p[P_MPCDEG] = 0;
+    assert(midi_map(&trk[0], 21) == 72);    /* malformed degree clamps to the scale */
+    trk[0].p[P_MPCDEG] = 99;
+    assert(midi_map(&trk[0], 21) == 82);
+    puts("MIDI MPC: every H02 degree, scale, root and octave; USB/TRS release survives degree changes");
 }
 
 static void mpc_filter_test(void)

@@ -98,8 +98,8 @@ On the **SCL** page, **QNT** selects the keyboard layout:
 - **ALL:** every key, white or black, advances one scale degree without duplicate
   pitches. For C major, C, C#, D, D#, E, F, F#, G play C, D, E, F, G, A, B, C.
 - **MPC:** the FM-1 keys use WHITE. Incoming MIDI notes 20–35 from MPC Sample
-  Bank H play consecutive scale degrees. H02 (MIDI note 21) is ROOT in the octave
-  selected on the FM-1; H01 plays the degree below it. All other MIDI notes are
+  Bank H play consecutive scale degrees. H02 (MIDI note 21) defaults to ROOT in
+  the octave selected on the FM-1; H01 plays the degree below it. All other MIDI notes are
   ignored, including during live recording and step entry.
 
 In WHITE and ALL, C4 plays **ROOT** and the layout continues above and below
@@ -132,6 +132,17 @@ Out-of-range mapped notes are silent. MPC mode follows the usual MIDI channel
 routing, so use a synth-part channel or one that follows the selected track.
 The H-bank input filter also applies to the drum channel, GM sample kits and
 SLICE; those destinations retain their existing mapping for accepted notes.
+
+With **QNT = MPC**, press **SCL** again to open the **MPC** subpage. **Knob 1
+(DEG)** selects which scale degree H02 plays; the display previews the resulting
+note, for example `H02: 3 -> E4` in C major. H01 is one degree below H02 and
+H03–H16 continue upward through the scale. ROOT stays unchanged. DEG ranges from
+1 to the number of notes in the scale (7 for major/minor, 5 for pentatonic,
+12 for chromatic); switching to a shorter scale clamps it to that scale's last
+degree. DEG is shared across the synth parts, saved in projects and retained
+when changing presets. Older projects default to degree 1. This subpage is hidden
+in other quantization modes and on the drum track. The panel keys keep their
+WHITE layout; DEG affects mapped MPC notes, including recording and STEP entry.
 
 Channels 1–3 play parts 1–3; the configured drum channel plays drums; other
 channels play the selected track. Set ROOT, SCL and QNT on that receiving part.
