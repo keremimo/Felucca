@@ -545,11 +545,24 @@ static void home_notes_test(const char *path)
         {{60, 64, 67}, 3, "C"}, {{64, 67, 72}, 3, "C/E"}, {{57, 60, 64}, 3, "Am"}, {{60, 63, 67, 70}, 4, "Cm7"},
         {{60, 64, 67, 69}, 4, "C6"}, {{57, 60, 64, 67}, 4, "Am7"}, {{59, 62, 65}, 3, "Bdim"}, {{48, 60, 64, 67, 71}, 5, "Cmaj7"},
         {{60, 62, 67}, 3, "Csus2"}, {{55, 59, 62, 65}, 4, "G7"}, {{60, 67}, 2, "-"}, {{60, 61, 62}, 3, "-"},
+        {{60, 62, 64, 67, 69}, 5, "C6/9"}, {{48, 58, 62, 64, 69}, 5, "C13"}, {{52, 56, 62, 67}, 4, "E7#9"},
+        {{60, 64, 66, 71}, 4, "Cmaj7#11"}, {{57, 60, 62, 64, 67}, 5, "Am11"}, {{55, 58, 61, 64}, 4, "Gdim7"},
+        {{60, 62, 65, 67, 70}, 5, "C9sus4"}, {{48, 58, 62, 65}, 4, "A#add9/C"}, {{60, 63, 66, 71}, 4, "CdimM7"},
+        {{49, 53, 56, 59, 62}, 5, "C#7b9"}, {{64, 67, 72, 74}, 4, "Cadd9/E"}, {{60, 64, 69, 71, 74}, 5, "Cmaj13"},
+        {{50, 60, 63, 67, 70}, 5, "Cm9/D"}, {{55, 60, 65}, 3, "Csus4/G"}, {{50, 55, 60}, 3, "Gsus4/D"},   /* off the bass: the simplest */
     };
     char b[16];
-    uint32_t i;
+    uint32_t i, k, r;
     for (i = 0; i < sizeof CASES / sizeof CASES[0]; i++)
         assert(!strcmp(chord_name(CASES[i].n, CASES[i].cnt, b), CASES[i].name));
+    for (i = 0; i < sizeof CHORDS / sizeof CHORDS[0]; i++) {   /* every shape on every root, root position */
+        assert(CHORDS[i].iv & 1u);
+        for (k = 0; k < i; k++) assert(CHORDS[k].iv != CHORDS[i].iv);
+        for (r = 0; r < 12u; r++) {
+            uint32_t pcs = ((CHORDS[i].iv << r) | (CHORDS[i].iv >> (12u - r))) & 0xFFFu, root = 99;
+            assert(chord_of(pcs, r, &root) == CHORDS[i].q && root == r);
+        }
+    }
 
     reset(16);
     memset(live_held, 0, sizeof live_held);
