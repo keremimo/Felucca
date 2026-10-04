@@ -81,7 +81,7 @@
   .list table { width: 100%; table-layout: fixed; }
   .list th { position: sticky; top: 0; background: var(--bg); padding: 1px 6px; }
   .list td { padding: 1px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .list tr[data-id], .list tr[data-slot] { cursor: pointer; }
+  .list tr[data-id], .list tr[data-slot], .list tr[data-fm6] { cursor: pointer; }
   .list tr.sel td { background: var(--fg); color: var(--bg); }
   .list tr.empty td { color: var(--dim); }
   .list tr.over td { outline: 1px dashed var(--fg); outline-offset: -1px; }
@@ -256,6 +256,26 @@
             <button id="bkexport" data-t="exportBank" data-ic="symbol_download"></button>
             <span class="dim" data-t="dndHelp"></span>
           </p>
+        </div>
+      </div>
+      <div>
+        <h2 data-t="fm6Bank" data-ic="ui_knob"></h2>
+        <p class="dim" id="fm6hint"></p>
+        <div id="fm6pane" hidden>
+          <div class="bar"><b id="fm6head"></b></div>
+          <div class="list" id="fm6list"></div>
+          <p class="bar" style="margin-top:6px">
+            <button id="fmuse" data-t="fm6Use" data-ic="symbol_audio"></button>
+            <button id="fmget" data-t="bankGet" data-ic="symbol_download"></button>
+            <button id="fmclear" data-t="erase" data-ic="symbol_trash"></button>
+          </p>
+          <p class="bar">
+            <button id="fmimport" data-t="fm6Import" data-ic="symbol_upload"></button>
+            <button id="fmexport" data-t="fm6Export" data-ic="symbol_download"></button>
+            <button id="fmrefresh" data-t="reload" data-ic="control_arrow_loop"></button>
+            <input type="file" id="fmfile" accept=".syx" hidden>
+          </p>
+          <p class="dim" data-t="fm6Help"></p>
         </div>
       </div>
     </div>
@@ -498,20 +518,42 @@ class Link {
   }
   get idle() { return !this.cur && !this.q.length; }
   hasQueued(key) { return this.q.some((r) => r.key === key); }
-  /* Keep editor traffic queued until the device has echoed the loaded voice. Older
-     firmware can lose a pending Yamaha frame when another SysEx arrives too soon. */
-  transferDX7(message, opt = {}) {
+  /* Yamaha SysEx through the queue (fm6_store.c): send (null: nothing), then after `settle` ms the dump
+     request; done when check(reply) returns a value. Editor traffic waits meanwhile: older firmware can
+     lose a pending Yamaha frame when another SysEx arrives too soon, and a bank's flash write takes a
+     while (a retry sends both again, with twice the settle time). */
+  yamaha(send, request, check, fail, opt = {}) {
     if (this.closed) return Promise.reject(new Error("closed"));
+    return new Promise((res, rej) => {
+      this.q.push({ cmd: null, yam: { send, request, check, fail }, res, rej, timeout: opt.timeout ?? 700,
+        retries: opt.retries ?? 2, settle: opt.settle ?? 120 });
+      this.pump();
+    });
+  }
+  /* a single voice into the FM6 part's buffer, confirmed by its echo */
+  transferDX7(message, opt = {}) {
     let voice;
     try {
       if (message.length !== 163) throw new Error("Expected a DX7 single voice");
       voice = dx7ForDevice(readDX7File(message).patches[0].dx7);
     } catch (e) { return Promise.reject(e); }
-    return new Promise((res, rej) => {
-      this.q.push({ cmd: null, dx7: voice, res, rej, timeout: opt.timeout ?? 700,
-        retries: opt.retries ?? 2, settle: opt.settle ?? 120 });
-      this.pump();
-    });
+    return this.yamaha(dx7Message(voice), [0xF0, 0x43, 0x20, 0, 0xF7], (d) => {
+      if (d.length !== 163) return undefined;
+      const v = readDX7File(d).patches[0].dx7;
+      return v.every((x, i) => x === voice[i]) ? v : undefined;
+    }, "DX7 voice was not confirmed by the device. Try Audition again.", opt);
+  }
+  /* the FM6 user bank: -> its 4096 bytes */
+  readFM6Bank(opt = {}) {
+    return this.yamaha(null, [0xF0, 0x43, 0x20, 9, 0xF7], fm6Bank.read, "The FM6 voice bank could not be read.",
+      { timeout: 1500, retries: 1, ...opt });
+  }
+  /* the whole FM6 user bank (the device saves it to flash), confirmed by reading it back */
+  writeFM6Bank(bank, opt = {}) {
+    return this.yamaha(fm6Bank.message(bank), [0xF0, 0x43, 0x20, 9, 0xF7], (d) => {
+      const b = fm6Bank.read(d);
+      return b && b.every((v, i) => v === bank[i]) ? b : undefined;
+    }, "The FM6 voice bank was not confirmed by the device.", { timeout: 1500, settle: 400, ...opt });
   }
   /* r = [cmd, args]; opt: {timeout, retries, key (coalesce queued requests: the latest args win), front,
      quiet (a timeout is expected: no onTimeout)} */
@@ -540,20 +582,21 @@ class Link {
     const now = Date.now();
     if (this.lastSent && now - this.lastSent > 2500) this.onGap(now - this.lastSent);
     this.lastSent = now;
+    const y = c.yam, settle = y && y.send ? c.settle : 0;
     try {
-      this.sendRaw(c.dx7 ? dx7Message(c.dx7) : frame(c.cmd, c.args));
-      if (c.dx7) c.readTimer = setTimeout(() => {
+      this.sendRaw(y ? y.send || y.request : frame(c.cmd, c.args));
+      if (settle) c.readTimer = setTimeout(() => {
         if (this.cur !== c) return;
         this.lastSent = Date.now();
-        try { this.sendRaw([0xF0, 0x43, 0x20, 0, 0xF7]); } catch (e) { this.finish(null, e); }
-      }, c.settle);
+        try { this.sendRaw(y.request); } catch (e) { this.finish(null, e); }
+      }, settle);
     } catch (e) { this.finish(null, e); return; }
     c.timer = setTimeout(() => {
       if (this.cur !== c) return;
-      if (c.retries-- > 0) { if (c.dx7) c.settle *= 2; this.fire(); return; }
-      if (!c.quiet && !c.dx7) this.onTimeout(c.cmd);
-      this.finish(null, new Error(c.dx7 ? "DX7 voice was not confirmed by the device. Try Audition again." : "timeout (cmd " + c.cmd + ")"));
-    }, c.timeout + (c.dx7 ? c.settle : 0));
+      if (c.retries-- > 0) { if (settle) c.settle *= 2; this.fire(); return; }
+      if (!c.quiet && !y) this.onTimeout(c.cmd);
+      this.finish(null, new Error(y ? y.fail : "timeout (cmd " + c.cmd + ")"));
+    }, c.timeout + settle);
   }
   finish(val, err) {
     const c = this.cur;
@@ -567,11 +610,10 @@ class Link {
   /* raw incoming MIDI bytes */
   receive(data) {
     const pending = this.cur;
-    if (pending && pending.dx7 && data.length === 163 && data[0] === 0xF0 && data[1] === 0x43) {
-      try {
-        const voice = readDX7File(data).patches[0].dx7;
-        if (voice.every((v, i) => v === pending.dx7[i])) this.finish(voice);
-      } catch (e) { /* corrupt or unrelated Yamaha frame: wait for a valid readback */ }
+    if (pending && pending.yam && data[0] === 0xF0 && data[1] === 0x43) {
+      let v;
+      try { v = pending.yam.check(data); } catch (e) { /* corrupt or unrelated Yamaha frame: wait for a valid readback */ }
+      if (v !== undefined) this.finish(v);
       return;
     }
     const f = unframe(data);
@@ -872,11 +914,56 @@ function unpackDX7(b) {
     ...b.slice(112, 116), b[116] & 1, (b[116] >> 1) & 7, (b[116] >> 4) & 7, ...b.slice(117, 128));
   return v;
 }
+/* VCED -> the 128 VMEM bytes (eng_fm6.c fm6_pack); the voice must be in range (dx7ForDevice) */
+function packDX7(voice) {
+  const v = dx7Voice(voice), b = [];
+  for (let o = 0; o < 126; o += 21)
+    b.push(...v.slice(o, o + 11), v[o + 11] | v[o + 12] << 2, v[o + 13] | v[o + 20] << 3,
+      v[o + 14] | v[o + 15] << 2, v[o + 16], v[o + 17] | v[o + 18] << 1, v[o + 19]);
+  b.push(...v.slice(126, 135), v[135] | v[136] << 3, ...v.slice(137, 141), v[141] | v[142] << 1 | v[143] << 4,
+    v[144], ...v.slice(145, 155));
+  return b;
+}
 const dx7Checksum = (data) => (-data.reduce((s, v) => s + v, 0)) & 127;
 function dx7Message(voice) {
   const v = dx7Voice(voice);
   return [0xF0, 0x43, 0, 0, 1, 0x1B, ...v, dx7Checksum(v), 0xF7];
 }
+/* the voice name as the device shows it (fm6_name: trailing spaces cut) */
+const dx7Name = (voice) => String.fromCharCode(...voice.slice(145, 155)).replace(/[^\x20-\x7E]/g, " ").trimEnd();
+/* the DX7 init voice: OP1 alone, every envelope open (eng_fm6_rom.h FM6_INIT) */
+function dx7Init() {
+  const op = (ol) => [99, 99, 99, 99, 99, 99, 99, 0, 39, 0, 0, 0, 0, 0, 0, 0, ol, 0, 1, 0, 7];
+  return [...op(0), ...op(0), ...op(0), ...op(0), ...op(0), ...op(99), 99, 99, 99, 99, 50, 50, 50, 50,
+    0, 0, 1, 35, 0, 0, 0, 1, 0, 0, 24, ...Array.from("INIT VOICE", (c) => c.charCodeAt(0))];
+}
+
+/* The FM6 user bank (fm6_store.c): 32 VMEM voices, sent and read back as one 32-voice dump.
+   VOICE on an FM6 track: the factory voices R01..R16, then the bank U01..U32. */
+const FM6 = { SLOTS: 32, NROM: 16, INIT: "INIT VOICE" };
+const fm6Bank = {
+  message: (bank) => [0xF0, 0x43, 0, 9, 0x20, 0, ...bank, dx7Checksum(bank), 0xF7],
+  /* a 32-voice dump -> the 4096 bank bytes, undefined when it is not one */
+  read(d) {
+    if (d.length !== 4104 || d[0] !== 0xF0 || d[1] !== 0x43 || d[3] !== 9 || d[4] !== 0x20 || d[5] !== 0) return undefined;
+    const b = Array.from(d.slice(6, 4102));
+    return b.every((v) => v < 128) && d[4102] === dx7Checksum(b) && d[4103] === 0xF7 ? b : undefined;
+  },
+  voice: (bank, k) => unpackDX7(bank.slice(k * 128, k * 128 + 128)),
+  names: (bank) => Array.from({ length: FM6.SLOTS }, (_, k) => dx7Name(fm6Bank.voice(bank, k))),
+  /* the bank with voice in slot k (clamped like the device does) */
+  withVoice(bank, k, voice) {
+    const b = bank.slice();
+    b.splice(k * 128, 128, ...packDX7(dx7ForDevice(voice)));
+    return b;
+  },
+  /* the free (INIT VOICE) slots from slot `from` on, wrapping */
+  free(bank, from = 0) {
+    const names = fm6Bank.names(bank), out = [];
+    for (let i = 0; i < FM6.SLOTS; i++) { const k = (from + i) % FM6.SLOTS; if (names[k] === FM6.INIT) out.push(k); }
+    return out;
+  },
+};
 function readDX7File(bytes, ctx = {}) {
   const b = Array.from(bytes), patches = [];
   for (let off = 0; off < b.length;) {
@@ -1024,7 +1111,7 @@ const bank = {
   async get(rq, info, slot) { return parse[CMD.UP_GET](await rq(req.upGet(slot)), info); },
   /* -> rc (0 ok) */
   async put(rq, slot, pt) {
-    if (pt.dx7) throw new Error("Keep this voice with FM6 STORE or save a project after auditioning");
+    if (pt.dx7) throw new Error("DX7 voices go to the FM6 bank, not to a user preset slot");
     return parse[CMD.UP_PUT](await rq(req.upPut(slot, pt), FLASH_OPT)).rc;
   },
   async store(rq, slot, name) { return parse[CMD.UP_STORE](await rq(req.upStore(slot, name), FLASH_OPT)).rc; },
@@ -1115,7 +1202,7 @@ const mixer = {
 /* Implements the protocol like firmware/src/editor.c, with tables copied from params.c
    and the engine sources. Used with ?mock=1 (add &legacy=1 for a firmware without cmds 16..26).
    opt: {legacy: no user bank / WATCH, v3: no TRACK_PARAM / TRACK_CHANGED (firmware 0.8),
-         auto: false = no simulated knobs (tests drive sim.*),
+         auto: false = no simulated knobs (tests drive sim.*), fm6: the FM6 engine, its user bank and DX7 SysEx,
          watchMs: how long WATCH lasts after the last request (3000), slots: user bank size (32)} */
 function makeMockDevice(opt = {}) {
   const NONOFF = ["OFF", "ON"], NDIV = ["1/4", "1/8", "1/16", "1/32", "8T", "16T"], NGO = ["--", "GO"], NDASH = ["--"];
@@ -1219,6 +1306,17 @@ function makeMockDevice(opt = {}) {
   ];
   const P_COUNT = 57, G_COUNT = 27, NSTEP = 64, P_E0 = 49, G_ENGSEL = 20, P_SLCR = 45;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  /* FM6 (opt.fm6, eng_fm6.c): VOICE R01..R16 (stand-ins here), U01..U32 = the user bank */
+  const slotTag = (c, i) => c + String(i + 1).padStart(2, "0");
+  const FM6V = [...Array.from({ length: FM6.NROM }, (_, i) => slotTag("R", i)), ...Array.from({ length: FM6.SLOTS }, (_, i) => slotTag("U", i))];
+  const fm6Rom = (i) => [...dx7Init().slice(0, 145), ...Array.from((slotTag("R", i) + " VOICE").padEnd(10), (c) => c.charCodeAt(0))];
+  if (opt.fm6) {
+    ENG.push({ name: "FM6", titles: ["PATCH", "-"], edit: [E("VOICE", FM6V, 0), D("MOD", F.BIPCT, -64, 63, 0),
+        D("M.TIM", F.BIPCT, -64, 63, 0), D("C.TIM", F.BIPCT, -64, 63, 0), NONE, NONE, NONE, NONE],
+      presets: [P("TINE EP", [0, 0, 0, 0, 0, 0, 0, 0], [0, 127, 127, 127], 0, 6), P("BRASS SECT", [1, 0, 0, 0, 0, 0, 0, 0], [0, 127, 127, 127], 0, 6),
+        P("SOLID BASS", [2, 0, 0, 0, 0, 0, 0, 0], [0, 127, 127, 127], 1, 2)] });
+    GP[G_ENGSEL] = E("ENG", ENG.map((e) => e.name), 0);
+  }
   /* four tracks (firmware v3); engine / preset / p / step below are the selected track's */
   const NTRK = 4, TRK_DRUM = 3;
   const newTrack = (i) => ({ engine: 0, preset: 0, drum: i === TRK_DRUM,
@@ -1230,12 +1328,35 @@ function makeMockDevice(opt = {}) {
     slots: [null, null, null, null],
     smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, name: "", len: 0, next: SMP.DATA_OFF })),
     bank: new Array(opt.slots || 32).fill(null),     /* user presets: {engine, name, p, pattern} */
+    fm6bank: [].concat(...Array.from({ length: FM6.SLOTS }, () => packDX7(dx7Init()))),   /* FM6 user bank (VMEM) */
     watch: false, v4: false, lastReq: 0,
   };
   for (const k of ["engine", "preset", "p", "step"]) {
     Object.defineProperty(st, k, { enumerable: false, get: () => st.tracks[st.sel][k], set: (v) => { st.tracks[st.sel][k] = v; } });
   }
   const drumSel = () => st.tracks[st.sel].drum;
+  const isFm6 = (t) => !t.drum && ENG[t.engine].name === "FM6";
+  const fm6ed = (t) => {                            /* fm6_block: VOICE changed (or never loaded) -> the buffer reloads */
+    const want = clamp(t.p[P_E0], 0, FM6V.length - 1);
+    if (t.fm6cur !== want + 1) {
+      t.fm6ed = want < FM6.NROM ? fm6Rom(want) : fm6Bank.voice(st.fm6bank, want - FM6.NROM);
+      t.fm6cur = want + 1;
+    }
+    return t.fm6ed;
+  };
+  /* fm6_store.c fm6_sysex: the selected track if it plays FM6, else the first FM6 track; -> the reply or null */
+  function yamaha(d) {
+    const t = isFm6(st.tracks[st.sel]) ? st.tracks[st.sel] : st.tracks.find(isFm6), status = d[2] & 0xF0;
+    if (d.length === 163 && status === 0 && d[3] === 0 && d[4] === 1 && d[5] === 0x1B && dx7Checksum(d.slice(6, 161)) === d[161]) {
+      if (t) { fm6ed(t); t.fm6ed = dx7ForDevice(d.slice(6, 161)); }
+      return null;
+    }
+    const bk = fm6Bank.read(d);
+    if (bk) { st.fm6bank = bk; return null; }
+    if (d.length === 5 && status === 0x20 && d[3] === 0) return t ? dx7Message(fm6ed(t)) : null;
+    if (d.length === 5 && status === 0x20 && d[3] === 9) return fm6Bank.message(st.fm6bank);
+    return null;
+  }
   const engOf = (t) => (t.drum ? ENG.length : t.engine);   /* the engine byte: NENGINES = drums */
   const watchMs = opt.watchMs || 3000;
   const desc = (scope, id) => (scope === 0 && id < P_COUNT ? (id >= P_E0 ? ENG[st.engine].edit[id - P_E0] : TP[id])
@@ -1275,6 +1396,9 @@ function makeMockDevice(opt = {}) {
     clearSteps();
   });
   [[1, 1, 5], [2, 3, 0]].forEach(([i, e, p]) => { st.sel = i; setEngine(e); applyPreset(p); clearSteps(); });   /* PAD, PULSE LD */
+  if (opt.fm6) [[0, "MOCK BRASS"], [1, "MOCK BELLS"], [4, "MOCK PIANO"]].forEach(([k, name]) => {
+    st.fm6bank = fm6Bank.withVoice(st.fm6bank, k, [...dx7Init().slice(0, 145), ...Array.from(name.padEnd(10), (c) => c.charCodeAt(0))]);
+  });
   /* a mix to look at: pads left, lead right, and a GM drum pattern on track 4 */
   st.tracks[1].p[39] = -24; st.tracks[2].p[39] = 20; st.tracks[2].p[0] = 92; st.tracks[TRK_DRUM].p[39] = 0;
   const KICK = 36, SNARE = 38, CHH = 42, OHH = 46, CLAP = 39;
@@ -1515,6 +1639,14 @@ function makeMockDevice(opt = {}) {
   const output = {
     id: "mock-out", name: "Felucca", type: "output", state: "connected",
     send(data) {
+      if (data[0] === 0xF0 && data[1] === 0x43) {    /* DX7 SysEx (FM6): no Felucca frame, no busy slot */
+        const d = Array.from(data);
+        if (opt.fm6) setTimeout(() => {
+          const r = yamaha(d);
+          if (r && input.onmidimessage) input.onmidimessage({ data: Uint8Array.from(r) });
+        }, d.length > 200 ? 150 : 5);
+        return;
+      }
       const f = unframe(data);
       if (!f) { console.error("mock: refused a frame that is not F0 7D 46 4C ... F7", data); return; }
       if (busy) { console.warn("mock: frame dropped (device holds only one frame)", data); return; }
@@ -1692,8 +1824,17 @@ const TEXT = {
     name: "名前", tagsCol: "タグ", date: "更新",
     audition: "試聴", toSlot: "本体スロットへ", rename: "名前変更", tags: "タグ", duplicate: "複製", delete: "削除",
     exportPatch: "書き出し", saveToLib: "今の音色をライブラリへ", import: "読み込み", exportLib: "ライブラリを書き出し",
-    dx7Help: "Felucca JSON、DX7 .syx 音色・32音色バンクを読み込めます。DX7音色はシンセトラックで試聴し、FM6のSTOREかプロジェクト保存で本体に残せます。",
-    dx7Sent: "DX7音色の読み込みを確認しました: ", dx7Store: "試聴後、FM6のSTOREかプロジェクト保存で音色を残してください。",
+    dx7Help: "Felucca JSON、DX7 .syx 音色・32音色バンクを読み込めます。DX7音色はシンセトラックで試聴し、「保存」で本体のFM6バンクに残せます。",
+    dx7Sent: "DX7音色の読み込みを確認しました（「保存」でFM6バンクに残せます）: ", dx7Store: "DX7音色はFM6バンクへ: FM6のスロットにドラッグするか「保存」を使ってください。",
+    fm6Bank: "本体のFM6音色", fm6Use: "トラックで鳴らす", fm6Import: ".syx を読み込み", fm6Export: ".syx に書き出し",
+    fm6Help: "ライブラリのDX7音色をスロットにドラッグすると本体に保存されます。32音色の .syx バンクは本体のバンクを置き換え、単音色は空きスロットに入ります。トラックの VOICE は R01–R16 が内蔵音色、U01–U32 がこのバンクです。",
+    fm6Connect: "FM-1 を接続すると本体のFM6音色も扱えます。", fm6None: "このファームウェアにはFM6の音色バンクがありません。",
+    fm6Keep: "{n} に保存", fm6KeepNone: "FM6に保存",
+    fm6KeepHelp: "DX7音色を本体のFM6バンクに保存します（選択中のスロット、なければ最初の空きスロット）。試聴中のトラックは同じ音色のまま、そのスロットを指すようになります。",
+    fm6Full: "FM6バンクに空きがありません。上書きするスロットを選んでください。",
+    fm6Reading: "FM6バンクを読み込み中", fm6Writing: "FM6バンクに書き込み中", fm6Stored: "FM6に保存しました: ",
+    fm6Playing: "トラックで鳴らしています: ", fm6Replace: "本体のFM6音色 32 個をすべて「{name}」で置き換えますか？",
+    fm6Replaced: "FM6バンクを置き換えました: ", fm6NoRoom: "FM6バンクの空きが足りません（{n} 音色に対して空き {free}）。",
     dx7Track: "DX7音色の試聴にはシンセトラックを選んでください。",
     factoryToLib: "ライブラリへコピー", libEmpty: "ライブラリは空です。「今の音色をライブラリへ」やファクトリープリセットのコピー、本体スロットからの取り込み、ファイルの読み込みで追加できます。",
     noMatch: "該当なし", noLibDB: "（ブラウザに保存できません。再読み込みで消えます）",
@@ -1755,8 +1896,17 @@ const TEXT = {
     name: "Name", tagsCol: "Tags", date: "Changed",
     audition: "Audition", toSlot: "To device slot", rename: "Rename", tags: "Tags", duplicate: "Duplicate", delete: "Delete",
     exportPatch: "Export", saveToLib: "Save current sound", import: "Import", exportLib: "Export library",
-    dx7Help: "Import Felucca JSON or DX7 .syx voices and 32-voice banks. Audition DX7 voices on a synth track, then use FM6 STORE or save a project to keep them on the device.",
-    dx7Sent: "DX7 voice loaded and verified: ", dx7Store: "After auditioning, use FM6 STORE or save a project to keep this voice.",
+    dx7Help: "Import Felucca JSON or DX7 .syx voices and 32-voice banks. Audition a DX7 voice on a synth track, then Keep stores it in the device's FM6 bank.",
+    dx7Sent: "DX7 voice loaded and verified (Keep stores it in the FM6 bank): ", dx7Store: "DX7 voices go to the FM6 bank: drag one onto an FM6 slot or use Keep.",
+    fm6Bank: "FM6 voices on the device", fm6Use: "Play on track", fm6Import: "Import .syx", fm6Export: "Save as .syx",
+    fm6Help: "Drag a DX7 voice from the library onto a slot to store it on the device. A 32-voice .syx bank replaces the device's bank; single voices go into free slots. A track's VOICE: R01-R16 are the built-in voices, U01-U32 this bank.",
+    fm6Connect: "Connect the FM-1 to see its FM6 voices too.", fm6None: "This firmware has no FM6 voice bank.",
+    fm6Keep: "Keep in {n}", fm6KeepNone: "Keep in FM6",
+    fm6KeepHelp: "Stores the DX7 voice in the device's FM6 bank (the selected slot, else the first free one). A track auditioning it keeps the same sound, now from that slot.",
+    fm6Full: "The FM6 bank is full: select a slot to overwrite.",
+    fm6Reading: "Reading the FM6 bank", fm6Writing: "Writing the FM6 bank", fm6Stored: "Stored in FM6: ",
+    fm6Playing: "Playing on the track: ", fm6Replace: "Replace all 32 FM6 voices on the device with {name}?",
+    fm6Replaced: "FM6 bank replaced: ", fm6NoRoom: "Not enough free FM6 slots ({n} voices, {free} free).",
     dx7Track: "Select a synth track to audition a DX7 voice.",
     factoryToLib: "Copy to library", libEmpty: "The library is empty. Add sounds with \"Save current sound\", by copying a factory preset or a device slot, or by importing a file.",
     noMatch: "No match", noLibDB: "(this browser cannot store it: it is gone after a reload)",
@@ -1799,6 +1949,7 @@ function applyLang() {
   renderLive();
   renderLib();
   renderBank();
+  renderFm6();
   renderPanels();
   if (dev) { renderSlots(); renderStepHead(); renderSamples(); renderTrackbar(); renderMixer(); renderSysinfo(); }
 }
@@ -1922,7 +2073,7 @@ async function connect() {
   sayK("connecting");
   try {
     if (!access) {
-      if (MOCK) { mock = makeMockDevice({ legacy: QS.get("legacy") === "1" }); access = mock.access; }
+      if (MOCK) { mock = makeMockDevice({ legacy: QS.get("legacy") === "1", fm6: QS.get("fm6") !== "0" }); access = mock.access; }
       else {
         try { access = await navigator.requestMIDIAccess({ sysex: true }); }
         catch (e) { sayK("denied"); return; }
@@ -1943,7 +2094,7 @@ async function connect() {
     input.onmidimessage = (e) => link.receive(e.data);
     if (input.open) await input.open().catch(() => {});
     dev = { link, input, output, info: null, pdesc: [], gdesc: [], names: [], dump: null, steps: [], slotUsed: [null, null, null, null],
-      keys: null, watch: false, bank: null };
+      keys: null, watch: false, bank: null, fm6: null };
     setLabel($("connect"), t("disconnect"));
     await load(dev);
   } catch (e) {
@@ -1972,6 +2123,7 @@ function disconnect(reasonKey = "disconnected") {
   renderLive();
   renderLib();
   renderBank();
+  renderFm6();
   $("version").textContent = "";
   setLabel($("connect"), t("connect"));
   sayK(reasonKey);
@@ -2032,9 +2184,15 @@ async function load(d) {
       try { d.bank = await bank.list((r, o) => d.link.request(r, { ...o, quiet: true })); }
       catch (e) { if (e.message === "closed") throw e; d.bank = null; }
     }
+    if (d.info.engines.includes("FM6")) {           /* the FM6 user bank: a 32-voice DX7 dump */
+      sayK("fm6Reading");
+      try { d.fm6 = fm6State(await d.link.readFM6Bank()); }
+      catch (e) { if (e.message === "closed") throw e; d.fm6 = null; }
+    }
     renderLive();
     renderLib();
     renderBank();
+    renderFm6();
     renderSysinfo();
     sayK("ready");
   } finally { busy--; }
@@ -2171,7 +2329,7 @@ function paramRow(s, id) {
     if (wave) input.append(el("button", {}, el("selectedcontent")));
     for (let v = d.min; v <= d.max; v++) {
       const [txt] = fmtValue(d, v);
-      const name = d.fmt === F.ENUM && d.names[v - d.min] == null ? String(v) : txt;
+      const name = fm6VoiceText(s, id, v) ?? (d.fmt === F.ENUM && d.names[v - d.min] == null ? String(v) : txt);
       input.append(el("option", { value: v, ic: wave && WAVE_IC[name] }, name));
     }
     input.addEventListener("change", () => userSet(s, id, +input.value, true));
@@ -2213,7 +2371,7 @@ function showValue(k, v, force) {
   const c = ctl.get(k);
   if (!c || v == null) return;
   const [txt, unit] = fmtValue(c.desc, v);
-  c.out.textContent = unit ? `${txt} ${unit}` : txt;
+  c.out.textContent = fm6VoiceText(c.scope, c.id, v) ?? (unit ? `${txt} ${unit}` : txt);
   if (force || !touched(k)) c.input.value = String(v);
 }
 /* the user is working on this control: polling and pushes must not move it */
@@ -3131,8 +3289,10 @@ function renderLib() {
   const sel = lib.find((p) => p.id === libSel);
   for (const id of ["libren", "libtags", "libdup", "libdel", "libexp1"]) $(id).disabled = !sel;
   $("libaud").disabled = !sel || !engineOk(sel) || (sel.dx7 && isDrum()) || libBusy;
-  $("libput").disabled = !sel || !!sel.dx7 || !dev || !dev.bank || bankSel == null || libBusy;
-  $("libput").title = sel && sel.dx7 ? t("dx7Store") : "";
+  const keep = !!(sel && sel.dx7), target = keep ? fm6Target() : null;   /* a DX7 voice: Keep in the FM6 bank */
+  setLabel($("libput"), !keep ? t("toSlot") : target == null ? t("fm6KeepNone") : t("fm6Keep").replace("{n}", slotName(target)));
+  $("libput").disabled = !sel || libBusy || (keep ? !dev || !dev.fm6 || target == null : !dev || !dev.bank || bankSel == null);
+  $("libput").title = !keep ? "" : dev && dev.fm6 && target == null ? t("fm6Full") : t("fm6KeepHelp");
   $("libsave").disabled = !dev || libBusy;
   $("libexport").disabled = !lib.length;
 }
@@ -3177,13 +3337,17 @@ function renderBank() {
   $("bkexport").disabled = !used || !idle;
 }
 /* a slot dropped on the library: copy it there */
-$("liblist").addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/x-felucca-slot")) { e.preventDefault(); $("liblist").classList.add("over"); } });
+$("liblist").addEventListener("dragover", (e) => {
+  const ty = e.dataTransfer.types;
+  if (ty.includes("text/x-felucca-slot") || ty.includes("text/x-felucca-fm6")) { e.preventDefault(); $("liblist").classList.add("over"); }
+});
 $("liblist").addEventListener("dragleave", () => $("liblist").classList.remove("over"));
 $("liblist").addEventListener("drop", (e) => {
   e.preventDefault();
   $("liblist").classList.remove("over");
-  const s = e.dataTransfer.getData("text/x-felucca-slot");
+  const s = e.dataTransfer.getData("text/x-felucca-slot"), f = e.dataTransfer.getData("text/x-felucca-fm6");
   if (s !== "") bankGet(+s);
+  else if (f !== "") fm6Get(+f);
 });
 
 /* library operations that talk to the device: one at a time, buttons off meanwhile */
@@ -3191,8 +3355,8 @@ async function libOp(fn) {
   if (!dev || libBusy) return;
   libBusy = true;
   busy++;
-  renderLib(); renderBank();
-  try { await fn(); } catch (err) { report(err); } finally { busy--; libBusy = false; renderLib(); renderBank(); }
+  renderLib(); renderBank(); renderFm6();
+  try { await fn(); } catch (err) { report(err); } finally { busy--; libBusy = false; renderLib(); renderBank(); renderFm6(); }
 }
 const rqf = (r, o) => rq(r, o);
 const checkRc = (rc) => { if (rc) throw new Error(t("flashFail").replace("{rc}", rc)); };
@@ -3213,6 +3377,7 @@ function libAudition(id) {
       sendDX7: (message) => dev.link.transferDX7(message),
       progress: (i, n) => { if (i % 8 === 0) sayK("auditioning", `${p.name} ${i}/${n}`); } });
     await afterSoundChange();
+    fm6Auditioned = p.dx7 ? { id: p.id, sel: dev.sel } : null;
     sayK(p.dx7 ? "dx7Sent" : r.wrote ? "auditionedPat" : "auditioned", p.name);
   });
 }
@@ -3258,7 +3423,10 @@ function libPut(id, slot) {
     sayK("putDone", `${slotName(slot)} ${upName(p.name)}`);
   });
 }
-$("libput").addEventListener("click", () => libPut(libSel, bankSel));
+$("libput").addEventListener("click", () => {
+  const p = lib.find((x) => x.id === libSel);
+  if (p && p.dx7) fm6Put(libSel, fm6Target()); else libPut(libSel, bankSel);
+});
 
 $("libren").addEventListener("click", () => {
   const p = lib.find((x) => x.id === libSel);
@@ -3289,8 +3457,8 @@ $("libdel").addEventListener("click", async () => {
   renderLib();
 });
 
-function download(name, obj) {
-  const blob = new Blob([JSON.stringify(obj, null, 1)], { type: "application/json" });
+function download(name, obj) { saveBlob(name, new Blob([JSON.stringify(obj, null, 1)], { type: "application/json" })); }
+function saveBlob(name, blob) {
   const a = el("a", { href: URL.createObjectURL(blob), download: name });
   document.body.append(a);
   a.click();
@@ -3394,6 +3562,186 @@ $("bkexport").addEventListener("click", () => libOp(async () => {
   download(`felucca-bank-${today()}.json`, libraryFile("bank", out, libCtx()));
   sayK("ready");
 }));
+
+/* FM6 bank: DX7 voices in the device's 32 user slots (U01..U32 of an FM6 track's VOICE). Every change is
+   read, changed and written back whole (the device saves the bank to flash), then confirmed by a readback. */
+let fm6Sel = null;              /* the selected FM6 slot */
+let fm6Auditioned = null;       /* {id, sel}: the DX7 library entry last auditioned and on which track */
+const fm6State = (bank) => ({ bank, names: fm6Bank.names(bank) });
+const fm6Eng = () => (dev ? dev.info.engines.indexOf("FM6") : -1);
+const fm6OnTrack = () => !!(dev && dev.dump && dev.dump.engine === fm6Eng());
+/* VOICE of the first user slot: the factory voices come first, the bank last (DESC lists 16 names at most) */
+function fm6Nrom() {
+  const d = fm6OnTrack() ? dev.pdesc[dev.info.pe0] : null;
+  return d && d.max + 1 > FM6.SLOTS ? d.max + 1 - FM6.SLOTS : FM6.NROM;
+}
+/* where Keep puts a voice: the selected slot, else the first free one */
+function fm6Target() {
+  if (!dev || !dev.fm6) return null;
+  if (fm6Sel != null) return fm6Sel;
+  const f = fm6Bank.free(dev.fm6.bank);
+  return f.length ? f[0] : null;
+}
+async function fm6Change(edit) {                    /* edit(bank) -> the new bank, or null: nothing to write */
+  sayK("fm6Reading");
+  const bank = await dev.link.readFM6Bank();        /* (STORE on the device may have changed it) */
+  dev.fm6 = fm6State(bank);
+  const b = edit(bank);
+  if (!b) return false;
+  sayK("fm6Writing");
+  dev.fm6 = fm6State(await dev.link.writeFM6Bank(b));
+  return true;
+}
+async function fm6PointTrack(slot) {                /* the selected track's VOICE -> U(slot) */
+  await rq(req.set(0, dev.info.pe0, fm6Nrom() + slot));
+  dev.dump = await getDump();
+  refreshAll();
+}
+
+/* an FM6 track's VOICE beyond the factory voices: the bank slot and its voice name (DESC has 16 names) */
+function fm6VoiceText(scope, id, v) {
+  if (scope || !dev || id !== dev.info.pe0 || !fm6OnTrack() || v < fm6Nrom()) return null;
+  const k = v - fm6Nrom(), name = dev.fm6 ? dev.fm6.names[k] : null;
+  return slotName(k) + (name && name !== FM6.INIT ? " " + name : "");
+}
+function fm6Relabel() {                             /* the bank changed: the VOICE choices follow */
+  const c = dev && ctl.get(key(0, dev.info.pe0));
+  if (!c || c.input.tagName !== "SELECT") return;
+  for (const o of c.input.options) { const fv = fm6VoiceText(0, dev.info.pe0, +o.value); if (fv) o.textContent = fv; }
+  showValue(key(0, dev.info.pe0), dev.dump.p[dev.info.pe0], false);
+}
+
+function renderFm6() {
+  fm6Relabel();
+  const pane = $("fm6pane"), has = !!(dev && dev.fm6);
+  $("fm6hint").hidden = has;
+  $("fm6hint").textContent = !dev || !dev.dump ? t("fm6Connect") : t("fm6None");
+  if (!has) { pane.hidden = true; return; }
+  pane.hidden = false;
+  const names = dev.fm6.names, used = names.filter((n) => n !== FM6.INIT).length;
+  const playing = fm6OnTrack() ? dev.dump.p[dev.info.pe0] - fm6Nrom() : -1;
+  $("fm6head").textContent = `${used} / ${FM6.SLOTS} ${t("used")}`;
+  const tb = el("table", {}, el("colgroup", {}, el("col", { class: "n" }), el("col")),
+    el("tr", {}, el("th", { text: "#" }), el("th", { text: t("name") })));
+  names.forEach((name, k) => {
+    const empty = name === FM6.INIT;
+    const tr = el("tr", { "data-fm6": k, class: [k === fm6Sel ? "sel" : "", empty ? "empty" : ""].join(" ").trim() || null,
+      draggable: empty ? null : "true", title: name },
+      el("td", { text: slotName(k) }), el("td", {}, k === playing ? icon("symbol_audio") : "", empty ? t("empty") : name));
+    tr.addEventListener("click", () => { fm6Sel = fm6Sel === k ? null : k; renderFm6(); renderLib(); });
+    tr.addEventListener("dblclick", () => fm6Use(k));
+    tr.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/x-felucca-fm6", String(k)); e.dataTransfer.effectAllowed = "copy"; });
+    tr.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/x-felucca-lib")) { e.preventDefault(); tr.classList.add("over"); } });
+    tr.addEventListener("dragleave", () => tr.classList.remove("over"));
+    tr.addEventListener("drop", (e) => {
+      e.preventDefault();
+      tr.classList.remove("over");
+      const id = e.dataTransfer.getData("text/x-felucca-lib");
+      if (id) fm6Put(id, k);
+    });
+    tb.append(tr);
+  });
+  $("fm6list").replaceChildren(tb);
+  const idle = !libBusy, s = fm6Sel != null && names[fm6Sel] !== FM6.INIT;
+  $("fmuse").disabled = fm6Sel == null || !idle;
+  $("fmget").disabled = !s || !idle;
+  $("fmclear").disabled = !s || !idle;
+  $("fmimport").disabled = $("fmrefresh").disabled = !idle;
+  $("fmexport").disabled = !idle;
+}
+
+/* a DX7 library voice -> FM6 slot k; the track it was auditioned on now plays it from there */
+function fm6Put(id, k) {
+  const p = lib.find((x) => x.id === id);
+  if (!p || !dev || !dev.fm6 || libBusy) return;
+  if (!p.dx7) { sayK("badEngine", p.engineName || p.engine); return; }
+  if (k == null) { sayK("fm6Full"); return; }
+  const old = dev.fm6.names[k];
+  if (old !== FM6.INIT && !confirm(t("confirmOverwrite").replace("{n}", slotName(k)).replace("{name}", old))) return;
+  libOp(async () => {
+    await fm6Change((b) => fm6Bank.withVoice(b, k, p.dx7));
+    fm6Sel = null;                                  /* the next Keep: the next free slot */
+    if (fm6Auditioned && fm6Auditioned.id === p.id && fm6Auditioned.sel === dev.sel && fm6OnTrack()) await fm6PointTrack(k);
+    sayK("fm6Stored", `${slotName(k)} ${dev.fm6.names[k]}`);
+  });
+}
+/* the selected track plays slot k (a synth track becomes FM6 first) */
+function fm6Use(k) {
+  if (!dev || !dev.fm6 || k == null || libBusy) return;
+  if (isDrum()) { sayK("dx7Track"); return; }
+  libOp(async () => {
+    selfLoad();
+    const sw = !fm6OnTrack();
+    if (sw) {
+      await rq(req.set(1, gEng(), fm6Eng()));
+      dev.dump = await getDump();
+      await rereadEngineDesc();
+    }
+    await fm6PointTrack(k);
+    fm6Auditioned = null;
+    if (sw) await afterSoundChange();
+    sayK("fm6Playing", `${slotName(k)} ${dev.fm6.names[k]}`);
+  });
+}
+function fm6Get(k) {
+  if (!dev || !dev.fm6 || k == null) return;
+  const v = fm6Bank.voice(dev.fm6.bank, k), name = dx7Name(v) || "DX7 VOICE";
+  libAdd([{ name, engine: fm6Eng(), engineName: "FM6", dx7: v, tags: ["DX7", "device"] }]);
+  sayK("copiedLib", name);
+}
+$("fmuse").addEventListener("click", () => fm6Use(fm6Sel));
+$("fmget").addEventListener("click", () => fm6Get(fm6Sel));
+$("fmclear").addEventListener("click", () => {
+  const k = fm6Sel;
+  if (!dev || !dev.fm6 || k == null) return;
+  if (!confirm(t("confirmEraseSlot").replace("{n}", slotName(k)).replace("{name}", dev.fm6.names[k]))) return;
+  libOp(async () => {
+    await fm6Change((b) => fm6Bank.withVoice(b, k, dx7Init()));
+    sayK("erasedSlot", slotName(k));
+  });
+});
+$("fmrefresh").addEventListener("click", () => libOp(async () => {
+  sayK("fm6Reading");
+  dev.fm6 = fm6State(await dev.link.readFM6Bank());
+  sayK("ready");
+}));
+$("fmexport").addEventListener("click", () => {
+  if (dev && dev.fm6) saveBlob(`felucca-fm6-bank-${today()}.syx`, new Blob([Uint8Array.from(fm6Bank.message(dev.fm6.bank))], { type: "application/octet-stream" }));
+});
+$("fmimport").addEventListener("click", () => { $("fmfile").value = ""; $("fmfile").click(); });
+/* a 32-voice bank replaces the device's bank; single voices go into free slots from the selected one on */
+$("fmfile").addEventListener("change", () => {
+  const f = $("fmfile").files[0];
+  if (!f || !dev || !dev.fm6) return;
+  libOp(async () => {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    let voices;
+    try { voices = readDX7File(bytes, libCtx()).patches.map((p) => p.dx7); }
+    catch (e) { sayK("badfile", `${f.name}: ${e.message}`); return; }
+    const whole = fm6Bank.read(bytes);
+    if (whole) {
+      if (!confirm(t("fm6Replace").replace("{name}", f.name))) return;
+      sayK("fm6Writing");
+      dev.fm6 = fm6State(await dev.link.writeFM6Bank(whole));
+      sayK("fm6Replaced", f.name);
+      return;
+    }
+    let placed = [];
+    await fm6Change((b) => {
+      const free = fm6Bank.free(b, fm6Sel ?? 0);
+      if (free.length < voices.length) {
+        sayK("error", t("fm6NoRoom").replace("{n}", voices.length).replace("{free}", free.length));
+        return null;
+      }
+      placed = free.slice(0, voices.length);
+      return voices.reduce((acc, v, i) => fm6Bank.withVoice(acc, placed[i], v), b);
+    });
+    if (placed.length) {
+      fm6Sel = null;
+      sayK("fm6Stored", placed.map(slotName).join(" ") + ` (${f.name})`);
+    }
+  });
+});
 
 $("connect").addEventListener("click", () => {
   if (dev) { wantConnected = false; disconnect(); } else connect();

@@ -30,6 +30,72 @@ static const uint8_t FAM_BTN[FAM_COUNT] = {B_HOME, B_ENV, B_LFO, B_FX, B_SCL, B_
 
 static uint32_t cur_fam(void) { return ui.home ? FAM_HOME : cur_page()->fam; }
 
+/* ---------------------------------------------------- EDIT + keys --- */
+/* EDIT held on an EDIT page: the black keys open the pages, in page order (one key per page or
+ * pair: the key again = the other page of the pair), the first six white keys pick FM6's
+ * operator. Lit = there is something, blinking = where you are. The keys stay silent meanwhile
+ * (seq.c keyboard_block: kb_nav_btn); a tap of EDIT still goes to the next page. */
+#define NAV_N 11u
+static const uint8_t NAV_BLACK[NAV_N] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};   /* F#3 .. F#5 */
+static const uint8_t NAV_WHITE[6] = {0, 2, 4, 6, 7, 9};                              /* F3 .. D4: OP1..OP6 */
+static const char *const NAV_PAGE[NAV_N][2] = {
+    {"EDIT 1", "EDIT 2"}, {"STORE", 0}, {"ALGO", 0}, {"FREQ", 0}, {"OUT", 0}, {"EG RATE", "EG LVL"},
+    {"SCALE", "CURVE"}, {"PITCH EG", "PITCH LV"}, {"FM LFO", "FM LFO 2"}, {"VOICE", "VOICE 2"}, {0, 0}};
+
+static uint8_t nav_page(uint32_t g, uint32_t j)   /* page index of NAV_PAGE[g][j], 0xFF = none */
+{
+    static uint8_t pg[NAV_N][2], ready;
+    uint32_t a, b, i;
+    if (!ready) {
+        for (a = 0; a < NAV_N; a++)
+            for (b = 0; b < 2u; b++) {
+                pg[a][b] = 0xFF;
+                for (i = 0; NAV_PAGE[a][b] && i < NPAGES; i++)
+                    if (PAGES[i].fam == FAM_EDIT && str_eq(PAGES[i].title, NAV_PAGE[a][b]))
+                        pg[a][b] = (uint8_t)i;
+            }
+        ready = 1;
+    }
+    return pg[g][j] != 0xFF && page_shown(&PAGES[pg[g][j]]) ? pg[g][j] : 0xFF;
+}
+
+static int nav_held(void) { return kb_nav_btn && (fm1_in.buttons & kb_nav_btn); }
+
+static void nav_keys(uint32_t pressed)
+{
+    uint32_t k, g;
+    for (k = 0; k < 27u; k++) {
+        if (!((pressed >> k) & 1u))
+            continue;
+        ui.edit_used = 1;
+        for (g = 0; g < NAV_N; g++) {
+            uint8_t a = nav_page(g, 0), b = nav_page(g, 1);
+            if (NAV_BLACK[g] != k)
+                continue;
+            if (ui.page == a && b != 0xFF)
+                page_go(b);
+            else if (a != 0xFF || b != 0xFF)
+                page_go(a != 0xFF ? a : b);
+        }
+        for (g = 0; g < 6u; g++)
+            if (NAV_WHITE[g] == k && fm6_shown()) {
+                fm6_opsel = (uint8_t)g;
+                ui.force = 1;
+            }
+    }
+}
+
+static void nav_leds(uint8_t *nl)
+{
+    uint32_t g, blink = (fm1_ticks() / (150000u * FM1_TICKS_PER_US)) & 1u;
+    for (g = 0; g < NAV_N; g++) {
+        uint8_t a = nav_page(g, 0), b = nav_page(g, 1);
+        led_put(nl, 14u + NAV_BLACK[g], (a != 0xFF || b != 0xFF) && (blink || (ui.page != a && ui.page != b)));
+    }
+    for (g = 0; g < 6u && fm6_shown(); g++)
+        led_put(nl, 14u + NAV_WHITE[g], blink || fm6_opsel != g);
+}
+
 static void ui_leds(void)
 {
     uint8_t nl[FM1_NCOL] = {0};
@@ -45,8 +111,11 @@ static void ui_leds(void)
     led_put(nl, panel.btn[B_REC], song.rec != 0u);
     led_put(nl, panel.btn[B_OCTDN], song.octave < 0);
     led_put(nl, panel.btn[B_OCTUP], song.octave > 0);
-    for (k = 0; k < 27u; k++)
-        led_put(nl, 14u + k, (int)((fm1_in.notes >> k) & 1u));
+    if (nav_held())                                     /* EDIT + keys: the key map */
+        nav_leds(nl);
+    else
+        for (k = 0; k < 27u; k++)
+            led_put(nl, 14u + k, (int)((fm1_in.notes >> k) & 1u));
     for (c = 0; c < FM1_NCOL; c++)
         fm1_led[c] = nl[c];
 }
@@ -390,6 +459,8 @@ static void ui_input(void)
             song.seq_mode = 0;
         }
     }
+    if (ui.menu || ui.confirm)
+        kb_nav_btn = ui.edit_hold = 0;                  /* (no EDIT + keys there) */
     if (ui.menu) {                                      /* HOME / REC taps do nothing here */
         seq_midi_events(0);
         step_midi_held = ui.entry_open = 0;
@@ -440,6 +511,14 @@ static void ui_input(void)
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     page_fix();                                         /* the track or its engine changed: FM6 pages */
     seq_record_follow();
+    if (ui.edit_hold && !((fm1_in.buttons >> panel.btn[B_EDIT]) & 1u)) {   /* EDIT let go */
+        if ((ui.edit_hold & 3u) == 2u && !ui.edit_used && now - ui.edit_t0 < 500u * 1000u * FM1_TICKS_PER_US)
+            open_family(FAM_EDIT);                      /* a tap on an EDIT page: the next page */
+        ui.edit_hold = 0;
+    } else if (ui.edit_hold && !(ui.edit_hold & 4u) && !ui.edit_used && now - ui.edit_t0 > 400u * 1000u * FM1_TICKS_PER_US) {
+        ui_message(fm6_shown() ? "BLACK: PAGE  WHITE: OP" : "BLACK KEYS: PAGES");   /* held: what the keys do */
+        ui.edit_hold |= 4u;
+    }
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))
             continue;
@@ -466,6 +545,13 @@ static void ui_input(void)
                 ui_message("STEP CLEARED");
                 break;
             }
+            ui.edit_t0 = now;                           /* held: EDIT + keys (nav_keys) */
+            ui.edit_used = 0;
+            if (!ui.home && cur_page()->fam == FAM_EDIT) {   /* on an EDIT page the next one comes on release */
+                ui.edit_hold = 2;
+                break;
+            }
+            ui.edit_hold = 1;
             /* fall through */
         default: {                                      /* page family buttons (HOME, REC: above) */
             uint32_t f;
@@ -475,6 +561,11 @@ static void ui_input(void)
             break;
         }
         }
+    }
+    kb_nav_btn = !ui.home && cur_page()->fam == FAM_EDIT ? 1u << panel.btn[B_EDIT] : 0u;
+    if (nav_held()) {                                   /* EDIT + keys: pages and operators, no notes */
+        nav_keys(notes);
+        notes = 0;
     }
     if (song.seq_mode && cur_page()->scope == SC_STEP && !seq_record_follow()) {
         seq_entry(notes);

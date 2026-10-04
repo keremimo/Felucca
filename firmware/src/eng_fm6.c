@@ -167,6 +167,31 @@ static void fm6_load(uint32_t p, uint32_t voice)                /* VOICE -> part
     fm6_cur[p] = (int16_t)(voice + 1u);
 }
 
+static int fm6_slot_is(uint32_t k, const char *name)            /* user slot k holds a voice of that name */
+{
+    static int16_t ed[FM6_NP];
+    char nm[12];
+    fm6_unpack(ed, fm6_bank[k % FM6_NUSER]);
+    fm6_name(nm, ed);
+    return str_eq(nm, name);
+}
+
+/* the slot the STORE page offers for part p: the user voice it plays, while the buffer still carries
+ * that voice's name (an edit of it); else the first INIT VOICE slot (a voice from SysEx, a factory
+ * one); else k, the last one picked */
+static uint32_t fm6_store_slot(uint32_t p, uint32_t k)
+{
+    char nm[12];
+    uint32_t v = (uint32_t)trk[p].p[P_E0], i;
+    fm6_name(nm, fm6_ed[p]);
+    if (v >= FM6_NROM && v < FM6_NVOICE && fm6_slot_is(v - FM6_NROM, nm))
+        return v - FM6_NROM;
+    for (i = 0; i < FM6_NUSER; i++)
+        if (fm6_slot_is(i, "INIT VOICE"))
+            return i;
+    return k % FM6_NUSER;
+}
+
 /* ---------------------------------------------------------- DX7 data --- */
 /* DX7 data, measured for MSFA (Copyright 2012 Google Inc.) and Dexed (Copyright 2013-2017
  * Pascal Gauthier), Apache License 2.0: output levels below 20; the static times of the

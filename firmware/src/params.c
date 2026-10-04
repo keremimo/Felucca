@@ -333,7 +333,9 @@ static const page_t PAGES[] = {
     {"MPC", FAM_SCL, SC_TRACK, GR_MPC, {P_MPCDEG, 0xFF, 0xFF, 0xFF}},
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},
-    /* FM6 only (page_shown): the voice, then OP1..OP6 (the PRESETS knob picks one) */
+    /* FM6 only (page_shown): STORE right after the PATCH page (keeping an imported voice), then the
+     * voice and OP1..OP6 (the PRESETS knob, or EDIT + a white key, picks one) */
+    {"STORE", FAM_EDIT, SC_FM6, GR_FMSTORE, {0xF0, 0xF1, 0xF2, 0xF3}},   /* SLOT STORE SEND INIT (ui_input.c) */
     {"ALGO", FAM_EDIT, SC_FM6, GR_FMALG, {FV_ALG, FV_FB, FV_OKS, FV_TRNSP}},
     {"FREQ", FAM_EDIT, SC_FMOP, GR_FMALG, {FO_CRS, FO_FINE, FO_DET, FO_MODE}},
     {"OUT", FAM_EDIT, SC_FMOP, GR_FMALG, {FO_OL, FO_KVS, FO_AMS, FO_N}},
@@ -345,7 +347,6 @@ static const page_t PAGES[] = {
     {"PITCH LV", FAM_EDIT, SC_FM6, GR_FMPEG, {FV_PL, FV_PL + 1, FV_PL + 2, FV_PL + 3}},
     {"FM LFO", FAM_EDIT, SC_FM6, GR_NONE, {FV_LFW, FV_LFS, FV_LFD, FV_LFKS}},
     {"FM LFO 2", FAM_EDIT, SC_FM6, GR_NONE, {FV_LPMD, FV_LAMD, FV_LPMS, 0xFF}},
-    {"STORE", FAM_EDIT, SC_FM6, GR_FMSTORE, {0xF0, 0xF1, 0xF2, 0xF3}},   /* SLOT STORE SEND INIT (ui_input.c) */
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
     {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
     {"GLOBAL", FAM_GLO, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_CLOCK, G_TUNE}},

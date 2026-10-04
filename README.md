@@ -65,16 +65,25 @@ MSFA and Dexed projects. 16 factory voices (VOICE R01–R16) come with presets o
 voices (U01–U32) live in flash.
 
 **EDIT** steps through the pages. **PATCH** (also HOME's knobs): VOICE, then MOD (the modulators'
-levels: brightness), M.TIM and C.TIM (the modulators' and carriers' envelope times). Then the voice
-itself: **ALGO** (algorithm, feedback, key sync, transpose), six operator pages (**FREQ**, **OUT**,
-**EG RATE**, **EG LVL**, **SCALE**, **CURVE**), the pitch envelope, two LFO pages and **STORE**. On
-the operator pages **PRESETS** picks the operator (OP1–OP6); the graph shows the algorithm with it
-highlighted.
+levels: brightness), M.TIM and C.TIM (the modulators' and carriers' envelope times). Then
+**STORE**, and the voice itself: **ALGO** (algorithm, feedback, key sync, transpose), six operator
+pages (**FREQ**, **OUT**, **EG RATE**, **EG LVL**, **SCALE**, **CURVE**), the pitch envelope and two
+LFO pages. On the operator pages **PRESETS** picks the operator (OP1–OP6); the graph shows the
+algorithm with it highlighted.
+
+Hold **EDIT** to jump instead: the black keys light up as a map of the EDIT pages, in page order
+from F#3 — PATCH, STORE, ALGO, FREQ, OUT, EG RATE / LVL, SCALE / CURVE, PITCH EG / LV, LFO 1 / 2,
+VOICE / VOICE 2 (a key that holds two pages switches between them when pressed again). The white
+keys F3–D4 pick OP1–OP6. The key of the current page and operator blinks. While EDIT is held the
+keys play nothing; let go and they play again, so edits can be heard right away. A short tap of
+EDIT still goes to the next page. Other engines get their EDIT pages on the same keys.
 
 Edits change the part's voice at once and stay until another VOICE or preset is loaded. **STORE**
 keeps them: SLOT picks a user voice, STORE writes it there (two detents, like the other GO
-buttons). SEND sends the voice as a DX7 single-voice dump, INIT starts from the DX7 init voice.
-Projects save each FM6 part's voice with its edits; user presets save its VOICE number.
+buttons) and VOICE follows it. SLOT starts on the user voice the part plays (when the voice still
+has its name), else on the first free (INIT VOICE) slot. SEND sends the voice as a DX7 single-voice
+dump, INIT starts from the DX7 init voice. Projects save each FM6 part's voice with its edits; user
+presets save its VOICE number.
 
 Over USB-MIDI FM6 takes DX7 SysEx on any channel, so Dexed or any DX7 librarian can edit a
 voice live or load a cartridge:
@@ -91,9 +100,17 @@ The FM6 part is the selected track when it plays FM6, else part n + 1, else the 
 In the web editor, **Library → Import** accepts DX7 `.syx` single voices and 32-voice banks
 alongside Felucca JSON files. Each bank voice becomes a separate named library entry; importing
 works offline and checks the dump's length and checksum. Library JSON exports retain the voice data.
-Select a synth track and **Audition** to send a voice to FM6. To keep it on the device, use
-FM6 **STORE** or save a project after auditioning. **To slot** is unavailable for imported DX7
-voices because regular user presets store only a VOICE number, not the voice data.
+Select a synth track and **Audition** to send a voice to FM6; **Keep in U03** (the selected FM6 slot,
+else the first free one) stores it in the user bank, and the auditioned track goes on playing it from
+there, so user presets and projects recall it.
+
+**FM6 voices on the device** lists U01–U32 by name: drag a DX7 library voice onto a slot to store
+it, drag a slot to the library to copy it, **Play on track** (or a double click) sets the selected
+track's VOICE to it. **Import .syx** replaces the whole bank with a 32-voice dump (after asking) or
+puts single voices into free slots; **Save as .syx** downloads the bank. Every change reads the bank,
+writes it back whole with the 32-voice dump and checks the device's readback. The **Sound** tab's
+VOICE shows the user voices by name too. DX7 voices do not go into the user presets (those store
+only a VOICE number, not the voice data).
 
 ## Scale keyboard
 
