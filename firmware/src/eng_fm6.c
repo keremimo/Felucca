@@ -473,6 +473,8 @@ typedef struct fm6_voice {                               /* a voice; operators i
     fm6_peg_t pe;                                        /* the pitch envelope */
     uint8_t down, sub, note, vel, eng, loop, fbs, quiet, played;
     uint8_t frozen;                                      /* stopped as by Dexed's panic: not kept running */
+    uint8_t still;                                       /* over and at rest: 1 only time goes on, 2 nothing matters */
+    int32_t spb;                                         /* the bend and tune it was at rest with */
 } fm6_voice_t;
 static fm6_voice_t fm6_v[NPART][NVOICE] __attribute__((section(".pool")));
 #define FM6_SILENT 1638400                               /* an envelope level no engine renders (MARK I: -96 dB) */
@@ -1100,6 +1102,7 @@ static void fm6_note_on(track_t *t, voice_t *v)
     s->sub = 0;
     s->quiet = 0;
     s->frozen = 0;
+    s->still = 0;
 }
 
 /* MONO / LEGATO without a new attack: the note changes, the envelopes go on (Dexed's mono: the
@@ -1232,15 +1235,46 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
 /* a voice that is over: its envelopes, pitch, gains and phases go on a Dexed block, without the
  * samples (none of them sounds), so that its next note starts where Dexed's would (KEY SYNC off,
  * a voice taken while playing) */
+/* nothing moves a voice at rest: no LFO or controller pitch (PMS 0, or no depth), no amplitude
+ * modulation where an operator has AMS */
+static int fm6_quiet(uint32_t p, const int16_t *ed)
+{
+    uint32_t k, ams = 0;
+    int32_t dly = fm6_lfo[p].depth;
+    for (k = 0; k < 6u; k++)
+        ams |= (uint32_t)ed[k * FO_N + FO_AMS];
+    return (!ed[FV_LPMS] || (!fm6_pt[p].pmod && (!ed[FV_LPMD] || !dly))) &&
+           (!ams || (!fm6_pt[p].amod && fm6_pt[p].emod == 127 && (!ed[FV_LAMD] || !dly)));
+}
+
 static void fm6_ghost(track_t *t, voice_t *v, fm6_voice_t *s)
 {
     static const vmod_t m0 = {.shape = 64 << 8};
-    uint32_t k;
+    uint32_t p = (uint32_t)(t - trk), k;
+    const int16_t *ed = fm6_ed[p];
+    int32_t pb = fm6_pt[p].pb + song.g[G_TUNE] * 13981;
+    int quiet;
+    if (s->still == 2u)
+        return;                                          /* key sync, not playing: its next note starts afresh */
+    quiet = fm6_quiet(p, ed);
+    if (s->still && quiet && pb == s->spb) {             /* at rest: only time goes on */
+        for (k = 0; k < 6u; k++)
+            s->ph[k] += (uint32_t)s->fq[k] << FM6_LG_N;
+        return;
+    }
     fm6_control(t, v, s, &m0);
     for (k = 0; k < 6u; k++)
         if ((s->plan[k] & FM6_P_RUN) || (k && k < s->loop && (s->plan[0] & FM6_P_RUN)))
             s->ph[k] += (uint32_t)s->fq[k] << FM6_LG_N;
     s->sub = 0;
+    s->still = 0;
+    s->spb = pb;
+    if (quiet && !s->down && s->pe.pix >= 4u) {          /* every envelope done, portamento there */
+        for (k = 0; k < 6u && s->eg[k].ix >= 4u && s->porta[k] == s->base[k]; k++)
+            ;
+        if (k == 6u)
+            s->still = (uint8_t)(ed[FV_OKS] && t->p[P_VOICE] == V_POLY && !fm6_playing(t, (uint32_t)(v - t->v)) ? 2 : 1);
+    }
 }
 
 static void fm6_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
@@ -1286,11 +1320,14 @@ static void fm6_sync(track_t *t, const voice_t *self)
             voice_t *v = &t->v[i];
             fm6_voice_t *s = &fm6_v[p][i];
             uint32_t k;
-            if (!v->active || v == self)
-                continue;
+            if (v == self || !(v->active || (s->played && !s->frozen)))
+                continue;                                /* (voices over too: Dexed keeps them live) */
+            s->still = 0;
             if (panic) {                                 /* the notes stop (one block's fade), as Dexed's panic */
-                v->gate = 0;
-                v->stage = 4;
+                if (v->active) {
+                    v->gate = 0;
+                    v->stage = 4;
+                }
                 s->frozen = 1;
                 for (k = 0; k < 6u; k++)
                     s->ph[k] = 0, s->gout[k] = 0;
