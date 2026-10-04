@@ -32,6 +32,8 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
 - **TRS MIDI IN:** enabled by default, with the same channel routing and scale
   mapping as USB MIDI; supports pitch bend, mod-wheel vibrato, sustain and MIDI panic;
   [controls and limits](docs/MIDI-EXPRESSION.txt)
+- **Note readout:** HOME shows the notes or chord last played on the synth parts (keys, USB and TRS MIDI),
+  as they sound after the scale; white while held, kept after the release
 - **MIDI status:** GLO > SYSTEM knob 1 switches the first column between USB status and TRS status/activity; both inputs remain active
 
 ## Engines

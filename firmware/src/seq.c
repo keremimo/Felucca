@@ -35,6 +35,18 @@ static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on 
  * Zero means no sounding note; high byte = track + 1, low byte = mapped note. */
 static uint16_t live_refs[NTRK][128];     /* overlapping local/MIDI keys sharing a pitch */
 static uint8_t last_note = 60;
+/* HOME's note readout (ui_draw.c): one bit per pitch, as played (after the scale).
+ * live_held: what a synth part holds now; live_last: what was held at the last
+ * synth note-on, kept after the release (a quick tap between two frames shows too). */
+static uint32_t live_held[4], live_last[4];
+
+static void live_held_update(uint32_t note)      /* bit note of live_held from the parts' live_refs */
+{
+    uint32_t p, on = 0, bit = 1u << (note & 31u);
+    for (p = 0; p < NPART; p++)
+        on |= live_refs[p][note];
+    live_held[note >> 5] = on ? live_held[note >> 5] | bit : live_held[note >> 5] & ~bit;
+}
 /* Audio ISR -> UI step-entry edges. Carry the mapped pitch and destination so
  * the UI never has to guess after a channel, scale or track change. */
 #define STEP_MIDI_Q 64u
@@ -398,6 +410,12 @@ static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
     live_refs[trk_index(t)][note]++;
     last_note = (uint8_t)note;
+    if (!is_drum(t)) {                              /* the drum kit's notes are no chord */
+        uint32_t i;
+        live_held[note >> 5] |= 1u << (note & 31u);
+        for (i = 0; i < 4u; i++)
+            live_last[i] = live_held[i];
+    }
     if (((song.rec >> trk_index(t)) & 1u) && song.playing)
         rec_note(t, note, vel);
     if (t->p[P_AMODE] && !is_drum(t))
@@ -416,6 +434,7 @@ static void input_off(track_t *t, uint32_t note)
             t->arp_phys--;
         return;
     }
+    live_held_update(note);
     rec_release(t, note);
     arp_remove(t, note);                            /* both: the note may have started in the */
     trk_note_off(t, note);                          /* other mode (ARP switched while held) */
@@ -668,8 +687,10 @@ static track_t *midi_track(uint32_t ch)
 static void live_forget(uint32_t track)
 {
     uint32_t note;
-    for (note = 0; note < 128u; note++)
+    for (note = 0; note < 128u; note++) {
         live_refs[track][note] = 0;
+        live_held_update(note);
+    }
     for (note = 0; note < 27u; note++)
         if (kb_trk[note] == track)
             kb_note[note] = KB_SILENT;
