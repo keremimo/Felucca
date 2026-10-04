@@ -359,7 +359,7 @@ const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textCont
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
 let image = null;
-const meta = {"version": "next", "product": "FM-1_900", "pkg": "../../firmware/felucca-next.fwsc"};
+const meta = {"version": "next-usb-audio", "product": "FM-1_900", "pkg": "../../firmware/felucca-next-usb-audio.fwsc"};
 
 let writing = false;
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
