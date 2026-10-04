@@ -439,6 +439,7 @@ static void ui_input(void)
         go_home();
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     page_fix();                                         /* the track or its engine changed: FM6 pages */
+    seq_record_follow();
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))
             continue;
@@ -475,7 +476,7 @@ static void ui_input(void)
         }
         }
     }
-    if (song.seq_mode && cur_page()->scope == SC_STEP) {
+    if (song.seq_mode && cur_page()->scope == SC_STEP && !seq_record_follow()) {
         seq_entry(notes);
         seq_midi_events(1);
     } else {
@@ -521,7 +522,8 @@ static void ui_input(void)
     }
     /* Apply the last length detent before advancing if the keys lift in the
      * same UI frame. Drums keep their original one-step entry behavior. */
-    if (song.seq_mode && cur_page()->scope == SC_STEP && ui.entry_open && !fm1_in.notes && !step_midi_held) {
+    if (song.seq_mode && cur_page()->scope == SC_STEP && !seq_record_follow() &&
+        ui.entry_open && !fm1_in.notes && !step_midi_held) {
         uint32_t n = is_drum(TSEL) ? 1u : step_note_length(TSEL, ui.cursor);
         cursor_set(ui.cursor + (n ? n : 1u));
     }

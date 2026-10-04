@@ -182,8 +182,8 @@ typedef struct track {
     uint8_t slide_glide;         /* next legato note glides (slide) */
     uint32_t seq_off;
     uint8_t seq_active;          /* any step programmed */
-    uint8_t rskip_idx;           /* live recording put notes into the step about to play: */
-    uint8_t rskip_n, rskip[4];   /* do not trigger them again there (they sound already) */
+    uint8_t rskip_idx;           /* a note received with Start already sounds before step 0 fires */
+    uint8_t rskip_n, rskip[4];   /* skip that note when step 0 starts in the same audio block */
     /* live recording of held notes (seq.c rec_hold): the steps they are held into become TIEs */
     uint8_t rh_n, rh_note[4];    /* recorded notes still held, 0 = none */
     uint8_t rh_start;            /* the step they were recorded into */

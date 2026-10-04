@@ -261,6 +261,50 @@ static void midi_entry_test(void)
     puts("MIDI STEP entry: routing, WHITE scale, chords, release, final detent and mixed input ok");
 }
 
+static void live_record_follow_test(void)
+{
+    uint32_t period, hits;
+    reset(32);
+    TSEL->p[P_VOICE] = V_POLY;
+    TSEL->p[P_QUANT] = Q_MPC;              /* MPC Sample pads H01-H16 send notes 20-35 */
+    song.playing = 1;
+    song.rec = 1u << song.sel;
+    TSEL->seq_idx = 18;
+    period = div_samples((uint32_t)TSEL->p[P_SDIV]);
+    TSEL->seq_pos = step_samples(TSEL, period, 18) * 3u / 4u;
+    midi_frame(0x90, 23, 100, 0);
+    assert(ui.cursor == 18 && ui.bank == 1);
+    assert(TSEL->step[18].n == 1 && TSEL->step[18].note[0] == midi_map(TSEL, 23));
+    assert(!TSEL->step[19].n && !step_midi_held && !ui.entry_open);
+    midi_frame(0x80, 23, 0, 0);
+    assert(ui.cursor == 18 && !TSEL->step[19].n);
+    TSEL->seq_idx = 19;
+    TSEL->seq_pos = 1;
+    key_frame(0, 0);
+    assert(ui.cursor == 19 && ui.bank == 1);
+    midi_frame(0x90, 30, 100, 0);
+    midi_frame(0x80, 30, 0, 0);
+    assert(TSEL->step[19].n == 1 && TSEL->step[19].note[0] == midi_map(TSEL, 30) && ui.cursor == 19);
+
+    reset(32);
+    song.playing = 1;                        /* unarmed STEP entry still uses its manual cursor */
+    TSEL->seq_idx = 18;
+    cursor_set(5);
+    midi_frame(0x90, 60, 100, 0);
+    midi_frame(0x80, 60, 0, 0);
+    assert(TSEL->step[5].n == 1 && !TSEL->step[18].n && ui.cursor == 6);
+
+    reset(16);
+    track_select(TRK_DRUM);
+    song.rec = 1u << TRK_DRUM;
+    transport_req = 1;
+    hits = drums.age;
+    midi_frame(0x99, 39, 100, 0);          /* Start and the first note share an audio block */
+    assert(song.playing && TSEL->seq_idx == 0 && TSEL->step[0].note[0] == 39);
+    assert(drums.age == hits + 1u);
+    puts("armed playback: MIDI records on the playing step, selection follows across banks, unarmed entry stays manual");
+}
+
 static void preset_scale_settings_test(void)
 {
     uint32_t i, scl_page = NPAGES;
@@ -488,6 +532,7 @@ int main(int argc, char **argv)
     gestures_test();
     preset_scale_settings_test();
     midi_entry_test();
+    live_record_follow_test();
     mpc_page_test();
     playback_test();
     render_test(argc > 1 ? argv[1] : NULL);

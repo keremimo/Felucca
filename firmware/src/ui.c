@@ -126,6 +126,17 @@ static void cursor_fix(void)                           /* LEN got shorter: onto 
         cursor_set(TSEL->p[P_SLEN] - 1);
 }
 
+static int seq_record_follow(void)
+{
+    uint32_t idx;
+    if (!song.seq_mode || !song.playing || !(song.rec & (1u << song.sel)))
+        return 0;
+    idx = TSEL->seq_pos == 0x7FFFFFFFu ? 0u : TSEL->seq_idx;
+    if (ui.cursor != idx || ui.bank != idx / 16u || ui.entry_open || step_midi_held)
+        cursor_set((int32_t)idx);
+    return 1;
+}
+
 static void note_name(char *b, uint32_t n)
 {
     str_cpy(b, N_NOTE[n % 12u], 4);

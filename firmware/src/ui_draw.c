@@ -1176,6 +1176,7 @@ static void ui_draw(void)
         return;
     }
     cursor_fix();
+    seq_record_follow();
     if (ui.force)
         draw_frame();
     felucca_dbg.stage = 3;

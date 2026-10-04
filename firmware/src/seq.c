@@ -303,8 +303,7 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
     return period + (uint32_t)((idx & 1u) ? -sw : sw);
 }
 
-/* live recording: the note goes into the nearest step, as swung (the one playing, or
- * the next one when it is past the middle of the playing one). Overdub: a step that
+/* live recording: the note goes into the step currently playing. Overdub: a step that
  * holds notes gets this one added (a chord of up to 4; when full, the last note is
  * replaced); MONO / LEGATO / UNISON parts keep one note per step, as step entry does.
  * Held on (synth parts): each further step the sequencer enters while the note is
@@ -314,12 +313,9 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
  * notes of one step only). */
 static void rec_note(track_t *t, uint32_t note, uint32_t vel)
 {
-    uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, idx = t->seq_idx % len, k;
-    uint32_t period = div_samples((uint32_t)t->p[P_SDIV]);
-    uint32_t next = t->seq_pos > step_samples(t, period, t->seq_idx) / 2u;
+    uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u;
+    uint32_t idx = t->seq_pos == 0x7FFFFFFFu ? 0u : t->seq_idx % len, k;
     step_t *s;
-    if (next)
-        idx = (idx + 1u) % len;
     s = &t->step[idx];
     if (s->time != ST_NOTE || !s->n || (!is_drum(t) && t->p[P_VOICE] != V_POLY)) {
         s->n = 0;                                   /* a fresh step */
@@ -339,7 +335,7 @@ static void rec_note(track_t *t, uint32_t note, uint32_t vel)
     if (vel > s->vel)
         s->vel = (uint8_t)vel;
     t->seq_active = 1;
-    if (next) {                                     /* it sounds now: the step must not trigger it again */
+    if (t->seq_pos == 0x7FFFFFFFu) {          /* Start and note in one block: avoid a second trigger */
         if (t->rskip_idx != idx)
             t->rskip_n = 0;
         t->rskip_idx = (uint8_t)idx;
@@ -371,7 +367,7 @@ static void rec_hold(track_t *t, uint32_t idx, uint32_t len)
         return;
     }
     if (idx == t->rh_start)
-        return;                                     /* (recorded ahead into the step now starting) */
+        return;                                     /* never replace the note's onset */
     s = &t->step[idx];
     t->rh_bak = *s;
     t->rh_last = (uint8_t)idx;
@@ -579,7 +575,7 @@ static uint32_t midi_clock_advance(uint32_t now)
 
 /* play one step: TIE extends, REST releases, NOTE (re)triggers; a SLIDE on
  * the previous step makes this one legato with a glide (acid style). skip: bit k =
- * note k already sounds from live recording (not triggered, not released here).
+ * note k already sounds from a note received alongside Start.
  * The drum track: each note is a hit (drum_on through trk_note_on), nothing else. */
 static void seq_step(track_t *t, const step_t *s, uint32_t period, uint32_t skip)
 {
