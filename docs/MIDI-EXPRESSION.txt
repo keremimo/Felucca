@@ -11,7 +11,8 @@ The first column is labelled MIDI and displays USB ON/--/OFF or TRS ON/RX/OFF.
 USB ON means configured with a host; -- means waiting; OFF means USB is unavailable.
 TRS ON means enabled, not cable detection; RX highlights received bytes for 250 ms.
 This selects the status view only: both inputs stay active. It resets to USB at boot.
-The original SYNC --, ROUT -- and CPU columns are unchanged.
+Knobs 2 and 3 (AUDIO OUT / AUDIO IN) switch the USB audio devices on or off;
+USB MIDI is always present. The CPU column is unchanged.
 
 PITCH BEND
 14-bit MIDI Pitch Bend, centre 8192; default range +/-2 semitones.

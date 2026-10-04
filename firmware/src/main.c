@@ -163,6 +163,13 @@ static void fm1_main(void)
         uint32_t m = fm1_ms;
         fm1_wdt_feed();
         usb_retry(fm1_ms);
+#if FELUCCA_USB_AUDIO
+        if (ua_off_apply(fm1_ms)) {                     /* GLO > SYSTEM switched Felucca Out / In */
+            settings.usb_off = ua_off;
+            settings_save();                            /* while off the bus: no USB deadline missed */
+            ui_say("USB ", "RECONNECTING");
+        }
+#endif
         if (fm1_ms > 30000u && bootguard.pending) {     /* a crash or hang in the first 30 s counts */
             bootguard.pending = 0;
             bootguard.failed = 0;

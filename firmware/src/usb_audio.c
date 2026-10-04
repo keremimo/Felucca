@@ -7,8 +7,15 @@
  * other OUT packet never reaches ua_rx. RX DMA keeps the same four-byte guard
  * as USB MIDI. All SIE access stays in TIMER5, including SET_INTERFACE and
  * reset handling; register access goes through hal/fm1_usb.h. */
-#define UA_IF_PLAY 3u                           /* streaming interfaces (usb_audio_desc.h) */
+#define UA_IF_PLAY 3u                           /* streaming interfaces in CFG_DESC (usb_audio_desc.h) */
 #define UA_IF_CAP 5u
+#define UA_OFF_OUT 1u                           /* ua_off: functions left out of the configuration */
+#define UA_OFF_IN 2u
+#define UA_NO_IF 0xFFu
+static uint8_t ua_off;                          /* what the host is given (ua_cfg_build at usb_start) */
+static uint8_t ua_off_want;                     /* GLO > SYSTEM (ua_off_set); ua_off_apply makes it ua_off */
+static uint32_t ua_off_ms;                      /* its last change */
+static uint8_t ua_if_play = UA_IF_PLAY, ua_if_cap = UA_IF_CAP, ua_nif = 6;   /* as sent (ua_cfg_build) */
 #define UA_DMA_PACKET ((UA_PACKET + 3u) & ~3u)
 static uint8_t ua_tx[2][UA_DMA_PACKET] __attribute__((aligned(4)));
 static uint32_t ua_tx_bytes;
@@ -18,6 +25,48 @@ static uint8_t ua_fb[4] __attribute__((aligned(4)));
 static uint16_t ua_frame;
 static uint8_t ua_frame_valid, ua_paused;
 static uint8_t ua_rate_pending, ua_rate_reply[3];
+
+/* CFG_DESC without the functions in ua_off. Interfaces after a missing one
+ * move down to stay contiguous: IADs, interface descriptors and the AC
+ * header's streaming interface list. Absent streams get UA_NO_IF. */
+static void ua_cfg_build(void)
+{
+    uint32_t i, k, n = 0, nif = 0, shift = 0, skip = 0, ac = 0;
+    ua_if_play = ua_if_cap = UA_NO_IF;
+    for (i = 0; i < sizeof CFG_DESC; i += CFG_DESC[i]) {
+        const uint8_t *d = CFG_DESC + i;
+        uint8_t *o = ua_cfg + n;
+        if (d[1] == 0x0Bu) {                    /* IAD: a function starts */
+            skip = ua_off & (d[2] + 1u == UA_IF_PLAY ? UA_OFF_OUT : d[2] + 1u == UA_IF_CAP ? UA_OFF_IN : 0u);
+            if (skip)
+                shift += d[3];
+        }
+        if (skip)
+            continue;
+        for (k = 0; k < d[0]; k++)
+            o[k] = d[k];
+        n += d[0];
+        if (d[1] == 0x0Bu) {
+            o[2] = (uint8_t)(d[2] - shift);
+        } else if (d[1] == 4u) {
+            o[2] = (uint8_t)(d[2] - shift);
+            ac = d[5] == 1u && d[6] == 1u;      /* audio control: its header lists the streams */
+            nif += d[3] == 0u;
+            if (d[2] == UA_IF_PLAY)
+                ua_if_play = o[2];
+            else if (d[2] == UA_IF_CAP)
+                ua_if_cap = o[2];
+        } else if (ac && d[1] == 0x24u && d[2] == 1u) {
+            for (k = 0; k < d[7]; k++)
+                o[8 + k] = (uint8_t)(d[8 + k] - shift);
+        }
+    }
+    ua_cfg[2] = (uint8_t)n;
+    ua_cfg[3] = (uint8_t)(n >> 8);
+    ua_cfg[4] = (uint8_t)nif;
+    ua_cfg_len = (uint16_t)n;
+    ua_nif = (uint8_t)nif;
+}
 
 static void ua_play_config(void)
 {
@@ -100,9 +149,9 @@ static void ua_tx_prepare(void)
 
 static int ua_set_interface(uint16_t interface, uint16_t alt)
 {
-    if (!usb.config || alt > 2u || (interface != UA_IF_PLAY && interface != UA_IF_CAP))
+    if (!usb.config || alt > 2u || interface == UA_NO_IF || (interface != ua_if_play && interface != ua_if_cap))
         return 0;
-    if (interface == UA_IF_PLAY) {
+    if (interface == ua_if_play) {
         ua_play_reset();
         ua.play_alt = (uint8_t)alt;
         if (alt)
@@ -139,8 +188,8 @@ static int ua_control_setup(const uint8_t *s)
 {
     uint32_t rate;
     if (!usb.config || s[2] || s[3] != 1u || s[5] || s[6] != 3u || s[7] ||
-        (s[4] != 0x02u && s[4] != 0x82u))
-        return 0;
+        (s[4] != 0x02u && s[4] != 0x82u) || (s[4] == 0x02u ? ua_if_play : ua_if_cap) == UA_NO_IF)
+        return 0;                            /* (an endpoint of a function left out) */
     if (s[0] == 0x22u && s[1] == 1u) {       /* SET_CUR: three-byte OUT stage */
         ua_rate_pending = s[4];
         sie_wr(S_INDEX, 0);
