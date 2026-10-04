@@ -9,7 +9,7 @@
  * FELUCCA_CDC=1 adds a CDC-ACM serial function (IAD composite: EP2 notify,
  * EP3 bulk data) for the console in console.c.
  * FELUCCA_USB_AUDIO=1 instead adds two UAC1 functions, a stereo output device
- * (EP2 OUT, explicit feedback on EP3) and a separate stereo input device
+ * (EP2 OUT, explicit feedback on EP3) and a separate four-track input device
  * (EP2 IN); TIMER5 must outrank audio rendering. */
 #include "../hal/fm1_usb.h"   /* registers; relative, so the loader and the host tests find it too */
 #if !FELUCCA_LOADER
@@ -111,8 +111,8 @@ static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 /* ------------------------------------------------------- descriptors --- */
 #if FELUCCA_USB_AUDIO
 #include "usb_audio_stream.c"
-static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x04, 0x03,
-                                     1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.04 */
+static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x05, 0x03,
+                                     1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.05: four capture channels */
 static const uint8_t CFG_DESC[] = {
     9, 2, 0xA7, 0x01, 6, 1, 0, 0x80, 50,               /* 423 bytes, six interfaces */
     8, 0x0B, 0, 2, 1, 1, 0, 0,                          /* IAD: MIDI (IF 0-1) */

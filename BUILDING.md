@@ -51,7 +51,7 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`):
 | `FELUCCA_FLASH` | 1 | settings, presets and projects in flash |
 | `FELUCCA_OTA` | 1 | update entry (needs `FELUCCA_FLASH`) |
 | `FELUCCA_CDC` | 1 | USB serial console; defaults to 0 in USB audio builds |
-| `FELUCCA_USB_AUDIO` | 0 | experimental stereo USB Audio Class 1 + MIDI; replaces the serial console |
+| `FELUCCA_USB_AUDIO` | 0 | experimental USB Audio Class 1 + MIDI: stereo playback, four-track recording; replaces the serial console |
 | `FELUCCA_UART` | 1 | TRS MIDI IN, 31250 baud (set to 0 to disable) |
 
 TRS MIDI IN shares the USB MIDI channel routing and scale mapping. It accepts
@@ -74,7 +74,7 @@ FELUCCA_USB_AUDIO=1 ./build.sh
 USB audio is enabled at **build time**, not from a panel setting. Once enabled,
 the computer sees two audio devices next to the Felucca MIDI port, as with the
 stock FM-1 firmware: **Felucca Out** (2 outputs, playback) and **Felucca In**
-(2 inputs, recording). Each can use **16-bit or packed 24-bit PCM** at **44.1 or
+(4 mono inputs, recording). Each can use **16-bit or packed 24-bit PCM** at **44.1 or
 48 kHz**, independently of the other.
 
 Choose the formats in the computer's audio-device settings (on macOS, Audio MIDI
@@ -91,16 +91,22 @@ saved to Felucca's flash.
 The synth remains **16-bit internally**, and I2S continues at **44.1 kHz**. The 44.1 kHz USB
 path passes samples directly. At 48 kHz, USB service uses a 48-tap polyphase FIR
 converter with a 20 kHz cutoff, adding about 0.5 ms of filter delay per direction
-and rolling off the highest frequencies. It takes about 0.1 ms of CPU time per
-millisecond in each direction (0.02 ms at 44.1 kHz). This conversion preserves pitch and
+and rolling off the highest frequencies. Four-channel capture performs twice the
+filter work of stereo capture. This conversion preserves pitch and
 timing without changing synth tables, effects or sequencing. The 24-bit USB
 format does **not** add synth precision: capture pads the low eight bits with
 zero, and playback discards them before conversion/mixing.
 
 Routing is the same for every format:
 
-- **Recording:** Felucca's stereo synth/drum mix, after effects and the MASTER
-  level, is sent to the computer.
+- **Recording:** four isolated mono tracks are sent to the computer: input 1 =
+  synth track 1, input 2 = synth track 2, input 3 = synth track 3, input 4 = drums.
+  Select separate mono inputs in the DAW. Capture follows each track's level and
+  inserts (DIST/SLICER on synth tracks, SLICER on drums), before pan, the shared
+  chorus/delay/reverb buses, and MASTER processing. These shared effects remain
+  in local monitoring; they are not mixed into the isolated recordings. MASTER
+  does not change recording levels. Stems saturate at PCM16 full scale; reduce
+  the track level if a loud patch clips.
 - **Playback:** computer audio is mixed with the synth at the FM-1 outputs. The
   MASTER knob also controls playback level. The sum is saturated to avoid integer
   wraparound; lower the DAW output or synth levels if the sum clips.
@@ -121,10 +127,11 @@ addition to the existing 256-frame I2S half-buffer and the host's buffers. This
 first version prioritizes stable streaming over minimum latency. TIMER5 runs
 above the audio-render interrupt in this mode to meet USB frame deadlines.
 
-**Validation status.** Host tests cover the descriptors, all four formats, EP0
+**Validation status.** Host tests cover four-channel descriptors, all four formats, EP0
 rate and interface requests, routing, conversion pitch/levels, rejection of a
 23 kHz playback tone, malformed packets, stream recovery and simulated clock
-drift. On an FM-1 with macOS, both devices enumerate with all four formats;
+drift, per-channel isolation, and the real synth/drum capture taps. The previous
+stereo-capture version was tested on an FM-1 with macOS: both devices enumerate with all four formats;
 playback, recording and both together ran for 30–60 s in every rate combination
 with no ring underruns or overruns, bad packets, missed frames or late renders,
 and with no CoreAudio overloads. Format changes during streaming and repeated
@@ -132,8 +139,8 @@ stream start/stop recovered. Those runs streamed silence with the synth idle.
 `tools/usb_audio_stats.py --window` prints the device's stream counters, USB
 service time and render load over MIDI. Still to check:
 
-1. Listening with real program material, and with heavy synth patches during
-   48 kHz duplex (the conversion then takes about a fifth of the CPU; the voice
+1. Four-channel hardware capture at every format; listening with real program
+   material and heavy synth patches during 48 kHz duplex (the voice
    limiter sheds a voice whenever a render takes more than 85 % of its time).
 2. A long duplex recording for clicks, dropouts and drift; measure actual latency.
 3. Windows and Linux, cable reconnect, host sleep/wake and DAW use. MASTER should

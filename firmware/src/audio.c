@@ -31,7 +31,7 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
      * copy, including stream resets/alt changes, not the synth/FX work. */
     fm1_irq_off();
     if (usb.up && usb.config && !usb.suspended)
-        ua_audio(out, n, song.master_q12);
+        ua_audio(out, track_capture, n, song.master_q12);
     fm1_irq_on();
 #endif
     for (i = 0; i < n; i++) {

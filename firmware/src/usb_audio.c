@@ -11,7 +11,7 @@
 #define UA_IF_CAP 5u
 #define UA_DMA_PACKET ((UA_PACKET + 3u) & ~3u)
 static uint8_t ua_tx[UA_DMA_PACKET] __attribute__((aligned(4)));
-static uint8_t ua_rx[UA_DMA_PACKET + 4u] __attribute__((aligned(4)));
+static uint8_t ua_rx[((UA_PLAY_PACKET + 3u) & ~3u) + 4u] __attribute__((aligned(4)));
 static uint8_t ua_fb[4] __attribute__((aligned(4)));
 static uint16_t ua_frame;
 static uint8_t ua_frame_valid, ua_paused;

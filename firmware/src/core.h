@@ -11,6 +11,10 @@
 #define NPART 3                  /* synth parts: tracks 1..3 */
 #define NTRK 4                   /* + the drum track */
 #define TRK_DRUM 3
+#if FELUCCA_USB_AUDIO
+/* Interleaved mono stems, cleared by mix_block; post insert/level, pre pan/FX/master. */
+static int32_t track_capture[CTL * NTRK];
+#endif
 enum { V_POLY, V_MONO, V_LEGATO, V_UNISON };   /* P_VOICE */
 enum { Q_OFF, Q_SNAP, Q_WHITE, Q_ALL };     /* P_QUANT; legacy ON = SNAP */
 #define NSTEP 64

@@ -203,6 +203,9 @@ static void mix_part(track_t *t, uint32_t n)
         for (i = 0; i < n; i++) {
             int32_t x = ((b[i] >> 2) * lvl) >> 10, a = x < 0 ? -x : x;   /* pre-shift: 8 loud voices */
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
+#if FELUCCA_USB_AUDIO
+            track_capture[i * NTRK + (uint32_t)(t - trk)] = x;
+#endif
             if (a > pk)
                 pk = a;
             if (c)
@@ -221,6 +224,10 @@ static void mix_part(track_t *t, uint32_t n)
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
+#if FELUCCA_USB_AUDIO
+    for (i = 0; i < n * NTRK; i++)
+        track_capture[i] = 0;
+#endif
     for (i = 0; i < n; i++)
         send_c[i] = send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     events_block(n);

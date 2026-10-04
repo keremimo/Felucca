@@ -121,7 +121,7 @@ static void controls(void)
     assert(get_rate(0x82, 0x81) == 44100);
     setup(1, 11, 2, 3, 0);
     setup(1, 11, 2, 5, 0);
-    assert(ua.play_alt == 2 && ua.cap_alt == 2 && ep_cnt[2] == 264);
+    assert(ua.play_alt == 2 && ua.cap_alt == 2 && ep_cnt[2] == 528);
     setup(0x81, 10, 0, 3, 1);
     assert(ep_cnt[0] == 1 && ep0buf[0] == 2);
     setup(0x81, 10, 0, 5, 1);
@@ -153,7 +153,7 @@ static void controls(void)
     setup(0x22, 1, 0x100, 0x82, 3);
     rate_data(48000, 3);
     assert(ua.pw == pw && ua.play_src.phase == 123);
-    assert(ua.cw == 0 && ua.cap_src.phase == 0 && ep_cnt[2] == 288);
+    assert(ua.cw == 0 && ua.cap_src.phase == 0 && ep_cnt[2] == 576);
     for (uint32_t i = 0; i < ep_cnt[2]; i++) assert(ua_tx[i] == 0);
     assert(get_rate(0x82, 0x81) == 48000);
     setup(1, 11, 1, 3, 0);
@@ -220,13 +220,13 @@ int main(void)
     /* MaxP 0xFF keeps single packet buffering (an exact MaxP doubles it and loses
      * every other OUT packet); IN packets are queued before the first IN token */
     assert(regs[2][S_RXMAXP] == 0xFF && regs[2][S_TXMAXP] == 0xFF && regs[3][S_TXMAXP] == 0xFF);
-    assert(ua.tx_packets == 1 && ep_cnt[2] == 176 && ep_cnt[3] == 3);
+    assert(ua.tx_packets == 1 && ep_cnt[2] == 352 && ep_cnt[3] == 3);
     assert(common[S_INTRRX1E] == 6);
     assert(regs[2][S_RXCSR2] == 0x40 && regs[2][S_TXCSR2] == 0x40);   /* ISO; direction bit clear */
     assert(regs[3][S_TXCSR2] == 0x40);
     frame(2047);
     ua_hw_poll();
-    assert(ep_cnt[2] == 176 && ep_cnt[3] == 3);
+    assert(ep_cnt[2] == 352 && ep_cnt[3] == 3);
     assert(ep_tadr[2] == ua_tx && ep_tadr[3] == ua_fb && ep_radr[2] == ua_rx);
     assert(regs[2][S_TXCSR1] == 1 && regs[3][S_TXCSR1] == 1);
     assert(ua_fb[0] == (UA_NOMINAL & 255));

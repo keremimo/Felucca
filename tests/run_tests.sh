@@ -43,6 +43,8 @@ run "USB audio: routing, clock drift and stream recovery" "$OUT/usb_audio_test"
 $CC -o "$OUT/usb_audio_driver_test" tests/usb_audio_driver_test.c
 run "USB audio: endpoint lifecycle and packet ownership" "$OUT/usb_audio_driver_test"
 run "USB descriptors: MIDI, CDC and audio configurations" python3 tests/usb_audio_desc_test.py
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/usb_audio_tracks_test" tests/usb_audio_tracks_test.c -lm
+run "USB audio: four isolated track stems through the real mixer" "$OUT/usb_audio_tracks_test"
 
 $CC -o "$OUT/ota_test" tests/ota_test.c
 run "M-UPGRADE entry" "$OUT/ota_test" build/felucca.fwsc

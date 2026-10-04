@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* UAC1 stereo PCM transport. No hardware dependencies: callers serialize USB
- * service and each short audio block. Capture taps the synth before playback
- * is added, so DAW monitoring cannot feed itself through USB capture.
+/* UAC1 stereo playback and four-channel capture. No hardware dependencies:
+ * callers serialize USB service and each short audio block. Capture takes
+ * isolated track stems, so DAW monitoring cannot feed itself through capture.
  *
  * The I2S clock is independent of USB SOF. A low-pass ring-fill servo adjusts
  * capture packet lengths and the playback endpoint's explicit 10.14 feedback.
@@ -10,7 +10,9 @@
  * conversion runs in USB service, outside the audio ISR's masked copy. */
 #include <stdint.h>
 #define UA_RATE 44100u
-#define UA_PACKET 294u                         /* up to 49 stereo packed PCM24 frames */
+#define UA_CAP_CHANNELS 4u
+#define UA_PLAY_PACKET 294u                    /* up to 49 stereo packed PCM24 frames */
+#define UA_PACKET (49u * UA_CAP_CHANNELS * 3u)  /* largest capture packet */
 #define UA_RING 1024u
 #define UA_TARGET 512u
 #define UA_NOMINAL ((UA_RATE * 16384u) / 1000u)
@@ -38,13 +40,13 @@ struct ua_converter {
 static struct {
     uint8_t play_alt, cap_alt, play_ready, cap_ready;
     uint32_t play_rate, cap_rate;
-    struct ua_converter play_src, cap_src;
+    struct ua_converter play_src, cap_src, cap_src_hi; /* capture pairs share cap_src.phase */
     uint32_t pw, pr, cw, cr, cap_frac;
     int32_t play_fill_q8, cap_fill_q8;
     uint32_t play_underruns, play_overruns, cap_underruns, cap_overruns, bad_packets;
     uint32_t rx_packets, tx_packets, missed_frames;
     uint32_t poll_max_ticks, service_max_ticks;
-    int16_t play[UA_RING * 2u], cap[UA_RING * 2u];
+    int16_t play[UA_RING * 2u], cap[UA_RING * UA_CAP_CHANNELS];
 } ua;
 
 static int32_t ua_clip(int32_t x)
@@ -134,6 +136,7 @@ static void ua_cap_reset(void)
     ua.cap_ready = 0;
     ua.cap_fill_q8 = UA_TARGET * 256;
     ua_src_reset(&ua.cap_src);
+    ua_src_reset(&ua.cap_src_hi);
 }
 
 static void ua_reset(void)
@@ -221,32 +224,35 @@ static uint32_t ua_transmit(uint8_t *p)
         }
     }
     for (i = 0; i < n; i++) {
-        int16_t sample[2] = {0, 0};
+        int16_t sample[UA_CAP_CHANNELS] = {0};
+        uint32_t ch;
         if (take) {
             if (ua.cap_rate == 48000u) {
                 if (ua.cap_src.phase < 147u) {
-                    uint32_t at = (ua.cr++ & (UA_RING - 1u)) * 2u;
+                    uint32_t at = (ua.cr++ & (UA_RING - 1u)) * UA_CAP_CHANNELS;
                     ua_src_push(&ua.cap_src, ua.cap[at], ua.cap[at + 1u]);
+                    ua_src_push(&ua.cap_src_hi, ua.cap[at + 2u], ua.cap[at + 3u]);
                     ua.cap_src.phase += 160u;
                 }
                 ua.cap_src.phase -= 147u;
                 ua_src_sample(&ua.cap_src, ua_cap_taps[ua.cap_src.phase], sample);
+                ua_src_sample(&ua.cap_src_hi, ua_cap_taps[ua.cap_src.phase], sample + 2);
             } else {
-                uint32_t at = (ua.cr++ & (UA_RING - 1u)) * 2u;
-                sample[0] = ua.cap[at];
-                sample[1] = ua.cap[at + 1u];
+                uint32_t at = (ua.cr++ & (UA_RING - 1u)) * UA_CAP_CHANNELS;
+                for (ch = 0; ch < UA_CAP_CHANNELS; ch++)
+                    sample[ch] = ua.cap[at + ch];
             }
         }
-        ua_encode(p + i * width * 2u, width, sample[0]);
-        ua_encode(p + i * width * 2u + width, width, sample[1]);
+        for (ch = 0; ch < UA_CAP_CHANNELS; ch++)
+            ua_encode(p + (i * UA_CAP_CHANNELS + ch) * width, width, sample[ch]);
     }
     ua.tx_packets++;
-    return n * width * 2u;
+    return n * width * UA_CAP_CHANNELS;
 }
 
-/* Stereo Q15, after synth master processing; playback follows the MASTER knob.
+/* Stereo Q15 monitor plus four pre-master mono stems; playback follows MASTER.
  * Call in blocks of CTL (32), with USB service excluded during this copy. */
-static void ua_audio(int32_t *out, uint32_t n, uint32_t master_q12)
+static void ua_audio(int32_t *out, const int32_t *tracks, uint32_t n, uint32_t master_q12)
 {
     uint32_t i, capture = ua.cap_alt, playback = 0;
     if (capture && ua.cw - ua.cr + n > UA_RING) {
@@ -266,12 +272,13 @@ static void ua_audio(int32_t *out, uint32_t n, uint32_t master_q12)
         }
     }
     for (i = 0; i < n; i++) {
-        uint32_t ci = ((ua.cw + i) & (UA_RING - 1u)) * 2u;
+        uint32_t ci = ((ua.cw + i) & (UA_RING - 1u)) * UA_CAP_CHANNELS;
         uint32_t pi = ((ua.pr + i) & (UA_RING - 1u)) * 2u;
         int32_t l = out[2u * i], r = out[2u * i + 1u];
         if (capture) {
-            ua.cap[ci] = (int16_t)ua_clip(l);
-            ua.cap[ci + 1u] = (int16_t)ua_clip(r);
+            uint32_t ch;
+            for (ch = 0; ch < UA_CAP_CHANNELS; ch++)
+                ua.cap[ci + ch] = (int16_t)ua_clip(tracks[i * UA_CAP_CHANNELS + ch]);
         }
         if (playback) {
             l += (ua.play[pi] * (int32_t)master_q12) >> 12;

@@ -55,8 +55,8 @@ def descriptors(audio, cdc):
             assert capture[2:4] == bytes([0x82, 0x05])
             assert feedback[2:6] == bytes([0x83, 0x11, 3, 0])
             assert playback[8] == feedback[2]
-            for ep in (playback, capture):
-                assert int.from_bytes(ep[4:6], "little") == 49 * 2 * width and ep[6] == 1
+            for ep, channels in ((playback, 2), (capture, 4)):
+                assert int.from_bytes(ep[4:6], "little") == 49 * channels * width and ep[6] == 1
         current = None
         formats, links = {}, {}
         for d in records:
@@ -69,9 +69,9 @@ def descriptors(audio, cdc):
             elif current and current[0] in (3, 5) and d[1] == 0x25:
                 assert d[3] == 1  # sampling-frequency control advertised
         assert set(formats) == {(3, 1), (3, 2), (5, 1), (5, 2)}
-        for (_, alt), fmt in formats.items():
+        for (interface, alt), fmt in formats.items():
             width = alt + 1
-            assert fmt[3:8] == bytes([1, 2, width, width * 8, 2])
+            assert fmt[3:8] == bytes([1, 4 if interface == 5 else 2, width, width * 8, 2])
             assert int.from_bytes(fmt[8:11], "little") == 44100
             assert int.from_bytes(fmt[11:14], "little") == 48000
         # Playback streams into IT1, recording leaves through OT4.
@@ -93,6 +93,8 @@ def descriptors(audio, cdc):
                 assert int.from_bytes(d[4:6], "little") == kind
                 if source is not None:
                     assert d[7] == source
+                else:
+                    assert d[7:10] == bytes([4, 0, 0] if ac_if == 4 else [2, 3, 0])
     print(f"USB descriptors: audio={audio}, CDC={cdc}, {len(data)} bytes: OK")
 
 

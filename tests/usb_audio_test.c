@@ -55,11 +55,16 @@ static void pcm(uint8_t *p, uint32_t frames, int16_t l, int16_t r)
 static void block(int32_t l, int32_t r, uint32_t master, int32_t *out)
 {
     uint32_t i;
+    int32_t tracks[32 * UA_CAP_CHANNELS];
     for (i = 0; i < 32; i++) {
         out[2 * i] = l;
         out[2 * i + 1] = r;
+        tracks[4 * i] = l;
+        tracks[4 * i + 1] = r;
+        tracks[4 * i + 2] = 300;
+        tracks[4 * i + 3] = -700;
     }
-    ua_audio(out, 32, master);
+    ua_audio(out, tracks, 32, master);
 }
 
 static void routing(void)
@@ -76,8 +81,10 @@ static void routing(void)
     block(1000, -1000, 4096, out);
     assert(out[0] == 3000 && out[1] == -3000);
     assert(ua.cap[0] == 1000 && ua.cap[1] == -1000); /* no playback loopback */
+    assert(ua.cap[2] == 300 && ua.cap[3] == -700);
     block(1000, -1000, 0, out);
     assert(out[0] == 1000 && out[1] == -1000);
+    assert(ua.cap[128] == 1000 && ua.cap[131] == -700); /* MASTER does not scale stems */
     block(32000, -32000, 4096, out);
     assert(out[0] == 32767 && out[1] == -32768);
     ua.play_alt = 0;
@@ -128,11 +135,13 @@ static void drift(int ppm, int play, int cap, uint32_t play_rate, uint32_t cap_r
             feedback = ua_feedback();
         if (cap) {
             bytes = ua_transmit(captured);
-            assert(bytes <= 49u * cw * 2u && bytes >= 43u * cw * 2u && bytes % (cw * 2u) == 0);
+            assert(bytes <= 49u * cw * 4u && bytes >= 43u * cw * 4u && bytes % (cw * 4u) == 0);
             if (ms > 1000)
-                for (i = 0; i < bytes; i += cw * 2u) {
+                for (i = 0; i < bytes; i += cw * 4u) {
                     assert(ua_decode(captured + i, cw) == 1000);
                     assert(ua_decode(captured + i + cw, cw) == -1000);
+                    assert(ua_decode(captured + i + cw * 2u, cw) == 300);
+                    assert(ua_decode(captured + i + cw * 3u, cw) == -700);
                 }
         }
         assert(ua.pw - ua.pr <= UA_RING && ua.cw - ua.cr <= UA_RING);
@@ -171,8 +180,8 @@ static void recovery(void)
         block(1000, -1000, 4096, out);
     assert(ua.cap_overruns > 0);                /* unpolled capture stays bounded */
     ua_cap_reset();
-    ua_transmit(packet);
-    for (i = 0; i < 176; i++)
+    uint32_t bytes = ua_transmit(packet);
+    for (i = 0; i < bytes; i++)
         assert(packet[i] == 0);                 /* no stale audio after restart */
     /* Unsigned ring indices must survive long-running streams. */
     ua_play_reset();
@@ -209,17 +218,30 @@ static void pcm24(void)
     ua_receive(packet, 0);                   /* legal empty isochronous packet */
     for (uint32_t i = 0; i < 16; i++) block(-32768, 32767, 0, out);
     uint32_t n = ua_transmit(packet);
-    assert(n == 264);
-    for (uint32_t i = 0; i < n; i += 6u) {
+    assert(n == 528);
+    for (uint32_t i = 0; i < n; i += 12u) {
         assert(packet[i] == 0 && packet[i + 1u] == 0 && packet[i + 2u] == 0x80);
         assert(packet[i + 3u] == 0 && packet[i + 4u] == 0xFF && packet[i + 5u] == 0x7F);
+        assert(packet[i + 6u] == 0 && ua_decode(packet + i + 6u, 3) == 300);
+        assert(packet[i + 9u] == 0 && ua_decode(packet + i + 9u, 3) == -700);
     }
     /* Maximum PCM24 packet fits, including across unsigned ring-index wrap. */
     ua_play_reset();
     ua.pw = ua.pr = 0xFFFFFFF0u;
     memset(packet, 0, sizeof packet);
-    ua_receive(packet, sizeof packet);
+    ua_receive(packet, UA_PLAY_PACKET);
     assert(ua.pw - ua.pr == 49 && ua.bad_packets == bad + 2u);
+    ua_cap_reset();
+    ua.cw = ua.cr = 0xFFFFFFF0u;
+    for (uint32_t i = 0; i < 16; i++) block(1234, -2345, 0, out);
+    ua.cap_rate = 48000;
+    ua.cap_fill_q8 = (UA_TARGET + 512u) * 256u;
+    ua.cap_frac = 16383;
+    uint8_t guarded[UA_PACKET + 2];
+    memset(guarded, 0xA5, sizeof guarded);
+    assert(ua_transmit(guarded + 1) == UA_PACKET);
+    assert(guarded[0] == 0xA5 && guarded[UA_PACKET + 1] == 0xA5);
+    assert(ua.cw - ua.cr < UA_TARGET);
 }
 
 struct measurement { double re, im, energy; uint32_t count, used; };
@@ -236,10 +258,11 @@ static void measure(struct measurement *m, int32_t sample, double frequency, uin
 
 /* Exercise actual packet -> ring -> engine and engine -> ring -> packet paths.
  * Correlation checks pitch as well as level; RMS detects out-of-band aliases. */
-static void tone(int capture, double frequency)
+static void tone(int capture, double frequency, uint32_t channel)
 {
     uint8_t packet[UA_PACKET];
     int32_t out[96];
+    int32_t tracks[32 * UA_CAP_CHANNELS] = {0};
     struct measurement m = {0};
     uint32_t source_rate = capture ? 44100u : 48000u;
     uint32_t destination_rate = capture ? 48000u : 44100u;
@@ -252,18 +275,22 @@ static void tone(int capture, double frequency)
         if (n > source_rate - input) n = source_rate - input;
         for (uint32_t i = 0; i < n; i++) {
             int16_t sample = (int16_t)lrint(10000 * sin(6.283185307179586 * frequency * input++ / source_rate));
-            if (capture) out[i * 2u] = out[i * 2u + 1u] = sample;
+            if (capture) tracks[i * 4u + channel] = sample;
             else {
                 ua_encode(packet + i * 6u, 3, sample);
                 ua_encode(packet + i * 6u + 3u, 3, sample);
             }
         }
         if (capture) {
-            ua_audio(out, n, 0);
+            memset(out, 0, sizeof out);
+            ua_audio(out, tracks, n, 0);
             while (ua.cw - ua.cr >= UA_TARGET + 64u) {
                 uint32_t bytes = ua_transmit(packet);
-                for (uint32_t i = 0; i < bytes; i += 6u)
-                    measure(&m, ua_decode(packet + i, 3), frequency, destination_rate);
+                for (uint32_t i = 0; i < bytes; i += 12u) {
+                    measure(&m, ua_decode(packet + i + channel * 3u, 3), frequency, destination_rate);
+                    for (uint32_t ch = 0; ch < 4; ch++)
+                        if (ch != channel) assert(ua_decode(packet + i + ch * 3u, 3) == 0);
+                }
             }
         } else {
             ua_receive(packet, n * 6u);
@@ -286,8 +313,8 @@ static void tone(int capture, double frequency)
     } else {
         assert(rms < 0.01);                 /* >40 dB rejection at 23 kHz */
     }
-    printf("USB audio conversion: %s %.0f Hz, gain %.5f, RMS %.5f: OK\n",
-           capture ? "capture" : "playback", frequency, gain, rms);
+    printf("USB audio conversion: %s ch%u %.0f Hz, gain %.5f, RMS %.5f: OK\n",
+           capture ? "capture" : "playback", channel + 1, frequency, gain, rms);
 }
 
 int main(void)
@@ -297,11 +324,13 @@ int main(void)
     routing();
     recovery();
     pcm24();
-    tone(0, 1000);
-    tone(0, 10000);
-    tone(0, 23000);
-    tone(1, 1000);
-    tone(1, 10000);
+    tone(0, 1000, 0);
+    tone(0, 10000, 0);
+    tone(0, 23000, 0);
+    for (uint32_t ch = 0; ch < 4; ch++) {
+        tone(1, 1000, ch);
+        tone(1, 10000, ch);
+    }
     for (uint32_t rate = 44100; rate <= 48000; rate += 3900)
         for (int alt = 1; alt <= 2; alt++) {
             drift(-1000, alt, alt, rate, rate);
