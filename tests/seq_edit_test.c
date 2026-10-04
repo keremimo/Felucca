@@ -336,6 +336,101 @@ static void preset_scale_settings_test(void)
     puts("scale settings: panel, all synth tracks, factory/user presets, projects and drum independence ok");
 }
 
+static void mpc_page_test(void)
+{
+    uint32_t mode, i, sig;
+    char b[24];
+    reset(16);
+    transport_req = panic_req = 0;
+    for (mode = Q_OFF; mode < Q_MPC; mode++) {
+        scale_setting_set(TSEL, P_QUANT, (int16_t)mode);
+        open_family(FAM_SCL);
+        open_family(FAM_SCL);
+        assert(cur_page()->graph == GR_SCALE);
+    }
+    scale_setting_set(TSEL, P_SCALE, 1);
+    scale_setting_set(TSEL, P_QUANT, Q_MPC);
+    open_family(FAM_SCL);
+    assert(cur_page()->graph == GR_MPC && page_shown(cur_page()));
+    assert(TSEL->p[P_MPCDEG] == 1);
+    encoders[panel.enc[EN_K1]] = 2;
+    ui_input();
+    for (i = 0; i < NPART; i++) assert(trk[i].p[P_MPCDEG] == 3);
+    assert(TDRUM->p[P_MPCDEG] == 1);
+    assert(midi_map(TSEL, 20) == 62 && midi_map(TSEL, 21) == 64 && midi_map(TSEL, 22) == 65);
+    assert(kb_map(TSEL, 7) == 60);          /* degree shifts MPC pads, not panel keys */
+    mpc_pad_text(TSEL, b);
+    assert(!strcmp(b, "H02: 3 -> E4"));
+    ui_draw();
+    sig = graph_signature();
+    song.octave = 1;
+    assert(graph_signature() != sig);
+    mpc_pad_text(TSEL, b);
+    assert(!strcmp(b, "H02: 3 -> E5"));
+    ui_draw();
+    song.octave = 0;
+    edit_param(0, 99);
+    assert(TSEL->p[P_MPCDEG] == 7);
+    scale_setting_set(TSEL, P_SCALE, 5);    /* pentatonic clamps degree 7 to 5 */
+    for (i = 0; i < NPART; i++) assert(trk[i].p[P_MPCDEG] == 5);
+    edit_param(0, 1);
+    assert(TSEL->p[P_MPCDEG] == 5);
+    edit_param(0, -99);
+    assert(TSEL->p[P_MPCDEG] == 1);
+    scale_setting_set(TSEL, P_SCALE, 0);
+    edit_param(0, 99);
+    assert(TSEL->p[P_MPCDEG] == 12);
+    TSEL->p[P_ROOT] = 11;
+    TSEL->p[P_TRANS] = 24;
+    song.octave = 3;
+    mpc_pad_text(TSEL, b);
+    assert(!strcmp(b, "H02: 12 -> SILENT") && text_w(&FONT_S, b) <= 232);
+    ui_draw();
+    TSEL->p[P_ROOT] = TSEL->p[P_TRANS] = song.octave = 0;
+
+    scale_setting_set(TSEL, P_SCALE, 1);
+    scale_setting_set(TSEL, P_MPCDEG, 3);
+    assert(up_store(1, "MPC DEGREE") == 3);
+    scale_setting_set(TSEL, P_MPCDEG, 5);
+    apply_preset(0);
+    set_engine(1);
+    assert(up_load(1) == 0 && TSEL->p[P_MPCDEG] == 5);
+    project_save(2);
+    scale_setting_set(TSEL, P_MPCDEG, 1);
+    project_load(2);
+    for (i = 0; i < NPART; i++) assert(trk[i].p[P_MPCDEG] == 5);
+    transport_req = panic_req = 0;
+    track_defaults_steps(TSEL);
+    TSEL->p[P_ROOT] = 0;
+    TSEL->p[P_TRANS] = 0;
+    ui.page = (uint8_t)page_first(FAM_SEQ);
+    page_entered();
+    midi_frame(0x90, 21, 100, 1);
+    assert(TSEL->step[0].n == 1 && TSEL->step[0].note[0] == 67);
+    midi_frame(0x80, 21, 0, 0);
+    assert(ui.cursor == 2 && !step_midi_held);
+    track_defaults_steps(TSEL);
+    song.playing = song.rec = 1;
+    TSEL->seq_idx = TSEL->seq_pos = 0;
+    midi_frame(0x90, 21, 100, 0);
+    assert(TSEL->step[0].n == 1 && TSEL->step[0].note[0] == 67);
+    midi_frame(0x80, 21, 0, 0);
+    song.playing = song.rec = 0;
+
+    open_family(FAM_SCL);                  /* remembers MPC while available */
+    assert(cur_page()->graph == GR_MPC);
+    scale_setting_set(TSEL, P_QUANT, Q_WHITE);
+    ui_input();                            /* mode changed externally: hidden page falls back */
+    assert(cur_page()->graph == GR_SCALE);
+    scale_setting_set(TSEL, P_QUANT, Q_MPC);
+    open_family(FAM_SCL);
+    assert(cur_page()->graph == GR_MPC);
+    track_select(TRK_DRUM);
+    ui_input();
+    assert(cur_page()->graph == GR_SCALE);
+    puts("MPC page: conditional navigation, DEG knob/range, note preview, shared persistence, preset retention and sequencer input ok");
+}
+
 static void playback_test(void)
 {
     uint32_t i, j, age[NVOICE];
@@ -393,6 +488,7 @@ int main(int argc, char **argv)
     gestures_test();
     preset_scale_settings_test();
     midi_entry_test();
+    mpc_page_test();
     playback_test();
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;

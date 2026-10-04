@@ -324,6 +324,27 @@ static void graph_scale(const track_t *t, uint16_t c)
     }
 }
 
+static void mpc_pad_text(const track_t *t, char *b)
+{
+    uint32_t n = midi_map(t, 21), len;
+    str_cpy(b, "H02: ", 24);
+    fmt_int(b + str_len(b), mpc_degree(t));
+    str_cpy(b + str_len(b), " -> ", 24 - str_len(b));
+    len = str_len(b);
+    if (n == KB_SILENT)
+        str_cpy(b + len, "SILENT", 24 - len);
+    else
+        note_name(b + len, n);
+}
+
+static void graph_mpc(const track_t *t, uint16_t c)
+{
+    char b[24];
+    mpc_pad_text(t, b);
+    cv_text((240 - text_w(&FONT_S, b)) / 2, 24, &FONT_S, b, c);
+    cv_text(28, 56, &FONT_S, "H01-H16: BANK H ONLY", C_DIM);
+}
+
 static void graph_fx(const track_t *t, uint16_t c)
 {
     uint32_t i;
@@ -518,6 +539,8 @@ static uint32_t graph_signature(void)
     if (ui.home)
         return h ^ (ui.frame / 2u);                  /* scope: redraw every other frame */
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u;
+    if (pg->graph == GR_MPC)
+        h = (h ^ (uint32_t)(song.octave + 3)) * 16777619u;
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u;
@@ -834,6 +857,9 @@ static void draw_graph(void)
             break;
         case GR_SCALE:
             graph_scale(t, c);
+            break;
+        case GR_MPC:
+            graph_mpc(t, c);
             break;
         case GR_FX:
             graph_fx(t, c);

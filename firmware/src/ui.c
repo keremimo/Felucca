@@ -254,18 +254,25 @@ static void track_defaults_steps(track_t *t)
         step_clear(&t->step[i]);
 }
 
-/* Scale and quantization belong to the song's three synth parts. Keep their existing
- * parameter slots in sync so projects and the editor retain the same format. Drums
- * keep their own slots and never participate in this setting. */
+static int is_scale_setting(uint32_t id)
+{
+    return id == P_SCALE || id == P_QUANT || id == P_MPCDEG;
+}
+
+/* Scale, quantization and MPC degree belong to the song's three synth parts.
+ * Drums keep their own slots and never participate in these settings. */
 static void scale_setting_set(track_t *t, uint32_t id, int16_t value)
 {
     uint32_t k;
     if (is_drum(t)) {
         t->p[id] = value;
+        t->p[P_MPCDEG] = (int16_t)mpc_degree(t);
         return;
     }
-    for (k = 0; k < NPART; k++)
+    for (k = 0; k < NPART; k++) {
         trk[k].p[id] = value;
+        trk[k].p[P_MPCDEG] = (int16_t)mpc_degree(&trk[k]);
+    }
 }
 
 /* what loading a sound (factory or user preset) leaves alone: the mix (LEVEL, PAN, MUTE:
@@ -273,7 +280,7 @@ static void scale_setting_set(track_t *t, uint32_t id, int16_t value)
  * The SLICER is part of the sound: a factory preset turns it OFF (its defaults), a user preset brings its own */
 static int param_kept(uint32_t i)
 {
-    return i == P_LEVEL || i == P_PAN || i == P_MUTE || i == P_SCALE || i == P_QUANT ||
+    return i == P_LEVEL || i == P_PAN || i == P_MUTE || is_scale_setting(i) ||
            (i >= P_SLEN && i <= P_SGATE);
 }
 

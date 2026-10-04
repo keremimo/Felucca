@@ -132,6 +132,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SLPAT] = PD("PAT", F_INT, 1, 16, 1),        /* SL_PAT[] */
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),
     [P_SLDEPTH] = PD("DEPTH", F_PCT, 0, 127, 127),
+    [P_MPCDEG] = PD("DEG", F_INT, 1, 12, 1),
 };
 
 static const param_desc_t GP[G_COUNT] = {
@@ -164,8 +165,15 @@ static const param_desc_t GP[G_COUNT] = {
     [G_DRREV] = PD("REV", F_INT, 0, 127, 16),
 };
 
+static uint32_t scale_count(const track_t *t);          /* seq.c */
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
+    if (id == P_MPCDEG) {
+        static param_desc_t degree;
+        degree = TP[P_MPCDEG];
+        degree.max = (int16_t)scale_count(t);
+        return &degree;
+    }
     if (id >= P_E0 && id <= P_E7) {                   /* the engine asked for (t->engine follows after a fade) */
         const engine_t *e = ENGINES[t->eng_req % NENGINES];
         const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;   /* a mode-dependent label / names */
@@ -304,7 +312,7 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,      /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
        SC_FM6, SC_FMOP };                                      /* FM6: the voice; its operator fm6_opsel */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
-       GR_SLCR, GR_FMALG, GR_FMEG, GR_FMPEG, GR_FMSTORE };
+       GR_SLCR, GR_FMALG, GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_MPC };
 
 typedef struct {
     const char *title;
@@ -322,6 +330,7 @@ static const page_t PAGES[] = {
     {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
     {"REV/CHO", FAM_FX, SC_GLOBAL, GR_NONE, {G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
+    {"MPC", FAM_SCL, SC_TRACK, GR_MPC, {P_MPCDEG, 0xFF, 0xFF, 0xFF}},
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},
     /* FM6 only (page_shown): the voice, then OP1..OP6 (the PRESETS knob picks one) */
@@ -372,6 +381,8 @@ static int page_shown(const page_t *pg)
 {
     const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
     uint32_t k, any = 0;
+    if (pg->graph == GR_MPC)
+        return !is_drum(TSEL) && TSEL->p[P_QUANT] == Q_MPC;
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP)
         return fm6_shown();
     if (pg->scope != SC_ENGINE || pg->id[0] != P_E4 || is_drum(TSEL))

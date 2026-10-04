@@ -153,6 +153,11 @@ and the P_COUNT it was stored with; another count is mapped by count (last 8 val
 first ones = P_LEVEL.. in order, missing ones = defaults). P_COUNT was 53 (P_E0 45) until the SLICER
 parameters (SLCR, PAT, RATE, DEPTH: ids 45..48) went in just before P_E0: P_COUNT 57, P_E0 49. An
 editor takes both from `INFO`; records stored with 53 load with the SLICER off.
+MPC pad degree (`DEG`, id 49) adds one more common parameter: P_COUNT 58, P_E0 50.
+Older records default to degree 1. `DEG` is shared across the three synth parts
+and retained when loading a preset, like SCL and QNT. `DESC` exposes its full
+range 1–12; `SET` and `TRACK_PARAM` additionally clamp it to the receiving scale's
+note count. Changing SCL also clamps DEG when the new scale has fewer notes.
 
 ## v2: live sync
 

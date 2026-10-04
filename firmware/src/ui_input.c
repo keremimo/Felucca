@@ -246,7 +246,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max);
     *vp = (int16_t)v;
-    if (pg->scope == SC_TRACK && (id == P_SCALE || id == P_QUANT))
+    if (pg->scope == SC_TRACK && is_scale_setting(id))
         scale_setting_set(TSEL, id, (int16_t)v);
     if (!v)
         return;
