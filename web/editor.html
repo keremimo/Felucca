@@ -498,6 +498,21 @@ class Link {
   }
   get idle() { return !this.cur && !this.q.length; }
   hasQueued(key) { return this.q.some((r) => r.key === key); }
+  /* Keep editor traffic queued until the device has echoed the loaded voice. Older
+     firmware can lose a pending Yamaha frame when another SysEx arrives too soon. */
+  transferDX7(message, opt = {}) {
+    if (this.closed) return Promise.reject(new Error("closed"));
+    let voice;
+    try {
+      if (message.length !== 163) throw new Error("Expected a DX7 single voice");
+      voice = dx7ForDevice(readDX7File(message).patches[0].dx7);
+    } catch (e) { return Promise.reject(e); }
+    return new Promise((res, rej) => {
+      this.q.push({ cmd: null, dx7: voice, res, rej, timeout: opt.timeout ?? 700,
+        retries: opt.retries ?? 2, settle: opt.settle ?? 120 });
+      this.pump();
+    });
+  }
   /* r = [cmd, args]; opt: {timeout, retries, key (coalesce queued requests: the latest args win), front,
      quiet (a timeout is expected: no onTimeout)} */
   request(r, opt = {}) {
@@ -525,24 +540,40 @@ class Link {
     const now = Date.now();
     if (this.lastSent && now - this.lastSent > 2500) this.onGap(now - this.lastSent);
     this.lastSent = now;
-    try { this.sendRaw(frame(c.cmd, c.args)); } catch (e) { this.finish(null, e); return; }
+    try {
+      this.sendRaw(c.dx7 ? dx7Message(c.dx7) : frame(c.cmd, c.args));
+      if (c.dx7) c.readTimer = setTimeout(() => {
+        if (this.cur !== c) return;
+        this.lastSent = Date.now();
+        try { this.sendRaw([0xF0, 0x43, 0x20, 0, 0xF7]); } catch (e) { this.finish(null, e); }
+      }, c.settle);
+    } catch (e) { this.finish(null, e); return; }
     c.timer = setTimeout(() => {
       if (this.cur !== c) return;
-      if (c.retries-- > 0) { this.fire(); return; }
-      if (!c.quiet) this.onTimeout(c.cmd);
-      this.finish(null, new Error("timeout (cmd " + c.cmd + ")"));
-    }, c.timeout);
+      if (c.retries-- > 0) { if (c.dx7) c.settle *= 2; this.fire(); return; }
+      if (!c.quiet && !c.dx7) this.onTimeout(c.cmd);
+      this.finish(null, new Error(c.dx7 ? "DX7 voice was not confirmed by the device. Try Audition again." : "timeout (cmd " + c.cmd + ")"));
+    }, c.timeout + (c.dx7 ? c.settle : 0));
   }
   finish(val, err) {
     const c = this.cur;
     if (!c) return;
     clearTimeout(c.timer);
+    clearTimeout(c.readTimer);
     this.cur = null;
     if (err) c.rej(err); else c.res(val);
     this.pump();
   }
   /* raw incoming MIDI bytes */
   receive(data) {
+    const pending = this.cur;
+    if (pending && pending.dx7 && data.length === 163 && data[0] === 0xF0 && data[1] === 0x43) {
+      try {
+        const voice = readDX7File(data).patches[0].dx7;
+        if (voice.every((v, i) => v === pending.dx7[i])) this.finish(voice);
+      } catch (e) { /* corrupt or unrelated Yamaha frame: wait for a valid readback */ }
+      return;
+    }
     const f = unframe(data);
     if (!f) return;                                  /* not ours (notes, clock, other SysEx) */
     if (PUSH.has(f.cmd)) { this.onPush(f); return; }
@@ -554,6 +585,7 @@ class Link {
     this.closed = true;
     const all = (this.cur ? [this.cur] : []).concat(this.q);
     if (this.cur) clearTimeout(this.cur.timer);
+    if (this.cur) clearTimeout(this.cur.readTimer);
     this.cur = null;
     this.q = [];
     for (const r of all) r.rej(new Error("closed"));
@@ -821,6 +853,13 @@ function dx7Voice(data) {
   if (!Array.isArray(data) || data.length !== 155 || !data.every((v) => Number.isInteger(v) && v >= 0 && v < 128))
     throw new Error("Invalid DX7 voice (expected 155 seven-bit bytes)");
   return data.slice();
+}
+/* Match the device's fm6_set bounds, including printable voice-name characters. */
+function dx7ForDevice(data) {
+  const opMax = [99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 3, 3, 7, 3, 7, 99, 1, 31, 99, 14];
+  const globalMax = [99, 99, 99, 99, 99, 99, 99, 99, 31, 7, 1, 99, 99, 99, 99, 1, 5, 7, 48];
+  return dx7Voice(data).map((v, i) => i >= 145 ? Math.max(32, Math.min(126, v))
+    : Math.min(i < 126 ? opMax[i % 21] : globalMax[i - 126], v));
 }
 function unpackDX7(b) {
   const v = [];
@@ -1654,7 +1693,7 @@ const TEXT = {
     audition: "試聴", toSlot: "本体スロットへ", rename: "名前変更", tags: "タグ", duplicate: "複製", delete: "削除",
     exportPatch: "書き出し", saveToLib: "今の音色をライブラリへ", import: "読み込み", exportLib: "ライブラリを書き出し",
     dx7Help: "Felucca JSON、DX7 .syx 音色・32音色バンクを読み込めます。DX7音色はシンセトラックで試聴し、FM6のSTOREかプロジェクト保存で本体に残せます。",
-    dx7Sent: "DX7音色を送信しました: ", dx7Store: "試聴後、FM6のSTOREかプロジェクト保存で音色を残してください。",
+    dx7Sent: "DX7音色の読み込みを確認しました: ", dx7Store: "試聴後、FM6のSTOREかプロジェクト保存で音色を残してください。",
     dx7Track: "DX7音色の試聴にはシンセトラックを選んでください。",
     factoryToLib: "ライブラリへコピー", libEmpty: "ライブラリは空です。「今の音色をライブラリへ」やファクトリープリセットのコピー、本体スロットからの取り込み、ファイルの読み込みで追加できます。",
     noMatch: "該当なし", noLibDB: "（ブラウザに保存できません。再読み込みで消えます）",
@@ -1717,7 +1756,7 @@ const TEXT = {
     audition: "Audition", toSlot: "To device slot", rename: "Rename", tags: "Tags", duplicate: "Duplicate", delete: "Delete",
     exportPatch: "Export", saveToLib: "Save current sound", import: "Import", exportLib: "Export library",
     dx7Help: "Import Felucca JSON or DX7 .syx voices and 32-voice banks. Audition DX7 voices on a synth track, then use FM6 STORE or save a project to keep them on the device.",
-    dx7Sent: "DX7 voice sent: ", dx7Store: "After auditioning, use FM6 STORE or save a project to keep this voice.",
+    dx7Sent: "DX7 voice loaded and verified: ", dx7Store: "After auditioning, use FM6 STORE or save a project to keep this voice.",
     dx7Track: "Select a synth track to audition a DX7 voice.",
     factoryToLib: "Copy to library", libEmpty: "The library is empty. Add sounds with \"Save current sound\", by copying a factory preset or a device slot, or by importing a file.",
     noMatch: "No match", noLibDB: "(this browser cannot store it: it is gone after a reload)",
@@ -2835,7 +2874,7 @@ function renderLive() {
 let rewatch = false;
 async function keepAlive() {
   const d = dev;
-  if (!d || !d.watch || !d.dump || document.hidden) return;
+  if (!d || busy || !d.watch || !d.dump || document.hidden) return;
   const gap = Date.now() - d.link.lastSent;
   if (rewatch || gap > 2500) {
     if (keepAlive.run) return;
@@ -3171,10 +3210,7 @@ function libAudition(id) {
     sayK("auditioning", p.name);
     selfLoad();
     const r = await auditionPatch(rqf, dev.info, p, { gEng: gEng(), slen: pSlen(), steps: dev.steps,
-      sendDX7: async (message) => {
-        dev.output.send(message);
-        await new Promise((resolve) => setTimeout(resolve, 80));
-      },
+      sendDX7: (message) => dev.link.transferDX7(message),
       progress: (i, n) => { if (i % 8 === 0) sayK("auditioning", `${p.name} ${i}/${n}`); } });
     await afterSoundChange();
     sayK(p.dx7 ? "dx7Sent" : r.wrote ? "auditionedPat" : "auditioned", p.name);

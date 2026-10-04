@@ -668,7 +668,8 @@ static void fm6_sx_byte(uint8_t b)
 {
     if (b == 0xF0) {
         fm6_rx_on = !fm6_rx_ready;
-        fm6_rx_n = 0;
+        if (fm6_rx_on)
+            fm6_rx_n = 0;                               /* a pending frame belongs to the main loop */
     }
     if (!fm6_rx_on)
         return;

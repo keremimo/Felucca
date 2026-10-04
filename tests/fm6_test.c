@@ -414,8 +414,30 @@ static void every_algorithm(void)
     puts("FM6: every algorithm at full levels and feedback stays bounded: OK");
 }
 
+static void sysex_pending(void)
+{
+    static const uint8_t voice[] = {0xF0, 0x43, 0, 0, 1, 0x1B, 42, 0xF7};
+    static const uint8_t ping[] = {0xF0, 0x7D, 0x46, 0x4C, 25, 0xF7};
+    uint32_t i;
+    fm6_rx_ready = fm6_rx_on = 0;
+    fm6_rx_n = 0;
+    for (i = 0; i < sizeof voice; i++) fm6_sx_byte(voice[i]);
+    CHECK(fm6_rx_ready && fm6_rx_n == sizeof voice, "voice queued for the main loop");
+    for (i = 0; i < sizeof ping; i++) fm6_sx_byte(ping[i]);
+    CHECK(fm6_rx_ready && fm6_rx_n == sizeof voice && !memcmp(fm6_rx, voice, sizeof voice),
+          "editor traffic must not discard a pending DX7 frame");
+    fm6_sx_byte(0xF0); fm6_sx_byte(0x43); fm6_sx_byte(0xF7);
+    CHECK(fm6_rx_ready && fm6_rx_n == sizeof voice && !memcmp(fm6_rx, voice, sizeof voice),
+          "a second Yamaha frame must not discard the pending frame");
+    fm6_rx_ready = 0;                              /* main loop consumed it */
+    fm6_sx_byte(0xF0); fm6_sx_byte(0x43); fm6_sx_byte(0xF7);
+    CHECK(fm6_rx_ready && fm6_rx_n == 3 && fm6_rx[2] == 0xF7, "receiver accepts the next frame after consumption");
+    fm6_rx_ready = 0;
+}
+
 int main(void)
 {
+    sysex_pending();
     algorithms();
     voices();
     pitch();

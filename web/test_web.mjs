@@ -311,6 +311,66 @@ async function editorDX7() {
     "DX7: Import handler reports filename and leaves library unchanged for corrupt files");
 }
 
+async function editorDX7Transfer() {
+  const voice = Array(155).fill(0);
+  voice.splice(145, 10, ...Array.from("TEST VOICE", (c) => c.charCodeAt(0)));
+  const message = E.dx7Message(voice), oldVoice = voice.slice();
+  oldVoice[145] = 79;
+  let uploads = 0, reads = 0, confirmed = false, pingEarly = false, device = E.dx7Message(oldVoice);
+  const link = new E.Link((data) => {
+    if (data[1] === 67 && data.length === 163) {
+      uploads++;
+      if (uploads > 1) device = data;                // first upload lost by the old receiver
+    } else if (data[1] === 67 && data[2] === 32) {
+      reads++;
+      setTimeout(() => { confirmed = uploads > 1; link.receive(device); }, 1);
+    } else {
+      pingEarly ||= !confirmed;
+      setTimeout(() => link.receive(E.frame(E.CMD.PING, [0])), 1);
+    }
+  });
+  const transfer = link.transferDX7(message, { settle: 5, timeout: 15 });
+  const ping = link.request(E.req.ping());
+  const loaded = await transfer;
+  await ping;
+  ok(uploads === 2 && reads === 2 && eq(loaded, voice) && !pingEarly && link.idle,
+    "DX7 transfer: stale readback retries; editor traffic waits for verified voice");
+  link.close();
+
+  let writes = [], bounded;
+  const clampLink = new E.Link((data) => {
+    writes.push(data);
+    if (data.length === 163) bounded = data;
+    else setTimeout(() => clampLink.receive(bounded), 1);
+  });
+  const normalized = await clampLink.transferDX7(E.dx7Message(Array(155).fill(127)), { settle: 5 });
+  ok(normalized[0] === 99 && normalized[11] === 3 && normalized[20] === 14 && normalized[134] === 31
+    && normalized[142] === 5 && normalized[144] === 48 && normalized[145] === 126,
+    "DX7 transfer: device parameter bounds applied before readback comparison");
+  clampLink.close();
+
+  for (const mode of ["missing", "mismatch", "corrupt"]) {
+    let count = 0;
+    const broken = new E.Link((data) => {
+      if (data.length === 163) count++;
+      else if (mode !== "missing") {
+        const reply = mode === "mismatch" ? E.dx7Message(oldVoice) : message.slice();
+        if (mode === "corrupt") reply[161] ^= 1;
+        setTimeout(() => broken.receive(reply), 1);
+      }
+    });
+    const err = await broken.transferDX7(message, { settle: 2, timeout: 8, retries: 1 }).then(() => "", (e) => e.message);
+    ok(count === 2 && /not confirmed/.test(err) && broken.idle, `DX7 transfer: ${mode} readback reports failure after bounded retries`);
+    broken.close();
+  }
+  let count = 0;
+  const closed = new E.Link(() => count++);
+  const pending = closed.transferDX7(message, { settle: 10 }).catch((e) => e.message);
+  closed.close();
+  await sleep(20);
+  ok(await pending === "closed" && count === 1, "DX7 transfer: disconnect cancels delayed dump request");
+}
+
 async function editorLive() {
   const C = E.CMD;
   const { m, link, rq, sent, ev, done } = attachMock({ watchMs: 250 });
@@ -702,6 +762,7 @@ async function updater() {
 await editorMock();
 await editorLibrarian();
 await editorDX7();
+await editorDX7Transfer();
 await editorLive();
 await editorTracks();
 await editorMixer();
