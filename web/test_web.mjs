@@ -30,7 +30,7 @@ const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-
 const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
-   mixer, GM_DRUM, drumName, parseNotes })`,
+   mixer, GM_DRUM, drumName, parseNotes, readDX7File, dx7Message, cleanPatch })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 async function editorMock() {
@@ -215,6 +215,100 @@ async function editorLibrarian() {
   try { E.readLibraryFile({ format: "something" }, ctx); } catch (e) { threw = true; }
   ok(threw, "library file: unknown format -> error");
   done();
+}
+
+async function editorDX7() {
+  const voice = Array(155).fill(0);
+  for (let op = 0; op < 6; op++) {
+    const o = op * 21;
+    for (let i = 0; i < 11; i++) voice[o + i] = (op * 13 + i) % 100;
+    voice.splice(o + 11, 10, op % 4, (op + 1) % 4, op + 1, op % 4, 7 - op, 90 - op, op % 2, 31 - op, 42 + op, 14 - op);
+  }
+  voice.splice(126, 19, 91, 82, 73, 64, 55, 46, 37, 28, 31, 7, 1, 66, 55, 44, 33, 1, 5, 7, 24);
+  voice.splice(145, 10, ...Array.from("TEST VOICE", (c) => c.charCodeAt(0)));
+  const wrap = (data, bank = false, ch = 0) => [240, 67, ch, ...(bank ? [9, 32, 0] : [0, 1, 27]), ...data,
+    (128 - data.reduce((a, b) => a + b, 0) % 128) % 128, 247];
+  const single = wrap(voice, false, 15);
+  const p = E.readDX7File(single).patches[0];
+  ok(p.name === "TEST VOICE" && p.engineName === "FM6" && p.engine === -1 && eq(p.dx7, voice), "DX7: single voice, channel 16, offline import");
+  ok(eq(E.dx7Message(p.dx7), wrap(voice)), "DX7: outgoing single-voice data and checksum");
+  // Independently pack VCED parameters into Yamaha VMEM bit fields.
+  const packed = Array(128).fill(0);
+  for (let op = 0; op < 6; op++) {
+    const v = voice.slice(op * 21, op * 21 + 21), o = op * 17;
+    packed.splice(o, 17, ...v.slice(0, 11), v[11] | v[12] << 2, v[13] | v[20] << 3,
+      v[14] | v[15] << 2, v[16], v[17] | v[18] << 1, v[19]);
+  }
+  packed.splice(102, 26, ...voice.slice(126, 135), voice[135] | voice[136] << 3,
+    ...voice.slice(137, 141), voice[141] | voice[142] << 1 | voice[143] << 4, ...voice.slice(144));
+  const data = Array.from({ length: 32 }, (_, i) => {
+    const v = packed.slice(); v[127] = 65 + i % 26; return v;
+  }).flat();
+  const ps = E.readDX7File(wrap(data, true), { engines: ["ANALOG", "FM6"] }).patches;
+  ok(ps.length === 32 && ps.every((x, i) => x.engine === 1 && eq(x.dx7.slice(0, 154), voice.slice(0, 154))
+    && x.dx7[154] === 65 + i % 26), "DX7: all 32 voices unpack every operator and global field");
+  ok(E.readDX7File([...single, ...wrap(data, true)]).patches.length === 33, "DX7: concatenated voice and bank dumps");
+  const badCheck = single.slice(); badCheck[50] ^= 1;
+  const highBit = single.slice(); highBit[50] |= 128;
+  const other = single.slice(); other[1] = 66;
+  const parameter = single.slice(); parameter[2] = 16;
+  ok([[], single.slice(0, -1), badCheck, highBit, other, parameter, [...single, 0], [...single, ...badCheck]]
+    .every((bytes) => { try { E.readDX7File(bytes); return false; } catch { return true; } }),
+    "DX7: reject empty, truncated, corrupt, foreign and parameter dumps atomically");
+  const ctx = { engines: ["ANALOG"], keys: null };
+  const file = JSON.parse(JSON.stringify(E.libraryFile("library", [p, ...ps], ctx)));
+  const restored = E.readLibraryFile(file, ctx);
+  ok(restored.patches.length === 33 && restored.skipped === 0 && eq(restored.patches[0].dx7, voice)
+    && eq(E.cleanPatch(p).dx7, voice), "DX7: library persistence / export survives offline and older firmware");
+  file.patches[0].dx7[0] = 128;
+  let badJSON = false;
+  try { E.readLibraryFile(file, ctx); } catch { badJSON = true; }
+  ok(badJSON, "DX7: invalid voice payload in JSON rejected");
+  let writes = 0;
+  const err = await E.bank.put(() => { writes++; }, 0, p).then(() => null, (e) => e.message);
+  ok(err && !writes, "DX7: regular preset slot cannot silently discard voice data");
+
+  // Use the existing protocol mock with one engine named FM6 to check transfer ordering.
+  const { m, rq, sent, done } = attachMock({});
+  const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
+  info.engines[2] = "FM6";
+  const flash = js(m.state.bank), pattern = js(m.state.step);
+  let outgoing;
+  await E.auditionPatch(rq, info, p, { sendDX7: (message) => {
+    ok(m.state.engine === 2, "DX7: FM6 selected before sending the voice"); outgoing = message;
+  } });
+  ok(eq(outgoing, wrap(voice)) && js(m.state.bank) === flash && js(m.state.step) === pattern,
+    "DX7: audition sends one voice, preserves bank and existing sequence");
+  await rq(E.req.track(3));
+  const sets = sent[E.CMD.SET];
+  const drum = await E.auditionPatch(rq, info, p, { sendDX7: () => { writes++; } }).then(() => null, (e) => e.message);
+  ok(drum && sent[E.CMD.SET] === sets && !writes, "DX7: drum track rejected before any changes or voice send");
+  info.engines[2] = "PHASE";
+  const missing = await E.auditionPatch(rq, info, p, { sendDX7: () => { writes++; } }).then(() => null, (e) => e.message);
+  ok(missing && !writes, "DX7: firmware without FM6 cannot audition voices");
+  done();
+
+  // Exercise the real import handler with browser File-shaped inputs, including mixed selection.
+  let onChange, added = [], status;
+  const input = { files: [
+    { name: "voice.SYX", arrayBuffer: async () => Uint8Array.from(single).buffer },
+    { name: "bank.syx", arrayBuffer: async () => Uint8Array.from(wrap(data, true)).buffer },
+    { name: "library.json", text: async () => JSON.stringify(E.libraryFile("library", [p], ctx)) },
+  ], addEventListener: (_event, fn) => { onChange = fn; } };
+  const handler = html.slice(html.indexOf('$("libfile").addEventListener("change"'), html.indexOf("/* device bank */"));
+  vm.runInNewContext(handler, {
+    $: () => input, libCtx: () => ctx, readDX7File: E.readDX7File, readLibraryFile: E.readLibraryFile,
+    libAdd: async (patches) => { added.push(...patches.map(E.cleanPatch)); },
+    sayK: (...args) => { status = args; }, t: () => " patches", console,
+  });
+  await onChange();
+  ok(added.length === 34 && added.every((x) => x.dx7.length === 155) && status[0] === "imported",
+    "DX7: Import handler reads mixed .SYX / bank / JSON file selection");
+  added = [];
+  input.files = [{ name: "broken.syx", arrayBuffer: async () => Uint8Array.from(badCheck).buffer }];
+  await onChange();
+  ok(!added.length && status[0] === "badfile" && status[1].includes("broken.syx"),
+    "DX7: Import handler reports filename and leaves library unchanged for corrupt files");
 }
 
 async function editorLive() {
@@ -607,6 +701,7 @@ async function updater() {
 
 await editorMock();
 await editorLibrarian();
+await editorDX7();
 await editorLive();
 await editorTracks();
 await editorMixer();

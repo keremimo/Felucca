@@ -88,6 +88,13 @@ voice live or load a cartridge:
 
 The FM6 part is the selected track when it plays FM6, else part n + 1, else the first FM6 part.
 
+In the web editor, **Library → Import** accepts DX7 `.syx` single voices and 32-voice banks
+alongside Felucca JSON files. Each bank voice becomes a separate named library entry; importing
+works offline and checks the dump's length and checksum. Library JSON exports retain the voice data.
+Select a synth track and **Audition** to send a voice to FM6. To keep it on the device, use
+FM6 **STORE** or save a project after auditioning. **To slot** is unavailable for imported DX7
+voices because regular user presets store only a VOICE number, not the voice data.
+
 ## Scale keyboard
 
 On the **SCL** page, **QNT** selects the keyboard layout:
