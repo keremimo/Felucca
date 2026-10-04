@@ -242,6 +242,22 @@ static void midi_entry_test(void)
     midi_silence_track(0);                  /* preset/panic clears every held MIDI key */
     key_frame(0, 0);
     assert(ui.cursor == 22 && !step_midi_held);
+    reset(16);
+    scale_setting_set(TSEL, P_QUANT, Q_MPC);
+    scale_setting_set(TSEL, P_SCALE, 1);
+    TSEL->p[P_ROOT] = 0;
+    midi_frame(0x90, 19, 100, 0);
+    midi_frame(0x90, 36, 100, 0);
+    midi_frame(0x90, 60, 100, 0);
+    assert(!ui.entry_open && !step_midi_held && !TSEL->step[0].n && ui.cursor == 0);
+    midi_frame(0x90, 21, 100, 2);          /* H02 is ROOT; other banks cannot join the entry */
+    midi_frame(0x90, 64, 100, 0);
+    assert(ui.entry_open && step_midi_held == 1 && TSEL->step[0].n == 1);
+    assert(TSEL->step[0].note[0] == 60 && step_note_length(TSEL, 0) == 3);
+    midi_frame(0x80, 64, 0, 0);
+    assert(ui.entry_open && ui.cursor == 0);
+    midi_frame(0x80, 21, 0, 0);
+    assert(!ui.entry_open && !step_midi_held && ui.cursor == 3);
     puts("MIDI STEP entry: routing, WHITE scale, chords, release, final detent and mixed input ok");
 }
 
