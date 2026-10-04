@@ -133,7 +133,7 @@ static void mpc_mapping_test(void)
                 trk[0].p[P_ROOT] = (int16_t)root;
                 song.octave = (int8_t)oct;
                 for (pad = 0; pad < 16; pad++) {
-                    int degree = (int)pad - 3, offset = 0, want;
+                    int degree = (int)pad - 1, offset = 0, want;
                     while (degree) {
                         int dir = degree > 0 ? 1 : -1;
                         offset += dir;
@@ -148,30 +148,87 @@ static void mpc_mapping_test(void)
     trk[0].p[P_SCALE] = 1;
     trk[0].p[P_ROOT] = 0;
     trk[0].p[P_TRANS] = 12;
-    assert(midi_map(&trk[0], 23) == 72);
+    assert(midi_map(&trk[0], 21) == 72);
     for (pad = 0; pad < 128; pad++)
-        if (pad < 20 || pad > 35) assert(midi_map(&trk[0], pad) == pad);
+        if (pad < 20 || pad > 35) assert(midi_map(&trk[0], pad) == KB_SILENT);
     assert(kb_map(&trk[0], 7) == 72 && kb_map(&trk[0], 8) == KB_SILENT);
 
-    send(0x90, 23, 97);
-    assert(gated(&trk[0], 72) && midi_notes[0][23] == (1u << 8 | 72u));
+    send(0x90, 21, 97);
+    assert(gated(&trk[0], 72) && midi_notes[0][21] == (1u << 8 | 72u));
     song.octave = 1;
     trk[0].p[P_ROOT] = 2;
     trk[0].p[P_QUANT] = Q_OFF;
-    send(0x80, 23, 0);
+    send(0x80, 21, 0);
     assert(!gated(&trk[0], 72) && live_refs[0][72] == 0);
     trk[0].p[P_QUANT] = Q_MPC;
     trk[0].p[P_ROOT] = 0;
     trk[0].p[P_TRANS] = 0;
     trk[0].p[P_SCALE] = 2;
     song.octave = 1;
-    um_byte(0x90); um_byte(23); um_byte(100);
+    um_byte(0x90); um_byte(21); um_byte(100);
     events_block(0);
-    assert(gated(&trk[0], 72) && midi_notes[0][23] == (1u << 8 | 72u));
-    um_byte(0x80); um_byte(23); um_byte(0);
+    assert(gated(&trk[0], 72) && midi_notes[0][21] == (1u << 8 | 72u));
+    um_byte(0x80); um_byte(21); um_byte(0);
     events_block(0);
     assert(!gated(&trk[0], 72));
-    puts("MIDI MPC: H01-H16 notes 20-35 across scales/roots/octaves; TRS H04 and release ok");
+    puts("MIDI MPC: H01-H16 notes 20-35 across scales/roots/octaves; TRS H02 and release ok");
+}
+
+static void mpc_filter_test(void)
+{
+    uint32_t source, arp, ch, note, i;
+    for (source = 0; source < 2; source++)
+        for (arp = 0; arp < 2; arp++) {
+            uint32_t hits = drums.age;
+            reset();
+            song.sel = 2;
+            song.seq_mode = song.playing = 1;
+            song.rec = (1u << NTRK) - 1u;
+            step_midi_w = step_midi_r = step_midi_overflow = 0;
+            for (i = 0; i < NPART; i++) {
+                trk[i].p[P_QUANT] = Q_MPC;
+                trk[i].p[P_AMODE] = (int16_t)arp;
+            }
+            for (ch = 0; ch < 16; ch++)
+                for (note = 0; note < 128; note++) {
+                    if (note >= 20 && note <= 35) continue;
+                    if (source) {
+                        um_byte(0x90 | ch); um_byte(note); um_byte(100);
+                        events_block(0);
+                        um_byte(0x80 | ch); um_byte(note); um_byte(0);
+                        events_block(0);
+                    } else {
+                        send(0x90 | ch, note, 100);
+                        send(0x80 | ch, note, 0);
+                    }
+                    assert(!midi_notes[ch][note]);
+                }
+            assert(!step_midi_w && !step_midi_overflow && drums.age == hits);
+            for (i = 0; i < NTRK; i++) {
+                assert(!midi_owners[i] && !trk[i].nheld && !trk[i].step[0].n);
+                for (note = 0; note < 128; note++)
+                    assert(!live_refs[i][note] && !gated(&trk[i], note));
+            }
+            /* Accepted H02 still reaches live recording, arp and STEP entry. */
+            send(0x90, 21, 100);
+            assert(midi_notes[0][21] == 0x013C && trk[0].step[0].note[0] == 60);
+            assert(trk[0].step[0].n == 1 && step_midi_w == 1);
+            if (arp) assert(trk[0].nheld == 1);
+            send(0x90, 21, 0);
+            assert(!live_refs[0][60] && !trk[0].nheld && step_midi_w == 2);
+        }
+    reset();
+    send(0x90, 60, 100);
+    trk[0].p[P_QUANT] = Q_MPC;
+    send(0x80, 60, 0);                    /* enabling MPC must not strand an older note */
+    assert(!gated(&trk[0], 60) && !midi_notes[0][60]);
+    trk[0].engine = trk[0].eng_req = 4;
+    if (drum_set() >= 0) {
+        trk[0].p[P_E0] = (int16_t)drum_set();
+        for (note = 0; note < 128; note++)
+            assert(midi_map(&trk[0], note) == (note >= 20 && note <= 35 ? note : KB_SILENT));
+    }
+    puts("MIDI MPC: USB/TRS reject other banks on every channel, including drums, arp, recording and STEP edges; old releases work");
 }
 
 static void routing_test(void)
@@ -361,6 +418,6 @@ static void mapped_sustain_test(void)
 int main(void)
 {
     mapping_test(); all_mapping_test(); routing_test(); release_test(); overlap_test(); panic_test();
-    all_events_test(); trs_scale_test(); mapped_sustain_test(); mpc_mapping_test();
+    all_events_test(); trs_scale_test(); mapped_sustain_test(); mpc_mapping_test(); mpc_filter_test();
     return 0;
 }

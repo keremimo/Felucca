@@ -168,15 +168,17 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
     return scale_map(t, n, 12 * song.octave);
 }
 
-/* MPC Sample's default pad map wraps after F12: H01..H16 are MIDI 20..35. */
+/* MPC Sample's default pad map wraps after F12: H01..H16 are MIDI 20..35.
+ * Filter every destination, including drums, using the shared synth QNT mode. */
 static uint32_t midi_map(const track_t *t, uint32_t note)
 {
+    int quant = is_drum(t) ? trk[0].p[P_QUANT] : t->p[P_QUANT];
+    if (quant == Q_MPC && (note < 20u || note > 35u))
+        return KB_SILENT;
     if (is_drum(t) || is_gm_sample(t) || is_slice(t))
         return note;
     if (t->p[P_QUANT] == Q_MPC) {
-        if (note < 20u || note > 35u)
-            return note;
-        return scale_degree_map(t, (int32_t)note - 23, 12 * song.octave, 1);
+        return scale_degree_map(t, (int32_t)note - 21, 12 * song.octave, 1);
     }
     if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL)
         return scale_map(t, (int32_t)note, 0);
