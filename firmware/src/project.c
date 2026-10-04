@@ -270,6 +270,11 @@ static void project_load(uint32_t slot)
         }
     }
     song.sel = (uint8_t)(p->sel < NTRK ? p->sel : 0u);
+    /* Older projects can hold different values per part. The selected synth part
+     * supplies the song setting; a selected drum track leaves part 1 in charge. */
+    k = song.sel < NPART ? song.sel : 0u;
+    scale_setting_set(&trk[k], P_SCALE, trk[k].p[P_SCALE]);
+    scale_setting_set(&trk[k], P_QUANT, trk[k].p[P_QUANT]);
     fm1_irq_on();
     for (k = 0; k < NPART; k++)                         /* a format 1 project: the default sounds of tracks 2, 3 */
         if (p->t[k].preset == 0xFFu) {

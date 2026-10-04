@@ -49,19 +49,9 @@ static struct { uint32_t stage; } felucca_dbg;
 #include "../firmware/src/ui_draw.c"
 #include "../firmware/src/ui_menu.c"
 #include "../firmware/src/ui_input.c"
+#include "../firmware/src/upreset.c"
+#include "../firmware/src/project.c"
 
-static void project_save(uint32_t slot) { (void)slot; assert(0); }
-static void project_load(uint32_t slot) { (void)slot; assert(0); }
-static int project_used(uint32_t slot) { (void)slot; return 0; }
-static void settings_save(void) {}
-static int up_used(uint32_t k) { (void)k; return 0; }
-static int up_load(uint32_t k) { (void)k; assert(0); return 0; }
-static uint32_t up_count(void) { return 0; }
-static uint32_t up_nth(uint32_t n) { return n; }
-static uint32_t up_rank(uint32_t n) { return n; }
-static void up_name(uint32_t k, char *b) { (void)k; b[0] = 0; }
-static void up_slot_label(char *b, uint32_t k) { fmt_int(b, (int32_t)k + 1); }
-static void up_ui(uint32_t op, uint32_t k) { (void)op; (void)k; assert(0); }
 static void fm6_store(uint32_t k) { (void)k; assert(0); }
 static void fm6_send(void) { assert(0); }
 static void fm6_init_voice(void) { assert(0); }
@@ -255,6 +245,74 @@ static void midi_entry_test(void)
     puts("MIDI STEP entry: routing, WHITE scale, chords, release, final detent and mixed input ok");
 }
 
+static void preset_scale_settings_test(void)
+{
+    uint32_t i, scl_page = NPAGES;
+    project_t *saved;
+    reset(16);
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].graph == GR_SCALE)
+            scl_page = i;
+    assert(scl_page < NPAGES);
+    ui.page = (uint8_t)scl_page;
+    ui.home = 0;
+    scale_setting_set(TDRUM, P_SCALE, 9);
+    scale_setting_set(TDRUM, P_QUANT, Q_ALL);
+    edit_param(1, 2);                         /* panel SCL */
+    edit_param(2, 2);                         /* panel QNT -> WHITE */
+    for (i = 0; i < NPART; i++)
+        assert(trk[i].p[P_SCALE] == 2 && trk[i].p[P_QUANT] == Q_WHITE);
+    assert(TDRUM->p[P_SCALE] == 9 && TDRUM->p[P_QUANT] == Q_ALL);
+
+    trk[0].p[P_ROOT] = 5;                    /* ROOT remains part-specific */
+    trk[1].p[P_ROOT] = 7;
+    track_select(1);
+    apply_preset(1);
+    set_engine(2);
+    apply_preset(0);
+    assert(trk[1].p[P_SCALE] == 2 && trk[1].p[P_QUANT] == Q_WHITE);
+    assert(trk[0].p[P_ROOT] == 5 && trk[1].p[P_ROOT] == TP[P_ROOT].def);
+
+    assert(up_store(0, "SCALE TEST") == 3); /* RAM-only user preset */
+    track_select(2);
+    scale_setting_set(TSEL, P_SCALE, 3);
+    scale_setting_set(TSEL, P_QUANT, Q_ALL);
+    track_select(1);
+    assert(up_load(0) == 0);                 /* stored 2/WHITE cannot replace 3/ALL */
+    apply_preset(0);
+    for (i = 0; i < NPART; i++)
+        assert(trk[i].p[P_SCALE] == 3 && trk[i].p[P_QUANT] == Q_ALL);
+    assert(TDRUM->p[P_SCALE] == 9 && TDRUM->p[P_QUANT] == Q_ALL);
+
+    project_save(0);
+    scale_setting_set(TSEL, P_SCALE, 1);
+    scale_setting_set(TSEL, P_QUANT, Q_OFF);
+    project_load(0);
+    for (i = 0; i < NPART; i++)
+        assert(trk[i].p[P_SCALE] == 3 && trk[i].p[P_QUANT] == Q_ALL);
+    assert(TDRUM->p[P_SCALE] == 9 && TDRUM->p[P_QUANT] == Q_ALL);
+
+    saved = &proj_slot[0];                   /* legacy project with differing track values */
+    saved->sel = 2;
+    saved->t[0].p[P_SCALE] = 1;
+    saved->t[0].p[P_QUANT] = Q_SNAP;
+    saved->t[2].p[P_SCALE] = 4;
+    saved->t[2].p[P_QUANT] = Q_WHITE;
+    saved->sum = proj_sum(saved);
+    project_load(0);                        /* selected synth part supplies the shared value */
+    for (i = 0; i < NPART; i++)
+        assert(trk[i].p[P_SCALE] == 4 && trk[i].p[P_QUANT] == Q_WHITE);
+    assert(TDRUM->p[P_SCALE] == 9 && TDRUM->p[P_QUANT] == Q_ALL);
+
+    saved->sel = TRK_DRUM;
+    saved->sum = proj_sum(saved);
+    project_load(0);                        /* if drums were selected, part 1 supplies it */
+    for (i = 0; i < NPART; i++)
+        assert(trk[i].p[P_SCALE] == 1 && trk[i].p[P_QUANT] == Q_SNAP);
+    assert(TDRUM->p[P_SCALE] == 9 && TDRUM->p[P_QUANT] == Q_ALL);
+    puts("scale settings: panel, all synth tracks, factory/user presets, projects and drum independence ok");
+}
+
 static void playback_test(void)
 {
     uint32_t i, j, age[NVOICE];
@@ -310,6 +368,7 @@ int main(int argc, char **argv)
 {
     lengths_test();
     gestures_test();
+    preset_scale_settings_test();
     midi_entry_test();
     playback_test();
     render_test(argc > 1 ? argv[1] : NULL);
