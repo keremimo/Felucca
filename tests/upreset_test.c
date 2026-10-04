@@ -109,7 +109,7 @@ int main(void)
     bad += check("bank 0 never written -> empty", len < 0 && !up_used(0) && up_bank[0].magic == 0);
     bad += check("banks in 0xDC000..0xDFFFF", st_sector(OBJ_UPRESET0, 0) == 0xDC000u &&
                                                    st_sector(OBJ_UPRESET0 + 1, 1) == 0xDF000u &&
-                                                   st_sector(OBJ_PROJECT0 + 3, 1) + 4096u <= 0xA0000u);
+                                                   st_sector(OBJ_PROJECT0 + 3, 1) + ST_PROJ_SPAN * 4096u <= 0xDC000u);
     up_bank[1].rsize = 190;                                 /* another record layout */
     up_bank_check(1, (int)sizeof up_bank[1]);
     bad += check("bank with another record size -> empty", !up_used(17));

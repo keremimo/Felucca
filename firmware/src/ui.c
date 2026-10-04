@@ -67,6 +67,11 @@ static struct {
     uint8_t edit_hold;           /* EDIT held: 1 it opened the family, 2 pressed on an EDIT page (a tap: next page) */
     uint8_t edit_used;           /* a key was used while EDIT was held (its release is no tap) */
     uint32_t edit_t0;            /* EDIT press time */
+    uint8_t seq_hold;            /* SEQ held: 1 it opened the family, 2 pressed on a SEQ page (a tap: next page) */
+    uint8_t seq_used;            /* a pattern key was used while SEQ was held (its release is no tap) */
+    uint8_t pat_src;             /* SEQ + keys: the pattern key held + 1 (let go: picked; another key: copied there) */
+    uint8_t pat_did;             /* it was copied: its release picks nothing */
+    uint32_t seq_t0;             /* SEQ press time */
     char msg[24];
     uint32_t enc_t[NE];
     /* drawn-state cache */

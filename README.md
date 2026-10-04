@@ -17,8 +17,9 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
 - **Ten engines** (below), each with its own factory presets
 - **Four tracks:** three synth parts, each with its own engine and sound, plus a GM drum track;
   8 voices shared between the parts. ALGORITHM selects the track on every page
-- **Sequencer:** 64 steps per track with chords, ties, accent and slide; live loop recording
-  with overdub and held notes; each track loops on its own length
+- **Sequencer:** 8 patterns of 64 steps per track with chords, ties, accent and slide; live loop
+  recording with overdub and held notes; each track loops on its own length and switches
+  patterns at the end of its loop
 - **Arpeggiator**, scales and quantize, glide, MONO / LEGATO / UNISON voice modes
 - **Effects:** distortion and the SLICER per track; chorus, delay and reverb sends; master limiter
 - **Presets:** factory presets with their own patterns, 32 user preset slots, 4 project slots
@@ -43,7 +44,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
 - **DIGITAL**: 4-operator FM, 8 algorithms, feedback
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
-- **SAMPLE**: multisampled instruments and 3 user sample slots
+- **SAMPLE**: multisampled instruments and a user sample slot
 - **VOICE**: formant oscillator, sung vowels
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter (LP / BP / HP / notch)
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
@@ -197,6 +198,27 @@ Lengths can cross a 16-step bank or the pattern's loop boundary, up to one full
 pattern. Extensions stop before another note; shortening clears only the removed
 ties. Drum hits remain one-shot. The piano roll shows sustained chords across
 banks, and existing projects keep using the same NOTE/TIE representation.
+
+## Patterns
+
+Each track has 8 patterns. Each pattern has its own steps and its own **LEN**, **DIV**,
+**SWING** and **GATE** (SEQ > PATTERN). Hold **SEQ** (it opens the SEQ pages): the white keys F3–F4 are
+patterns 1–8 of the selected track. A lit key holds notes, the playing pattern blinks, and a
+queued pattern blinks fast.
+
+- **Pick:** tap a key (on release). Stopped, the pattern changes at once. Playing, it changes
+  when the track's loop ends, so each track switches on its own length. Picking the playing
+  pattern cancels a queued switch.
+- **Copy:** hold one key and press another: the held pattern is copied there, with its LEN etc.
+- A pattern never played starts with the LEN etc. of the pattern it follows.
+
+While SEQ is held the keys play nothing. A short tap of SEQ still turns the page. The bottom
+line of the SEQ pages shows the pattern, with the queued one after it: `P2>5 STEP`. Projects
+store every pattern of every track. REC held on SEQ clears the playing pattern; REC held on
+TRACKS clears all 8 patterns of the track. The web editor shows and edits the playing pattern.
+
+Projects from older firmware load with their pattern as pattern 1. Projects now live where user
+sample slots 2 and 3 were: one user sample slot (USR1) remains.
 
 ## MIDI clock and transport
 

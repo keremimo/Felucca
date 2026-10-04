@@ -108,6 +108,7 @@ static void felucca_init(void)
             t->engine = t->eng_req;
         }
         track_defaults_steps(t);              /* the sequencers start empty */
+        pat_clear_bank(t);
     }
     song.sel = 0;
     song.master_q12 = 2048;

@@ -2,8 +2,8 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Felucca core types: tracks, voices, engines, parameters.
  * Four tracks: tracks 1..3 are synth parts (each its own engine, preset, parameters,
- * voices and 64-step pattern), track 4 is the GM drum part (drums.c; its own voices,
- * pattern and the pattern parameters of its track_t). The parts share one budget of
+ * voices and NPAT 64-step patterns), track 4 is the GM drum part (drums.c; its own voices,
+ * patterns and the pattern parameters of its track_t). The parts share one budget of
  * NVOICE sounding voices (voice.c). */
 #include <stdint.h>
 #define NVOICE 8                 /* voices per part, and the budget shared by all parts */
@@ -18,6 +18,7 @@ static int32_t track_capture[CTL * NTRK];
 enum { V_POLY, V_MONO, V_LEGATO, V_UNISON };   /* P_VOICE */
 enum { Q_OFF, Q_SNAP, Q_WHITE, Q_ALL, Q_MPC }; /* P_QUANT; legacy ON = SNAP */
 #define NSTEP 64
+#define NPAT 8                   /* patterns per track (SEQ + white keys, seq.c pat_*) */
 #define HALF_FRAMES 256          /* I2S half buffer: 5.8 ms at 44.1 kHz */
 #ifndef FELUCCA_SLICE
 #define FELUCCA_SLICE 0          /* the SLICE engine (eng_slice.c): kept in the tree, not built by default */
@@ -147,6 +148,11 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
     uint8_t vel;
 } step_t;
 
+typedef struct {                 /* a pattern of the bank: its steps, LEN / DIV / SWING / GATE */
+    step_t step[NSTEP];
+    int16_t set[4];              /* P_SLEN .. P_SGATE; set[0] == 0: never played (it takes the track's) */
+} pattern_t;
+
 typedef struct track {
     int16_t p[P_COUNT];
     uint8_t engine, preset;      /* engine: what the audio ISR renders */
@@ -173,7 +179,9 @@ typedef struct track {
     uint8_t arp_note;            /* sounding arp note, 0 = none */
     uint32_t arp_off;            /* q8 sample time of its note-off */
     /* sequencer */
-    step_t step[NSTEP];
+    step_t step[NSTEP];          /* the steps of pattern pat (its LEN etc. are p[P_SLEN..P_SGATE]) */
+    uint8_t pat;                 /* the pattern playing / edited, 0..NPAT-1; pat_bank holds the others */
+    uint8_t pat_q;               /* pattern queued + 1 (seq_tick: at once when stopped, else at the loop end), 0 = none */
     uint32_t seq_pos;            /* q8 samples into the current step */
     uint16_t seq_idx;
     uint8_t seq_notes[4];        /* sounding seq notes */
@@ -219,6 +227,7 @@ typedef struct {
 } song_t;
 
 static track_t trk[NTRK];        /* the instrument: three parts and the drum track */
+static pattern_t pat_bank[NTRK][NPAT] __attribute__((section(".pool")));   /* [t][trk[t].pat]: stale */
 static song_t song;
 static uint32_t midi_beat_samples;  /* measured external quarter note; 0 uses the panel BPM */
 static uint32_t beat_samples(void);  /* fx.c; also used by slicer.c, included before fx.c */
