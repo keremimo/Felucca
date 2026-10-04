@@ -247,7 +247,7 @@ static void ed_sync(void)                                /* main loop */
 static const param_desc_t *ed_tdesc(const track_t *t, uint32_t id)   /* the static ones: an engine's */
 {                                                                     /* desc hook is the device display only */
     if (id >= P_E0 && id <= P_E7)
-        return &ENGINES[t->eng_req % NENGINES]->edit[id - P_E0];
+        return is_drum(t) ? &DR_EDIT[id - P_E0] : &ENGINES[t->eng_req % NENGINES]->edit[id - P_E0];
     return &TP[id];
 }
 /* descriptor and value slot of (scope, id): scope 0 = the selected track, 1 = global */

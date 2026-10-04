@@ -66,10 +66,7 @@ static int parts_free(void)
         for (i = 0; i < NVOICE; i++)
             if (trk[p].v[i].active)
                 return 0;
-    for (i = 0; i < NDRUM; i++)
-        if (drums.v[i].active)
-            return 0;
-    return 1;
+    return !drums_busy();
 }
 
 static uint32_t sounding(void)                 /* part voices sounding (not the ones fading for another part) */

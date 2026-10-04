@@ -28,7 +28,7 @@ const HERE = new URL(".", import.meta.url).pathname;
 const html = readFileSync(join(HERE, "editor.html"), "utf8");
 const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
 const E = vm.runInNewContext(proto + `
-;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
+;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, rootFromName, buildSlot, makeMockDevice, CMD, SMP, F,
    UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, GM_DRUM, drumName, parseNotes, readDX7File, dx7Message, cleanPatch, packDX7, dx7ForDevice, dx7Init, dx7Name, FM6, fm6Bank })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
@@ -519,6 +519,19 @@ async function editorTracks() {
   const us = E.parse[C.UP_STORE](await rq(E.req.upStore(20, "X"), { timeout: 2500, retries: 0 }));
   const ul = E.parse[C.UP_LOAD](await rq(E.req.upLoad(1), { timeout: 2500, retries: 0 }));
   ok(dd.engine === info.nengines && us.rc === 1 && ul.rc === 1, "tracks: drum track selected -> DUMP engine NENGINES, UP_STORE / UP_LOAD rc 1");
+  {
+    /* its P_E0..P_E7: the drum kit's controls (drums.c DR_EDIT), the mock as the firmware has them */
+    const dc = readFileSync(join(HERE, "../firmware/src/drums.c"), "utf8");
+    const fw = [...dc.slice(dc.indexOf("DR_EDIT[8]")).matchAll(/\{"(\w+)", F_(\w+), (-?\d+), (-?\d+), (-?\d+),/g)].slice(0, 8)
+      .map((x) => [x[1], x[2], +x[3], +x[4], +x[5]].join());
+    const kd = [];
+    for (let i = 0; i < 8; i++) kd.push(E.parse[C.DESC](await rq(E.req.desc(0, info.pe0 + i))));
+    const fmtName = (f) => Object.keys(E.F).find((k) => E.F[k] === f);
+    const tp = E.parse[C.TRACK_PARAM](await rq(E.req.trackParam(3, info.pe0 + 4, 40)));
+    ok(fw.length === 8 && kd.map((d) => [d.label, fmtName(d.fmt), d.min, d.max, d.def].join()).join("|") === fw.join("|") && tp.value === 12,
+      "tracks: drum track P_E0..P_E7 = the kit's controls (mock == drums.c), TRACK_PARAM clamps to them");
+    await rq(E.req.trackParam(3, info.pe0 + 4, 0));
+  }
   /* pushes carry the selected track */
   await rq(E.req.track(0));
   ok(await E.startWatch(rq), "tracks: WATCH on");

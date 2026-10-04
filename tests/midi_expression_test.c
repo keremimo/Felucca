@@ -155,7 +155,7 @@ static void panic_test(void)
     for (i = 0; i < NVOICE; i++) assert(!trk[0].v[i].active);
     assert(!midi_notes[0][60] && gated(1, 64));
     send_midi(0x99, 36, 100); send_midi(0xB9, 120, 0);
-    for (i = 0; i < NDRUM; i++) assert(!drums.v[i].active);
+    assert(!drums_busy());
     trk[0].p[P_AMODE] = trk[0].p[P_AHOLD] = 1;
     send_midi(0x90, 65, 90); send_midi(0xB0, 120, 0);
     assert(!trk[0].nheld && !trk[0].arp_note && !trk[0].arp_phys);

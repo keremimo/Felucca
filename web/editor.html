@@ -1223,6 +1223,10 @@ function makeMockDevice(opt = {}) {
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
     E("SLCR", ["OFF", "GATE", "STUT"], 0), D("PAT", F.INT, 1, 16, 1), E("RATE", ["1/8", "1/16", "1/32", "8T", "16T", "32T"], 1), D("DEPTH", F.PCT, 0, 127, 127),
   ];
+  /* the drum track's P_E0..P_E7: the kit's controls (drums.c DR_EDIT), 0 = the stock sound */
+  const DRUM_EDIT = [D("BTONE", F.BIPCT, -64, 63, 0), D("BDCAY", F.BIPCT, -64, 63, 0), D("STONE", F.BIPCT, -64, 63, 0),
+    D("SNAPY", F.BIPCT, -64, 63, 0), D("BTUNE", F.SEMI, -12, 12, 0), D("TOMS", F.SEMI, -12, 12, 0), D("OHDCY", F.BIPCT, -64, 63, 0),
+    D("CYDCY", F.BIPCT, -64, 63, 0)];
   const GP = [
     D("BPM", F.BPM, 40, 240, 120), D("SWG", F.PCT, 0, 100, 0), E("CLK", ["INT"], 0), D("TUNE", F.INT, -50, 50, 0),
     E("TIME", NDIV, 1), D("FDBK", F.PCT, 0, 120, 60), D("COLR", F.PCT, 0, 127, 70), D("MIX", F.PCT, 0, 127, 90),
@@ -1359,7 +1363,8 @@ function makeMockDevice(opt = {}) {
   }
   const engOf = (t) => (t.drum ? ENG.length : t.engine);   /* the engine byte: NENGINES = drums */
   const watchMs = opt.watchMs || 3000;
-  const desc = (scope, id) => (scope === 0 && id < P_COUNT ? (id >= P_E0 ? ENG[st.engine].edit[id - P_E0] : TP[id])
+  const editDesc = (t, i) => (t.drum ? DRUM_EDIT[i] : ENG[t.engine].edit[i]);
+  const desc = (scope, id) => (scope === 0 && id < P_COUNT ? (id >= P_E0 ? editDesc(st.tracks[st.sel], id - P_E0) : TP[id])
     : scope === 1 && id < G_COUNT ? GP[id] : null);
   const seqEmpty = () => st.step.every((s) => !s.n);
   function loadPat16(pat) {                       /* ui.c load_pat16 */
@@ -1531,7 +1536,7 @@ function makeMockDevice(opt = {}) {
       }
       case CMD.TRACK_PARAM: {
         if (a.length < 2 || a[0] >= NTRK || a[1] >= P_COUNT) return null;
-        const t = st.tracks[a[0]], d = a[1] >= P_E0 ? ENG[t.engine].edit[a[1] - P_E0] : TP[a[1]];
+        const t = st.tracks[a[0]], d = a[1] >= P_E0 ? editDesc(t, a[1] - P_E0) : TP[a[1]];
         if (a.length >= 4 && d.max > d.min) t.p[a[1]] = clamp(v14dec(a[2], a[3]), d.min, d.max);
         b(a[0]); b(a[1]); v(t.p[a[1]]);
         break;
@@ -1705,7 +1710,7 @@ function makeMockDevice(opt = {}) {
     mute(on = !st.p[40]) { st.p[40] = on ? 1 : 0; push(CMD.CHANGED, [0, 40, ...v14enc(st.p[40])]); return st.p[40]; },
     /* a parameter of track i changed on the device: CHANGED for the selected track, else TRACK_CHANGED (v4 watch) */
     param(i, id, val) {
-      const t = st.tracks[i], d = id >= P_E0 ? ENG[t.engine].edit[id - P_E0] : TP[id];
+      const t = st.tracks[i], d = id >= P_E0 ? editDesc(t, id - P_E0) : TP[id];
       t.p[id] = clamp(val, d.min, d.max);
       if (i === st.sel) push(CMD.CHANGED, [0, id, ...v14enc(t.p[id])]);
       else if (st.v4) push(CMD.TRACK_CHANGED, [i, id, ...v14enc(t.p[id])]);
@@ -1854,7 +1859,7 @@ const TEXT = {
     tabSeq: "シーケンサー", tabTracks: "トラック", tabSettings: "設定",
     needDevice: "FM-1 を接続すると編集できます。", smpNone: "このファームウェアにはユーザーサンプルのスロットがありません。",
     bankConnect: "FM-1 を接続すると本体のユーザープリセットも扱えます。", bankNone: "このファームウェアにはユーザープリセットがありません。",
-    drumNote: "ドラムトラックにはエンジンもプリセットもありません。レベル・パン・ミュートは「トラック」、キットは「設定」の DRUMS で。パターンは「シーケンサー」で。",
+    drumNote: "ドラムトラックはアナログ・ドラムキット（エンジンもプリセットもなし）。キットの音作りは下の KIT、レベル・パン・ミュートは「トラック」、MIDI チャンネルとリバーブは「設定」の DRUMS、パターンは「シーケンサー」で。",
     drumHelp: "ドラムは KICK SNARE CHH のように GM の名前か番号で入力（最大 4 音）。",
     mixer: "ミキサー", mixHelp: "本体の TRACKS ページと同じ 4 トラック。フェーダーはレベル（ドラムは GLO > DRUMS LEVEL）。パンはどのトラックも選択を変えずに書き込みます（0.8 のファームウェアでは一瞬そのトラックを選びます）。REC は本体での録音待機の表示です。",
     level: "レベル", pan: "パン", mute: "ミュート", rec: "REC", selectTrack: "選択", selectedTrack: "選択中",
@@ -1926,7 +1931,7 @@ const TEXT = {
     tabSeq: "Sequencer", tabTracks: "Tracks", tabSettings: "Settings",
     needDevice: "Connect the FM-1 to edit.", smpNone: "This firmware has no user sample slots.",
     bankConnect: "Connect the FM-1 to see its user presets too.", bankNone: "This firmware has no user presets.",
-    drumNote: "The drum track has no engine or presets. Level, pan and mute: Tracks; the kit: Settings > DRUMS; the pattern: Sequencer.",
+    drumNote: "The drum track plays the analog drum kit (no engine, no presets). Its sound: KIT below; level, pan and mute: Tracks; MIDI channel and reverb: Settings > DRUMS; the pattern: Sequencer.",
     drumHelp: "Enter drums by GM name or number, like KICK SNARE CHH (up to 4).",
     mixer: "Mixer", mixHelp: "The four tracks of the device's TRACKS page. The fader is the level (drums: GLO > DRUMS LEVEL). Pan is written to any track without changing the selection (firmware 0.8: by selecting it for a moment). REC shows a track armed for live recording on the device.",
     level: "Level", pan: "Pan", mute: "Mute", rec: "REC", selectTrack: "Select", selectedTrack: "Selected",
@@ -2272,7 +2277,6 @@ function updateBrowser() {
   $("factlib").disabled = drum;
   $("drumnote").hidden = !drum;
   $("browser").hidden = drum;
-  $("groups").hidden = drum;
   $("ctlhelp").hidden = drum;
   if (document.activeElement !== sel) sel.value = drum ? "" : String(e);
   const ps = $("preset");
@@ -2292,13 +2296,15 @@ function buildGroups() {
   /* Sound: the selected track's parameters; Sequencer: its pattern settings; Settings: globals and drums */
   const groups = { groups: [], seqgroups: [], setgroups: [] };
   const { info } = dev;
+  const drum = isDrum();                            /* the drum track: its kit's controls (P_E0..P_E7) only */
   if (info.pcount === EXPECT.pcount && info.gcount === EXPECT.gcount && info.pe0 === EXPECT.pe0) {
     for (const g of LAYOUT(info.pe0)) {
-      const div = el("div", { class: "group" }, el("h2", { ic: HEAD_IC[g.t], text: g.engine ? `EDIT ${info.engines[dev.dump.engine] || ""}` : g.t }));
+      if (drum && !g.engine && !g.tab) continue;
+      const div = el("div", { class: "group" }, el("h2", { ic: HEAD_IC[g.t], text: g.engine ? (drum ? "KIT" : `EDIT ${info.engines[dev.dump.engine] || ""}`) : g.t }));
       for (const [title, s, ids] of g.pages) {
         const rows = ids.map((id) => paramRow(s, id)).filter(Boolean);
         if (!rows.length) continue;
-        const tt = g.engine && (dev.titles[dev.dump.engine] || [])[g.pages.findIndex((x) => x[0] === title)];
+        const tt = g.engine && (drum ? ["BD SD", "TUNE DCY"] : dev.titles[dev.dump.engine] || [])[g.pages.findIndex((x) => x[0] === title)];   /* (the drum track: ui_draw.c's titles) */
         if (g.pages.length > 1) div.append(el("h3", { ic: PAGE_IC[tt || title], text: tt || title }));
         div.append(...rows);
       }
@@ -2309,9 +2315,9 @@ function buildGroups() {
     const a = el("div", { class: "group" }, el("h2", { ic: HEAD_IC.INSTRUMENT, text: "INSTRUMENT" }), el("p", { class: "dim", text: t("layout") }));
     const b = el("div", { class: "group" }, el("h2", { ic: HEAD_IC.EDIT, text: "EDIT" }));
     const c = el("div", { class: "group" }, el("h2", { ic: HEAD_IC.GLOBAL, text: "GLOBAL" }));
-    for (let i = 0; i < info.pcount; i++) { const r = paramRow(0, i); if (r) (i >= info.pe0 ? b : a).append(r); }
+    for (let i = drum ? info.pe0 : 0; i < info.pcount; i++) { const r = paramRow(0, i); if (r) (i >= info.pe0 ? b : a).append(r); }
     for (let i = 0; i < info.gcount; i++) { const r = paramRow(1, i); if (r) c.append(r); }
-    groups.groups.push(a, b);
+    if (drum) groups.groups.push(b); else groups.groups.push(a, b);
     groups.setgroups.push(c);
   }
   for (const [id, divs] of Object.entries(groups)) $(id).replaceChildren(...divs);

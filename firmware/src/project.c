@@ -386,7 +386,8 @@ static void project_load(uint32_t slot)
         t->eng_req = (uint8_t)e;
         t->user = 0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
-            const param_desc_t *d = i >= P_E0 && i <= P_E7 ? &ENGINES[e]->edit[i - P_E0] : &TP[i];
+            const param_desc_t *d = i < P_E0 || i > P_E7 ? &TP[i] : k == TRK_DRUM ? &DR_EDIT[i - P_E0]
+                                                                                 : &ENGINES[e]->edit[i - P_E0];
             t->p[i] = (int16_t)clamp(s->p[i], d->min, d->max);
         }
         t->preset = (uint8_t)(ENGINES[e]->npresets ? (s->preset == 0xFFu ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
