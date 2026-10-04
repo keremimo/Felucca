@@ -100,6 +100,70 @@ static int test_usb_sysex(void)
     return bad;
 }
 
+/* the RX DMA: bytes land in the ring in order, from where it last stopped */
+static uint32_t dma_w;
+static void dma_put(const uint8_t *p, uint32_t n)
+{
+    while (n--) {
+        um_ring[dma_w] = *p++;
+        dma_w = (dma_w + 1u) & (UM_RING - 1u);
+    }
+}
+
+static int ring_clean(void)
+{
+    uint32_t i;
+    for (i = 0; i < UM_RING; i++)
+        if (um_ring[i] != UM_EMPTY)
+            return 0;
+    return 1;
+}
+
+static int test_uart_ring(void)
+{
+    /* MPC Sample pad: note-on, running-status poly aftertouch, note-off, then silence */
+    static const uint8_t pad[] = {0x90, 0x3A, 0x11, 0xA0, 0x3A, 0x75, 0x3A, 0x7F, 0x3A, 0x06, 0x80, 0x3A, 0x00};
+    uint32_t i, k, w0, ok;
+    int bad = 0;
+    memset(&um, 0, sizeof um);
+    for (i = 0; i < UM_RING; i++)
+        um_ring[i] = UM_EMPTY;
+    mi_r = mi_w;
+    dma_w = 0;
+    um_drain();
+    bad += check("uart ring: nothing landed, nothing read", mi_w == mi_r && um.rd == 0 && um.bytes == 0);
+
+    dma_put(pad, sizeof pad);
+    um_drain();
+    bad += check("uart ring: a burst's last message (note-off) is read at once",
+                 mi_w - mi_r == 5u && midi_in_q[(mi_w - 1u) % MQ] == 0x003A8008u && ring_clean());
+    mi_r = mi_w;
+
+    ok = 1;                                           /* byte by byte, many times round the ring */
+    for (k = 0; k < 40u; k++) {
+        w0 = mi_w;
+        for (i = 0; i < sizeof pad; i++) {
+            dma_put(pad + i, 1);
+            um_drain();
+            if (i == 2u)
+                ok &= mi_w == w0 + 1u;                /* the note-on with its third byte */
+        }
+        ok &= mi_w == w0 + 5u && midi_in_q[(mi_w - 1u) % MQ] == 0x003A8008u && um.rd == dma_w;
+        mi_r = mi_w;
+    }
+    bad += check("uart ring: byte-by-byte arrival across the wrap", ok && ring_clean());
+
+    dma_put((const uint8_t[]){0x90, 0x3C, 0x40, UM_EMPTY}, 4);   /* line noise as the last byte */
+    um_drain();
+    ok = mi_w - mi_r == 1u && um.rd != dma_w;        /* the stray byte waits for its successor */
+    dma_put((const uint8_t[]){0x80, 0x3C, 0x00}, 3);
+    um_drain();
+    ok &= mi_w - mi_r == 2u && midi_in_q[(mi_w - 1u) % MQ] == 0x003C8008u && um.rd == dma_w;
+    bad += check("uart ring: a received FD is skipped, not taken for empty", ok && ring_clean());
+    mi_r = mi_w;
+    return bad;
+}
+
 int main(void)
 {
     static const uint8_t in[] = {
@@ -155,6 +219,7 @@ int main(void)
         }
         bad += (uint32_t)check("uart: channels 1, 2, 3, 10, 16 -> USB-MIDI packets", ok);
     }
+    bad += (uint32_t)test_uart_ring();
     bad += (uint32_t)test_usb_sysex();
     printf("%s\n", bad ? "MIDI PARSER TEST FAILED" : "midi parser test passed");
     return (int)bad;
