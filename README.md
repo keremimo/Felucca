@@ -97,6 +97,9 @@ On the **SCL** page, **QNT** selects the keyboard layout:
   silent, including during live recording and step entry.
 - **ALL:** every key, white or black, advances one scale degree without duplicate
   pitches. For C major, C, C#, D, D#, E, F, F#, G play C, D, E, F, G, A, B, C.
+- **MPC:** the FM-1 keys use WHITE. Incoming MIDI notes 112–127 from MPC Sample
+  Bank H play consecutive scale degrees. H04 is ROOT in the octave selected on
+  the FM-1; H01–H03 play the three degrees below it. Other MIDI notes pass through.
 
 In WHITE and ALL, C4 plays **ROOT** and the layout continues above and below
 it. **TRN** transposes the resulting notes; the octave buttons shift them by full
@@ -116,6 +119,13 @@ Incoming MIDI uses the receiving track's **WHITE** or **ALL** layout: MIDI note 
 **TRN** applies to the mapped notes. The FM-1's octave buttons affect
 only its own keys; use the external keyboard's octave controls for MIDI input.
 With QNT at OFF or SNAP, incoming MIDI notes pass through unchanged.
+
+For MPC Sample, set **PAD MIDI OUT** to **Empty** (or **Always**) in its MIDI
+Configuration, select the empty **H** bank, and set the FM-1's **QNT** to **MPC**.
+Select **ROOT**, **SCL**, and the FM-1 octave first; **TRN** still transposes the
+result. The H bank mapping assumes its pads send MIDI notes 112–127 in order.
+Out-of-range mapped notes are silent. MPC mode follows the usual MIDI channel
+routing, so use a synth-part channel or one that follows the selected track.
 
 Channels 1–3 play parts 1–3; the configured drum channel plays drums; other
 channels play the selected track. Set ROOT, SCL and QNT on that receiving part.

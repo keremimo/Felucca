@@ -310,6 +310,13 @@ static void preset_scale_settings_test(void)
     for (i = 0; i < NPART; i++)
         assert(trk[i].p[P_SCALE] == 1 && trk[i].p[P_QUANT] == Q_SNAP);
     assert(TDRUM->p[P_SCALE] == 9 && TDRUM->p[P_QUANT] == Q_ALL);
+    track_select(0);
+    scale_setting_set(TSEL, P_QUANT, Q_MPC);
+    project_save(1);
+    scale_setting_set(TSEL, P_QUANT, Q_OFF);
+    project_load(1);
+    for (i = 0; i < NPART; i++)
+        assert(trk[i].p[P_QUANT] == Q_MPC);
     puts("scale settings: panel, all synth tracks, factory/user presets, projects and drum independence ok");
 }
 

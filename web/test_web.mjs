@@ -70,9 +70,9 @@ async function editorMock() {
   const scaleSet = E.parse[E.CMD.SET](await rq(E.req.set(0, scale.id, 15)));
   ok(scaleSet.value === 15, "editor: new scale selection is not clamped to the old range");
   const quant = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 27)));
-  ok(quant.label === "QNT" && quant.max === 3 && eq(quant.names, ["OFF", "SNAP", "WHITE", "ALL"]), "editor: QNT exposes OFF/SNAP/WHITE/ALL");
-  const quantSet = E.parse[E.CMD.SET](await rq(E.req.set(0, quant.id, 3)));
-  ok(quantSet.value === 3, "editor: ALL quantization is not clamped to WHITE");
+  ok(quant.label === "QNT" && quant.max === 4 && eq(quant.names, ["OFF", "SNAP", "WHITE", "ALL", "MPC"]), "editor: QNT exposes MPC");
+  const quantSet = E.parse[E.CMD.SET](await rq(E.req.set(0, quant.id, 4)));
+  ok(quantSet.value === 4, "editor: MPC quantization is not clamped to ALL");
   const dump = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
   ok(dump.p.length === info.pcount && dump.g.length === info.gcount, "editor: DUMP");
   const set = E.parse[E.CMD.SET](await rq(E.req.set(0, 3, 500)));

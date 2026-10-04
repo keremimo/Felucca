@@ -120,6 +120,48 @@ static void all_mapping_test(void)
     puts("MIDI ALL: all 128 keys, 16 scales, 12 roots and transpose; no duplicate pitches or clamped endpoints");
 }
 
+static void mpc_mapping_test(void)
+{
+    uint32_t s, root, pad;
+    int oct;
+    reset();
+    trk[0].p[P_QUANT] = Q_MPC;
+    for (s = 0; s <= (uint32_t)TP[P_SCALE].max; s++)
+        for (root = 0; root < 12; root++)
+            for (oct = -3; oct <= 3; oct++) {
+                trk[0].p[P_SCALE] = (int16_t)s;
+                trk[0].p[P_ROOT] = (int16_t)root;
+                song.octave = (int8_t)oct;
+                for (pad = 0; pad < 16; pad++) {
+                    int degree = (int)pad - 3, offset = 0, want;
+                    while (degree) {
+                        int dir = degree > 0 ? 1 : -1;
+                        offset += dir;
+                        if (SCALE_MASK[s] & (1u << ((offset % 12 + 12) % 12))) degree -= dir;
+                    }
+                    want = 60 + (int)root + 12 * oct + offset;
+                    assert(midi_map(&trk[0], 112 + pad) ==
+                           (want < 0 || want > 127 ? KB_SILENT : (uint32_t)want));
+                }
+            }
+    song.octave = 0;
+    trk[0].p[P_SCALE] = 1;
+    trk[0].p[P_ROOT] = 0;
+    trk[0].p[P_TRANS] = 12;
+    assert(midi_map(&trk[0], 115) == 72);
+    for (pad = 0; pad < 112; pad++) assert(midi_map(&trk[0], pad) == pad);
+    assert(kb_map(&trk[0], 7) == 72 && kb_map(&trk[0], 8) == KB_SILENT);
+
+    send(0x90, 115, 97);
+    assert(gated(&trk[0], 72) && midi_notes[0][115] == (1u << 8 | 72u));
+    song.octave = 1;
+    trk[0].p[P_ROOT] = 2;
+    trk[0].p[P_QUANT] = Q_OFF;
+    send(0x80, 115, 0);
+    assert(!gated(&trk[0], 72) && live_refs[0][72] == 0);
+    puts("MIDI MPC: H01-H16 across all scales, roots and octaves; H04 root, bypass and release ok");
+}
+
 static void routing_test(void)
 {
     uint32_t ch;
@@ -307,6 +349,6 @@ static void mapped_sustain_test(void)
 int main(void)
 {
     mapping_test(); all_mapping_test(); routing_test(); release_test(); overlap_test(); panic_test();
-    all_events_test(); trs_scale_test(); mapped_sustain_test();
+    all_events_test(); trs_scale_test(); mapped_sustain_test(); mpc_mapping_test();
     return 0;
 }

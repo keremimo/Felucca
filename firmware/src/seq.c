@@ -104,44 +104,47 @@ static int is_slice(const track_t *t)
 #endif
 }
 
-/* Shared WHITE/ALL scale layouts. The octave buttons only offset local keys. */
+/* Resolve a scale degree relative to C4 into the selected scale and root. */
+static uint32_t scale_degree_map(const track_t *t, int32_t degree, int32_t offset, int strict)
+{
+    uint32_t mask = scale_mask(t), i;
+    int32_t count = 0, oct, n;
+    for (i = 0; i < 12u; i++)
+        count += (mask >> i) & 1u;
+    oct = degree / count;
+    degree %= count;
+    if (degree < 0) {
+        degree += count;
+        oct--;
+    }
+    for (i = 0; i < 12u; i++)
+        if ((mask >> i) & 1u) {
+            if (!degree)
+                break;
+            degree--;
+        }
+    n = 60 + t->p[P_ROOT] + 12 * oct + (int32_t)i;
+    n += offset + t->p[P_TRANS];
+    if (strict && (n < 0 || n > 127))
+        return KB_SILENT;
+    return (uint32_t)clamp(n, 0, 127);
+}
+
+/* Shared WHITE/ALL scale layouts. MPC keeps WHITE on the panel keyboard. */
 static uint32_t scale_map(const track_t *t, int32_t n, int32_t offset)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
-    if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL) {
-        uint32_t mask = scale_mask(t), i;
-        int32_t count = 0, degree, oct;
-        /* C4 is the root. Each participating key advances one scale degree,
-         * without resetting at the next keyboard octave. */
-        if (t->p[P_QUANT] == Q_ALL) {
-            degree = n - 60;
-        } else {                                  /* WHITE: black keys are silent */
-            degree = DEGREE[n % 12];
-            if (degree < 0)
-                return KB_SILENT;
-            degree += (n / 12 - 5) * 7;
-        }
-        for (i = 0; i < 12u; i++)
-            count += (mask >> i) & 1u;
-        oct = degree / count;
-        degree %= count;
-        if (degree < 0) {
-            degree += count;
-            oct--;
-        }
-        for (i = 0; i < 12u; i++)
-            if ((mask >> i) & 1u) {
-                if (!degree)
-                    break;
-                degree--;
-            }
-        n = 60 + t->p[P_ROOT] + 12 * oct + (int32_t)i;
+    int32_t degree;
+    if (t->p[P_QUANT] == Q_ALL)
+        return scale_degree_map(t, n - 60, offset, 1);
+    if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_MPC) {
+        degree = DEGREE[n % 12];
+        if (degree < 0)
+            return KB_SILENT;
+        degree += (n / 12 - 5) * 7;
+        return scale_degree_map(t, degree, offset, 0);
     }
-    n += offset + t->p[P_TRANS];
-    /* ALL must not collapse out-of-range degrees onto repeated end notes. */
-    if (t->p[P_QUANT] == Q_ALL && (n < 0 || n > 127))
-        return KB_SILENT;
-    return (uint32_t)clamp(n, 0, 127);
+    return (uint32_t)clamp(n + offset + t->p[P_TRANS], 0, 127);
 }
 
 static uint32_t kb_map(const track_t *t, uint32_t k)
@@ -165,12 +168,19 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
     return scale_map(t, n, 12 * song.octave);
 }
 
-/* MIDI in follows the WHITE/ALL layouts only; SNAP stays a panel-keyboard mode. */
+/* Bank H's 16 chromatic notes are 112..127; H04 (115) is scale degree zero. */
 static uint32_t midi_map(const track_t *t, uint32_t note)
 {
-    if ((t->p[P_QUANT] != Q_WHITE && t->p[P_QUANT] != Q_ALL) || is_drum(t) || is_gm_sample(t) || is_slice(t))
+    if (is_drum(t) || is_gm_sample(t) || is_slice(t))
         return note;
-    return scale_map(t, (int32_t)note, 0);
+    if (t->p[P_QUANT] == Q_MPC) {
+        if (note < 112u || note > 127u)
+            return note;
+        return scale_degree_map(t, (int32_t)note - 115, 12 * song.octave, 1);
+    }
+    if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL)
+        return scale_map(t, (int32_t)note, 0);
+    return note;
 }
 
 /* ------------------------------------------------------------- arp --- */
