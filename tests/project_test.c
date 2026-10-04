@@ -96,7 +96,7 @@ int main(void)
     bad += check("layout: MPC degree follows SLICER, before engine parameters",
                  P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_MPCDEG && P_MPCDEG + 1 == P_E0 &&
                  P_E0 == 50 && P_COUNT == PROJ_NP_V2 + 5u);
-    bad += check("format 6 fits its flash object (storage.c ST_PROJ_SPAN 5)", sizeof(project_t) <= 5u * 4096u - 256u);
+    bad += check("format 7 fits its flash object (storage.c ST_PROJ_SPAN 5)", sizeof(project_t) <= 5u * 4096u - 256u);
 
     /* format 2, as written before the SLICER */
     memset(&v2, 0, sizeof v2);
@@ -111,18 +111,18 @@ int main(void)
     bad += check("FUN2 image is 2552 bytes (as stored)", sizeof v2 == 2552u);
     memcpy(&buf, &v2, sizeof v2);
     ok = proj_import(&q, &buf, (int)sizeof v2);
-    bad += check("FUN2 -> FUN6: converted, valid slot, no FM6 voices",
+    bad += check("FUN2 -> FUN7: converted, valid slot, no FM6 voices",
                  ok && proj_ok(&q) && q.magic == PROJ_MAGIC && !q.fm6_has);
     ok = q.sel == 2;
     for (i = 0; i < G_COUNT; i++)
         ok &= q.g[i] == (int16_t)(500 + i);
-    bad += check("FUN2 -> FUN6: globals and selected track", ok);
+    bad += check("FUN2 -> FUN7: globals and selected track", ok);
     ok = 1;
     for (t = 0; t < NTRK; t++)
         ok &= track_ok(&q.t[t], &v2.t[t], t);
-    bad += check("FUN2 -> FUN6: parameters mapped, SLICER OFF, degree 1", ok);
+    bad += check("FUN2 -> FUN7: parameters mapped, SLICER OFF, degree 1", ok);
 
-    bad += check("FUN2 -> FUN6: engine bytes kept (WHEEL 7, ANALOG 0, TRIO 6), drum 0",
+    bad += check("FUN2 -> FUN7: engine bytes kept (WHEEL 7, ANALOG 0, TRIO 6), drum 0",
                  q.t[0].engine == 7 && q.t[1].engine == 0 && q.t[2].engine == 6 && q.t[3].engine == 0 &&
                  str_eq(ENGINES[7]->name, "WHEEL") && str_eq(ENGINES[6]->name, "TRIO") && NENGINES > 8);
 
@@ -156,7 +156,7 @@ int main(void)
          q2.t[0].p[P_MPCDEG] == 5 && str_eq(ENGINES[9]->name, "FM6");
     for (t = 0; t < NTRK; t++)
         ok &= !memcmp(q2.t[t].p, v5.t[t].p, sizeof v5.t[t].p) && pats_ok(&q2.t[t], v5.t[t].step);
-    bad += check("FUN5 -> FUN6: degree 5, engine 8, FM6 voice; its pattern is pattern 1", ok);
+    bad += check("FUN5 -> FUN7: degree 5, engine 8, FM6 voice; its pattern is pattern 1", ok);
     bad += check("FUN5 wrong length refused", !proj_import(&q2, &buf, (int)sizeof v5 - 2));
 
     /* format 6: a pattern edited, another playing; the checksum covers them */
@@ -167,6 +167,29 @@ int main(void)
     ok = proj_ok(&q2);
     q2.t[1].pt[6].step[0].vel ^= 1u;
     bad += check("FUN6: patterns under the checksum", ok && !proj_ok(&q2));
+
+    /* format 6 as stored (no FM6 functions, its sum after the switches) -> format 7 in place */
+    q2.t[1].pt[6].step[0].vel ^= 1u;
+    q2.magic = PROJ_MAGIC_V6;
+    q2.size = PROJ_V6_SIZE;
+    {
+        uint32_t s6 = proj_hash(&q2, PROJ_V6_SIZE - 4u);
+        memcpy((uint8_t *)&q2 + PROJ_V6_SIZE - 4u, &s6, 4);
+    }
+    ok = proj_from_v6(&q2, (int)PROJ_V6_SIZE) && proj_ok(&q2) && q2.fm6_has == 4 && q2.fm6[2][9] == 63 &&
+         q2.t[1].pat == 5 && q2.t[1].pt[5].step[7].n == 2 && q2.fm6_fn[0][0] < 0 && q2.fm6_fn[2][15] < 0;
+    bad += check("FUN6 -> FUN7: in place, voices and patterns kept, FM6 functions default", ok);
+    q2.magic = PROJ_MAGIC_V6;
+    q2.size = PROJ_V6_SIZE;
+    bad += check("FUN6 with a bad sum refused", !proj_from_v6(&q2, (int)PROJ_V6_SIZE));
+    {
+        project_t f = q2;
+        f.fm6_fn[1][0] = 0;
+        f.magic = PROJ_MAGIC;
+        f.size = sizeof f;
+        f.sum = proj_sum(&f);
+        bad += check("FUN7: the FM6 functions under the checksum", proj_ok(&f) && (f.fm6_fn[1][1] ^= 1, !proj_ok(&f)));
+    }
 
     /* format 3, as written before FM6: the same tracks, no voices */
     memset(&v3, 0, sizeof v3);
@@ -186,7 +209,7 @@ int main(void)
     ok = proj_import(&q2, &buf, (int)sizeof v3) && proj_ok(&q2) &&
          !memcmp(q2.g, q.g, sizeof q.g) && q2.sel == 1 && !q2.fm6_has;
     for (t = 0; t < NTRK; t++) ok &= track_v4_ok(&q2.t[t], &v3.t[t]);
-    bad += check("FUN3 -> FUN6: remapped tracks, globals, degree 1; no FM6 voices", ok);
+    bad += check("FUN3 -> FUN7: remapped tracks, globals, degree 1; no FM6 voices", ok);
 
     memset(&v4, 0, sizeof v4);
     v4.magic = PROJ_MAGIC_V4;
@@ -203,7 +226,7 @@ int main(void)
          !memcmp(q2.g, v4.g, sizeof v4.g) && !memcmp(q2.fm6, v4.fm6, sizeof v4.fm6) &&
          !memcmp(q2.fm6_on, v4.fm6_on, sizeof v4.fm6_on) && q2.fm6_has == v4.fm6_has;
     for (t = 0; t < NTRK; t++) ok &= track_v4_ok(&q2.t[t], &v4.t[t]);
-    bad += check("FUN4 -> FUN6: remapped tracks, degree 1, complete FM6 voices", ok);
+    bad += check("FUN4 -> FUN7: remapped tracks, degree 1, complete FM6 voices", ok);
     bad += check("FUN4 wrong length refused", !proj_import(&q2, &buf, (int)sizeof v4 - 2));
     v4.fm6[2][3] ^= 1u;
     memcpy(&buf, &v4, sizeof v4);
@@ -237,7 +260,7 @@ int main(void)
         ok &= q.t[t].preset == 0xFF && q.t[t].p[P_SLCR] == 0 && q.t[t].p[P_LEVEL] == TP[P_LEVEL].def &&
               q.t[t].p[P_E0] == ENGINES[trk_def_engine(t)]->edit[0].def && q.t[t].pt[0].step[0].time == ST_REST &&
               q.t[t].pat == 0 && q.t[t].pt[0].set[0] == q.t[t].p[P_SLEN];
-    bad += check("FUN1 -> FUN6: track 1 mapped, tracks 2..4 defaults", ok);
+    bad += check("FUN1 -> FUN7: track 1 mapped, tracks 2..4 defaults", ok);
 
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;

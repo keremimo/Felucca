@@ -796,6 +796,8 @@ static void events_block(uint32_t n)
             midi_forget_track(i);
             trk_all_off(t);
             t->bend_target = t->bend_q8 = t->wheel_target = t->wheel_q8 = 0;
+            t->bend_raw = 0;
+            t->cc_foot = t->cc_breath = t->cc_press = t->cc_porta = 0;
             t->nheld = 0;
             t->arp_phys = 0;
             t->arp_note = 0;

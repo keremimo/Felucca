@@ -4,10 +4,12 @@
  * Four tracks: tracks 1..3 are synth parts (each its own engine, preset, parameters,
  * voices and NPAT 64-step patterns), track 4 is the GM drum part (drums.c; its own voices,
  * patterns and the pattern parameters of its track_t). The parts share one budget of
- * NVOICE sounding voices (voice.c). */
+ * VBUDGET units of sounding voices (voice.c): a voice of an engine with more than NPOLY voices
+ * (FM6: 16, as Dexed) takes one unit, any other voice two, so the others keep their 8. */
 #include <stdint.h>
-#define NVOICE 8                 /* voices per part, and the budget shared by all parts */
-#define NPOLY 8
+#define NVOICE 16                /* voice slots per part */
+#define NPOLY 8                  /* POLY / UNISON voices of an engine without its own cap */
+#define VBUDGET 16               /* the sounding voices of all parts, in units (above) */
 #define NPART 3                  /* synth parts: tracks 1..3 */
 #define NTRK 4                   /* + the drum track */
 #define TRK_DRUM 3
@@ -95,6 +97,8 @@ typedef struct {                 /* per-voice control-rate modulation, computed 
     int32_t cutoff;              /* 0..127 << 8 */
     int32_t shape;               /* 0..127 << 8 */
     int32_t envq15;              /* env value (for engines that use it as a mod source) */
+    int32_t plog;                /* the voice's own pitch offset without MIDI bend / wheel (glide, LFO and ENV
+                                  * pitch, unison detune), Q24 octaves: for engines that figure their pitch */
 } vmod_t;
 
 typedef struct {
@@ -124,7 +128,7 @@ typedef struct {
     void (*render)(struct track *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m);
     uint16_t color;              /* accent colour of the engine (RGB565) */
     uint8_t macro[4];            /* HOME: the four parameters on KNOB 1..4 */
-    uint8_t poly;                /* voice cap for POLY and UNISON, 0 = NVOICE */
+    uint8_t poly;                /* voice cap for POLY and UNISON (up to NVOICE), 0 = NPOLY */
     /* optional (0 = none): the voice amplitude instead of the ADSR curve, once per control tick;
      * gets the ADSR value (Q15, env_tick already ran: it still gates the voice), returns Q15 */
     int32_t (*amp)(struct track *t, voice_t *v, int32_t adsr);
@@ -134,6 +138,14 @@ typedef struct {
     /* optional: once per block and part, before its voices (also with no voice sounding) */
     void (*block)(struct track *t);
     uint8_t vel_own;             /* 1 = velocity is the engine's (FM6: per operator); else it scales the voice */
+    /* optional: the POLY voice (0..cap-1) for a new note, the engine's own choice (FM6: Dexed's) */
+    uint32_t (*alloc)(struct track *t, uint32_t note);
+    /* optional: MONO / LEGATO / UNISON moved a sounding voice to a new note without a new attack */
+    void (*legato)(struct track *t, voice_t *v);
+    /* optional: a key went down in MONO / LEGATO / UNISON, whether or not it takes the voice */
+    void (*mono_key)(struct track *t, uint32_t note);
+    /* optional: the part's block after its voices (FM6: Dexed's DC filter); nr: voices rendered */
+    void (*post)(struct track *t, int32_t *out, uint32_t n, uint32_t nr);
 } engine_t;
 
 /* ------------------------------------------------------------ track --- */
@@ -168,6 +180,8 @@ typedef struct track {
     int32_t bend_target, bend_q8; /* semitones in Q8 */
     int32_t wheel_target, wheel_q8;
     uint32_t wheel_phase;        /* independent 5 Hz vibrato */
+    int16_t bend_raw;            /* the bend as sent (signed 14-bit), for engines with their own range (FM6) */
+    uint8_t cc_foot, cc_breath, cc_press, cc_porta;   /* CC 4, CC 2, channel pressure, CC 65 on */
     /* keyboard / arp input: held notes in press order */
     uint8_t held[16];
     uint8_t nheld;
@@ -199,7 +213,7 @@ typedef struct track {
     uint8_t rh_last;             /* the last of them; rh_bak: what it held (an early release puts it back) */
     step_t rh_bak;
     /* mono */
-    uint8_t mono_stack[8];
+    uint8_t mono_stack[NVOICE];    /* keys held, in press order (as many as Dexed keeps voices for) */
     uint8_t nmono;
     uint8_t mono_note;           /* note the MONO / LEGATO / UNISON voice(s) play, 0 = none */
     uint8_t rr;                  /* POLY ROTATE: next voice to try */

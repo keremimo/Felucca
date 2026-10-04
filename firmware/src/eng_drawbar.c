@@ -114,7 +114,7 @@ typedef struct {                 /* per voice */
 } drw_vc_t;
 
 static drw_trk_t drw_t[NPART];
-static drw_vc_t drw_v[NPART][NVOICE];
+static drw_vc_t drw_v[NPART][NPOLY];            /* its voices: within NPOLY (no cap of its own) */
 
 static uint32_t drw_part(const track_t *t) { return (uint32_t)(t - trk) % NPART; }
 
@@ -176,7 +176,7 @@ static void drawbar_block(track_t *t)
 
 static void drawbar_note_on(track_t *t, voice_t *v)
 {
-    uint32_t vi = (uint32_t)(v - t->v) % NVOICE, k, held = 0;
+    uint32_t vi = (uint32_t)(v - t->v) % NPOLY, k, held = 0;
     drw_vc_t *V = &drw_v[drw_part(t)][vi];
     for (k = 0; k < NVOICE; k++)                        /* single trigger: another key of the part held? */
         if (&t->v[k] != v && t->v[k].active && t->v[k].gate && t->v[k].stage != 4u)
@@ -196,7 +196,7 @@ static void drawbar_note_on(track_t *t, voice_t *v)
 static void drawbar_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     const drw_trk_t *T = &drw_t[drw_part(t)];
-    drw_vc_t *V = &drw_v[drw_part(t)][(uint32_t)(v - t->v) % NVOICE];
+    drw_vc_t *V = &drw_v[drw_part(t)][(uint32_t)(v - t->v) % NPOLY];
     int32_t acc[CTL], perc1, clk0, clk1;
     uint32_t i, k;
     if (n > CTL)
