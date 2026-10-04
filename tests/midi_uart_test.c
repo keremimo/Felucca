@@ -89,6 +89,23 @@ static int test_usb_sysex(void)
     feed((const uint8_t *)"\x22\x24\xF7", 3);           /* no F0: ignored */
     bad += check("usb: bytes outside F0..F7 are ignored", !sx_ready);
 
+    {   /* macOS sends a byte of a long dump as CIN 0xF; a clock tick may come in between */
+        static const uint32_t P[] = {0x0201F004u, 0x0000030Fu, 0x0000F80Fu, 0x06050404u, 0x0000F705u};
+        uint32_t w0 = mi_w;
+        for (i = 0; i < sizeof P / sizeof P[0]; i++)
+            usb_midi_rx(P[i], 7);
+        bad += check("usb: SysEx bytes sent as CIN 0xF join the frame",
+                     sx_ready && sx_frame_len == 6u && !memcmp(sx_frame, "\x01\x02\x03\x04\x05\x06", 6));
+        bad += check("usb: a CIN 0xF clock inside SysEx still reaches MIDI in",
+                     mi_w == w0 + 1u && midi_in_q[w0 % MQ] == 0x0000F80Fu);
+        ota_frame_done();
+        mi_r = mi_w;
+        w0 = usb.sx_len;
+        usb_midi_rx(0x0000420Fu, 7);                    /* a lone data byte outside SysEx */
+        bad += check("usb: a CIN 0xF data byte outside SysEx is ignored",
+                     !sx_ready && !usb.sx_on && usb.sx_len == w0 && mi_w == mi_r);
+    }
+
     so_w = so_r + SXQ;                                  /* ring full ... */
     usb.config = 0;                                     /* ... and the host gone */
     bad += check("usb: send with a full ring and no host fails at once",
