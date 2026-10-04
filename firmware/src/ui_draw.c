@@ -1247,6 +1247,14 @@ static void draw_columns(void)
                 draw_column(c, "MIDI", "USB", !usb.up ? "OFF" : usb.config ? "ON" : "--", VAL(c), -1, ICON_AUTO);
             continue;
         }
+#if FELUCCA_USB_AUDIO
+        if ((cur_page()->id[c] == G_USBOUT || cur_page()->id[c] == G_USBIN) && cur_page()->scope == SC_GLOBAL) {
+            uint32_t out = cur_page()->id[c] == G_USBOUT;   /* the wanted state; the host follows (main.c) */
+            draw_column(c, "AUDIO", out ? "OUT" : "IN", ua_off_want & (out ? UA_OFF_OUT : UA_OFF_IN) ? "OFF" : "ON",
+                        VAL(c), -1, ICON_AUTO);
+            continue;
+        }
+#endif
         if (cur_page()->id[c] == G_INFO && cur_page()->scope == SC_GLOBAL) {
             fmt_int(val, (int32_t)(song.cpu_q8 * 100u / 256u));
             unit = "%";

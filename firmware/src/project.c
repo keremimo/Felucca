@@ -344,10 +344,13 @@ static void project_load(uint32_t slot)
 }
 
 /* settings + learned panel table: one flash object. The flash copy wins at
- * boot (the .noinit copies are garbage after a power-off). */
+ * boot (the .noinit copies are garbage after a power-off). New fields go at
+ * the end: a shorter PER2 record still loads (the rest stays 0), and older
+ * firmware reads the prefix it knows. */
 typedef struct {
     uint32_t magic, palette, lowcut, zoom;
     panel_t panel;
+    uint32_t usb_off;
 } persist_t;
 #define PERSIST_MAGIC 0x50455232u                  /* "PER2" */
 #if FELUCCA_FLASH
@@ -371,12 +374,15 @@ static void persist_boot(void)                    /* before settings_init / pane
             smp_user_scan(k);
     }
     {
-        int n = st_load(OBJ_SETTINGS, &p, sizeof p);
-        if (n == (int)sizeof p && p.magic == PERSIST_MAGIC) {
+        int n;
+        memset(&p, 0, sizeof p);
+        n = st_load(OBJ_SETTINGS, &p, sizeof p);
+        if ((n == (int)sizeof p || n == (int)(sizeof p - sizeof p.usb_off)) && p.magic == PERSIST_MAGIC) {
             settings.magic = SETTINGS_MAGIC;
             settings.palette = p.palette;
             settings.lowcut = p.lowcut;
             settings.zoom = p.zoom;
+            settings.usb_off = p.usb_off;
             if (p.panel.magic == PANEL_MAGIC)
                 panel = p.panel;
             persist_saved = p;
@@ -388,6 +394,7 @@ static void persist_boot(void)                    /* before settings_init / pane
             settings.palette = w[1];
             settings.lowcut = 0;
             settings.zoom = 0;
+            settings.usb_off = 0;
             if (old.magic == PANEL_MAGIC)
                 panel = old;
         }
@@ -416,6 +423,7 @@ static void settings_save(void)
     p.lowcut = settings.lowcut;
     p.zoom = settings.zoom;
     p.panel = panel;
+    p.usb_off = settings.usb_off;
     if (!memcmp(&p, &persist_saved, sizeof p))
         return;                                    /* unchanged: no erase cycle */
     if (st_save(OBJ_SETTINGS, &p, sizeof p) == 0)

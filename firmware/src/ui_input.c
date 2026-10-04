@@ -246,6 +246,13 @@ static void edit_param(uint32_t slot, int32_t steps)
             ui.midi_view = steps > 0 ? 1u : 0u;
         return;                                           /* display selection, not an input filter */
     }
+#if FELUCCA_USB_AUDIO
+    if (pg->scope == SC_GLOBAL && (id == G_USBOUT || id == G_USBIN)) {
+        if (steps)                                        /* right = ON, left = OFF; the host follows */
+            ua_off_set(id == G_USBOUT ? UA_OFF_OUT : UA_OFF_IN, steps > 0, fm1_ms);   /* (main.c) */
+        return;
+    }
+#endif
     if (pg->scope == SC_STEP) {
         step_edit(slot, steps);
         return;

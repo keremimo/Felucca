@@ -11,7 +11,8 @@
  * EP3 bulk data) for the console in console.c.
  * FELUCCA_USB_AUDIO=1 instead adds two UAC1 functions, a stereo output device
  * (EP2 OUT, explicit feedback on EP3) and a separate four-track input device
- * (EP2 IN); TIMER5 must outrank audio rendering. */
+ * (EP2 IN); TIMER5 must outrank audio rendering. Either can be left out of the
+ * configuration (ua_off, GLO > SYSTEM); usb_replug makes the host see the change. */
 #include "../hal/fm1_usb.h"   /* registers; relative, so the loader and the host tests find it too */
 #if !FELUCCA_LOADER
 static volatile uint32_t fm1_ms;  /* TIMER4-based milliseconds, updated by TIMER5 in main.c */
@@ -51,6 +52,7 @@ static struct {
     uint32_t suspends, max_gap, retries, frame_stalls;
     uint16_t frame, frame_same;  /* last SOF frame number and how long it has not moved (x 10 ms) */
     uint8_t detached;            /* usb_detach() was called: no retry */
+    uint32_t retry_ms;           /* last usb_start from usb_retry, or usb_replug */
     volatile uint8_t suspended;  /* bus idle > 3 ms (unplugged or host asleep): the UI hides "USB" */
     uint8_t last_setup[8];
     uint8_t sysex[16];
@@ -174,6 +176,8 @@ static const uint8_t STR2[] = {16, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c
 static const uint8_t STR3[] = {24, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c', 0, 'a', 0, ' ', 0, 'O', 0, 'u', 0,
                                't', 0};
 static const uint8_t STR4[] = {22, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c', 0, 'a', 0, ' ', 0, 'I', 0, 'n', 0};
+static uint8_t ua_cfg[sizeof CFG_DESC];              /* the configuration as sent (usb_audio.c ua_cfg_build) */
+static uint16_t ua_cfg_len;
 #endif
 
 static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
@@ -184,8 +188,13 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
         *l = sizeof DEV_DESC;
         return 1;
     case 2:
+#if FELUCCA_USB_AUDIO
+        *d = ua_cfg;
+        *l = ua_cfg_len;
+#else
         *d = CFG_DESC;
         *l = sizeof CFG_DESC;
+#endif
         return 1;
     case 3:
         switch (wvalue & 0xFFu) {
@@ -429,25 +438,23 @@ static void ep0_service(void)
         return;
     case 0x010B:                                        /* SET_INTERFACE */
 #if FELUCCA_USB_AUDIO
-        if (wlength || s[5] || !usb.config)
+        if (wlength || s[5] || !usb.config || s[4] >= ua_nif)
             goto stall;
-        if (s[4] == UA_IF_PLAY || s[4] == UA_IF_CAP) {
+        if (s[4] == ua_if_play || s[4] == ua_if_cap) {
             if (ua_set_interface(s[4], wvalue))
                 goto ack;
             goto stall;
         }
-        if (s[4] > UA_IF_CAP)
-            goto stall;
 #endif
         if (wvalue == 0)
             goto ack;
         goto stall;
     case 0x810A:
 #if FELUCCA_USB_AUDIO
-        if (wvalue || s[5] || s[4] > UA_IF_CAP || !usb.config)
+        if (wvalue || s[5] || s[4] >= ua_nif || !usb.config)
             goto stall;
-        if (s[4] == UA_IF_PLAY || s[4] == UA_IF_CAP) {
-            e0_send(s[4] == UA_IF_PLAY ? &ua.play_alt : &ua.cap_alt, 1, wlength);
+        if (s[4] == ua_if_play || s[4] == ua_if_cap) {
+            e0_send(s[4] == ua_if_play ? &ua.play_alt : &ua.cap_alt, 1, wlength);
             return;
         }
 #endif
@@ -814,6 +821,7 @@ static void usb_start(void)                             /* boot, or main-loop re
     ua_reset();
     ua_rate_pending = 0;
     ua_frame_valid = ua_paused = 0;
+    ua_cfg_build();                                     /* without the functions in ua_off */
 #endif
     usb.timeouts = 0;
     fm1_usb_reset();                                    /* reset whatever the ROM left */
@@ -834,13 +842,49 @@ static void usb_start(void)                             /* boot, or main-loop re
  * later still enumerates. */
 static void usb_retry(uint32_t now_ms)
 {
-    static uint32_t t;
-    if (usb.up || usb.detached || now_ms - t < 1000u)
+    if (usb.up || usb.detached || now_ms - usb.retry_ms < 1000u)
         return;
-    t = now_ms;
+    usb.retry_ms = now_ms;
     usb.retries++;
     usb_start();
 }
+
+/* Main loop: leave the bus for a second (usb_retry attaches again), so the
+ * host sees an unplug and reads a changed configuration afresh. Stopping
+ * TIMER5's polling first leaves the SIE to this context. */
+static void usb_replug(uint32_t now_ms)
+{
+    if (usb.detached)
+        return;
+    usb.up = 0;
+    usb.config = 0;
+    usb.suspended = 0;
+    fm1_usb_off();
+    usb.retry_ms = now_ms;
+}
+
+#if FELUCCA_USB_AUDIO
+/* GLO > SYSTEM switches an audio device on or off (main loop). The host gets
+ * the new configuration once the knob has rested for 0.6 s, so turning
+ * through OFF and back costs no replug. ua_off_apply: 1 = replugged. */
+static void ua_off_set(uint32_t bit, int on, uint32_t now_ms)
+{
+    uint8_t want = (uint8_t)(on ? ua_off_want & ~bit : ua_off_want | bit);
+    if (want != ua_off_want) {
+        ua_off_want = want;
+        ua_off_ms = now_ms;
+    }
+}
+
+static int ua_off_apply(uint32_t now_ms)
+{
+    if (ua_off_want == ua_off || now_ms - ua_off_ms < 600u)
+        return 0;
+    ua_off = ua_off_want;
+    usb_replug(now_ms);
+    return 1;
+}
+#endif
 
 static void usb_detach(void)
 {

@@ -262,6 +262,105 @@ static void capture_pipeline(void)
     puts("USB audio capture: prebuilt packets meet refill deadlines, DMA isolation, clean restart: OK");
 }
 
+/* GLO > SYSTEM leaves audio functions out of the configuration: interfaces stay
+ * contiguous, each AC header names its moved stream, absent streams stall, and
+ * with both on the host gets CFG_DESC unchanged. */
+static void layouts(void)
+{
+    static const struct { uint16_t len; uint8_t nif, play, cap; } L[4] = {
+        {411, 6, 3, 5}, {251, 4, UA_NO_IF, 3}, {269, 4, 3, UA_NO_IF}, {109, 2, UA_NO_IF, UA_NO_IF}};
+    for (uint32_t off = 0; off < 4; off++) {
+        const uint8_t *d;
+        uint16_t len;
+        uint32_t i, next_if = 0, iad_left = 0, ac_if = UA_NO_IF;
+        ua_off = ua_off_want = (uint8_t)off;
+        usb_start();
+        usb.config = 1;
+        assert(usb.up && get_desc(0x200, &d, &len) && d == ua_cfg && len == ua_cfg_len);
+        assert(len == L[off].len && (d[2] | d[3] << 8) == len && d[4] == L[off].nif);
+        assert(ua_nif == L[off].nif && ua_if_play == L[off].play && ua_if_cap == L[off].cap);
+        if (!off)
+            assert(len == sizeof CFG_DESC && !memcmp(d, CFG_DESC, len));
+        for (i = 9; i < len; i += d[i]) {
+            const uint8_t *r = d + i;
+            if (r[1] == 0x0B) {                 /* IAD: its interfaces follow, numbered on */
+                assert(!iad_left && r[2] == next_if);
+                iad_left = r[3];
+                assert(r[7] == (r[4] == 1 && r[2] ? (r[2] + 1u == ua_if_play ? 3 : 4) : 0));   /* names kept */
+            } else if (r[1] == 4 && !r[3]) {    /* alternate 0: the next interface number */
+                assert(r[2] == next_if++ && iad_left--);
+                ac_if = r[5] == 1 && r[6] == 1 ? r[2] : UA_NO_IF;
+            } else if (r[1] == 4) {
+                assert(r[2] + 1u == next_if);
+            } else if (r[1] == 0x24 && r[2] == 1 && ac_if != UA_NO_IF && r[0] == 9) {
+                assert(r[7] == 1 && r[8] == ac_if + 1u);   /* the stream right after it */
+            }
+        }
+        assert(next_if == L[off].nif && !iad_left);
+        setup(0x80, 6, 0x0200, 0, 9);          /* what the host reads first */
+        assert(ep_cnt[0] == 9 && ep0buf[2] == (len & 255) && ep0buf[3] == len >> 8 && ep0buf[4] == ua_nif);
+        for (uint32_t f = 0; f < 2; f++) {
+            uint8_t ifn = f ? ua_if_cap : ua_if_play, old = f ? 5 : 3, ep = f ? 0x82 : 0x02;
+            if (ifn == UA_NO_IF) {
+                if (old >= ua_nif) {
+                    setup(1, 11, 1, old, 0);
+                    assert(ep0_command == 0x60);
+                }
+                setup(0xA2, 0x81, 0x100, ep, 3);   /* its endpoint is gone too */
+                assert(ep0_command == 0x60);
+                setup(1, 11, 1, UA_NO_IF, 0);
+                assert(ep0_command == 0x60);
+                continue;
+            }
+            setup(1, 11, 1, ifn, 0);
+            assert(ep0_command == 0x48 && (f ? ua.cap_alt : ua.play_alt) == 1);
+            setup(0x81, 10, 0, ifn, 1);
+            assert(ep_cnt[0] == 1 && ep0buf[0] == 1);
+            assert(get_rate(ep, 0x81) == 44100);
+            setup(1, 11, 0, ifn, 0);
+            assert(ep0_command == 0x48 && !ua.play_alt && !ua.cap_alt);
+        }
+        setup(1, 11, 0, ua_nif, 0);
+        assert(ep0_command == 0x60);
+        for (i = 0; i < ua_nif; i++)            /* no interface number reaches an absent stream */
+            setup(1, 11, 1, i, 0);
+        assert(!!ua.play_alt == (ua_if_play != UA_NO_IF) && !!ua.cap_alt == (ua_if_cap != UA_NO_IF));
+        ua_hw_stop();
+    }
+    ua_off = ua_off_want = 0;
+    usb_start();
+    usb.config = 1;
+    puts("USB audio layouts: Out / In left out, interfaces renumbered, absent streams stall: OK");
+}
+
+/* The knob rests 0.6 s before the host sees a change; then a second off the bus. */
+static void replug(void)
+{
+    assert(!ua_off_apply(100000));              /* nothing wanted */
+    ua_off_set(UA_OFF_OUT, 0, 1000);
+    ua_off_set(UA_OFF_OUT, 0, 1300);            /* already wanted: the rest timer keeps running */
+    assert(ua_off_want == UA_OFF_OUT && ua_off == 0 && usb.up);
+    assert(!ua_off_apply(1599) && usb.up && ua_cfg_len == 411);
+    assert(ua_off_apply(1600) && ua_off == UA_OFF_OUT && !usb.up && !usb.config);
+    usb_retry(2599);
+    assert(!usb.up);
+    usb_retry(2600);
+    assert(usb.up && ua_cfg_len == 251 && ua_if_play == UA_NO_IF && ua_if_cap == 3);
+    ua_off_set(UA_OFF_IN, 0, 3000);             /* through OFF and back on: no replug */
+    ua_off_set(UA_OFF_IN, 1, 3200);
+    assert(!ua_off_apply(9000) && usb.up);
+    ua_off_set(UA_OFF_OUT, 1, 9000);
+    ua_off_set(UA_OFF_IN, 0, 9100);
+    assert(!ua_off_apply(9699) && ua_off_apply(9700) && ua_off == UA_OFF_IN && !usb.up);
+    usb_retry(10700);
+    assert(usb.up && ua_cfg_len == 269 && ua_if_play == 3 && ua_if_cap == UA_NO_IF);
+    usb.detached = 1;                           /* on its way to UBOOT: stays off */
+    ua_off_set(UA_OFF_IN, 1, 11000);
+    assert(ua_off_apply(11600) && usb.up);
+    usb.detached = 0;
+    puts("USB audio on/off: debounced, replug, re-enumeration with the new layout: OK");
+}
+
 int main(void)
 {
     uint32_t count;
@@ -348,5 +447,7 @@ int main(void)
     puts("USB audio endpoints: ownership, alternate settings, suspend/reset, frame wrap: OK");
     controls();
     capture_pipeline();
+    layouts();
+    replug();
     return 0;
 }

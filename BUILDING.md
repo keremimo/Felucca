@@ -72,11 +72,16 @@ The default build includes USB Audio Class 1 and MIDI:
 ./build.sh
 ```
 
-USB audio is selected at **build time**, not from a panel setting. With the default build,
+USB audio is selected at **build time**. With the default build,
 the computer sees two audio devices next to the Felucca MIDI port, as with the
 stock FM-1 firmware: **Felucca Out** (2 outputs, playback) and **Felucca In**
 (4 mono inputs, recording). Each can use **16-bit or packed 24-bit PCM** at
 **44.1 kHz**, with bit depth selected independently for each direction.
+
+Either device can be switched off on the FM-1: GLO > SYSTEM knob 2 (AUDIO OUT) and
+knob 3 (AUDIO IN), right for ON, left for OFF. About half a second after the knob comes
+to rest, Felucca leaves the USB bus for a second and reconnects without the switched-off
+device; USB MIDI is always present. The choice is saved to flash and survives power-off.
 
 Choose the bit depth in the computer's audio-device settings (on macOS, Audio MIDI
 Setup); the DAW's recording-file bit depth may be a separate setting. Use a
