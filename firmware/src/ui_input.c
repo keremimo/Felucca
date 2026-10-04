@@ -96,6 +96,81 @@ static void nav_leds(uint8_t *nl)
         led_put(nl, 14u + NAV_WHITE[g], blink || fm6_opsel != g);
 }
 
+/* ------------------------------------------------------ SEQ + keys --- */
+/* SEQ held on a SEQ page: the white keys F3..F4 are the selected track's patterns 1..8. A tap
+ * picks one (seq.c: when the track's loop ends, at once while stopped); holding one and pressing
+ * another copies the held one there. Lit = it holds notes, blinking = playing, fast = queued. */
+static const uint8_t PAT_KEY[NPAT] = {0, 2, 4, 6, 7, 9, 11, 12};   /* F3 .. F4 */
+
+static void pat_copy(track_t *t, uint32_t a, uint32_t b)   /* pattern a (steps, LEN etc.) onto b */
+{
+    pattern_t *pb = pat_bank[trk_index(t)];
+    int16_t set[4];
+    uint32_t i;
+    fm1_irq_off();                                      /* (the ISR switches patterns) */
+    for (i = 0; i < 4u; i++)
+        set[i] = a == t->pat ? t->p[P_SLEN + i] : pb[a].set[i];
+    memcpy(pat_steps(t, b), pat_steps(t, a), sizeof t->step);
+    for (i = 0; i < 4u; i++)
+        if (b != t->pat)
+            pb[b].set[i] = set[i];
+        else if (set[0])                                /* (a never played: b keeps its own) */
+            t->p[P_SLEN + i] = set[i];
+    fm1_irq_on();
+}
+
+static void pat_keys(uint32_t pressed)
+{
+    uint32_t k;
+    for (k = 0; k < NPAT; k++) {
+        if (!((pressed >> PAT_KEY[k]) & 1u))
+            continue;
+        ui.seq_used = 1;
+        if (ui.pat_src && ((fm1_in.notes >> PAT_KEY[ui.pat_src - 1u]) & 1u)) {   /* one held: copy it here */
+            if (k + 1u != ui.pat_src) {
+                char b[16] = "1 > 1 COPIED";
+                b[0] = (char)('0' + ui.pat_src);
+                b[4] = (char)('1' + k);
+                pat_copy(TSEL, ui.pat_src - 1u, k);
+                ui_say("PATTERN ", b);
+                ui.force = 1;
+            }
+            ui.pat_did = 1;
+        } else {
+            ui.pat_src = (uint8_t)(k + 1u);
+            ui.pat_did = 0;
+        }
+    }
+}
+
+static void pat_release(void)                           /* the picked key let go (SEQ may be up): pick it */
+{
+    track_t *t = TSEL;
+    uint32_t k = ui.pat_src - 1u;
+    char b[8] = "1";
+    if ((fm1_in.notes >> PAT_KEY[k]) & 1u)
+        return;
+    ui.pat_src = 0;
+    if (ui.pat_did)
+        return;
+    t->pat_q = (uint8_t)(k == t->pat ? 0u : k + 1u);   /* the one playing: a queued switch is dropped */
+    b[0] = (char)('1' + k);
+    if (t->pat_q && song.playing)
+        str_cpy(b + 1, " NEXT", 7);                     /* (seq.c: at the end of the track's loop) */
+    ui_say("PATTERN ", b);
+    ui.force = 1;
+}
+
+static void pat_leds(uint8_t *nl)
+{
+    track_t *t = TSEL;
+    uint32_t k, tk = fm1_ticks() / (75000u * FM1_TICKS_PER_US);
+    for (k = 0; k < NPAT; k++)
+        led_put(nl, 14u + PAT_KEY[k], k + 1u == t->pat_q ? (int)(tk & 1u)
+                                      : k == t->pat     ? (int)((tk >> 1) & 1u)
+                                                        : pat_used(t, k));
+}
+
 static void ui_leds(void)
 {
     uint8_t nl[FM1_NCOL] = {0};
@@ -111,7 +186,9 @@ static void ui_leds(void)
     led_put(nl, panel.btn[B_REC], song.rec != 0u);
     led_put(nl, panel.btn[B_OCTDN], song.octave < 0);
     led_put(nl, panel.btn[B_OCTUP], song.octave > 0);
-    if (nav_held())                                     /* EDIT + keys: the key map */
+    if (nav_held() && cur_fam() == FAM_SEQ)            /* SEQ + keys: the patterns */
+        pat_leds(nl);
+    else if (nav_held())                                /* EDIT + keys: the key map */
         nav_leds(nl);
     else
         for (k = 0; k < 27u; k++)
@@ -467,7 +544,7 @@ static void ui_input(void)
         }
     }
     if (ui.menu || ui.confirm)
-        kb_nav_btn = ui.edit_hold = 0;                  /* (no EDIT + keys there) */
+        kb_nav_btn = ui.edit_hold = ui.seq_hold = ui.pat_src = 0;   /* (no EDIT / SEQ + keys there) */
     if (ui.menu) {                                      /* HOME / REC taps do nothing here */
         seq_midi_events(0);
         step_midi_held = ui.entry_open = 0;
@@ -494,7 +571,12 @@ static void ui_input(void)
         step_midi_held = ui.entry_open = 0;
         if ((pressed >> panel.btn[B_OCTUP]) & 1u) {
             track_t *t = &trk[ui.confirm_trk % NTRK];
-            track_defaults_steps(t);
+            track_defaults_steps(t);                    /* SEQ / ARP: the pattern playing */
+            if (ui.confirm == 2) {                      /* TRACKS: every pattern of the track */
+                fm1_irq_off();
+                pat_clear_bank(t);
+                fm1_irq_on();
+            }
             t->nheld = 0;                               /* and the latched arp chord */
             t->arp_phys = 0;
             ui.force = 1;
@@ -526,6 +608,14 @@ static void ui_input(void)
         ui_message(fm6_shown() ? "BLACK: PAGE  WHITE: OP" : "BLACK KEYS: PAGES");   /* held: what the keys do */
         ui.edit_hold |= 4u;
     }
+    if (ui.seq_hold && !((fm1_in.buttons >> panel.btn[B_SEQ]) & 1u)) {   /* SEQ let go */
+        if ((ui.seq_hold & 3u) == 2u && !ui.seq_used && now - ui.seq_t0 < 500u * 1000u * FM1_TICKS_PER_US)
+            open_family(FAM_SEQ);                       /* a tap on a SEQ page: the next page */
+        ui.seq_hold = 0;
+    } else if (ui.seq_hold && !(ui.seq_hold & 4u) && !ui.seq_used && now - ui.seq_t0 > 400u * 1000u * FM1_TICKS_PER_US) {
+        ui_message("WHITE KEYS: PATTERNS");             /* held: what the keys do */
+        ui.seq_hold |= 4u;
+    }
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))
             continue;
@@ -545,6 +635,16 @@ static void ui_input(void)
                 song.octave += b == B_OCTDN ? (song.octave > -3 ? -1 : 0) : (song.octave < 3 ? 1 : 0);
             break;
         }
+        case B_SEQ:
+            ui.seq_t0 = now;                            /* held: SEQ + keys (pat_keys) */
+            ui.seq_used = 0;
+            if (!ui.home && cur_page()->fam == FAM_SEQ) {   /* on a SEQ page the next one comes on release */
+                ui.seq_hold = 2;
+                break;
+            }
+            ui.seq_hold = 1;
+            open_family(FAM_SEQ);
+            break;
         case B_EDIT:
             if (song.seq_mode && cur_page()->scope == SC_STEP) {   /* STEP page: EDIT clears the step */
                 step_clear(&TSEL->step[ui.cursor]);
@@ -569,11 +669,19 @@ static void ui_input(void)
         }
         }
     }
-    kb_nav_btn = !ui.home && cur_page()->fam == FAM_EDIT ? 1u << panel.btn[B_EDIT] : 0u;
-    if (nav_held()) {                                   /* EDIT + keys: pages and operators, no notes */
-        nav_keys(notes);
+    kb_nav_btn = ui.home                         ? 0u
+                 : cur_page()->fam == FAM_EDIT ? 1u << panel.btn[B_EDIT]
+                 : cur_page()->fam == FAM_SEQ  ? 1u << panel.btn[B_SEQ]
+                                               : 0u;
+    if (nav_held()) {                                   /* EDIT + keys: pages and operators; SEQ + keys: */
+        if (cur_fam() == FAM_SEQ)                       /* patterns; no notes */
+            pat_keys(notes);
+        else
+            nav_keys(notes);
         notes = 0;
     }
+    if (ui.pat_src)
+        pat_release();
     if (song.seq_mode && cur_page()->scope == SC_STEP && !seq_record_follow()) {
         seq_entry(notes);
         seq_midi_events(1);

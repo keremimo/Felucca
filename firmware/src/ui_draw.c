@@ -1076,6 +1076,16 @@ static void draw_foot(void)
             str_cpy(ti, "OP1 ", 10);
             ti[2] = (char)('1' + fm6_opsel);
             str_cpy(ti + 4, pg->title, 10);
+        } else if (pg->fam == FAM_SEQ) {               /* SEQ pages: the pattern first, "P2>5 STEP" (5 queued) */
+            uint32_t j = 2;
+            ti[0] = 'P';
+            ti[1] = (char)('1' + t->pat);
+            if (t->pat_q) {
+                ti[j++] = '>';
+                ti[j++] = (char)('0' + t->pat_q);
+            }
+            ti[j++] = ' ';
+            str_cpy(ti + j, pg->title, 10);
         } else {
             str_cpy(ti, pt ? pt : pg->title, 10);
         }

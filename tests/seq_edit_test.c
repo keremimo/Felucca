@@ -70,7 +70,10 @@ static void reset(uint32_t len)
     step_midi_w = step_midi_r = step_midi_overflow = 0;
     mi_w = mi_r = 0;
     host_tracks_init();
-    for (i = 0; i < NTRK; i++) track_defaults_steps(&trk[i]);
+    for (i = 0; i < NTRK; i++) {
+        track_defaults_steps(&trk[i]);
+        pat_clear_bank(&trk[i]);
+    }
     panel = PANEL_DEFAULT;
     settings_init();
     TSEL->p[P_SLEN] = (int16_t)len;
@@ -352,7 +355,7 @@ static void preset_scale_settings_test(void)
         assert(trk[i].p[P_SCALE] == 3 && trk[i].p[P_QUANT] == Q_ALL);
     assert(TDRUM->p[P_SCALE] == 9 && TDRUM->p[P_QUANT] == Q_ALL);
 
-    saved = &proj_slot[0];                   /* legacy project with differing track values */
+    saved = &proj_buf;                       /* (RAM only: the last save) older values per track */
     saved->sel = 2;
     saved->t[0].p[P_SCALE] = 1;
     saved->t[0].p[P_QUANT] = Q_SNAP;
@@ -765,6 +768,97 @@ static void render_test(const char *path)
     puts("display: sustained chords cross bank boundaries and the length hint fits");
 }
 
+static void seq_frame(int down, uint32_t keys)        /* one frame: SEQ held or not, these keys down */
+{
+    uint32_t bit = 1u << panel.btn[B_SEQ];
+    if (down && !(fm1_in.buttons & bit))
+        button_edges |= bit;
+    fm1_in.buttons = down ? fm1_in.buttons | bit : fm1_in.buttons & ~bit;
+    key_frame(keys, 0);
+}
+
+static void pat_pick(uint32_t key)                    /* SEQ held, key k (0 = F3) tapped, SEQ let go */
+{
+    seq_frame(1, 0);
+    seq_frame(1, 1u << key);
+    seq_frame(1, 0);
+    seq_frame(0, 0);
+}
+
+static void patterns_test(void)
+{
+    track_t *t;
+    uint32_t n, last = 0;
+    reset(16);
+    t = TSEL;
+    note(0);
+    assert(ui.page == page_named("STEP") && t->pat == 0 && pat_used(t, 0) && !pat_used(t, 1));
+
+    /* SEQ held on a SEQ page: a white key picks its pattern on release; stopped, it comes at once
+     * (a never played one keeps the track's LEN); the keys stay silent, the page stays */
+    seq_frame(1, 0);
+    seq_frame(1, 1u << 2);                          /* G3: pattern 2 */
+    assert(t->pat_q == 0 && !t->step[1].n);         /* (no step entry) */
+    kb_prev = 0;
+    events_block(0);
+    assert(kb_note[2] == KB_SILENT && !held_any());
+    seq_frame(1, 0);
+    assert(t->pat_q == 2);
+    events_block(0);
+    assert(t->pat == 1 && !t->pat_q && !t->step[0].n && t->p[P_SLEN] == 16);
+    seq_frame(0, 0);
+    assert(ui.page == page_named("STEP"));          /* a key was used: no page turn */
+    t->p[P_SLEN] = 8;                               /* LEN etc. go with the pattern */
+    note(3);
+    pat_pick(0);
+    events_block(0);
+    assert(t->pat == 0 && t->p[P_SLEN] == 16 && t->step[0].n == 3 && !t->step[3].n);
+    assert(pat_bank[song.sel][1].set[0] == 8 && pat_bank[song.sel][1].step[3].n == 3);
+
+    /* hold one, press another: copied there, nothing picked */
+    seq_frame(1, 0);
+    seq_frame(1, 1u << 0);
+    seq_frame(1, 1u << 0 | 1u << 4);                /* A3: pattern 3 */
+    seq_frame(1, 0);
+    seq_frame(0, 0);
+    assert(t->pat == 0 && !t->pat_q && pat_used(t, 2) && pat_bank[song.sel][2].set[0] == 16 &&
+           !memcmp(pat_bank[song.sel][2].step, t->step, sizeof t->step));
+
+    /* playing: the switch waits for the end of the track's loop */
+    transport_req = 1;
+    events_block(0);
+    pat_pick(2);                                    /* pattern 2 */
+    assert(t->pat_q == 2 && t->pat == 0);
+    for (n = 0; n < 2000u && t->pat == 0; n++) {
+        last = t->seq_idx;
+        events_block(256);
+    }
+    assert(t->pat == 1 && !t->pat_q && last == 15 && t->seq_idx == 0 && t->p[P_SLEN] == 8 && t->step[3].n == 3);
+    pat_pick(0);                                    /* F3: pattern 1 queued */
+    assert(t->pat_q == 1);
+    pat_pick(2);                                    /* G3: the one playing, the queue is dropped */
+    assert(!t->pat_q && t->pat == 1);
+    transport_req = 2;
+    events_block(0);
+
+    /* a tap of SEQ on a SEQ page still turns the page */
+    seq_frame(1, 0);
+    seq_frame(0, 0);
+    assert(ui.page == page_named("PATTERN"));
+
+    /* projects keep every pattern, its LEN and the one playing */
+    project_save(3);
+    track_defaults_steps(t);
+    pat_clear_bank(t);
+    t->p[P_SLEN] = 16;
+    project_load(3);
+    assert(t->pat == 1 && t->p[P_SLEN] == 8 && t->step[3].n == 3 && !t->step[0].n);
+    assert(pat_used(t, 0) && pat_used(t, 2) && !pat_used(t, 3) && pat_bank[song.sel][0].set[0] == 16 &&
+           pat_bank[song.sel][0].step[0].n == 3);
+    transport_req = panic_req = 0;
+    puts("patterns: SEQ + keys pick (at once stopped, at the loop end playing), copy, LEN per pattern, projects");
+}
+
 int main(int argc, char **argv)
 {
     lengths_test();
@@ -776,6 +870,7 @@ int main(int argc, char **argv)
     playback_test();
     home_notes_test(argc > 2 ? argv[2] : NULL);
     fm6_page_nav_test();
+    patterns_test();
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;
 }

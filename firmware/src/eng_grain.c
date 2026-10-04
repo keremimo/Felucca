@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* GRAIN: a granular engine over the SAMPLE material. Felucca's own design.
  *
- * Source: the SAMPLE sets (built in, IMA ADPCM in flash) and the user slots USR1..3 (XIP), the
+ * Source: the SAMPLE sets (built in, IMA ADPCM in flash) and the user slot USR1 (XIP), the
  * same zones across the keyboard as SAMPLE: a note picks its zone, its pitch sets the grain
  * playback rate against the zone's root. Needs eng_sample.c (zones, ADPCM tables, pow2_q16).
  *

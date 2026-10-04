@@ -1,10 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Projects: four slots in .noinit RAM, so they survive resets and UBOOT
- * entry. With FELUCCA_FLASH every save also goes to flash through storage.c,
- * and an empty RAM slot is filled from flash on load.
+/* Projects: four slots in flash (storage.c OBJ_PROJECT0.., ST_PROJ_SPAN sectors a copy).
+ * One project is in RAM at a time (proj_buf); proj_have says which slots hold one. Without
+ * the flash (RAM only) proj_buf keeps the last save.
  *
- * Formats: 5 ("FUN5", written) adds MPC pad degree to format 4. Format 4 ("FUN4")
+ * Formats: 6 ("FUN6", written) holds NPAT patterns per track, each with its LEN / DIV /
+ * SWING / GATE, and the one playing; the rest as format 5. Older formats are read from
+ * their one-sector objects (OBJ_LEGACY0..) and converted: their pattern becomes pattern 1,
+ * the others start empty. Format 5 ("FUN5") adds MPC pad degree to format 4. Format 4 ("FUN4")
  * adds the FM6 parts' voices (DX7 packed, with their operator switches) to format 3.
  * Formats 3/4 hold 57 parameters per track (including SLICER); new parameters take
  * their defaults and engine parameters stay mapped to P_E0..P_E7. Format 3 ("FUN3")
@@ -17,18 +20,21 @@
  *
  * Built on the host too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP), the engines and trk_def_engine (ui.c). */
-#define PROJ_MAGIC 0x46554E35u                 /* "FUN5": format 4 + MPC pad degree */
+#define PROJ_MAGIC 0x46554E36u                 /* "FUN6": format 5 + NPAT patterns per track */
+#define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": format 4 + MPC pad degree; read only */
 #define PROJ_MAGIC_V4 0x46554E34u              /* "FUN4": format 3 + FM6 voices; read only */
 #define PROJ_MAGIC_V3 0x46554E33u              /* "FUN3": four tracks, 57 parameters each; read only */
 #define PROJ_MAGIC_V2 0x46554E32u              /* "FUN2": four tracks, PROJ_NP_V2 parameters; read only */
 #define PROJ_MAGIC_V1 0x46554E31u              /* "FUN1": one instrument; loads into track 1 */
 #define PROJ_NP_V2 53u                         /* P_COUNT of formats 1 and 2 (P_E0 was 45) */
-#define PROJ_NG_V2 27u                         /* G_COUNT of formats 1 and 2 */
+#define PROJ_NG_V2 27u                         /* G_COUNT of formats 1 .. 5 */
 #define PROJ_NP_V4 57u                         /* P_COUNT of formats 3 and 4 (P_E0 was 49) */
+#define PROJ_NP_V5 58u                         /* P_COUNT of format 5 (P_E0 was 50) */
 typedef struct {                               /* one track; the drum track ignores engine / preset */
-    int16_t p[P_COUNT];
+    int16_t p[P_COUNT];                        /* (P_SLEN..P_SGATE: those of pattern pat) */
     uint8_t engine, preset;
-    step_t step[NSTEP];
+    uint8_t pat, rsv;                          /* the pattern playing */
+    pattern_t pt[NPAT];
 } proj_trk_t;
 typedef struct {
     uint32_t magic, size;
@@ -39,6 +45,20 @@ typedef struct {
     uint8_t fm6_on[NPART], fm6_has;            /* their operator switches (bit n - 1: OP n); bit k: part k */
     uint32_t sum;
 } project_t;
+typedef struct {                               /* a track of format 5, read only */
+    int16_t p[PROJ_NP_V5];
+    uint8_t engine, preset;
+    step_t step[NSTEP];
+} proj_trk_v5_t;
+typedef struct {                               /* format 5 (until patterns), read only */
+    uint32_t magic, size;
+    int16_t g[PROJ_NG_V2];
+    uint8_t sel, rsv[3];
+    proj_trk_v5_t t[NTRK];
+    uint8_t fm6[NPART][128];
+    uint8_t fm6_on[NPART], fm6_has;
+    uint32_t sum;
+} project_v5_t;
 typedef struct {                               /* a track of formats 3 and 4, read only */
     int16_t p[PROJ_NP_V4];
     uint8_t engine, preset;
@@ -78,10 +98,16 @@ typedef struct {                               /* format 1 (until 0.5 beta), rea
     proj_trk_v2_t t;
     uint32_t sum;
 } project_v1_t;
-_Static_assert(sizeof(project_v4_t) == 2972u && sizeof(project_v3_t) == 2584u &&
+typedef union {                                /* any of the one-sector formats, as stored */
+    project_v5_t v5;
+    project_v4_t v4;
+    project_v3_t v3;
+    project_v2_t v2;
+    project_v1_t v1;
+} project_old_t;
+_Static_assert(sizeof(project_v5_t) == 2980u && sizeof(project_v4_t) == 2972u && sizeof(project_v3_t) == 2584u &&
                sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u,
-               "formats 1..4 as they were stored");
-project_t proj_slot[4] __attribute__((section(".noinit")));
+               "formats 1..5 as they were stored");
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
 {
@@ -94,7 +120,7 @@ static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
 static uint32_t proj_sum(const project_t *p) { return proj_hash(p, sizeof *p - 4u); }
 static int proj_ok(const project_t *q) { return q->magic == PROJ_MAGIC && q->size == sizeof *q && q->sum == proj_sum(q); }
 
-/* the globals of formats 1 and 2 (G_* unchanged since; any added later: their defaults) */
+/* the globals of formats 1 .. 5 (G_* unchanged since; any added later: their defaults) */
 static void proj_g_from_v2(int16_t *g, const int16_t *g2)
 {
     uint32_t i;
@@ -102,17 +128,39 @@ static void proj_g_from_v2(int16_t *g, const int16_t *g2)
         g[i] = i < PROJ_NG_V2 ? g2[i] : GP[i].def;
 }
 
-/* a track of formats 1 and 2 -> today's, mapped by count (see the top); drum: the drum track */
+/* np parameters of an older track -> today's, mapped by count (see the top) */
+static void proj_p_from(int16_t *p, const int16_t *s, uint32_t np)
+{
+    uint32_t k, nc = np - 8u;
+    for (k = 0; k < P_E0; k++)
+        p[k] = k < nc ? s[k] : TP[k].def;
+    for (k = 0; k < 8u; k++)
+        p[P_E0 + k] = s[nc + k];
+}
+
+/* the one pattern of an older track (0: none) -> pattern 1, playing; the others empty */
+static void proj_pats_from(proj_trk_t *d, const step_t *step)
+{
+    uint32_t k, i;
+    for (k = 0; k < NPAT; k++) {
+        for (i = 0; i < NSTEP; i++)
+            d->pt[k].step[i].time = ST_REST;
+        d->pt[k].set[0] = 0;
+    }
+    if (step)
+        memcpy(d->pt[0].step, step, sizeof d->pt[0].step);
+    for (i = 0; i < 4u; i++)
+        d->pt[0].set[i] = d->p[P_SLEN + i];
+    d->pat = 0;
+}
+
+/* a track of formats 1 and 2 -> today's; drum: the drum track */
 static void proj_trk_from_v2(proj_trk_t *d, const proj_trk_v2_t *s, int drum)
 {
-    uint32_t k, nc = PROJ_NP_V2 - 8u;
-    for (k = 0; k < P_E0; k++)
-        d->p[k] = k < nc ? s->p[k] : TP[k].def;
-    for (k = 0; k < 8u; k++)
-        d->p[P_E0 + k] = s->p[nc + k];
+    proj_p_from(d->p, s->p, PROJ_NP_V2);
     d->engine = drum ? 0u : s->engine;          /* (indices 0..7 as they were) */
     d->preset = drum ? 0u : s->preset;
-    memcpy(d->step, s->step, sizeof d->step);
+    proj_pats_from(d, s->step);
 }
 
 /* a format 2 project (n bytes in *v2) -> slot q in the current format */
@@ -152,8 +200,7 @@ static int proj_from_v1(project_t *q, const project_v1_t *v1, int n)
             q->t[i].p[k] = k >= P_E0 ? ENGINES[trk_def_engine(i)]->edit[k - P_E0].def : TP[k].def;
         q->t[i].engine = (uint8_t)trk_def_engine(i);
         q->t[i].preset = 0xFF;                 /* 0xFF: its default preset (project_load) */
-        for (k = 0; k < NSTEP; k++)
-            q->t[i].step[k].time = ST_REST;
+        proj_pats_from(&q->t[i], 0);
     }
     q->sum = proj_sum(q);
     return 1;
@@ -161,14 +208,10 @@ static int proj_from_v1(project_t *q, const project_v1_t *v1, int n)
 
 static void proj_trk_from_v4(proj_trk_t *d, const proj_trk_v4_t *s)
 {
-    uint32_t k, nc = PROJ_NP_V4 - 8u;
-    for (k = 0; k < P_E0; k++)
-        d->p[k] = k < nc ? s->p[k] : TP[k].def;
-    for (k = 0; k < 8u; k++)
-        d->p[P_E0 + k] = s->p[nc + k];
+    proj_p_from(d->p, s->p, PROJ_NP_V4);
     d->engine = s->engine;
     d->preset = s->preset;
-    memcpy(d->step, s->step, sizeof d->step);
+    proj_pats_from(d, s->step);
 }
 
 /* format 4 -> current: retain FM6 voices, add default MPC degree */
@@ -210,56 +253,85 @@ static int proj_from_v3(project_t *q, const project_v3_t *v3, int n)
     return 1;
 }
 
-/* n bytes of a stored project (any format) -> slot q; 0 = not a project */
-static int proj_import(project_t *q, const void *b, int n)
+/* format 5 -> current: its pattern becomes pattern 1 */
+static int proj_from_v5(project_t *q, const project_v5_t *v5, int n)
 {
-    if (n == (int)sizeof *q && proj_ok((const project_t *)b)) {
-        memcpy(q, b, sizeof *q);
-        return 1;
+    uint32_t i;
+    if (n != (int)sizeof *v5 || v5->magic != PROJ_MAGIC_V5 || v5->size != sizeof *v5 ||
+        v5->sum != proj_hash(v5, sizeof *v5 - 4u))
+        return 0;
+    memset(q, 0, sizeof *q);
+    q->magic = PROJ_MAGIC;
+    q->size = sizeof *q;
+    proj_g_from_v2(q->g, v5->g);
+    q->sel = v5->sel;
+    for (i = 0; i < NTRK; i++) {
+        proj_p_from(q->t[i].p, v5->t[i].p, PROJ_NP_V5);
+        q->t[i].engine = v5->t[i].engine;
+        q->t[i].preset = v5->t[i].preset;
+        proj_pats_from(&q->t[i], v5->t[i].step);
     }
-    return proj_from_v4(q, (const project_v4_t *)b, n) || proj_from_v3(q, (const project_v3_t *)b, n) ||
-           proj_from_v2(q, (const project_v2_t *)b, n) ||
-           proj_from_v1(q, (const project_v1_t *)b, n);
+    memcpy(q->fm6, v5->fm6, sizeof q->fm6);
+    memcpy(q->fm6_on, v5->fm6_on, sizeof q->fm6_on);
+    q->fm6_has = v5->fm6_has;
+    q->sum = proj_sum(q);
+    return 1;
+}
+
+/* n bytes of a one-sector project (formats 1..5) -> q in the current format; 0 = not a project */
+static int proj_import(project_t *q, const project_old_t *b, int n)
+{
+    return proj_from_v5(q, &b->v5, n) || proj_from_v4(q, &b->v4, n) || proj_from_v3(q, &b->v3, n) ||
+           proj_from_v2(q, &b->v2, n) || proj_from_v1(q, &b->v1, n);
 }
 
 #ifndef PROJ_HOST
-#if FELUCCA_FLASH
-/* slot from flash into RAM (older formats converted) */
-static void proj_fetch(uint32_t slot)
+static project_t proj_buf __attribute__((section(".pool")));   /* the project being saved or loaded */
+static uint8_t proj_have;                      /* bit per slot: it holds a project (project_used) */
+static uint8_t proj_ram;                       /* RAM only: the slot + 1 whose save proj_buf holds */
+
+/* slot -> proj_buf (an older format converted): 1, or 0 = none */
+static int proj_fetch(uint32_t slot)
 {
-    static union {
-        project_t v5;
-        project_v4_t v4;
-        project_v3_t v3;
-        project_v2_t v2;
-        project_v1_t v1;
-    } tmp;
-    project_t *q = &proj_slot[slot & 3u];
-    int n = st_load(OBJ_PROJECT0 + (slot & 3u), &tmp, sizeof tmp);
-    if (!proj_import(q, &tmp, n))
-        q->magic = 0;
-}
+#if FELUCCA_FLASH
+    static project_old_t old;
+    int n;
+    if (flash_ok) {
+        n = st_load(OBJ_PROJECT0 + (slot & 3u), &proj_buf, sizeof proj_buf);
+        if (n == (int)sizeof proj_buf && proj_ok(&proj_buf))
+            return 1;
+        n = st_load(OBJ_LEGACY0 + (slot & 3u), &old, sizeof old);
+        return proj_import(&proj_buf, &old, n);
+    }
 #endif
+    return proj_ram == (slot & 3u) + 1u && proj_ok(&proj_buf);
+}
 
 static void project_save(uint32_t slot)
 {
-    project_t *p = &proj_slot[slot & 3u];
-    uint32_t i;
+    project_t *p = &proj_buf;
+    uint32_t i, k;
     memset(p, 0, sizeof *p);
     p->magic = PROJ_MAGIC;
     p->size = sizeof *p;
     for (i = 0; i < G_COUNT; i++)
         p->g[i] = song.g[i];
     p->sel = song.sel;
+    fm1_irq_off();                                      /* no pattern switch halfway through */
     for (i = 0; i < NTRK; i++) {
-        memcpy(p->t[i].p, trk[i].p, sizeof trk[i].p);
-        p->t[i].engine = trk[i].eng_req;
-        p->t[i].preset = trk[i].preset;
-        memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
+        proj_trk_t *d = &p->t[i];
+        memcpy(d->p, trk[i].p, sizeof trk[i].p);
+        d->engine = trk[i].eng_req;
+        d->preset = trk[i].preset;
+        d->pat = trk[i].pat;
+        memcpy(d->pt, pat_bank[i], sizeof d->pt);
+        memcpy(d->pt[d->pat].step, trk[i].step, sizeof trk[i].step);   /* the one playing: from the track */
+        for (k = 0; k < 4u; k++)
+            d->pt[d->pat].set[k] = trk[i].p[P_SLEN + k];
     }
+    fm1_irq_on();
     for (i = 0; i < NPART; i++)                         /* the FM6 parts' voices, edits and all */
         if (ENGINES[trk[i].eng_req % NENGINES] == &ENG_FM6) {
-            uint32_t k;
             fm6_pack(p->fm6[i], fm6_ed[i]);
             for (k = 0; k < 6u; k++)
                 p->fm6_on[i] |= (uint8_t)(fm6_ed[i][FV_ON + k] ? 1u << k : 0u);
@@ -268,22 +340,36 @@ static void project_save(uint32_t slot)
     p->sum = proj_sum(p);
 #if FELUCCA_FLASH
     if (flash_ok) {
-        ui_message(st_save(OBJ_PROJECT0 + (slot & 3u), p, sizeof *p) ? "SAVE ERROR" : "SAVED");
+        if (st_save(OBJ_PROJECT0 + (slot & 3u), p, sizeof *p)) {
+            ui_message("SAVE ERROR");
+            return;
+        }
+        proj_have |= (uint8_t)(1u << (slot & 3u));
+        ui_message("SAVED");
         return;
     }
 #endif
+    proj_ram = (uint8_t)((slot & 3u) + 1u);
+    proj_have = (uint8_t)(1u << (slot & 3u));
     ui_message("SAVED (RAM)");
+}
+
+static void step_sane(step_t *st)                       /* a loaded step back inside the step model */
+{
+    uint32_t j;
+    if (st->n > 4u)
+        st->n = 4;
+    if (st->time > ST_REST)
+        st->time = ST_REST;
+    for (j = 0; j < 4u; j++)
+        st->note[j] &= 127u;
 }
 
 static void project_load(uint32_t slot)
 {
-    project_t *p = &proj_slot[slot & 3u];
-    uint32_t i, k;
-#if FELUCCA_FLASH
-    if (flash_ok && !proj_ok(p))
-        proj_fetch(slot);
-#endif
-    if (!proj_ok(p)) {
+    project_t *p = &proj_buf;
+    uint32_t i, k, j;
+    if (!proj_fetch(slot)) {
         ui_message("EMPTY SLOT");
         return;
     }
@@ -313,17 +399,18 @@ static void project_load(uint32_t slot)
                 fm6_cur[k] = (int16_t)(t->p[P_E0] + 1);
             }
         }
-        memcpy(t->step, s->step, sizeof t->step);
-        for (i = 0; i < NSTEP; i++) {
-            step_t *st = &t->step[i];
-            uint32_t j;
-            if (st->n > 4u)
-                st->n = 4;
-            if (st->time > ST_REST)
-                st->time = ST_REST;
-            for (j = 0; j < 4u; j++)
-                st->note[j] &= 127u;
+        for (j = 0; j < NPAT; j++) {                    /* the patterns, each back inside the step model */
+            pattern_t *b = &pat_bank[k][j];
+            memcpy(b, &s->pt[j], sizeof *b);
+            for (i = 0; i < NSTEP; i++)
+                step_sane(&b->step[i]);
+            if (b->set[0])
+                for (i = 0; i < 4u; i++)
+                    b->set[i] = (int16_t)clamp(b->set[i], TP[P_SLEN + i].min, TP[P_SLEN + i].max);
         }
+        t->pat = (uint8_t)(s->pat % NPAT);
+        t->pat_q = 0;
+        memcpy(t->step, pat_bank[k][t->pat].step, sizeof t->step);
     }
     song.sel = (uint8_t)(p->sel < NTRK ? p->sel : 0u);
     /* Older projects can hold different values per part. The selected synth part
@@ -399,17 +486,17 @@ static void persist_boot(void)                    /* before settings_init / pane
                 panel = old;
         }
     }
-    {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */
+    {   /* projects: which slots hold one, so the slot list is right after power-on */
         uint32_t i;
         for (i = 0; i < 4u; i++)
-            if (!proj_ok(&proj_slot[i]))
-                proj_fetch(i);
+            if (proj_fetch(i))
+                proj_have |= (uint8_t)(1u << i);
     }
     up_boot();                                     /* user presets */
 #endif
 }
 
-static int project_used(uint32_t slot) { return proj_ok(&proj_slot[slot & 3u]); }
+static int project_used(uint32_t slot) { return (proj_have >> (slot & 3u)) & 1u; }
 
 static void settings_save(void)
 {
@@ -432,6 +519,6 @@ static void settings_save(void)
 }
 
 #if FELUCCA_FLASH
-_Static_assert(sizeof(project_t) <= ST_PAYLOAD_MAX, "project does not fit one flash sector");
+_Static_assert(sizeof(project_t) <= ST_PROJ_SPAN * ST_SECTOR - ST_PAYLOAD_OFF, "project does not fit its flash object");
 #endif
 #endif /* PROJ_HOST */

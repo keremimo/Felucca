@@ -4,9 +4,10 @@
  * ISR, once per CTL-sample block, and ends in trk_note_on / trk_note_off:
  * engines never see where a note came from.
  * Four tracks, one transport: every track's pattern loops on its own LEN / DIV /
- * SWING / GATE (polymeter). The keys play the selected track; MIDI channels 1..3
- * play parts 1..3, the DRUMS channel (GLO > DRUMS, default 10) the drum track, any
- * other channel the selected track. A note into an armed track (song.rec) while
+ * SWING / GATE (polymeter); each track has NPAT patterns (pat_*), switched at its loop
+ * end. The keys play the selected track; MIDI channels 1..3 play parts 1..3, the
+ * DRUMS channel (GLO > DRUMS, default 10) the drum track, any other channel the
+ * selected track. A note into an armed track (song.rec) while
  * the transport runs is recorded into its pattern, quantised to its (swung) steps, with its
  * held length as TIE steps (rec_note, rec_hold, rec_release). */
 static const uint16_t SCALE_MASK[] = {
@@ -470,6 +471,56 @@ static void keyboard_block(void)
     kb_prev = cur;
 }
 
+/* --------------------------------------------------------- patterns --- */
+/* NPAT patterns per track. The one playing lives in t->step and t->p[P_SLEN..P_SGATE], where
+ * everything reads it; pat_bank holds the others. A switch swaps them (seq_tick): at once while
+ * the transport is stopped, else when the track's loop ends, so each track changes on its own
+ * length. The UI only queues it (t->pat_q). */
+static step_t *pat_steps(track_t *t, uint32_t k)        /* the steps of pattern k, wherever they are */
+{
+    return k % NPAT == t->pat ? t->step : pat_bank[trk_index(t)][k % NPAT].step;
+}
+
+static int pat_used(track_t *t, uint32_t k)             /* pattern k holds a note */
+{
+    const step_t *s = pat_steps(t, k);
+    uint32_t i;
+    for (i = 0; i < NSTEP; i++)
+        if (s[i].n)
+            return 1;
+    return 0;
+}
+
+static void pat_switch(track_t *t, uint32_t k)          /* audio ISR (or with it off) */
+{
+    pattern_t *o = &pat_bank[trk_index(t)][t->pat], *q = &pat_bank[trk_index(t)][k % NPAT];
+    uint32_t i;
+    if (k % NPAT == t->pat)
+        return;
+    memcpy(o->step, t->step, sizeof t->step);
+    for (i = 0; i < 4u; i++)
+        o->set[i] = t->p[P_SLEN + i];
+    memcpy(t->step, q->step, sizeof t->step);
+    if (q->set[0])                                      /* never played: it keeps the track's LEN etc. */
+        for (i = 0; i < 4u; i++)
+            t->p[P_SLEN + i] = q->set[i];
+    t->pat = (uint8_t)(k % NPAT);
+    t->rh_n = 0;                                        /* a recorded hold ends with its pattern */
+}
+
+static void pat_clear_bank(track_t *t)                  /* the other patterns empty, pattern 1 playing */
+{
+    pattern_t *b = pat_bank[trk_index(t)];
+    uint32_t k, i;
+    for (k = 0; k < NPAT; k++) {
+        memset(&b[k], 0, sizeof b[k]);
+        for (i = 0; i < NSTEP; i++)
+            b[k].step[i].time = ST_REST;
+    }
+    t->pat = 0;
+    t->pat_q = 0;
+}
+
 /* -------------------------------------------------------- sequencer --- */
 static void seq_start(void)
 {
@@ -603,7 +654,8 @@ static void seq_step(track_t *t, const step_t *s, uint32_t period, uint32_t skip
     uint32_t vel = (s->flags & SF_ACCENT) ? 127u : (s->vel ? s->vel : 96u);
     uint32_t slide_in = t->seq_hold && t->seq_n;
     uint32_t len = t->p[P_SLEN] ? (uint32_t)t->p[P_SLEN] : 1u;
-    uint32_t next_tie = t->step[(t->seq_idx + 1u) % len].time == ST_TIE;
+    uint32_t next_tie = (t->pat_q && t->seq_idx + 1u >= len ? pat_steps(t, t->pat_q - 1u)[0]   /* the queued one's */
+                                                            : t->step[(t->seq_idx + 1u) % len]).time == ST_TIE;
     if (s->time == ST_TIE) {
         if (t->seq_n) {
             t->seq_off = gate + period / 2u;
@@ -645,7 +697,13 @@ static void seq_step(track_t *t, const step_t *s, uint32_t period, uint32_t skip
 
 static void seq_tick(track_t *t, uint32_t n)
 {
-    uint32_t period = div_samples((uint32_t)t->p[P_SDIV]), len = (uint32_t)t->p[P_SLEN];
+    uint32_t period, len;
+    if (t->pat_q && !song.playing) {                    /* stopped: a picked pattern comes at once */
+        pat_switch(t, t->pat_q - 1u);
+        t->pat_q = 0;
+    }
+    period = div_samples((uint32_t)t->p[P_SDIV]);
+    len = (uint32_t)t->p[P_SLEN];
     if (t->seq_n && !t->seq_hold) {
         if (t->seq_off <= n)
             seq_release(t);
@@ -661,6 +719,12 @@ static void seq_tick(track_t *t, uint32_t n)
             break;
         t->seq_pos = t->seq_pos >= 0x7FFFFFFFu ? 0 : t->seq_pos - cur_len;
         t->seq_idx = (uint16_t)((t->seq_idx + 1u) % (len ? len : 1u));
+        if (!t->seq_idx && t->pat_q) {                  /* the loop ends: the queued pattern starts */
+            pat_switch(t, t->pat_q - 1u);
+            t->pat_q = 0;
+            period = div_samples((uint32_t)t->p[P_SDIV]);
+            len = (uint32_t)t->p[P_SLEN];
+        }
         rec_hold(t, t->seq_idx, len ? len : 1u);
         {
             const step_t *s = &t->step[t->seq_idx];

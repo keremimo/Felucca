@@ -93,14 +93,17 @@ int main(void)
                  st_sector(OBJ_FM6, 1) == 0xFE000;
         for (o = 0; o < OBJ_COUNT; o++)
             for (c = 0; c < 2u; c++) {
-                uint32_t s = st_sector(o, c);
-                ok &= (s >= 0x97000 && s + 4096 <= 0xE0000) || (s >= 0xFC000 && s + 4096 <= 0xFF000);
-                ok &= s != 0xA0000 && !(s > 0xA0000 && s < 0xDC000);     /* (the user sample slots) */
+                uint32_t s = st_sector(o, c), e = s + st_span(o) * 4096;
+                ok &= (s >= 0x97000 && e <= 0xE0000) || (s >= 0xFC000 && e <= 0xFF000);
+                ok &= e <= 0xA0000 || s >= 0xB4000;                     /* (the user sample slot) */
                 for (o2 = 0; o2 < OBJ_COUNT; o2++)
-                    for (c2 = 0; c2 < 2u; c2++)
-                        ok &= (o2 == o && c2 == c) || st_sector(o2, c2) != s;
+                    for (c2 = 0; c2 < 2u; c2++) {
+                        uint32_t s2 = st_sector(o2, c2), e2 = s2 + st_span(o2) * 4096;
+                        ok &= (o2 == o && c2 == c) || e2 <= s || s2 >= e;
+                    }
             }
-        bad += check("data stays in the Felucca regions, no two copies share a sector", ok);
+        ok &= st_sector(OBJ_PROJECT0, 0) == 0xB4000 && st_sector(OBJ_PROJECT0 + 3, 1) + ST_PROJ_SPAN * 4096 == 0xDC000;
+        bad += check("data stays in the Felucca regions, no two copies overlap", ok);
     }
     {   /* the FM6 bank: its copies are not neighbours (0x9F000 / 0xFE000) */
         static uint8_t big[3588], back[3588];
@@ -110,6 +113,24 @@ int main(void)
         bad += check("FM6 bank: save, save again, load the newer", st_save(OBJ_FM6, a, sizeof a) == 0 &&
                      st_save(OBJ_FM6, big, sizeof big) == 0 && st_load(OBJ_FM6, back, sizeof back) == (int)sizeof big &&
                      !memcmp(back, big, sizeof big));
+    }
+    {   /* a project: one copy spans ST_PROJ_SPAN sectors; torn in its last one, the older copy stays */
+        static uint8_t big[5 * 4096 - 256], back[sizeof big];
+        uint32_t i;
+        memset(nor, 0xFF, sizeof nor);
+        for (i = 0; i < sizeof big; i++)
+            big[i] = (uint8_t)(i * 7u + (i >> 8));
+        bad += check("project object: full size saves and loads", st_save(OBJ_PROJECT0 + 1, big, sizeof big) == 0 &&
+                     st_load(OBJ_PROJECT0 + 1, back, sizeof back) == (int)sizeof big && !memcmp(back, big, sizeof big));
+        bad += check("project object: one byte more is refused", st_save(OBJ_PROJECT0 + 1, big, sizeof big + 1) < 0);
+        big[0] ^= 0xFF;
+        fail_after = (int)(sizeof big / 256u) - 1;       /* every payload page but the last one */
+        st_save(OBJ_PROJECT0 + 1, big, sizeof big);
+        fail_after = -1;
+        bad += check("project object: torn save keeps the older copy",
+                     st_load(OBJ_PROJECT0 + 1, back, sizeof back) == (int)sizeof big && back[0] == (uint8_t)~big[0]);
+        bad += check("project object: the neighbours untouched", st_load(OBJ_PROJECT0, back, sizeof back) < 0 &&
+                     st_load(OBJ_PROJECT0 + 2, back, sizeof back) < 0 && st_load(OBJ_UPRESET0, back, 16) < 0);
     }
     printf("%s\n", bad ? "STORAGE TEST FAILED" : "storage test passed");
     return bad != 0;
