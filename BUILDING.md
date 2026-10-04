@@ -50,8 +50,8 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`):
 | --- | --- | --- |
 | `FELUCCA_FLASH` | 1 | settings, presets and projects in flash |
 | `FELUCCA_OTA` | 1 | update entry (needs `FELUCCA_FLASH`) |
-| `FELUCCA_CDC` | 1 | USB serial console; defaults to 0 in USB audio builds |
-| `FELUCCA_USB_AUDIO` | 0 | experimental USB Audio Class 1 + MIDI: stereo playback, four-track recording; replaces the serial console |
+| `FELUCCA_CDC` | 0 | USB serial console; defaults to 1 when USB audio is disabled |
+| `FELUCCA_USB_AUDIO` | 1 | experimental USB Audio Class 1 + MIDI: stereo playback, four-track recording; replaces the serial console |
 | `FELUCCA_UART` | 1 | TRS MIDI IN, 31250 baud (set to 0 to disable) |
 
 TRS MIDI IN shares the USB MIDI channel routing and scale mapping. It accepts
@@ -59,19 +59,20 @@ channel messages, running status, MIDI Clock, Start, Stop, and Continue. On
 **GLO > GLOBAL > CLK**, choose **USB** or **TRS** as the clock source; **INT**
 uses the panel BPM. The unselected input still plays notes and expressive
 controls. System common, SysEx, and other realtime messages are ignored on TRS.
-The USB serial console's `status` command reports `trs_midi` (enabled),
+In a `FELUCCA_USB_AUDIO=0` build, the USB serial console's `status` command
+reports `trs_midi` (enabled),
 `trs_rx_bytes`, `trs_rx_msgs`, and `trs_rx_drops` for hardware testing.
 End-to-end TRS timing still needs verification with an external MIDI source.
 
 ## Experimental USB audio mode
 
-Build a USB Audio Class 1 + MIDI image with:
+The default build includes USB Audio Class 1 and MIDI:
 
 ```
-FELUCCA_USB_AUDIO=1 ./build.sh
+./build.sh
 ```
 
-USB audio is enabled at **build time**, not from a panel setting. Once enabled,
+USB audio is selected at **build time**, not from a panel setting. With the default build,
 the computer sees two audio devices next to the Felucca MIDI port, as with the
 stock FM-1 firmware: **Felucca Out** (2 outputs, playback) and **Felucca In**
 (4 mono inputs, recording). Each can use **16-bit or packed 24-bit PCM** at

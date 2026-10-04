@@ -14,7 +14,7 @@
 #include "felucca_tables.h"
 
 #ifndef FELUCCA_USB_AUDIO
-#define FELUCCA_USB_AUDIO 0      /* experimental UAC1 + MIDI, replaces CDC */
+#define FELUCCA_USB_AUDIO 1      /* UAC1 + MIDI by default; replaces CDC */
 #endif
 #include "libc.c"
 #include "lcd.c"
