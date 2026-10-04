@@ -818,6 +818,94 @@ static void graph_scope(uint16_t c)
     }
 }
 
+/* HOME: the notes played last (keys, USB and TRS MIDI; after the scale) over the scope.
+ * A chord: its root large, the quality small, "/bass" when another note is lowest,
+ * then the notes; anything else: the notes large. White while held. */
+static const struct {
+    uint16_t iv;                                     /* bit i: i semitones over the root */
+    char q[6];
+} CHORDS[] = {
+    {0x091, ""}, {0x089, "m"}, {0x049, "dim"}, {0x111, "aug"}, {0x085, "sus2"}, {0x0A1, "sus4"},
+    {0x491, "7"}, {0x891, "maj7"}, {0x489, "m7"}, {0x889, "mM7"}, {0x449, "m7b5"}, {0x249, "dim7"},
+    {0x291, "6"}, {0x289, "m6"}, {0x4A1, "7sus4"}, {0x511, "7#5"}, {0x095, "add9"}, {0x08D, "madd9"},
+    {0x495, "9"}, {0x895, "maj9"}, {0x48D, "m9"}, {0x411, "7"}, {0x811, "maj7"}, {0x409, "m7"},   /* no 5th */
+};
+
+/* the chord of pitch classes pcs, *root its root: the bass's own first, then the others upward */
+static const char *chord_of(uint32_t pcs, uint32_t bass, uint32_t *root)
+{
+    uint32_t i, k;
+    for (i = 0; i < 12u; i++) {
+        uint32_t r = (bass + i) % 12u, iv = ((pcs >> r) | (pcs << (12u - r))) & 0xFFFu;
+        if (!((pcs >> r) & 1u))
+            continue;
+        for (k = 0; k < sizeof CHORDS / sizeof CHORDS[0]; k++)
+            if (CHORDS[k].iv == iv) {
+                *root = r;
+                return CHORDS[k].q;
+            }
+    }
+    return 0;
+}
+
+/* the lowest of n notes (note[] holds the first 8) that fit in w px of font f, "C4 E4 G4",
+ * " .." when some are left out; returns how many are shown */
+static uint32_t notes_fit(char *b, const uint8_t *note, uint32_t n, const felucca_font_t *f, int32_t w)
+{
+    uint32_t m, i;
+    for (m = n < 8u ? n : 8u; m > 1u; m--) {
+        b[0] = 0;
+        for (i = 0; i < m; i++) {
+            if (i)
+                str_cpy(b + str_len(b), " ", 2);
+            note_name(b + str_len(b), note[i]);
+        }
+        if (m < n)
+            str_cpy(b + str_len(b), " ..", 4);
+        if (text_w(f, b) <= w)
+            return m;
+    }
+    note_name(b, note[0]);
+    return 1;
+}
+
+static int graph_notes(void)
+{
+    uint8_t note[8];
+    char b[48];
+    uint32_t i, n = 0, pcs = 0, root, bass;
+    int held = (live_held[0] | live_held[1] | live_held[2] | live_held[3]) != 0;
+    uint16_t c = held ? C_WHITE : C_HI;
+    const char *q;
+    for (i = 0; i < 128u; i++)
+        if ((live_last[i >> 5] >> (i & 31u)) & 1u) {
+            pcs |= 1u << (i % 12u);
+            if (n < sizeof note)
+                note[n] = (uint8_t)i;
+            n++;
+        }
+    if (!n)
+        return 0;                                    /* nothing played since power-on */
+    bass = note[0] % 12u;
+    q = chord_of(pcs, bass, &root);
+    if (q) {
+        int32_t x = cv_text(4, 0, &FONT_L, N_NOTE[root], c);
+        x = cv_text(x + 1, 3, &FONT_S, q, c);
+        if (root != bass) {
+            x = cv_text(x + 2, 0, &FONT_L, "/", c);
+            x = cv_text(x, 0, &FONT_L, N_NOTE[bass], c);
+        }
+        notes_fit(b, note, n, &FONT_S, 236 - (x + 10));
+        cv_text(x + 10, 14, &FONT_S, b, held ? C_AMB : C_DIM);
+    } else if (notes_fit(b, note, n, &FONT_L, 232) == n) {
+        cv_text(4, 0, &FONT_L, b, c);
+    } else {                                         /* too many for the large font */
+        notes_fit(b, note, n, &FONT_S, 232);
+        cv_text(4, 14, &FONT_S, b, c);
+    }
+    return 1;
+}
+
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -901,6 +989,8 @@ static void draw_graph(void)
     }
     top = !ui.home && !drum_note && (pg->graph == GR_BROWSE || pg->graph == GR_SLOTS || pg->graph == GR_USER);   /* these draw from the top */
     cv_oy = 0;
+    if (ui.home && !(ui.hot_t && settings.zoom) && graph_notes())   /* (the focus readout takes its place) */
+        top = 1;
     if (!ui.home && fm6_shown() && (pg->scope == SC_FM6 || pg->scope == SC_FMOP || pg->scope == SC_ENGINE)) {
         char nm[24];                                 /* FM6: the voice name; on operator pages the operator */
         fm6_name(nm, fm6_ed[song.sel % NPART]);

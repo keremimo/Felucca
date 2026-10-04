@@ -498,6 +498,118 @@ static void playback_test(void)
     puts("playback: generated ties sustain the chord without retriggering and the following rest releases it");
 }
 
+static int last_has(uint32_t n) { return (live_last[n >> 5] >> (n & 31u)) & 1u; }
+static int held_any(void) { return (live_held[0] | live_held[1] | live_held[2] | live_held[3]) != 0; }
+static int area_has(uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint16_t c)
+{
+    uint32_t x, y;
+    for (y = y0; y < y1; y++)
+        for (x = x0; x < x1; x++)
+            if (screen[y * 240 + x] == c)
+                return 1;
+    return 0;
+}
+static const char *chord_name(const uint8_t *n, uint32_t cnt, char *b)
+{
+    uint32_t i, pcs = 0, root;
+    const char *q;
+    for (i = 0; i < cnt; i++) pcs |= 1u << (n[i] % 12u);
+    q = chord_of(pcs, n[0] % 12u, &root);
+    if (!q) return "-";
+    str_cpy(b, N_NOTE[root], 8);
+    str_cpy(b + str_len(b), q, 8);
+    if (root != n[0] % 12u) {
+        str_cpy(b + str_len(b), "/", 2);
+        str_cpy(b + str_len(b), N_NOTE[n[0] % 12u], 4);
+    }
+    return b;
+}
+
+static void write_ppm(const char *path)
+{
+    uint32_t i;
+    FILE *f = fopen(path, "wb");
+    assert(f);
+    fprintf(f, "P6\n240 240\n255\n");
+    for (i = 0; i < 240u * 240u; i++) {
+        uint16_t c = screen[i];
+        uint8_t rgb[3] = {(uint8_t)((c >> 11) * 255 / 31), (uint8_t)(((c >> 5) & 63) * 255 / 63), (uint8_t)((c & 31) * 255 / 31)};
+        fwrite(rgb, 1, 3, f);
+    }
+    fclose(f);
+}
+
+static void home_notes_test(const char *path)
+{
+    static const struct { uint8_t n[5], cnt; const char *name; } CASES[] = {
+        {{60, 64, 67}, 3, "C"}, {{64, 67, 72}, 3, "C/E"}, {{57, 60, 64}, 3, "Am"}, {{60, 63, 67, 70}, 4, "Cm7"},
+        {{60, 64, 67, 69}, 4, "C6"}, {{57, 60, 64, 67}, 4, "Am7"}, {{59, 62, 65}, 3, "Bdim"}, {{48, 60, 64, 67, 71}, 5, "Cmaj7"},
+        {{60, 62, 67}, 3, "Csus2"}, {{55, 59, 62, 65}, 4, "G7"}, {{60, 67}, 2, "-"}, {{60, 61, 62}, 3, "-"},
+    };
+    char b[16];
+    uint32_t i;
+    for (i = 0; i < sizeof CASES / sizeof CASES[0]; i++)
+        assert(!strcmp(chord_name(CASES[i].n, CASES[i].cnt, b), CASES[i].name));
+
+    reset(16);
+    memset(live_held, 0, sizeof live_held);
+    memset(live_last, 0, sizeof live_last);
+    transport_req = panic_req = 0;
+    TSEL->p[P_VOICE] = V_POLY;
+    go_home();
+    ui_draw();
+    assert(!area_has(4, Y_GRAPH, 236, Y_GRAPH + 30, C_WHITE));   /* nothing played yet: no readout */
+
+    /* MIDI translated by the scale: WHITE minor turns C E G into C Eb G */
+    scale_setting_set(TSEL, P_SCALE, 2);
+    scale_setting_set(TSEL, P_QUANT, Q_WHITE);
+    midi_frame(0x90, 60, 100, 0);
+    midi_frame(0x90, 64, 100, 0);
+    midi_frame(0x90, 67, 100, 0);
+    assert(last_has(60) && last_has(63) && last_has(67) && !last_has(64) && held_any());
+    ui.force = 1;
+    ui_draw();
+    assert(area_has(4, Y_GRAPH, 40, Y_GRAPH + 30, C_WHITE));      /* held: white */
+    if (path)
+        write_ppm(path);
+    midi_frame(0x80, 60, 0, 0);
+    midi_frame(0x80, 64, 0, 0);
+    midi_frame(0x80, 67, 0, 0);
+    assert(!held_any() && last_has(60) && last_has(63) && last_has(67));   /* released: kept */
+    ui.frame += 2;
+    ui_draw();
+    assert(!area_has(4, Y_GRAPH, 40, Y_GRAPH + 30, C_WHITE) && area_has(4, Y_GRAPH, 40, Y_GRAPH + 30, C_HI));
+
+    /* a tap faster than a frame still shows; the drum channel leaves it alone */
+    midi_frame(0x90, 62, 100, 0);
+    midi_frame(0x80, 62, 0, 0);
+    assert(last_has(62) && !last_has(60) && !held_any());
+    midi_frame(0x99, 36, 100, 0);
+    midi_frame(0x89, 36, 0, 0);
+    assert(last_has(62) && !last_has(36));
+
+    /* legato: the notes held at the last note-on, not every note since the first */
+    scale_setting_set(TSEL, P_QUANT, Q_OFF);
+    midi_frame(0x90, 60, 100, 0);
+    midi_frame(0x90, 62, 100, 0);
+    midi_frame(0x80, 60, 0, 0);
+    midi_frame(0x90, 64, 100, 0);
+    assert(last_has(62) && last_has(64) && !last_has(60));
+    midi_silence_track(0);                  /* panic: nothing held, the last notes stay */
+    assert(!held_any() && last_has(64));
+
+    /* the panel keys, through the octave */
+    song.octave = 1;
+    fm1_in.notes = 1u << 7;
+    events_block(0);
+    assert(last_has(72) && held_any());
+    fm1_in.notes = 0;
+    events_block(0);
+    assert(!held_any() && last_has(72));
+    song.octave = 0;
+    puts("HOME notes: chord names, MIDI + keys after the scale, kept after release, taps, drums, panic");
+}
+
 static void render_test(const char *path)
 {
     uint32_t i, j;
@@ -535,6 +647,7 @@ int main(int argc, char **argv)
     live_record_follow_test();
     mpc_page_test();
     playback_test();
+    home_notes_test(argc > 2 ? argv[2] : NULL);
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;
 }
