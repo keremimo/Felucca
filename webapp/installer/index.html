@@ -359,7 +359,7 @@ const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textCont
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
 let image = null;
-const meta = {"version": "0.8-beta", "product": "FM-1_908", "pkg": "../../firmware/felucca-0.8-beta.fwsc"};
+const meta = {"version": "next", "product": "FM-1_900", "pkg": "../../firmware/felucca-next.fwsc"};
 
 let writing = false;
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });

@@ -293,9 +293,10 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   SMP_BEGIN: 11, SMP_WRITE: 12, SMP_END: 13, SMP_ERASE: 14, SMP_INFO: 15,
   UP_LIST: 16, UP_GET: 17, UP_PUT: 18, UP_STORE: 19, UP_LOAD: 20, UP_ERASE: 21,
   WATCH: 22, CHANGED: 23, RELOAD: 24, PING: 25, STEP_CHANGED: 26,
-  TRACK: 27, TRACK_MIX: 28, TRACK_DUMP: 29, TRACK_STEP: 30 };
+  TRACK: 27, TRACK_MIX: 28, TRACK_DUMP: 29, TRACK_STEP: 30,
+  TRACK_PARAM: 31, TRACK_CHANGED: 32 };
 /* frames the device sends on its own (while WATCH is on); never replies */
-const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED]);
+const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
 const UP = { NAME_MAX: 12, PAT: 16, LIST_MAX: 16 };
 const F = { INT: 0, PCT: 1, BIPCT: 2, TIME: 3, LFOHZ: 4, CUTOFF: 5, DB: 6, SEMI: 7, ENUM: 8, BPM: 9, NOTE: 10, ONOFF: 11, OCT: 12, STEPS: 13 };
@@ -415,6 +416,9 @@ const parse = {
     const r = new Reader(a);
     return { track: r.b(), index: r.b(), n: r.b(), notes: [r.b(), r.b(), r.b(), r.b()], time: r.b(), flags: r.b(), vel: r.b() };
   },
+  /* v4: a parameter of any track (the selection stays), and its push for a track that is not selected */
+  [CMD.TRACK_PARAM](a) { const r = new Reader(a); return { track: r.b(), id: r.b(), value: r.v() }; },
+  [CMD.TRACK_CHANGED](a) { return parse[CMD.TRACK_PARAM](a); },
 };
 
 /* a name the device accepts: printable ASCII, 1..12 characters */
@@ -448,13 +452,16 @@ const req = {
   upStore: (s, name) => [CMD.UP_STORE, [s & 0x7F, ...strEnc(name ? upName(name) : "")]],   /* "": the device names it ("ANALOG 07") */
   upLoad: (s) => [CMD.UP_LOAD, [s & 0x7F]],
   upErase: (s) => [CMD.UP_ERASE, [s & 0x7F]],
-  watch: (on) => [CMD.WATCH, [on ? 1 : 0]],
+  /* on: 1 = pushes; 3 = also TRACK_CHANGED (v4 firmware answers 3, older firmware 1) */
+  watch: (on) => [CMD.WATCH, [on === 3 ? 3 : on ? 1 : 0]],
   ping: () => [CMD.PING, []],
   /* v3: tracks 0..3 (3 = drums) */
   track: (sel) => [CMD.TRACK, sel == null ? [] : [sel & 0x7F]],
   trackMix: (tr, level, mute) => [CMD.TRACK_MIX, level == null ? [tr & 0x7F] : [tr & 0x7F, ...v14enc(level), mute ? 1 : 0]],
   trackDump: (tr) => [CMD.TRACK_DUMP, [tr & 0x7F]],
   trackStep: (tr, i, st) => [CMD.TRACK_STEP, st ? [tr & 0x7F, ...req.stepSet(i, st)[1]] : [tr & 0x7F, i & 0x7F]],
+  /* v4: get (v == null) or set parameter id (P_*) of track tr, clamped as SET */
+  trackParam: (tr, id, v) => [CMD.TRACK_PARAM, v == null ? [tr & 0x7F, id & 0x7F] : [tr & 0x7F, id & 0x7F, ...v14enc(v)]],
 };
 
 /* which reply belongs to which request (the device echoes these) */
@@ -466,8 +473,9 @@ function replyMatches(cmd, args, a) {
     case CMD.SMP_WRITE: return a[0] === args[0] && a[1] === args[1] && a[2] === args[2] && a[3] === args[3];
     case CMD.PROJECT: return a[0] === args[0] && a[1] === args[1];
     case CMD.UP_LIST: case CMD.UP_GET: case CMD.UP_PUT: case CMD.UP_STORE: case CMD.UP_LOAD: case CMD.UP_ERASE:
-    case CMD.WATCH: case CMD.TRACK_MIX: case CMD.TRACK_DUMP: return a[0] === args[0];
-    case CMD.TRACK_STEP: return a[0] === args[0] && a[1] === args[1];
+    case CMD.TRACK_MIX: case CMD.TRACK_DUMP: return a[0] === args[0];
+    case CMD.WATCH: return (a[0] & 1) === (args[0] & 1);   /* bit 1: v4 firmware only */
+    case CMD.TRACK_STEP: case CMD.TRACK_PARAM: return a[0] === args[0] && a[1] === args[1];
     default: return true;
   }
 }
@@ -790,7 +798,7 @@ function buildSlot(name, zonesIn) {
        "format": "felucca-library", "version": 1,
        "kind": "library" | "bank" | "patch",
        "firmware": "FELUCCA 0.5 ...",          device version string when exported ("" if unknown)
-       "pCount": 53, "pE0": 45,                 P_COUNT and the first engine parameter id
+       "pCount": 57, "pE0": 49,                 P_COUNT and the first engine parameter id
        "paramLabels": ["LVL", "ATK", ...],      one key per parameter id: the DESC label, "#2", "#3" appended to
                                                 a repeated label (PIT, PIT#2), and "E0".."E7" for the engine
                                                 parameters (their labels depend on the engine)
@@ -970,17 +978,19 @@ async function auditionPatch(rq, info, pt, opt = {}) {
   return { wrote };
 }
 
-/* WATCH on; false when the firmware does not know it (older than protocol v2) */
+/* WATCH on (asking for TRACK_CHANGED too): false when the firmware does not know it (older than protocol v2),
+   else 1, or 3 when it also has TRACK_PARAM / TRACK_CHANGED (protocol v4) */
 async function startWatch(rq) {
-  try { return parse[CMD.WATCH](await rq(req.watch(1), { timeout: 300, retries: 1, quiet: true })).on === 1; }
+  try { const on = parse[CMD.WATCH](await rq(req.watch(3), { timeout: 300, retries: 1, quiet: true })).on; return on & 1 ? on & 3 : false; }
   catch (e) { if (e.message === "closed") throw e; return false; }
 }
 
 /* ------------------------------------------------------------ mixer (v3) --- */
 /* The TRACKS page in the editor: TRACK (engine, preset, level, mute, armed of all four) and TRACK_DUMP
    of each track for its P_PAN. Level and mute go through TRACK_MIX (any track; the drum level is
-   G_DRLVL). Pan is a plain SET, and SET reaches only the selected track: another track is selected for
-   it and the selection is put back (TRACK pushes no RELOAD). ids: {pan: P_PAN id} */
+   G_DRLVL). Pan: TRACK_PARAM (v4, any track); with v3 firmware a plain SET, which reaches only the
+   selected track: another track is selected for it and the selection is put back (TRACK pushes no
+   RELOAD). ids: {pan: P_PAN id} */
 const mixer = {
   async read(rq, info, ids) {
     const tr = parse[CMD.TRACK](await rq(req.track()));
@@ -992,8 +1002,9 @@ const mixer = {
   },
   /* -> {track, level, mute} as the device has them now */
   async setMix(rq, track, level, mute, opt) { return parse[CMD.TRACK_MIX](await rq(req.trackMix(track, level, mute), opt)); },
-  /* -> the pan value after clamping */
-  async setPan(rq, track, sel, panId, v) {
+  /* -> the pan value after clamping. v4: TRACK_PARAM, the selection stays */
+  async setPan(rq, track, sel, panId, v, v4) {
+    if (v4) return parse[CMD.TRACK_PARAM](await rq(req.trackParam(track, panId, v), { key: "pan:" + track })).value;
     if (track === sel) return parse[CMD.SET](await rq(req.set(0, panId, v))).value;
     await rq(req.track(track));
     try { return parse[CMD.SET](await rq(req.set(0, panId, v))).value; }
@@ -1004,7 +1015,8 @@ const mixer = {
 /* ------------------------------------------------------------ mock device --- */
 /* Implements the protocol like firmware/src/editor.c, with tables copied from params.c
    and the engine sources. Used with ?mock=1 (add &legacy=1 for a firmware without cmds 16..26).
-   opt: {legacy: no user bank / WATCH, auto: false = no simulated knobs (tests drive sim.*),
+   opt: {legacy: no user bank / WATCH, v3: no TRACK_PARAM / TRACK_CHANGED (firmware 0.8),
+         auto: false = no simulated knobs (tests drive sim.*),
          watchMs: how long WATCH lasts after the last request (3000), slots: user bank size (32)} */
 function makeMockDevice(opt = {}) {
   const NONOFF = ["OFF", "ON"], NDIV = ["1/4", "1/8", "1/16", "1/32", "8T", "16T"], NGO = ["--", "GO"], NDASH = ["--"];
@@ -1018,11 +1030,12 @@ function makeMockDevice(opt = {}) {
     D("PIT", F.BIPCT, -64, 63, 0), D("FLT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("AMP", F.PCT, 0, 127, 0),
     E("MODE", ["OFF", "UP", "DN", "UPDN", "RND", "ORD"], 0), E("RATE", NDIV, 2), D("OCT", F.INT, 1, 4, 1), D("GATE", F.PCT, 1, 127, 64),
     D("SWG", F.PCT, 0, 100, 0), D("PROB", F.PCT, 0, 127, 127), E("HOLD", NONOFF, 0), E("ORD", ["NOTE", "PLAY"], 0),
-    D("ROOT", F.NOTE, 0, 11, 0), E("SCL", ["CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM"], 0), E("QNT", NONOFF, 0), D("TRN", F.SEMI, -24, 24, 0),
+    D("ROOT", F.NOTE, 0, 11, 0), E("SCL", ["CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM", "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"], 0), E("QNT", ["OFF", "SNAP", "WHITE", "ALL"], 0), D("TRN", F.SEMI, -24, 24, 0),
     D("LEN", F.STEPS, 1, 64, 16), E("DIV", NDIV, 2), D("SWG", F.PCT, 0, 100, 0), D("GATE", F.PCT, 1, 127, 64),
     D("DST", F.PCT, 0, 127, 0), D("CHO", F.PCT, 0, 127, 0), D("DLY", F.PCT, 0, 127, 0), D("REV", F.PCT, 0, 127, 0),
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("MUTE", NONOFF, 0),
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
+    E("SLCR", ["OFF", "GATE", "STUT"], 0), D("PAT", F.INT, 1, 16, 1), E("RATE", ["1/8", "1/16", "1/32", "8T", "16T", "32T"], 1), D("DEPTH", F.PCT, 0, 127, 127),
   ];
   const GP = [
     D("BPM", F.BPM, 40, 240, 120), D("SWG", F.PCT, 0, 100, 0), E("CLK", ["INT"], 0), D("TUNE", F.INT, -50, 50, 0),
@@ -1030,9 +1043,10 @@ function makeMockDevice(opt = {}) {
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("CRT", F.LFOHZ, 0, 127, 40), D("CDP", F.PCT, 0, 127, 60),
     E("MIDI", NDASH, 0), E("SYNC", NDASH, 0), E("ROUT", NDASH, 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 4, 1), E("NAME", NDASH, 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
-    E("ENG", ["ANALOG", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE"], 0), E("SET", NGO, 0),
+    E("ENG", ["ANALOG", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
+      "GRAIN"], 0), E("SET", NGO, 0),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
-    D("CH", F.INT, 0, 16, 10), D("LEVEL", F.INT, 0, 127, 100), D("REV", F.INT, 0, 127, 16),
+    D("CH", F.INT, 0, 16, 10), D("LVL", F.INT, 0, 127, 100), D("REV", F.INT, 0, 127, 16),
   ];
   const NONE = D("-", F.INT, 0, 0, 0);
   const RATIO = [".5", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "16"];
@@ -1058,18 +1072,36 @@ function makeMockDevice(opt = {}) {
       presets: [P("BRASS", [0, 0, 30, 90, 0, 0, 0, 0], [8, 70, 90, 40], 0, 6), P("ORGAN", [3, 0, 40, 0, 0, 0, 0, 0], [0, 127, 127, 30], 0, 6),
         P("STRING", [0, 4, 50, 40, 12, 0, 0, 0], [40, 90, 100, 70], 0, 5), P("RESO", [5, 0, 60, 60, 0, 0, 0, 0], [0, 70, 30, 60], 0, 1),
         P("BELL", [6, 0, 80, 50, 0, 1, 0, 0], [0, 95, 0, 90], 0, 7), P("WIRE", [4, 7, 70, 40, 7, 0, 0, 0], [10, 80, 80, 60], 0, 4)] },
-    { name: "LOFI", titles: ["CHIP", "MOTN"], edit: [E("CHIP", ["4BIT", "4B/2", "8BIT", "1BIT"], 0), E("WAVE", ["PLS", "TRI", "SAW", "NOIS"], 0), D("DUTY", F.INT, 0, 127, 64),
+    { name: "LOFI", titles: ["CHIP", "MOTN"], edit: [E("CHIP", ["4BIT", "4B/2", "8BIT", "1BIT", "STEP"], 0), E("WAVE", ["PLS", "TRI", "SAW", "NOIS", "WRAM"], 0), D("DUTY", F.INT, 0, 127, 64),
         D("CRSH", F.PCT, 0, 127, 0), D("SWP", F.PCT, 0, 127, 0), D("VIB", F.PCT, 0, 127, 0), E("ARP", ["OFF", "OCT", "MAJ", "MIN"], 0), D("TONE", F.PCT, 0, 127, 127)],
       presets: [P("PULSE LD", [0, 0, 32, 0, 0, 20, 0, 127], [0, 60, 90, 30], 1, 4), P("WAVE BASS", [1, 1, 0, 0, 0, 0, 0, 90], [0, 50, 70, 20], 1, 2),
-        P("ARP 8BIT", [2, 0, 96, 0, 0, 0, 2, 110], [0, 60, 80, 40])] },
+        P("ARP 8BIT", [2, 0, 96, 0, 0, 0, 2, 110], [0, 60, 80, 40]), P("WAVE LEAD", [0, 4, 92, 0, 0, 18, 0, 110], [0, 70, 90, 30], 1, 3),
+        P("STEP LEAD", [4, 0, 40, 34, 0, 16, 0, 127], [0, 64, 127, 55], 1, 4)] },
     { name: "SAMPLE", titles: ["SET", "TONE"], edit: [E("SET", ["PIANO", "TRANH", "FLUTE", "SAX", "PERC", "USR1", "USR2", "USR3"], 0), D("TUNE", F.SEMI, -24, 24, 0), D("BITS", F.INT, 0, 127, 0),
         E("LOOP", NONOFF, 1), D("CUT", F.INT, 0, 127, 127), NONE, D("DRV", F.PCT, 0, 127, 0), NONE],
       presets: [P("PIANO", [0, 0, 0, 0, 127, 0, 0, 0]), P("TRANH", [1, 0, 0, 0, 120, 0, 0, 0]), P("FLUTE", [2, 0, 0, 1, 110, 0, 0, 0]),
         P("SAX", [3, 0, 0, 1, 110, 0, 10, 0]), P("PERC", [4, 0, 0, 0, 127, 0, 0, 0])] },
-    { name: "VOICE", titles: ["VOWL", "TONE"], edit: [D("VOWEL", F.INT, 0, 127, 0), D("VOWL2", F.INT, 0, 127, 64), D("TALK", F.TIME, 0, 127, 0),
-        D("SHIFT", F.SEMI, -12, 12, 0), D("BUZZ", F.PCT, 0, 127, 64), D("BRETH", F.PCT, 0, 127, 10), D("Q", F.PCT, 0, 127, 64), D("RAND", F.PCT, 0, 127, 0)],
+    { name: "VOICE", titles: ["VOWL", "TONE"], edit: [D("VOWL", F.INT, 0, 127, 0), D("VOWL2", F.INT, 0, 127, 64), D("TALK", F.TIME, 0, 127, 0),
+        D("SHIFT", F.SEMI, -12, 12, 0), D("BUZZ", F.PCT, 0, 127, 64), D("BRTH", F.PCT, 0, 127, 10), D("Q", F.PCT, 0, 127, 64), D("RAND", F.PCT, 0, 127, 0)],
       presets: [P("CHOIR AAH", [0, 0, 0, 0, 40, 22, 60, 0], [85, 90, 115, 95], 0, 5), P("VOX LEAD", [32, 0, 0, 2, 90, 8, 72, 0], [6, 70, 105, 55], 1, 4),
         P("WOW BASS", [95, 0, 68, 0, 100, 0, 80, 0], [0, 70, 70, 30], 1, 8), P("WHISPER", [0, 95, 88, 3, 50, 120, 50, 0], [50, 90, 110, 90], 0, 5)] },
+    { name: "TRIO", titles: ["OSC", "TONE"], edit: [E("WAVE", ["SAW3", "PLS3", "PPT", "SST", "TRI3", "S&T", "P&S", "P+N", "NOIS", "SYNC", "SYNCP", "SYNC3",
+        "RING", "RING3", "R+S", "R+SP"], 0), D("INT2", F.SEMI, -24, 24, 0), D("INT3", F.SEMI, -24, 24, -12), D("DTN", F.INT, 0, 50, 6, null, "ct"),
+        E("MODE", ["LP", "BP", "HP", "NOT"], 0), D("CUT", F.CUTOFF, 0, 127, 80), D("RES", F.PCT, 0, 127, 40), D("PW", F.PCT, 0, 127, 64)],
+      presets: [P("FAT BASS", [0, 0, -12, 9, 0, 62, 45, 64], [0, 62, 60, 25], 1, 2), P("ARP LEAD", [2, 12, 0, 4, 0, 88, 25, 32], [0, 60, 90, 30], 0, 4),
+        P("SYNC LEAD", [9, 9, 0, 0, 0, 82, 30, 64], [2, 70, 100, 40], 1, 4), P("RING BELL", [13, 0, 18, 6, 1, 96, 30, 64], [0, 92, 0, 80], 0, 7),
+        P("CHIP CHOIR", [1, 0, 12, 7, 1, 62, 95, 40], [70, 90, 110, 85], 0, 5)] },
+    { name: "WHEEL", titles: ["BARS", "TONE"], edit: [E("REG", ["FLUTE", "MELLO", "HOLLW", "SMOOT", "3BAR", "BLUES", "GOSPL", "ROCK",
+        "TOPS", "CLARI", "REED", "STRNG", "CHAPL", "BRITE", "BASS", "FULL"], 4), D("SUB", F.INT, -8, 8, 0), D("BODY", F.INT, -8, 8, 0), D("TOP", F.INT, -8, 8, 0),
+        E("PERC", ["OFF", "2ND", "3RD", "2SOFT", "3SOFT", "2SLOW", "3SLOW"], 0), D("CLICK", F.PCT, 0, 127, 40), D("DRV", F.PCT, 0, 127, 0), E("ROTR", ["OFF", "SLOW", "FAST"], 1)],
+      presets: [P("FULL ORGAN", [15, 0, 0, 0, 0, 30, 20, 1], [0, 64, 127, 45], 0, 5), P("JAZZ PERC", [4, 0, 0, 0, 2, 50, 8, 1], [0, 64, 127, 40], 0, 3),
+        P("GOSPEL", [6, 0, 0, 0, 1, 60, 40, 2], [0, 64, 127, 45], 0, 6), P("SOFT FLUTE", [1, 0, -2, 0, 0, 10, 0, 1], [0, 64, 127, 55], 0, 5),
+        P("ROCK DRIVE", [7, 0, 0, 0, 0, 70, 100, 2], [0, 64, 127, 40], 0, 4)] },
+    { name: "GRAIN", titles: ["GRAN", "SPRY"], edit: [E("SRC", ["PIANO", "TRANH", "FLUTE", "SAX", "PERC", "USR1", "USR2", "USR3"], 0),
+        D("POS", F.PCT, 0, 127, 32), D("SIZE", F.PCT, 0, 127, 80), D("DENS", F.PCT, 0, 127, 80),
+        D("PTCH", F.SEMI, -24, 24, 0), D("SPRD", F.PCT, 0, 127, 30), D("RAND", F.PCT, 0, 127, 10), D("TONE", F.PCT, 0, 127, 127)],
+      presets: [P("CLOUD PAD", [2, 50, 92, 88, 0, 40, 14, 100], [70, 90, 120, 90], 0, 5), P("GLITCH", [3, 64, 24, 112, 0, 100, 90, 127], [0, 70, 100, 30], 0, 4),
+        P("FROZEN", [0, 40, 108, 72, 0, 0, 10, 92], [50, 100, 127, 100], 0, 5), P("SHIMMER", [1, 30, 70, 100, 12, 30, 24, 110], [30, 90, 110, 90], 0, 7)] },
   ];
   /* factory PATTERNS[] (ui.c): absolute notes, 0 rest; flags 1 accent, 2 slide, 4 tie (holds the previous note) */
   const T_ = 4;
@@ -1082,8 +1114,11 @@ function makeMockDevice(opt = {}) {
     [[0, 0, 60, 0, 0, 63, 0, 0, 0, 0, 60, 0, 0, 65, 0, 63], [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]],
     [[72, 0, 0, 79, 0, 0, 84, 0, 0, 0, 76, 0, 0, 0, 0, 0], [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
     [[36, 0, 0, 0, 0, 0, 0, 36, 0, 0, 34, 0, 0, 0, 0, 0], [1, T_, T_, T_, 0, 0, 0, 0, 0, 0, 0, T_, T_, T_, 0, 0]],
+    [[60, 61, 62, 67, 64, 65, 60, 69, 68, 70, 62, 67, 72, 72, 74, 64], [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]],
+    [[60, 60, 61, 61, 62, 0, 63, 63, 64, 65, 65, 0, 66, 66, 66, 67], [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]],
+    [[60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]],
   ];
-  const P_COUNT = 53, G_COUNT = 27, NSTEP = 64, P_E0 = 45, G_ENGSEL = 20;
+  const P_COUNT = 57, G_COUNT = 27, NSTEP = 64, P_E0 = 49, G_ENGSEL = 20, P_SLCR = 45;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   /* four tracks (firmware v3); engine / preset / p / step below are the selected track's */
   const NTRK = 4, TRK_DRUM = 3;
@@ -1096,7 +1131,7 @@ function makeMockDevice(opt = {}) {
     slots: [null, null, null, null],
     smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, name: "", len: 0, next: SMP.DATA_OFF })),
     bank: new Array(opt.slots || 32).fill(null),     /* user presets: {engine, name, p, pattern} */
-    watch: false, lastReq: 0,
+    watch: false, v4: false, lastReq: 0,
   };
   for (const k of ["engine", "preset", "p", "step"]) {
     Object.defineProperty(st, k, { enumerable: false, get: () => st.tracks[st.sel][k], set: (v) => { st.tracks[st.sel][k] = v; } });
@@ -1123,6 +1158,7 @@ function makeMockDevice(opt = {}) {
     [1, 2, 3, 4].forEach((id, k) => { st.p[id] = pr.env[k]; });
     st.p[37] = pr.mono ? 2 : 0;
     st.p[33] = 0; st.p[34] = 24; st.p[35] = 28; st.p[36] = 36;
+    for (let i = P_SLCR; i < P_E0; i++) st.p[i] = TP[i].def;   /* a factory preset turns the SLICER off */
     if (pr.pat && seqEmpty()) loadPattern(pr.pat - 1);
   }
   function setEngine(ei) {
@@ -1157,6 +1193,7 @@ function makeMockDevice(opt = {}) {
     const out = [];
     const b = (x) => out.push(x & 0x7F), v = (x) => out.push(...v14enc(x)), s = (x) => out.push(...strEnc(x));
     if (opt.legacy && cmd >= CMD.UP_LIST) return null;
+    if (opt.v3 && cmd >= CMD.TRACK_PARAM) return null;
     const NB = st.bank.length;
     switch (cmd) {
       case CMD.UP_LIST: {
@@ -1220,8 +1257,9 @@ function makeMockDevice(opt = {}) {
         break;
       case CMD.WATCH:
         if (a.length < 1) return null;
-        st.watch = !!a[0];
-        b(st.watch ? 1 : 0);
+        st.watch = !!(a[0] & 1);
+        st.v4 = st.watch && !opt.v3 && !!(a[0] & 2);   /* v4: TRACK_CHANGED pushes too */
+        b((st.watch ? 1 : 0) | (st.v4 ? 2 : 0));
         break;
       case CMD.PING:
         b(0);
@@ -1266,6 +1304,13 @@ function makeMockDevice(opt = {}) {
         if (a.length < 1 || a[0] >= NTRK) return null;
         const t = st.tracks[a[0]];
         b(a[0]); b(engOf(t)); b(t.preset); t.p.forEach(v);
+        break;
+      }
+      case CMD.TRACK_PARAM: {
+        if (a.length < 2 || a[0] >= NTRK || a[1] >= P_COUNT) return null;
+        const t = st.tracks[a[0]], d = a[1] >= P_E0 ? ENG[t.engine].edit[a[1] - P_E0] : TP[a[1]];
+        if (a.length >= 4 && d.max > d.min) t.p[a[1]] = clamp(v14dec(a[2], a[3]), d.min, d.max);
+        b(a[0]); b(a[1]); v(t.p[a[1]]);
         break;
       }
       case CMD.TRACK_STEP: {
@@ -1427,6 +1472,14 @@ function makeMockDevice(opt = {}) {
       return v;
     },
     mute(on = !st.p[40]) { st.p[40] = on ? 1 : 0; push(CMD.CHANGED, [0, 40, ...v14enc(st.p[40])]); return st.p[40]; },
+    /* a parameter of track i changed on the device: CHANGED for the selected track, else TRACK_CHANGED (v4 watch) */
+    param(i, id, val) {
+      const t = st.tracks[i], d = id >= P_E0 ? ENG[t.engine].edit[id - P_E0] : TP[id];
+      t.p[id] = clamp(val, d.min, d.max);
+      if (i === st.sel) push(CMD.CHANGED, [0, id, ...v14enc(t.p[id])]);
+      else if (st.v4) push(CMD.TRACK_CHANGED, [i, id, ...v14enc(t.p[id])]);
+      return t.p[id];
+    },
     /* REC on TRACKS: arm / disarm live recording of a track (no push: the editor reads TRACK) */
     arm(i = st.sel) { st.rec ^= 1 << i; return (st.rec >> i) & 1; },
     step(i = Math.floor(Math.random() * 16)) {
@@ -1442,6 +1495,7 @@ function makeMockDevice(opt = {}) {
     setInterval(() => sim.knob(), 3000),
     setInterval(() => sim.step(), 11000),
     setInterval(() => sim.reload(), 27000),
+    setInterval(() => sim.param((st.sel + 1) % NTRK, 39, Math.round(Math.random() * 80) - 40), 13000),   /* pan of another track */
   ];
   return {
     state: st, sim,
@@ -1486,8 +1540,8 @@ const GLYPH = {
 const HEAD_IC = { ENV: "function_env_adsr_exp", LFO: "waveform_sine", EDIT: "ui_knob", VOICE: "symbol_keyboard",
   FX: "symbol_effector", SCL: "symbol_tuning", ARP: "control_arrow_up_down", "SEQ PATTERN": "symbol_grid",
   GLOBAL: "symbol_cog", DRUMS: "symbol_drum", INSTRUMENT: "symbol_keyboard" };
-const PAGE_IC = { FLT: "function_filter_lpf_peak", FILT: "function_filter_lpf_peak", DLY: "symbol_echo", "REV/CHO": "symbol_spring" };
-/* WAVE / WAVE2 choices; CZ shapes without a close glyph (SPLS, RSAW, RTRI, RTRP) get none */
+const PAGE_IC = { FLT: "function_filter_lpf_peak", FILT: "function_filter_lpf_peak", DLY: "symbol_echo", "REV/CHO": "symbol_spring", SLICER: "symbol_grid" };
+/* WAVE / WAVE2 choices; phase-distortion shapes without a close glyph (SPLS, RSAW, RTRI, RTRP) get none */
 const WAVE_IC = { SIN: "waveform_sine", TRI: "waveform_triangle_ac", SAW: "waveform_sawtooth_ac", SQR: "waveform_square",
   PLS: "waveform_pulse_quarter", PWM: "waveform_pulse_eighth", "S&H": "waveform_noise_step", NOIS: "waveform_noise_white",
   DSIN: "waveform_harmonic" };
@@ -1525,7 +1579,7 @@ const TEXT = {
     savedSlot: "保存しました: スロット ", loadedSlot: "読み込みました: スロット ", emptySlot: "空のスロットです: ",
     confirmSave: "スロット {n} に上書き保存しますか？", confirmLoad: "スロット {n} を読み込みますか？ 今の音色とパターンは置き換わります。",
     confirmClear: "シーケンスを全部消しますか？", confirmInit: "音色を初期化しますか？",
-    samples: "サンプル", smpHelp: "WAV をドロップするか選んでください。1 スロットに 16 ファイルまで、モノ 22050 Hz の ADPCM で合計約 7 秒。SAMPLE エンジンの SET で USR1〜USR3 を選ぶと鳴ります。",
+    samples: "サンプル", smpHelp: "WAV をドロップするか選んでください。1 スロットに 16 ファイルまで、モノ 22050 Hz の ADPCM で合計約 7 秒。SAMPLE エンジンの SET（または SLICE エンジンの SRC）で USR1〜USR3 を選ぶと鳴ります。",
     zones: "ゾーン", smpName: "名前", chooseFiles: "ファイルを選ぶ", upload: "書き込む", erase: "消去", clearList: "リストを消す",
     file: "ファイル", root: "ルート", keys: "鍵盤", length: "長さ", remove: "外す",
     smpTooBig: "大きすぎます", smpDecodeFail: "読み込めません: ", smpUploading: "書き込み中 USR", smpDone: "書き込みました USR",
@@ -1559,7 +1613,7 @@ const TEXT = {
     bankConnect: "FM-1 を接続すると本体のユーザープリセットも扱えます。", bankNone: "このファームウェアにはユーザープリセットがありません。",
     drumNote: "ドラムトラックにはエンジンもプリセットもありません。レベル・パン・ミュートは「トラック」、キットは「設定」の DRUMS で。パターンは「シーケンサー」で。",
     drumHelp: "ドラムは KICK SNARE CHH のように GM の名前か番号で入力（最大 4 音）。",
-    mixer: "ミキサー", mixHelp: "本体の TRACKS ページと同じ 4 トラック。フェーダーはレベル（ドラムは GLO > DRUMS LEVEL）。選択していないトラックのパンは、一瞬そのトラックを選んで書き込みます。REC は本体での録音待機の表示です。",
+    mixer: "ミキサー", mixHelp: "本体の TRACKS ページと同じ 4 トラック。フェーダーはレベル（ドラムは GLO > DRUMS LEVEL）。パンはどのトラックも選択を変えずに書き込みます（0.8 のファームウェアでは一瞬そのトラックを選びます）。REC は本体での録音待機の表示です。",
     level: "レベル", pan: "パン", mute: "ミュート", rec: "REC", selectTrack: "選択", selectedTrack: "選択中",
     projHelp: "プロジェクトは本体の状態をまとめて保存します: 4 トラックの音色とパターン、選択中のトラック、グローバル設定。",
     system: "システム", firmware: "ファームウェア", sync: "同期", tracksN: "トラック", stepsN: "ステップ数", enginesL: "エンジン",
@@ -1585,7 +1639,7 @@ const TEXT = {
     savedSlot: "Saved to slot ", loadedSlot: "Loaded slot ", emptySlot: "Empty slot: ",
     confirmSave: "Overwrite slot {n}?", confirmLoad: "Load slot {n}? The current sound and pattern will be replaced.",
     confirmClear: "Clear the whole sequence?", confirmInit: "Reset the sound to the engine defaults?",
-    samples: "Samples", smpHelp: "Drop or choose WAV files. Up to 16 files per slot, stored as mono 22050 Hz ADPCM (about 7 s in all). Select USR1–USR3 with SET on the SAMPLE engine.",
+    samples: "Samples", smpHelp: "Drop or choose WAV files. Up to 16 files per slot, stored as mono 22050 Hz ADPCM (about 7 s in all). Select USR1–USR3 with SET on the SAMPLE engine (or SRC on the SLICE engine).",
     zones: "zones", smpName: "Name", chooseFiles: "Choose files", upload: "Upload", erase: "Erase", clearList: "Clear list",
     file: "File", root: "Root", keys: "Keys", length: "Length", remove: "Remove",
     smpTooBig: "too large", smpDecodeFail: "Cannot read: ", smpUploading: "Uploading USR", smpDone: "Uploaded USR",
@@ -1619,7 +1673,7 @@ const TEXT = {
     bankConnect: "Connect the FM-1 to see its user presets too.", bankNone: "This firmware has no user presets.",
     drumNote: "The drum track has no engine or presets. Level, pan and mute: Tracks; the kit: Settings > DRUMS; the pattern: Sequencer.",
     drumHelp: "Enter drums by GM name or number, like KICK SNARE CHH (up to 4).",
-    mixer: "Mixer", mixHelp: "The four tracks of the device's TRACKS page. The fader is the level (drums: GLO > DRUMS LEVEL). Pan of a track that is not selected is written by selecting it for a moment. REC shows a track armed for live recording on the device.",
+    mixer: "Mixer", mixHelp: "The four tracks of the device's TRACKS page. The fader is the level (drums: GLO > DRUMS LEVEL). Pan is written to any track without changing the selection (firmware 0.8: by selecting it for a moment). REC shows a track armed for live recording on the device.",
     level: "Level", pan: "Pan", mute: "Mute", rec: "REC", selectTrack: "Select", selectedTrack: "Selected",
     projHelp: "A project keeps the whole device state: the sound and pattern of all four tracks, the selected track and the global settings.",
     system: "System", firmware: "Firmware", sync: "Sync", tracksN: "Tracks", stepsN: "Steps", enginesL: "Engines",
@@ -1730,14 +1784,14 @@ function selfLoad() {
 const stepEdit = new Map(); /* index -> time of the last edit */
 
 /* parameter ids (firmware/src/core.h); used only when P_COUNT / G_COUNT match */
-const EXPECT = { pcount: 53, gcount: 27, pe0: 45 };
+const EXPECT = { pcount: 57, gcount: 27, pe0: 49 };
 const P = { LEVEL: 0, SLEN: 29 };
 const LAYOUT = (pe0) => [
   { t: "ENV", pages: [["ENV", 0, [1, 2, 3, 4]], ["ENV DEST", 0, [5, 6, 7, 8]]] },
   { t: "LFO", pages: [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]]] },
   { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]]] },
   { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 41, 42]], ["VOICE 2", 0, [43, 44, 39, 40]]] },
-  { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["DLY", 1, [4, 5, 6, 7]], ["REV/CHO", 1, [8, 9, 10, 11]]] },
+  { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DLY", 1, [4, 5, 6, 7]], ["REV/CHO", 1, [8, 9, 10, 11]]] },
   { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]]] },
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
   { t: "SEQ PATTERN", tab: "seqgroups", pages: [["PATTERN", 0, [29, 30, 31, 32]]] },
@@ -1752,7 +1806,7 @@ const pSlen = () => { const i = dev.pdesc.findIndex((d) => d && d.fmt === F.STEP
 /* mixer ids by DESC label (core.h: P_PAN 39, P_MUTE 40, G_DRLVL 25) */
 const pById = (label, def) => { const i = dev.pdesc.findIndex((d, k) => d && k < dev.info.pe0 && d.label === label); return i >= 0 ? i : def; };
 const pPan = () => pById("PAN", 39), pMute = () => pById("MUTE", 40);
-const gDrLvl = () => { const i = dev.gdesc.findIndex((d, k) => d && k > gEng() && d.label === "LEVEL"); return i >= 0 ? i : 25; };
+const gDrLvl = () => { const i = dev.gdesc.findIndex((d, k) => d && k > gEng() && (d.label === "LVL" || d.label === "LEVEL")); return i >= 0 ? i : 25; };
 const isDrum = () => !!dev && !!dev.dump && dev.dump.engine >= dev.info.nengines;
 
 /* -------------------------------------------------------------- MIDI --- */
@@ -1867,6 +1921,7 @@ async function load(d) {
     /* protocol v2: live pushes and the user bank; older firmware: DUMP polling, no bank */
     const rqd = (r, o) => d.link.request(r, o);
     d.watch = await startWatch(rqd);
+    d.v4 = d.watch === 3;                           /* TRACK_PARAM / TRACK_CHANGED */
     if (d.watch) {
       sayK("readingBank");
       try { d.bank = await bank.list((r, o) => d.link.request(r, { ...o, quiet: true })); }
@@ -2451,9 +2506,10 @@ async function smpErase(k) {
 let mixDrag = null;                 /* "lv:i" / "pan:i" while a strip control is dragged */
 const mixEdit = new Map();          /* "lv:i" / "pan:i" -> time of the user's last change */
 const mixCtl = [];                  /* per track: the strip's elements */
-let panning = false;                /* another track is selected for a moment (pan of a track that is not selected) */
+let panning = false;                /* v3 firmware: another track is selected for a moment (pan of a track that is not selected) */
 const mixTouched = (kind, i) => mixDrag === `${kind}:${i}` || performance.now() - (mixEdit.get(`${kind}:${i}`) || 0) < 600
-  || (!!dev && kind === "lv" && dev.link.hasQueued("mix:" + i)) || (kind === "pan" && panWant.has(i));
+  || (!!dev && kind === "lv" && dev.link.hasQueued("mix:" + i))
+  || (kind === "pan" && (panWant.has(i) || (!!dev && dev.link.hasQueued("pan:" + i))));
 const drumTrack = (i) => !!dev && !!dev.mix && i === dev.mix.ntrk - 1;
 function trackName(x) {
   if (x.engine >= dev.info.nengines) return "DRUM";
@@ -2596,7 +2652,8 @@ async function sendMix(i) {
     mixToSound(i);
   } catch (e) { report(e); }
 }
-/* pan: the selected track as any Sound parameter; another track on release (it is selected for a moment) */
+/* pan: the selected track as any Sound parameter; another track with TRACK_PARAM (v4: while dragging, one in
+   flight and one queued with the latest value), or with v3 firmware on release (it is selected for a moment) */
 const panWant = new Map();
 function setPan(i, v, final) {
   if (!dev || !dev.mix) return;
@@ -2604,7 +2661,18 @@ function setPan(i, v, final) {
   mixEdit.set("pan:" + i, performance.now());
   updateStrip(i);
   if (i === dev.sel) { userSet(0, pPan(), v, final); return; }
-  if (final) panOther(i, v);
+  if (dev.v4) panTrack(i, v);
+  else if (final) panOther(i, v);
+}
+async function panTrack(i, v) {
+  const d = dev;
+  try {
+    const r = await mixer.setPan(rq, i, d.sel, pPan(), v, true);
+    if (d !== dev || !d.mix || mixDrag === "pan:" + i || d.link.hasQueued("pan:" + i)) return;
+    d.mix.tracks[i].pan = r;                        /* the device's value after clamping */
+    updateStrip(i);
+    if (i === d.sel) mixToSound(i);
+  } catch (e) { report(e); }
 }
 async function panOther(i, v) {
   panWant.set(i, v);
@@ -2655,6 +2723,14 @@ function onPush(f) {
     } else if (f.cmd === CMD.STEP_CHANGED) {
       const { index } = parse[CMD.STEP_CHANGED](f.a);
       if (index < d.info.nstep) refreshStep(index);
+    } else if (f.cmd === CMD.TRACK_CHANGED) {       /* v4: level / pan / mute of a track that is not selected */
+      const c = parse[CMD.TRACK_CHANGED](f.a), x = d.mix && d.mix.tracks[c.track];
+      if (!x || c.track === d.sel) return;
+      if (c.id === pPan()) { if (!mixTouched("pan", c.track)) x.pan = c.value; }
+      else if (c.id === pMute()) { if (!mixTouched("lv", c.track)) x.mute = c.value ? 1 : 0; }
+      else if (c.id === P.LEVEL && !drumTrack(c.track)) { if (!mixTouched("lv", c.track)) x.level = c.value; }
+      else return;
+      updateStrip(c.track);
     }
   } catch (e) { console.warn("bad push", f, e); }
 }
@@ -2701,7 +2777,7 @@ async function keepAlive() {
     try {
       const on = await startWatch((r, o) => d.link.request(r, o));
       rewatch = false;                              /* (this WATCH itself may have flagged the gap) */
-      if (on) { needReload = true; maybeReload(); }
+      if (on) { d.v4 = on === 3; needReload = true; maybeReload(); }
       else if (d === dev) { d.watch = false; renderLive(); }
     } catch (e) { /* closed */ } finally { keepAlive.run = false; }
   } else if (gap > 850 && d.link.idle) {
