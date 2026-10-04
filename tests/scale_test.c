@@ -88,10 +88,11 @@ static void all_mapping_test(void)
     int root, oct, trans;
     t->engine = t->eng_req = 0;
     t->p[P_QUANT] = Q_ALL;
-    assert(TP[P_QUANT].max == Q_ALL);
+    assert(TP[P_QUANT].max == Q_MPC);
     assert(!strcmp(TP[P_QUANT].names[Q_SNAP], "SNAP"));
     assert(!strcmp(TP[P_QUANT].names[Q_WHITE], "WHITE"));
     assert(!strcmp(TP[P_QUANT].names[Q_ALL], "ALL"));
+    assert(!strcmp(TP[P_QUANT].names[Q_MPC], "MPC"));
     for (s = 0; s < sizeof EXPECTED / sizeof EXPECTED[0]; s++) {
         t->p[P_SCALE] = (int16_t)s;
         for (root = 0; root < 12; root++)

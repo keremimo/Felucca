@@ -16,7 +16,7 @@
 static int32_t track_capture[CTL * NTRK];
 #endif
 enum { V_POLY, V_MONO, V_LEGATO, V_UNISON };   /* P_VOICE */
-enum { Q_OFF, Q_SNAP, Q_WHITE, Q_ALL };     /* P_QUANT; legacy ON = SNAP */
+enum { Q_OFF, Q_SNAP, Q_WHITE, Q_ALL, Q_MPC }; /* P_QUANT; legacy ON = SNAP */
 #define NSTEP 64
 #define HALF_FRAMES 256          /* I2S half buffer: 5.8 ms at 44.1 kHz */
 #ifndef FELUCCA_SLICE
