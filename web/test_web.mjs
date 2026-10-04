@@ -30,7 +30,7 @@ const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-
 const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
-   mixer, GM_DRUM, drumName, parseNotes, readDX7File, dx7Message, cleanPatch })`,
+   mixer, GM_DRUM, drumName, parseNotes, readDX7File, dx7Message, cleanPatch, packDX7, dx7ForDevice, dx7Init, dx7Name, FM6, fm6Bank })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 async function editorMock() {
@@ -369,6 +369,59 @@ async function editorDX7Transfer() {
   closed.close();
   await sleep(20);
   ok(await pending === "closed" && count === 1, "DX7 transfer: disconnect cancels delayed dump request");
+}
+
+async function editorFM6Bank() {
+  /* VMEM packing: the inverse of the bank unpacker, for every field at its limits and in between */
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF) % 128;
+  const voices = Array.from({ length: 32 }, (_, i) => E.dx7ForDevice(Array.from({ length: 155 }, () => (i === 0 ? 127 : i === 1 ? 0 : rnd()))));
+  const bank = [].concat(...voices.map(E.packDX7));
+  const back = E.readDX7File(E.fm6Bank.message(bank)).patches.map((p) => p.dx7);
+  ok(bank.length === 4096 && bank.every((v) => v < 128) && back.every((v, i) => eq(v, voices[i])),
+    "FM6 bank: VMEM pack round-trips every field (32 voices, limits)");
+  const init = E.dx7Init();
+  ok(init.length === 155 && E.dx7Name(init) === E.FM6.INIT && eq(E.dx7ForDevice(init), init), "FM6 bank: init voice in range, named INIT VOICE");
+  let b = [].concat(...Array.from({ length: 32 }, () => E.packDX7(init)));
+  b = E.fm6Bank.withVoice(b, 0, voices[2]);
+  b = E.fm6Bank.withVoice(b, 3, voices[3]);
+  const free = E.fm6Bank.free(b), from5 = E.fm6Bank.free(b, 30);
+  ok(free[0] === 1 && free[1] === 2 && !free.includes(3) && free.length === 30 && from5[0] === 30 && from5[2] === 1
+    && eq(E.fm6Bank.voice(b, 3), voices[3]) && E.fm6Bank.read(E.fm6Bank.message(b)).every((v, i) => v === b[i]),
+    "FM6 bank: free slots (INIT VOICE, wrapping), slot voices, dump parse");
+  ok(E.fm6Bank.read(E.fm6Bank.message(b).map((v, i) => (i === 4102 ? v ^ 1 : v))) === undefined
+    && E.fm6Bank.read(E.dx7Message(init)) === undefined, "FM6 bank: corrupt or foreign dumps rejected");
+
+  /* against the mock device: read, write one slot, then that slot on an FM6 track */
+  const { link, rq, done } = attachMock({ fm6: true });
+  const C = E.CMD, info = E.parse[C.INFO](await rq(E.req.info()));
+  const dev = await link.readFM6Bank();
+  const names = E.fm6Bank.names(dev);
+  ok(names[0] === "MOCK BRASS" && names[4] === "MOCK PIANO" && E.fm6Bank.free(dev)[0] === 2, "FM6 bank: mock bank read as one 32-voice dump");
+  const voice = E.dx7ForDevice([...voices[5].slice(0, 145), ...Array.from("KEPT VOICE", (c) => c.charCodeAt(0))]);
+  const wrote = await link.writeFM6Bank(E.fm6Bank.withVoice(dev, 2, voice));
+  ok(E.fm6Bank.names(wrote)[2] === "KEPT VOICE" && E.fm6Bank.names(await link.readFM6Bank())[1] === "MOCK BELLS",
+    "FM6 bank: one slot written, the rest kept, confirmed by readback");
+  const fm6 = info.engines.indexOf("FM6");
+  await rq(E.req.set(1, 20, fm6));
+  const vd = E.parse[C.DESC](await rq(E.req.desc(0, info.pe0)));
+  await rq(E.req.set(0, info.pe0, vd.max + 1 - E.FM6.SLOTS + 2));      /* U03: the bank comes last (DESC: 16 names) */
+  const playing = await link.yamaha(null, [0xF0, 0x43, 0x20, 0, 0xF7], (d) => (d.length === 163 ? d.slice(6, 161) : undefined), "no voice");
+  ok(fm6 >= 0 && vd.max + 1 - E.FM6.SLOTS === E.FM6.NROM && eq(Array.from(playing), voice), "FM6 bank: VOICE U03 plays the stored voice");
+  done();
+
+  /* the device busy with the flash write: its first readback request is lost, the retry gets it */
+  let sends = 0, asks = 0, stored = null;
+  const busyLink = new E.Link((d) => {
+    if (d.length === 4104) { sends++; stored = d.slice(6, 4102); }
+    else if (d[2] === 0x20 && ++asks > 1) setTimeout(() => busyLink.receive(E.fm6Bank.message(stored)), 1);
+  });
+  const res = await busyLink.writeFM6Bank(b, { settle: 2, timeout: 10 });
+  ok(sends === 2 && asks === 2 && eq(res, b) && busyLink.idle, "FM6 bank: a lost readback request retries the write");
+  const wrong = new E.Link((d) => { if (d.length === 5) setTimeout(() => wrong.receive(E.fm6Bank.message(dev)), 1); });
+  const err = await wrong.writeFM6Bank(b, { settle: 2, timeout: 10, retries: 1 }).then(() => "", (e) => e.message);
+  ok(/not confirmed/.test(err) && wrong.idle, "FM6 bank: another bank read back reports failure");
+  busyLink.close(); wrong.close();
 }
 
 async function editorLive() {
@@ -763,6 +816,7 @@ await editorMock();
 await editorLibrarian();
 await editorDX7();
 await editorDX7Transfer();
+await editorFM6Bank();
 await editorLive();
 await editorTracks();
 await editorMixer();

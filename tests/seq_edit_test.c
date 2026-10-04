@@ -623,6 +623,120 @@ static void home_notes_test(const char *path)
     puts("HOME notes: chord names, MIDI + keys after the scale, kept after release, taps, drums, panic");
 }
 
+static uint32_t page_named(const char *title)
+{
+    uint32_t i;
+    for (i = 0; i < NPAGES; i++)
+        if (!strcmp(PAGES[i].title, title))
+            return i;
+    assert(0);
+    return 0;
+}
+
+static void edit_frame(int down, uint32_t keys)       /* one frame: EDIT held or not, these keys down */
+{
+    uint32_t bit = 1u << panel.btn[B_EDIT];
+    if (down && !(fm1_in.buttons & bit))
+        button_edges |= bit;
+    fm1_in.buttons = down ? fm1_in.buttons | bit : fm1_in.buttons & ~bit;
+    key_frame(keys, 0);
+}
+
+static void fm6_page_nav_test(void)
+{
+    static int16_t ed[FM6_NP];
+    uint32_t e, k, fm6 = NENGINES, analog = 0;
+    reset(16);
+    for (e = 0; e < NENGINES; e++)
+        if (ENGINES[e] == &ENG_FM6)
+            fm6 = e;
+    assert(fm6 < NENGINES);
+    TSEL->eng_req = (uint8_t)fm6;
+    TSEL->p[P_E0] = 0;
+    fm6_load(song.sel, 0);
+    for (k = 0; k < FM6_NUSER; k++) {               /* the bank as fm6_bank_init leaves it */
+        fm6_from_rom(ed, &FM6_INIT);
+        fm6_pack(fm6_bank[k], ed);
+    }
+
+    /* EDIT from another page opens the family on press; its release adds nothing */
+    go_home();
+    edit_frame(1, 0);
+    assert(ui.page == page_named("EDIT 1"));
+    edit_frame(0, 0);
+    assert(ui.page == page_named("EDIT 1"));
+    /* a tap on an EDIT page: the next page on release; FM6 has no EDIT 2, STORE comes right after */
+    edit_frame(1, 0);
+    assert(ui.page == page_named("EDIT 1"));
+    edit_frame(0, 0);
+    assert(ui.page == page_named("STORE"));
+    assert(fm6_slot == 0);                          /* a factory voice: the first INIT VOICE slot */
+
+    /* EDIT held: the black keys jump, a pair alternates, the white keys pick the operator */
+    edit_frame(1, 0);
+    edit_frame(1, 1u << 13);                        /* F#4: EG RATE / EG LVL */
+    assert(ui.page == page_named("EG RATE"));
+    edit_frame(1, 0);
+    edit_frame(1, 1u << 13);
+    assert(ui.page == page_named("EG LVL"));
+    edit_frame(1, 0);
+    edit_frame(1, 1u << 13);
+    assert(ui.page == page_named("EG RATE"));
+    edit_frame(1, 1u << 13 | 1u << 4);              /* A3: OP3 */
+    assert(fm6_opsel == 2);
+    edit_frame(1, 1u << 5);                         /* A#3: ALGO */
+    assert(ui.page == page_named("ALGO"));
+    edit_frame(1, 1u << 25);                        /* F#5: nothing there */
+    assert(ui.page == page_named("ALGO"));
+    /* the keys stay silent while EDIT is held; the release after a jump is no tap */
+    kb_prev = 0;
+    fm1_in.notes = 1u << 7;
+    events_block(0);
+    assert(kb_note[7] == KB_SILENT && !held_any());
+    fm1_in.notes = 0;
+    events_block(0);
+    edit_frame(0, 0);
+    assert(ui.page == page_named("ALGO"));
+    fm1_in.notes = 1u << 7;                         /* EDIT let go: the keys play again */
+    events_block(0);
+    assert(kb_note[7] == 60 && held_any());
+    fm1_in.notes = 0;
+    events_block(0);
+    assert(!held_any());
+
+    /* STORE offers the user slot the part plays while the buffer is that voice, else a free one */
+    fm6_from_rom(ed, &FM6_ROM[3]);
+    fm6_pack(fm6_bank[0], ed);
+    TSEL->p[P_E0] = (int16_t)FM6_NROM;
+    fm6_load(song.sel, FM6_NROM);
+    fm6_slot = 9;
+    edit_frame(1, 0);
+    edit_frame(1, 1u << 3);                         /* G#3: STORE */
+    assert(ui.page == page_named("STORE") && fm6_slot == 0);
+    fm6_from_rom(fm6_ed[song.sel], &FM6_ROM[5]);    /* a voice from SysEx over U01 */
+    edit_frame(1, 1u << 5);
+    edit_frame(1, 1u << 3);
+    assert(ui.page == page_named("STORE") && fm6_slot == 1);
+    edit_frame(0, 0);
+
+    /* another engine: only its pages light up, the FM6 keys do nothing */
+    TSEL->eng_req = (uint8_t)analog;
+    page_fix();
+    edit_frame(1, 0);
+    edit_frame(1, 1u << 5);                         /* ALGO: FM6 only */
+    assert(cur_page()->fam == FAM_EDIT && ui.page != page_named("ALGO"));
+    edit_frame(1, 1u << 22);                        /* D#5: VOICE / VOICE 2 */
+    assert(ui.page == page_named("VOICE"));
+    edit_frame(1, 1u << 1);                         /* F#3: EDIT 1 / EDIT 2 */
+    assert(ui.page == page_named("EDIT 1"));
+    edit_frame(1, 0);
+    edit_frame(1, 1u << 1);
+    assert(ui.page == page_named("EDIT 2"));
+    edit_frame(0, 0);
+    TSEL->p[P_E0] = 0;
+    puts("FM6 pages: EDIT + black keys jump, white keys pick the operator, silent keys, STORE slot");
+}
+
 static void render_test(const char *path)
 {
     uint32_t i, j;
@@ -661,6 +775,7 @@ int main(int argc, char **argv)
     mpc_page_test();
     playback_test();
     home_notes_test(argc > 2 ? argv[2] : NULL);
+    fm6_page_nav_test();
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;
 }

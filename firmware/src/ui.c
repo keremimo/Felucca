@@ -64,6 +64,9 @@ static struct {
     uint8_t confirm;             /* 1 = "clear the sequence?" (REC held on SEQ / ARP), 2 = "clear track n?" (TRACKS) */
     uint8_t confirm_trk;         /* the track the dialog clears */
     uint8_t uslot;               /* SAVE > USER: the selected user preset slot */
+    uint8_t edit_hold;           /* EDIT held: 1 it opened the family, 2 pressed on an EDIT page (a tap: next page) */
+    uint8_t edit_used;           /* a key was used while EDIT was held (its release is no tap) */
+    uint32_t edit_t0;            /* EDIT press time */
     char msg[24];
     uint32_t enc_t[NE];
     /* drawn-state cache */
@@ -106,6 +109,16 @@ static void page_entered(void)
     step_midi_r = step_midi_w;
     ui.hot_t = 0;                                /* the white value / focus box was the old page's */
     ui.force = 1;
+    if (!ui.home && pg->graph == GR_FMSTORE && fm6_shown())
+        fm6_slot = (uint8_t)fm6_store_slot(song.sel, fm6_slot);   /* the voice's own slot, or a free one */
+}
+
+static void page_go(uint32_t i)                  /* open page i (of its family) */
+{
+    ui.page = (uint8_t)i;
+    ui.fam_last[PAGES[i].fam] = ui.page;
+    ui.home = 0;
+    page_entered();
 }
 
 #include "seq_edit.c"
@@ -151,15 +164,12 @@ static void open_family(uint32_t fam)
             if (++i >= NPAGES || PAGES[i].fam != fam)
                 i = page_first(fam);
         } while (!page_shown(&PAGES[i]) && i != ui.page);
-        ui.page = (uint8_t)i;
+        page_go(i);
     } else {
-        ui.page = ui.fam_last[fam] && PAGES[ui.fam_last[fam]].fam == fam && page_shown(&PAGES[ui.fam_last[fam]])
-                      ? ui.fam_last[fam]
-                      : (uint8_t)page_first(fam);
+        page_go(ui.fam_last[fam] && PAGES[ui.fam_last[fam]].fam == fam && page_shown(&PAGES[ui.fam_last[fam]])
+                    ? ui.fam_last[fam]
+                    : page_first(fam));
     }
-    ui.fam_last[fam] = ui.page;
-    ui.home = 0;
-    page_entered();
 }
 
 /* the page went away (another track or engine: the FM6 pages): to its family's first page */

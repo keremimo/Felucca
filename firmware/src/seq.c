@@ -31,6 +31,7 @@ static const uint16_t SCALE_MASK[] = {
 #define KB_SILENT 255u
 static uint32_t kb_prev;
 static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on which track */
+static volatile uint32_t kb_nav_btn;      /* ui_input.c: EDIT's button bit on an EDIT page; while it is held keys navigate, silent */
 /* MIDI releases use the original destination, even after root/scale/track changes.
  * Zero means no sounding note; high byte = track + 1, low byte = mapped note. */
 static uint16_t live_refs[NTRK][128];     /* overlapping local/MIDI keys sharing a pitch */
@@ -452,7 +453,7 @@ static void keyboard_block(void)
             continue;
         if ((cur >> k) & 1u) {                    /* the selected track; the key-up goes to the same one */
             kb_trk[k] = song.sel;
-            kb_note[k] = (uint8_t)kb_map(&trk[kb_trk[k]], k);
+            kb_note[k] = (uint8_t)(kb_nav_btn && (fm1_in.buttons & kb_nav_btn) ? KB_SILENT : kb_map(&trk[kb_trk[k]], k));
             if (kb_note[k] == KB_SILENT)
                 continue;
             input_on(&trk[kb_trk[k]], kb_note[k], 100);
