@@ -874,7 +874,7 @@ function buildSlot(name, zonesIn) {
        "format": "felucca-library", "version": 1,
        "kind": "library" | "bank" | "patch",
        "firmware": "FELUCCA 0.5 ...",          device version string when exported ("" if unknown)
-       "pCount": 57, "pE0": 49,                 P_COUNT and the first engine parameter id
+       "pCount": 58, "pE0": 50,                 P_COUNT and the first engine parameter id
        "paramLabels": ["LVL", "ATK", ...],      one key per parameter id: the DESC label, "#2", "#3" appended to
                                                 a repeated label (PIT, PIT#2), and "E0".."E7" for the engine
                                                 parameters (their labels depend on the engine)
@@ -1222,6 +1222,7 @@ function makeMockDevice(opt = {}) {
     E("VCE", ["POLY", "MONO", "LEG", "UNI"], 0), D("GLD", F.TIME, 0, 127, 0), D("PAN", F.BIPCT, -64, 63, 0), E("MUTE", NONOFF, 0),
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
     E("SLCR", ["OFF", "GATE", "STUT"], 0), D("PAT", F.INT, 1, 16, 1), E("RATE", ["1/8", "1/16", "1/32", "8T", "16T", "32T"], 1), D("DEPTH", F.PCT, 0, 127, 127),
+    D("DEG", F.INT, 1, 12, 1),
   ];
   /* the drum track's P_E0..P_E7: the kit's controls (drums.c DR_EDIT), 0 = the stock sound */
   const DRUM_EDIT = [D("BTONE", F.BIPCT, -64, 63, 0), D("BDCAY", F.BIPCT, -64, 63, 0), D("STONE", F.BIPCT, -64, 63, 0),
@@ -1308,7 +1309,7 @@ function makeMockDevice(opt = {}) {
     [[60, 60, 61, 61, 62, 0, 63, 63, 64, 65, 65, 0, 66, 66, 66, 67], [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]],
     [[60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]],
   ];
-  const P_COUNT = 57, G_COUNT = 27, NSTEP = 64, P_E0 = 49, G_ENGSEL = 20, P_SLCR = 45;
+  const P_COUNT = 58, G_COUNT = 27, NSTEP = 64, P_E0 = 50, G_ENGSEL = 20, P_SLCR = 45;   /* core.h */
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   /* FM6 (opt.fm6, eng_fm6.c): VOICE R01..R16 (stand-ins here), U01..U32 = the user bank */
   const slotTag = (c, i) => c + String(i + 1).padStart(2, "0");
@@ -1383,7 +1384,7 @@ function makeMockDevice(opt = {}) {
     [1, 2, 3, 4].forEach((id, k) => { st.p[id] = pr.env[k]; });
     st.p[37] = pr.mono ? 2 : 0;
     st.p[33] = 0; st.p[34] = 24; st.p[35] = 28; st.p[36] = 36;
-    for (let i = P_SLCR; i < P_E0; i++) st.p[i] = TP[i].def;   /* a factory preset turns the SLICER off */
+    for (let i = P_SLCR; i < P_SLCR + 4; i++) st.p[i] = TP[i].def;   /* a factory preset turns the SLICER off */
     if (pr.pat && seqEmpty()) loadPattern(pr.pat - 1);
   }
   function setEngine(ei) {
@@ -2045,15 +2046,15 @@ function selfLoad() {
 const stepEdit = new Map(); /* index -> time of the last edit */
 
 /* parameter ids (firmware/src/core.h); used only when P_COUNT / G_COUNT match */
-const EXPECT = { pcount: 57, gcount: 27, pe0: 49 };
+const EXPECT = { pcount: 58, gcount: 27, pe0: 50 };
 const P = { LEVEL: 0, SLEN: 29 };
 const LAYOUT = (pe0) => [
-  { t: "ENV", pages: [["ENV", 0, [1, 2, 3, 4]], ["ENV DEST", 0, [5, 6, 7, 8]]] },
+  { t: "ENV", pages: [["ENV", 0, [1, 2, 3, 4]], ["ENV DEST", 0, [5, 6, 7]]] },   /* (P_ED_FX 8: nothing reads it) */
   { t: "LFO", pages: [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]]] },
   { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]]] },
   { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 41, 42]], ["VOICE 2", 0, [43, 44, 39, 40]]] },
   { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DLY", 1, [4, 5, 6, 7]], ["REV/CHO", 1, [8, 9, 10, 11]]] },
-  { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]]] },
+  { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ["MPC", 0, [49]]] },   /* MPC: the pad degree (QNT MPC) */
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
   { t: "SEQ PATTERN", tab: "seqgroups", pages: [["PATTERN", 0, [29, 30, 31, 32]]] },
   { t: "GLOBAL", tab: "setgroups", pages: [["GLOBAL", 1, [0, 1, 2, 3]]] },

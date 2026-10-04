@@ -40,8 +40,19 @@ async function editorMock() {
   inp.onmidimessage = (e) => link.receive(e.data);
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
-  ok(info.nengines === 9 && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.pcount === 57 && info.pe0 === 49 && info.engines[4] === "SAMPLE",
+  ok(info.nengines === 9 && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.pcount === 58 && info.pe0 === 50 && info.engines[4] === "SAMPLE",
     "editor: INFO");
+  {
+    /* the firmware's parameter ids (core.h): the editor's layout (EXPECT) and the mock must follow them, or the
+       editor quietly falls back to its ungrouped "unknown firmware layout" */
+    const core = readFileSync(join(HERE, "../firmware/src/core.h"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const ids = (from, to) => { const b = core.slice(core.indexOf(from)); return b.slice(0, b.indexOf(to)).split(",").map((x) => x.trim()).filter(Boolean); };
+    const pIds = ids("P_LEVEL,", "P_COUNT"), gIds = ids("G_BPM,", "G_COUNT");
+    const ex = /const EXPECT = \{ pcount: (\d+), gcount: (\d+), pe0: (\d+) \}/.exec(html);
+    ok(ex && +ex[1] === pIds.length && +ex[2] === gIds.length && +ex[3] === pIds.indexOf("P_E0")
+      && info.pcount === pIds.length && info.gcount === gIds.length && info.pe0 === pIds.indexOf("P_E0")
+      && pIds.indexOf("P_MPCDEG") === 49 && pIds.indexOf("P_SLCR") === 45, "editor: EXPECT and the mock match core.h");
+  }
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
   ok(descs === info.pcount, "editor: DESC for every parameter");
@@ -57,12 +68,18 @@ async function editorMock() {
       && /\[P_SLRATE\] = PE\("RATE", N_SLDIV, 1\)/.test(pc) && /\[P_SLDEPTH\] = PD\("DEPTH", F_PCT, 0, 127, 127\)/.test(pc)
       && /N_SLDIV\[\] = \{"1\/8", "1\/16", "1\/32", "8T", "16T", "32T"\}/.test(pc),
       "editor: SLICER parameters 45..48 (mock == params.c)");
+    const deg = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 49)));
+    ok(deg.label === "DEG" && deg.min === 1 && deg.max === 12 && deg.def === 1 && /\[P_MPCDEG\] = PD\("DEG", F_INT, 1, 12, 1\)/.test(pc),
+      "editor: MPC degree 49, before P_E0 (mock == params.c)");
     await rq(E.req.set(0, 45, 2));
     await rq(E.req.set(0, 46, 7));
+    await rq(E.req.set(0, 49, 5));
     const on = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
     await rq(E.req.preset(0, 1));
     const off = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
-    ok(on.p[45] === 2 && on.p[46] === 7 && off.p[45] === 0 && off.p[46] === 1, "editor: a factory preset turns the SLICER off");
+    ok(on.p[45] === 2 && on.p[46] === 7 && off.p[45] === 0 && off.p[46] === 1 && on.p[49] === 5 && off.p[49] === 5,
+      "editor: a factory preset turns the SLICER off, keeps the MPC degree");
+    await rq(E.req.set(0, 49, 1));
   }
   const scale = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 26)));
   const scaleNames = ["CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM", "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"];
@@ -192,7 +209,7 @@ async function editorLibrarian() {
   const ctx = { keys, engines: info.engines, firmware: info.version, pe0: info.pe0 };
   const pts = [cap, { ...bass, engineName: info.engines[bass.engine], tags: ["bass", "device"] }];
   const file = JSON.parse(JSON.stringify(E.libraryFile("library", pts, ctx)));
-  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 57 && file.paramLabels.length === 57 && file.engines.length === 9,
+  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 58 && file.paramLabels.length === 58 && file.engines.length === 9,
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
   ok(back.patches.length === 2 && !back.skipped && eq(back.patches[0].p, cap.p) && eq(back.patches[1].p, bass.p)
@@ -203,7 +220,7 @@ async function editorLibrarian() {
   const eng2 = ["PHASE", "ANALOG", "SAMPLE"];
   const fut = E.readLibraryFile(file, { keys: keys2, engines: eng2 });
   const p0 = fut.patches[0].p;
-  ok(fut.patches.length === 2 && p0.length === 58 && p0[5] === null && p0[6] === cap.p[5] && p0[57] === cap.p[56]
+  ok(fut.patches.length === 2 && p0.length === 59 && p0[5] === null && p0[6] === cap.p[5] && p0[58] === cap.p[57]
     && fut.patches[0].engine === 1 && fut.patches[1].engine === 0, "library file: other ids / engine order mapped by label and name");
   const lost = E.readLibraryFile({ ...file, patches: [{ ...file.patches[0], engineName: "WAVETABLE" }] }, ctx);
   ok(lost.patches.length === 0 && lost.skipped === 1, "library file: a patch for an unknown engine is skipped");
@@ -436,7 +453,7 @@ async function editorLive() {
   const dump = E.parse[C.DUMP](await pend, info);
   const ch = ev.pushes.find((f) => f.cmd === C.CHANGED);
   const cv = ch && E.parse[C.CHANGED](ch.a);
-  ok(dump.p.length === 57 && ch && ch.pending === C.DUMP && cv.scope === 0 && cv.id === 9 && cv.value === kn.value && !ev.unknown.length,
+  ok(dump.p.length === info.pcount && ch && ch.pending === C.DUMP && cv.scope === 0 && cv.id === 9 && cv.value === kn.value && !ev.unknown.length,
     "live: CHANGED while DUMP waits -> push handler, reply still matched");
   const rl = m.sim.reload();
   m.sim.step(3);
