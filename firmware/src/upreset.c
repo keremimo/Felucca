@@ -234,7 +234,7 @@ static int up_store(uint32_t k, const char *name)
 }
 
 /* slot k -> the selected part's sound: engine and every parameter except its mix (LEVEL,
- * PAN, MUTE: the TRACKS faders) and its pattern parameters (param_kept); the pattern, with
+ * PAN, MUTE: the TRACKS faders), shared scale/quantization and pattern parameters (param_kept); the pattern, with
  * the record's LEN / DIV / SWING / GATE, only into an empty sequencer (as factory presets).
  * 0 ok, 1 empty (or the drum track is selected) */
 static int up_load(uint32_t k)
