@@ -140,7 +140,7 @@ static void mpc_mapping_test(void)
                         if (SCALE_MASK[s] & (1u << ((offset % 12 + 12) % 12))) degree -= dir;
                     }
                     want = 60 + (int)root + 12 * oct + offset;
-                    assert(midi_map(&trk[0], 112 + pad) ==
+                    assert(midi_map(&trk[0], 20 + pad) ==
                            (want < 0 || want > 127 ? KB_SILENT : (uint32_t)want));
                 }
             }
@@ -148,18 +148,30 @@ static void mpc_mapping_test(void)
     trk[0].p[P_SCALE] = 1;
     trk[0].p[P_ROOT] = 0;
     trk[0].p[P_TRANS] = 12;
-    assert(midi_map(&trk[0], 115) == 72);
-    for (pad = 0; pad < 112; pad++) assert(midi_map(&trk[0], pad) == pad);
+    assert(midi_map(&trk[0], 23) == 72);
+    for (pad = 0; pad < 128; pad++)
+        if (pad < 20 || pad > 35) assert(midi_map(&trk[0], pad) == pad);
     assert(kb_map(&trk[0], 7) == 72 && kb_map(&trk[0], 8) == KB_SILENT);
 
-    send(0x90, 115, 97);
-    assert(gated(&trk[0], 72) && midi_notes[0][115] == (1u << 8 | 72u));
+    send(0x90, 23, 97);
+    assert(gated(&trk[0], 72) && midi_notes[0][23] == (1u << 8 | 72u));
     song.octave = 1;
     trk[0].p[P_ROOT] = 2;
     trk[0].p[P_QUANT] = Q_OFF;
-    send(0x80, 115, 0);
+    send(0x80, 23, 0);
     assert(!gated(&trk[0], 72) && live_refs[0][72] == 0);
-    puts("MIDI MPC: H01-H16 across all scales, roots and octaves; H04 root, bypass and release ok");
+    trk[0].p[P_QUANT] = Q_MPC;
+    trk[0].p[P_ROOT] = 0;
+    trk[0].p[P_TRANS] = 0;
+    trk[0].p[P_SCALE] = 2;
+    song.octave = 1;
+    um_byte(0x90); um_byte(23); um_byte(100);
+    events_block(0);
+    assert(gated(&trk[0], 72) && midi_notes[0][23] == (1u << 8 | 72u));
+    um_byte(0x80); um_byte(23); um_byte(0);
+    events_block(0);
+    assert(!gated(&trk[0], 72));
+    puts("MIDI MPC: H01-H16 notes 20-35 across scales/roots/octaves; TRS H04 and release ok");
 }
 
 static void routing_test(void)

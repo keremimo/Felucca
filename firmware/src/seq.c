@@ -168,15 +168,15 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
     return scale_map(t, n, 12 * song.octave);
 }
 
-/* Bank H's 16 chromatic notes are 112..127; H04 (115) is scale degree zero. */
+/* MPC Sample's default pad map wraps after F12: H01..H16 are MIDI 20..35. */
 static uint32_t midi_map(const track_t *t, uint32_t note)
 {
     if (is_drum(t) || is_gm_sample(t) || is_slice(t))
         return note;
     if (t->p[P_QUANT] == Q_MPC) {
-        if (note < 112u || note > 127u)
+        if (note < 20u || note > 35u)
             return note;
-        return scale_degree_map(t, (int32_t)note - 115, 12 * song.octave, 1);
+        return scale_degree_map(t, (int32_t)note - 23, 12 * song.octave, 1);
     }
     if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL)
         return scale_map(t, (int32_t)note, 0);

@@ -97,7 +97,7 @@ On the **SCL** page, **QNT** selects the keyboard layout:
   silent, including during live recording and step entry.
 - **ALL:** every key, white or black, advances one scale degree without duplicate
   pitches. For C major, C, C#, D, D#, E, F, F#, G play C, D, E, F, G, A, B, C.
-- **MPC:** the FM-1 keys use WHITE. Incoming MIDI notes 112–127 from MPC Sample
+- **MPC:** the FM-1 keys use WHITE. Incoming MIDI notes 20–35 from MPC Sample
   Bank H play consecutive scale degrees. H04 is ROOT in the octave selected on
   the FM-1; H01–H03 play the three degrees below it. Other MIDI notes pass through.
 
@@ -116,14 +116,17 @@ The drum track and GM sample kit retain their existing note mapping.
 
 Incoming MIDI uses the receiving track's **WHITE** or **ALL** layout: MIDI note 60
 (C4) plays ROOT, and each participating key advances one scale degree.
-**TRN** applies to the mapped notes. The FM-1's octave buttons affect
-only its own keys; use the external keyboard's octave controls for MIDI input.
+**TRN** applies to the mapped notes. In WHITE and ALL, the FM-1's octave buttons
+affect only its own keys; use the external keyboard's octave controls for MIDI input.
+In MPC mode, the FM-1 octave buttons also shift the mapped H-bank notes.
 With QNT at OFF or SNAP, incoming MIDI notes pass through unchanged.
 
 For MPC Sample, set **PAD MIDI OUT** to **Empty** (or **Always**) in its MIDI
 Configuration, select the empty **H** bank, and set the FM-1's **QNT** to **MPC**.
 Select **ROOT**, **SCL**, and the FM-1 octave first; **TRN** still transposes the
-result. The H bank mapping assumes its pads send MIDI notes 112–127 in order.
+result. The H bank mapping uses the MPC Sample's default pad assignments:
+H01–H16 send MIDI notes 20–35 in order. A project with a custom pad note map
+needs its H bank restored to those assignments.
 Out-of-range mapped notes are silent. MPC mode follows the usual MIDI channel
 routing, so use a synth-part channel or one that follows the selected track.
 
