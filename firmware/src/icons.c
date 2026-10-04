@@ -75,6 +75,8 @@ static const icon_map_t ICON_MAP[] = {
     {"AUDIO", ICON_WAVE},
     {"TRACK", ICON_MIX},                  /* TRACKS page (LEVEL, LEN, PAN: above) */
     {"SLCR", ICON_SLICE}, {"PAT", ICON_STEPS}, {"DEPTH", ICON_MIX},   /* SLICER page (RATE: param_icon) */
+    {"BTONE", ICON_TONE}, {"BDCAY", ICON_DECAY}, {"STONE", ICON_TONE}, {"SNAPY", ICON_NOISE},   /* the drum kit */
+    {"BTUNE", ICON_TUNE}, {"TOMS", ICON_TUNE}, {"OHDCY", ICON_DECAY}, {"CYDCY", ICON_DECAY},
 };
 
 static uint32_t icon_for_label(const char *l)

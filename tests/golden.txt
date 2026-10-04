@@ -70,7 +70,7 @@ preset/FM6/12_FLUTE 042c3adade12b6f0
 preset/FM6/13_STEEL_DRUM d03503cb42ae91ac
 preset/FM6/14_SAW_BASS b50d48eeb97a1d08
 preset/FM6/15_TUBULAR bd9c2ce73535d324
-drums/gm_kit bb887512f8690380
+drums/gm_kit 2ad83e0aca842b78
 mode/ANALOG/POLY 37fb068bc75b2f5c
 mode/ANALOG/MONO 4904e99e3020a8b0
 mode/ANALOG/LEGATO 8fff1c8dc8b7ded8
@@ -95,7 +95,7 @@ sends/DIGITAL/delay 71a02347af3c436c
 sends/DIGITAL/reverb fb4c93f7a4006028
 sends/DIGITAL/all 6a157efab1c5d448
 sends/DIGITAL/dist f363b9bd19dbf934
-song/4track_mix 74767d955d42eb0c
+song/4track_mix f479723839a66d34
 slicer/gate/ANALOG_ACID 07581a19222c2474
 slicer/stut/DIGITAL_PAD 79fc690f0549c674
-slicer/song_gate_stut a978deee7b9fefb8
+slicer/song_gate_stut 476ad2f7d89aa0d4

@@ -15,7 +15,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
 ## Features
 
 - **Ten engines** (below), each with its own factory presets
-- **Four tracks:** three synth parts, each with its own engine and sound, plus a GM drum track;
+- **Four tracks:** three synth parts, each with its own engine and sound, plus an analog drum track;
   8 voices shared between the parts. ALGORITHM selects the track on every page
 - **Sequencer:** 8 patterns of 64 steps per track with chords, ties, accent and slide; live loop
   recording with overdub and held notes; each track loops on its own length and switches
@@ -54,6 +54,14 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
   ([below](#fm6))
 
 **SLICER** (FX page, every track including drums): a tempo-synced 16-step gate or stutter, with 16 patterns.
+
+**Drums** (track 4): an analog drum kit modelled on the TR-808's voice circuits, synthesized live: bass
+drum, snare, low / mid / high tom and conga, rim shot, claves, hand clap, maracas, cowbell, cymbal, open and
+closed hi-hat, on the General MIDI percussion keys (MIDI channel 10 by default). As on the original, each
+instrument is one circuit: a hit kicks it again while it rings, the bass drum's pitch rises on its first
+millisecond and sighs as it decays, and velocity is the accent (louder hits are also brighter). EDIT 1 / 2 of
+the drum track: bass drum TONE, DECAY and TUNE, snare TONE and SNAPPY, tom / conga tuning, open hi-hat and
+cymbal DECAY (0 is the stock setting).
 
 - Install: [web installer](https://hugelton.github.io/Felucca/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://hugelton.github.io/Felucca/webapp/editor/)

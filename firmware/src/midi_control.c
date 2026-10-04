@@ -132,13 +132,8 @@ static void midi_silence_track(uint32_t track)
     for (i = 0; i < NVOICE; i++)
         if (t->v[i].active)
             voice_kill(&t->v[i]);             /* one-block fade, regardless of RELEASE */
-    if (is_drum(t)) {
-        for (i = 0; i < NDRUM; i++) {
-            if (drums.v[i].active)
-                drums.tail += drums.v[i].s[7];
-            drums.v[i].active = 0;
-        }
-    }
+    if (is_drum(t))
+        drums_off();
     sl[track].rec = sl[track].loop = 0;       /* do not keep replaying captured sound */
     midi_forget_track(track);
     live_forget(track);

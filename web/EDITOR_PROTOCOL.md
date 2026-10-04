@@ -178,9 +178,10 @@ note count. Changing SCL also clamps DEG when the new scale has fewer notes.
 ## v3: tracks
 
 - The drum track: `DUMP` / `RELOAD` / `TRACK` give the engine byte NENGINES. Its `P_*` values exist
-  (the pattern parameters `LEN DIV SWG GATE`, `PAN`, `MUTE` are used; the rest is ignored). `PRESET`,
+  (the pattern parameters `LEN DIV SWG GATE`, `PAN`, `MUTE` and `P_E0..P_E7` are used; the rest is ignored). `PRESET`,
   `SET` of `G_ENGSEL` and `UP_LOAD` do nothing there (`UP_LOAD` and `UP_STORE` answer rc 1). `DESC` of
-  `P_E0..P_E7` describes engine 0. Its steps hold GM drum notes (up to 4 per step).
+  `P_E0..P_E7` describes the drum kit's eight controls (BD tone, decay, SD tone, snappy, BD tune, toms,
+  open hat and cymbal decay; 0 is the stock sound). Its steps hold GM drum notes (up to 4 per step).
 - Selecting a track with `TRACK` does not push `RELOAD` (the editor re-reads `DUMP`, the steps and the
   engine `DESC` itself); selecting one on the device does (`RELOAD` with the new track).
 - Pushes are about the selected track only: `CHANGED` (scope 0) and `STEP_CHANGED` refer to it, and
@@ -197,7 +198,7 @@ note count. Changing SCL also clamps DEG when the new scale has fewer notes.
   cmds 31 / 32 (no reply) and never pushes `TRACK_CHANGED`. `WATCH 1` behaves exactly as in v2 / v3
   (reply 1, no `TRACK_CHANGED`). Match the `WATCH` reply by bit 0.
 - `TRACK_PARAM` clamps like `SET` scope 0: to the range of that parameter; the engine parameters
-  `P_E0..P_E7` to the ranges of that track's engine (the drum track: engine 0, as `DESC`). A parameter
+  `P_E0..P_E7` to the ranges of that track's engine (the drum track: its kit controls, as `DESC`). A parameter
   with a fixed range (min = max) keeps its value. A track ≥ NTRK or an id ≥ P_COUNT gets no reply.
   For the selected track it is the same as `SET` scope 0. The drum track's level is still `G_DRLVL`
   (`SET` scope 1 or `TRACK_MIX`); its `P_LEVEL` is not used.

@@ -1054,7 +1054,7 @@ static void draw_foot(void)
     int32_t x;
     pn[0] = 0;
     if (is_drum(t))
-        str_cpy(pn, "GM KIT", sizeof pn);
+        str_cpy(pn, "ANALOG KIT", sizeof pn);
     else if (e == &ENG_FM6)
         fm6_name(pn, fm6_ed[song.sel % NPART]);       /* FM6: the voice playing */
     else if (user_of(t) < UP_SLOTS)
@@ -1065,7 +1065,9 @@ static void draw_foot(void)
         str_cpy(ti, "HOME", sizeof ti);
     } else {                                           /* page title + number in its family: "ENV DEST 2/2" */
         uint32_t i, n = 0, k = 0;
-        const char *pt = pg->scope == SC_ENGINE ? e->page_title[pg->id[0] != P_E0] : 0;   /* EDIT: the engine's */
+        static const char *const DRUM_TITLE[2] = {"BD SD", "TUNE DCY"};
+        const char *pt = pg->scope != SC_ENGINE ? 0 : is_drum(t) ? DRUM_TITLE[pg->id[0] != P_E0]
+                                                : e->page_title[pg->id[0] != P_E0];   /* EDIT: the engine's */
         for (i = 0; i < NPAGES; i++)
             if (PAGES[i].fam == pg->fam && page_shown(&PAGES[i])) {
                 n++;

@@ -160,7 +160,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_ENGGO] = PE("SET", N_GO, 0),
     [G_CLRSEQ] = PE("CLRSQ", N_GO, 0),
     [G_INITSND] = PE("INIT", N_GO, 0),
-    [G_DRCH] = PD("CH", F_INT, 0, 16, 10),            /* GM drum part MIDI channel, 0 = off */
+    [G_DRCH] = PD("CH", F_INT, 0, 16, 10),            /* drum part MIDI channel (GM keys), 0 = off */
     [G_DRLVL] = PD("LVL", F_INT, 0, 127, 100),
     [G_DRREV] = PD("REV", F_INT, 0, 127, 16),
 };
@@ -174,6 +174,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
         degree.max = (int16_t)scale_count(t);
         return &degree;
     }
+    if (id >= P_E0 && id <= P_E7 && is_drum(t))       /* the drum track: the kit's controls (drums.c) */
+        return &DR_EDIT[id - P_E0];
     if (id >= P_E0 && id <= P_E7) {                   /* the engine asked for (t->engine follows after a fade) */
         const engine_t *e = ENGINES[t->eng_req % NENGINES];
         const param_desc_t *d = e->desc ? e->desc(t, id - P_E0) : 0;   /* a mode-dependent label / names */
@@ -368,14 +370,16 @@ static const page_t PAGES[] = {
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 
-/* the drum track has no sound of its own: it uses the global pages (not the preset
- * pages, nor TOOLS > INIT: page_desc), STEP, PATTERN, SLICER and TRACKS; every other page
- * shows "DRUM TRACK" */
+/* the drum track has no preset sound: it uses the global pages (not the preset pages, nor
+ * TOOLS > INIT: page_desc), EDIT 1 / 2 (the kit's controls, drums.c DR_EDIT), STEP, PATTERN,
+ * SLICER and TRACKS; every other page shows "DRUM TRACK" */
 static int page_for_drum(const page_t *pg)
 {
     if (pg->scope == SC_GLOBAL)
         return pg->graph != GR_BROWSE && pg->graph != GR_USER;
-    return pg->scope != SC_ENGINE && pg->scope != SC_FM6 && pg->scope != SC_FMOP &&
+    if (pg->scope == SC_ENGINE)
+        return 1;
+    return pg->scope != SC_FM6 && pg->scope != SC_FMOP &&
            (pg->scope != SC_TRACK || pg->fam == FAM_SEQ || pg->graph == GR_SLCR);
 }
 
