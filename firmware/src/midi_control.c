@@ -61,8 +61,10 @@ static void midi_release(uint32_t ch, uint32_t note)
         if (!--midi_ch[ch].owned[id - 1u])
             midi_ch[ch].targets &= (uint8_t)~(1u << (id - 1u));
     }
-    if (id)
+    if (id) {
+        step_midi_edge(id - 1u, MIDI_NOTE_PITCH(held), 0);
         input_off(&trk[id - 1u], MIDI_NOTE_PITCH(held));
+    }
 }
 
 static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
@@ -81,6 +83,7 @@ static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
         midi_expression(t, c);
         c->targets |= (uint8_t)(1u << trk_index(t));
         input_on(t, mapped, vel);
+        step_midi_edge(trk_index(t), mapped, 1);
         midi_notes[ch][note] = (uint16_t)(((trk_index(t) + 1u) << 8) | mapped);
         midi_owners[trk_index(t)]++;
         c->owned[trk_index(t)]++;
@@ -106,6 +109,7 @@ static void midi_pedal_up(uint32_t ch)
 static void __attribute__((noinline)) midi_forget_track(uint32_t track)
 {
     uint32_t ch, note;
+    step_midi_edge(track, 0, 2);                /* one UI release for the whole track */
     for (ch = 0; ch < 16u; ch++) {
         if (!(midi_ch[ch].targets & (1u << track)))
             continue;

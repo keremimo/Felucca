@@ -119,8 +119,9 @@ With QNT at OFF or SNAP, incoming MIDI notes pass through unchanged.
 
 Channels 1–3 play parts 1–3; the configured drum channel plays drums; other
 channels play the selected track. Set ROOT, SCL and QNT on that receiving part.
-Mapped notes feed its arpeggiator and live recording. Note-offs release the pitch
-and part chosen at note-on, even if settings or the selected track change.
+Mapped notes feed its arpeggiator, live recording and **SEQ > STEP** entry.
+Note-offs release the pitch and part chosen at note-on, even if settings or the
+selected track change.
 
 This applies to USB MIDI routed from a computer and to TRS MIDI input, enabled
 by default (`FELUCCA_UART=1`). TRS also accepts MIDI clock and transport;
@@ -129,15 +130,14 @@ verification with an external MIDI source.
 
 ## Sequencer note length
 
-On **SEQ > STEP**, turn **PRESETS** to change the selected note or chord's length
-in steps. The readout above the piano roll shows `PRESETS: LENGTH 4 STP`, for
-example. **TIME** on knob 3 still selects NOTE, TIE or REST.
-
-To enter a long note, hold its key (or chord), turn PRESETS to the desired length,
-then release the keys. The cursor advances past the whole note, ready for the next
-one. For an existing note, select its onset or any of its tied steps with **STEP**
-(knob 1) and turn PRESETS. Clockwise extends it; counterclockwise shortens it to a minimum
-of one step. Ties are added and removed automatically.
+On **SEQ > STEP**, play notes from the FM-1 keys or external USB/TRS MIDI. Notes
+enter at the cursor; chords use up to four notes in POLY mode. Hold a key or chord
+and turn **STEP** (knob 1) to change its length. Clockwise extends it;
+counterclockwise shortens it to a minimum of one step. Release all keys to advance
+the cursor past the note. When no note is held, STEP moves the cursor normally.
+**PRESETS** browses sounds, and **TIME** on knob 3 still selects NOTE, TIE or REST.
+The readout above the piano roll shows `HOLD + STEP: 4 STP`, for example. Ties
+are added and removed automatically.
 
 Lengths can cross a 16-step bank or the pattern's loop boundary, up to one full
 pattern. Extensions stop before another note; shortening clears only the removed

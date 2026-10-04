@@ -888,11 +888,11 @@ static void draw_graph(void)
     }
     if (!ui.home && pg->scope == SC_STEP) {
         uint32_t start = step_note_start(t, ui.cursor);
-        char hint[32] = "PRESETS: SELECT A NOTE";
+        char hint[32] = "STEP: MOVE / HOLD: LEN";
         if (is_drum(t)) {
             str_cpy(hint, "DRUMS: ONE SHOT", sizeof hint);
         } else if (start < NSTEP) {
-            str_cpy(hint, "PRESETS: LENGTH ", sizeof hint);
+            str_cpy(hint, "HOLD + STEP: ", sizeof hint);
             fmt_int(hint + str_len(hint), (int32_t)step_note_length(t, start));
             str_cpy(hint + str_len(hint), " STP", 5);
         }
@@ -1170,4 +1170,3 @@ static void ui_draw(void)
     draw_foot();
     ui.force = 0;
 }
-

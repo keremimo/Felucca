@@ -103,13 +103,18 @@ static void tracks_rec_tap(void)
         transport_req = 1;
 }
 
+static void step_length_edit(int32_t steps);
+
 static void step_edit(uint32_t slot, int32_t steps)
 {
     step_t *st = &TSEL->step[ui.cursor];
     uint32_t i;
     switch (slot) {
-    case 0:                                               /* STEP: the cursor */
-        cursor_set(ui.cursor + steps);
+    case 0:                                               /* STEP: held entry length, otherwise cursor */
+        if (ui.entry_open)
+            step_length_edit(steps);
+        else
+            cursor_set(ui.cursor + steps);
         break;
     case 1:                                               /* NOTE: transpose the step */
         if (!st->n) {
@@ -135,7 +140,7 @@ static void step_edit(uint32_t slot, int32_t steps)
     }
 }
 
-/* PRESETS on STEP resizes a note from its onset or any of its ties. */
+/* KNOB 1 while entering a note resizes it from its onset. */
 static void step_length_edit(int32_t steps)
 {
     track_t *t = TSEL;
@@ -279,32 +284,70 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
 }
 
-/* SEQ step entry, acid style: the keys pressed together (POLY: up to 4, MONO:
- * the last one) become the cursor step; releasing all keys moves past its ties */
-static void seq_entry(uint32_t pressed)
+/* SEQ step entry from either the panel keys or an incoming MIDI note. */
+static void seq_entry_note(uint32_t note)
 {
     track_t *t = TSEL;
     step_t *st = &t->step[ui.cursor];
+    uint32_t i;
+    if (!ui.entry_open) {
+        ui.entry_open = 1;
+        st->n = 0;
+        st->time = ST_NOTE;
+    }
+    if (t->p[P_VOICE] != V_POLY) {
+        st->note[0] = (uint8_t)note;
+        st->n = 1;
+    } else {
+        for (i = 0; i < st->n && st->note[i] != note; i++)
+            ;
+        if (i == st->n && st->n < 4u)
+            st->note[st->n++] = (uint8_t)note;
+    }
+    last_note = (uint8_t)note;
+}
+
+/* The audio ISR owns MIDI routing; the UI takes its mapped note edges here. */
+static void seq_midi_events(int accept)
+{
+    if (step_midi_overflow) {
+        step_midi_r = step_midi_w;
+        step_midi_overflow = 0;
+        step_midi_held = 0;
+        ui.entry_open = 0;
+        if (accept)
+            ui_message("MIDI INPUT BUSY");
+        return;
+    }
+    while (step_midi_r != step_midi_w) {
+        uint32_t edge = step_midi_q[step_midi_r++ % STEP_MIDI_Q];
+        if (!accept || ((edge >> 8) & 3u) != song.sel)
+            continue;
+        if (edge & (1u << 11)) {
+            step_midi_held = 0;
+        } else if (edge & (1u << 10)) {
+            if (step_midi_held < 0xFFFFu)
+                step_midi_held++;
+            seq_entry_note(edge & 127u);
+        } else if (step_midi_held) {
+            step_midi_held--;
+        }
+    }
+}
+
+/* The keys pressed together (POLY: up to 4, MONO: the last one) become the
+ * cursor step; releasing all keys moves past its ties. */
+static void seq_entry(uint32_t pressed)
+{
     uint32_t k;
     for (k = 0; k < 27u; k++) {
         uint32_t note;
         if (!((pressed >> k) & 1u))
             continue;
-        note = kb_map(t, k);
+        note = kb_map(TSEL, k);
         if (note == KB_SILENT)
             continue;
-        if (!ui.entry_open) {
-            ui.entry_open = 1;
-            st->n = 0;
-            st->time = ST_NOTE;
-        }
-        if (t->p[P_VOICE]) {
-            st->note[0] = (uint8_t)note;
-            st->n = 1;
-        } else if (st->n < 4u) {
-            st->note[st->n++] = (uint8_t)note;
-        }
-        last_note = (uint8_t)note;
+        seq_entry_note(note);
     }
 }
 
@@ -346,6 +389,8 @@ static void ui_input(void)
         }
     }
     if (ui.menu) {                                      /* HOME / REC taps do nothing here */
+        seq_midi_events(0);
+        step_midi_held = ui.entry_open = 0;
         if (ui.rec_t0)
             ui.rec_t0 |= 2u;                            /* a REC press in the menu is no tap later */
         if (!ui.home_t0)
@@ -365,6 +410,8 @@ static void ui_input(void)
             open_family(FAM_TRK);                       /* nothing to record here: the TRACKS page */
     }
     if (ui.confirm) {                                   /* OCT- cancels, OCT+ clears; nothing else reacts */
+        seq_midi_events(0);
+        step_midi_held = ui.entry_open = 0;
         if ((pressed >> panel.btn[B_OCTUP]) & 1u) {
             track_t *t = &trk[ui.confirm_trk % NTRK];
             track_defaults_steps(t);
@@ -426,18 +473,20 @@ static void ui_input(void)
         }
         }
     }
-    if (song.seq_mode && cur_page()->scope == SC_STEP)
+    if (song.seq_mode && cur_page()->scope == SC_STEP) {
         seq_entry(notes);
+        seq_midi_events(1);
+    } else {
+        seq_midi_events(0);
+    }
 
     if ((s = panel_enc(EN_PRESET)) != 0) {
-        if (!ui.home && cur_page()->scope == SC_STEP) {
-            step_length_edit(s);
-        } else if (!ui.home && (cur_page()->scope == SC_FMOP || cur_page()->graph == GR_FMALG) && fm6_shown()) {
+        if (!ui.home && (cur_page()->scope == SC_FMOP || cur_page()->graph == GR_FMALG) && fm6_shown()) {
             fm6_opsel = (uint8_t)clamp((int32_t)fm6_opsel + (s > 0 ? 1 : -1), 0, 5);   /* FM6: PRESETS picks the operator */
             ui.force = 1;
-        } else if (ui.home || cur_page()->graph == GR_BROWSE || cur_fam() == FAM_TRK) {
-            /* PRESETS browses the selected part's presets (all engines, then user presets) on HOME, the PRESETS
-             * page and TRACKS only (the drum track: nothing):
+        } else if (ui.home || cur_page()->graph == GR_BROWSE || cur_fam() == FAM_TRK || cur_page()->scope == SC_STEP) {
+            /* PRESETS browses the selected part's presets on HOME, STEP, the PRESETS
+             * page and TRACKS (the drum track: nothing):
              * elsewhere a stray turn would throw away the sound being edited */
             uint32_t total, cur = preset_pos(&total);
             if (total)
@@ -470,7 +519,7 @@ static void ui_input(void)
     }
     /* Apply the last length detent before advancing if the keys lift in the
      * same UI frame. Drums keep their original one-step entry behavior. */
-    if (song.seq_mode && cur_page()->scope == SC_STEP && ui.entry_open && !fm1_in.notes) {
+    if (song.seq_mode && cur_page()->scope == SC_STEP && ui.entry_open && !fm1_in.notes && !step_midi_held) {
         uint32_t n = is_drum(TSEL) ? 1u : step_note_length(TSEL, ui.cursor);
         cursor_set(ui.cursor + (n ? n : 1u));
     }
@@ -544,4 +593,3 @@ timeout:
     ui.force = 1;
     ui_message("SETUP CANCELLED");
 }
-

@@ -73,6 +73,12 @@ static void reset(uint32_t len)
     memset(&song, 0, sizeof song);
     memset(&ui, 0, sizeof ui);
     memset(encoders, 0, sizeof encoders);
+    memset(midi_notes, 0, sizeof midi_notes);
+    memset(midi_ch, 0, sizeof midi_ch);
+    memset(midi_owners, 0, sizeof midi_owners);
+    memset(live_refs, 0, sizeof live_refs);
+    step_midi_w = step_midi_r = step_midi_overflow = 0;
+    mi_w = mi_r = 0;
     host_tracks_init();
     for (i = 0; i < NTRK; i++) track_defaults_steps(&trk[i]);
     panel = PANEL_DEFAULT;
@@ -91,9 +97,16 @@ static void key_frame(uint32_t keys, int32_t length_delta)
 {
     note_edges = keys & ~fm1_in.notes;
     fm1_in.notes = keys;
-    encoders[panel.enc[EN_PRESET]] = length_delta;
+    encoders[panel.enc[EN_K1]] = length_delta;
     fm1_ms += 20;
     ui_input();
+}
+
+static void midi_frame(uint32_t status, uint32_t pitch, uint32_t vel, int32_t step_delta)
+{
+    midi_in_q[mi_w++ % MQ] = (status >> 4) | status << 8 | pitch << 16 | vel << 24;
+    events_block(0);
+    key_frame(fm1_in.notes, step_delta);
 }
 
 static void note(uint32_t index)
@@ -148,25 +161,29 @@ static void gestures_test(void)
 {
     reset(32);
     cursor_set(14);
-    /* Enter a chord and turn PRESETS on its first frame. */
+    /* Enter a chord and turn STEP on its first frame. */
     key_frame((1u << 7) | (1u << 11) | (1u << 14), 3);
     assert(ui.entry_open && ui.cursor == 14 && step_note_length(TSEL, 14) == 4);
     assert(TSEL->step[14].n == 3 && TSEL->preset == 0);
+    key_frame((1u << 7) | (1u << 11) | (1u << 14), -2);
+    assert(ui.cursor == 14 && step_note_length(TSEL, 14) == 2 && TSEL->step[16].time == ST_REST);
+    key_frame((1u << 7) | (1u << 11) | (1u << 14), 2);
+    assert(step_note_length(TSEL, 14) == 4);
     /* Last detent and key release in the same frame: include it before advance. */
     key_frame(0, 1);
     assert(!ui.entry_open && ui.cursor == 19 && ui.bank == 1);
-    cursor_set(17);                         /* edit from inside the tie chain */
-    key_frame(0, -3);
-    assert(ui.cursor == 14 && step_note_length(TSEL, 14) == 2);
-    assert(TSEL->step[16].time == ST_REST);
+    key_frame(0, -2);                       /* released: STEP moves the cursor */
+    assert(ui.cursor == 17 && step_note_length(TSEL, 14) == 5);
+    cursor_set(14);
     note(18);
-    key_frame(0, 20);
+    key_frame(1u << 7, 20);                 /* an existing neighbor stops extension */
     assert(step_note_length(TSEL, 14) == 4 && TSEL->step[18].n == 3);
     assert(!strcmp(ui.msg, "NEXT NOTE"));
+    key_frame(0, 0);
     cursor_set(20);
     key_frame(0, 3);
-    assert(TSEL->step[20].time == ST_REST && !strcmp(ui.msg, "SELECT A NOTE"));
-    encoders[panel.enc[EN_K1]] = -6;         /* STEP (knob 1) moves the cursor */
+    assert(ui.cursor == 23 && TSEL->step[20].time == ST_REST);
+    encoders[panel.enc[EN_K1]] = -9;         /* STEP moves the cursor when released */
     ui_input();
     assert(ui.cursor == 14);
     encoders[panel.enc[EN_K3]] = 1;          /* TIME still edits NOTE/TIE/REST */
@@ -175,9 +192,9 @@ static void gestures_test(void)
     encoders[panel.enc[EN_K3]] = -1;
     ui_input();
     assert(TSEL->step[14].time == ST_NOTE);
-    go_home();
-    key_frame(0, 1);
-    assert(TSEL->preset == 1);              /* PRESETS still browses on HOME */
+    encoders[panel.enc[EN_PRESET]] = 1;
+    ui_input();
+    assert(TSEL->preset == 1);              /* PRESETS browses on STEP */
     reset(16);
     cursor_set(14);
     key_frame(1u << 7, 3);
@@ -191,10 +208,51 @@ static void gestures_test(void)
     assert(ui.cursor == 1);
     reset(16);
     TSEL->p[P_QUANT] = 2;                  /* WHITE */
-    key_frame(1u << 8, 2);                 /* silent scale key cannot start an entry */
+    key_frame(1u << 8, 0);                 /* silent scale key cannot start an entry */
     key_frame(0, 0);
     assert(ui.cursor == 0 && !TSEL->step[0].n);
-    puts("gestures: held chord, release/detent ordering, tied-step selection, STEP, TIME, preset browsing, drums and scale mode ok");
+    puts("gestures: held chord, release/detent ordering, STEP cursor/length, TIME, preset browsing, drums and scale mode ok");
+}
+
+static void midi_entry_test(void)
+{
+    reset(32);
+    TSEL->p[P_VOICE] = V_POLY;
+    TSEL->p[P_QUANT] = Q_WHITE;
+    TSEL->p[P_SCALE] = 1;                    /* major: MIDI C4/E4/G4 */
+    cursor_set(14);
+    midi_frame(0x91, 60, 100, 0);           /* channel 2 belongs to another track */
+    assert(ui.cursor == 14 && !ui.entry_open);
+    midi_frame(0x90, 61, 100, 0);           /* WHITE: black key is silent */
+    assert(!ui.entry_open);
+    midi_frame(0x90, 60, 100, 2);
+    midi_frame(0x90, 64, 100, 1);
+    midi_frame(0x90, 67, 100, 0);
+    assert(ui.entry_open && step_midi_held == 3 && step_note_length(TSEL, 14) == 4);
+    assert(TSEL->step[14].n == 3 && TSEL->step[14].note[0] == 60 &&
+           TSEL->step[14].note[1] == 64 && TSEL->step[14].note[2] == 67);
+    midi_frame(0x80, 60, 0, 0);
+    midi_frame(0x90, 64, 0, 0);            /* note-on velocity zero is note-off */
+    assert(ui.cursor == 14 && step_midi_held == 1);
+    midi_frame(0x80, 67, 0, 1);           /* final detent applies before advancing */
+    assert(ui.cursor == 19 && !step_midi_held && !ui.entry_open);
+    assert(step_note_length(TSEL, 14) == 5);
+    midi_frame(0x80, 61, 0, 0);
+    midi_frame(0x80, 60, 0, 0);           /* duplicate/stray note-offs do nothing */
+    assert(ui.cursor == 19);
+    midi_frame(0x90, 72, 100, 0);
+    key_frame(1u << 7, 1);                /* mixed panel and MIDI keys share an entry */
+    assert(ui.entry_open && step_note_length(TSEL, 19) == 2);
+    midi_frame(0x80, 72, 0, 0);
+    assert(ui.cursor == 19);
+    key_frame(0, 0);
+    assert(ui.cursor == 21);
+    midi_frame(0x90, 74, 100, 0);
+    assert(ui.entry_open && step_midi_held == 1);
+    midi_silence_track(0);                  /* preset/panic clears every held MIDI key */
+    key_frame(0, 0);
+    assert(ui.cursor == 22 && !step_midi_held);
+    puts("MIDI STEP entry: routing, WHITE scale, chords, release, final detent and mixed input ok");
 }
 
 static void playback_test(void)
@@ -233,7 +291,7 @@ static void render_test(const char *path)
         int y = Y_GRAPH + G_OY + 80 - (TSEL->step[14].note[j] - 60) * 74 / 12;
         assert(screen[y * 240] == C_GRAY && screen[y * 240 + 14] == C_GRAY);
     }
-    assert(text_w(&FONT_S, "PRESETS: LENGTH 64 STP") <= 232);
+    assert(text_w(&FONT_S, "HOLD + STEP: 64 STP") <= 232);
     if (path) {
         FILE *f = fopen(path, "wb");
         assert(f);
@@ -252,6 +310,7 @@ int main(int argc, char **argv)
 {
     lengths_test();
     gestures_test();
+    midi_entry_test();
     playback_test();
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;

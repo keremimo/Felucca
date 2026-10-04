@@ -35,6 +35,25 @@ static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on 
  * Zero means no sounding note; high byte = track + 1, low byte = mapped note. */
 static uint16_t live_refs[NTRK][128];     /* overlapping local/MIDI keys sharing a pitch */
 static uint8_t last_note = 60;
+/* Audio ISR -> UI step-entry edges. Carry the mapped pitch and destination so
+ * the UI never has to guess after a channel, scale or track change. */
+#define STEP_MIDI_Q 64u
+static uint32_t step_midi_q[STEP_MIDI_Q];
+static volatile uint32_t step_midi_w, step_midi_r;
+static volatile uint8_t step_midi_overflow;
+
+static void step_midi_edge(uint32_t track, uint32_t pitch, uint32_t on)
+{
+    uint32_t w = step_midi_w;
+    if (!song.seq_mode)
+        return;
+    if (w - step_midi_r >= STEP_MIDI_Q) {
+        step_midi_overflow = 1;
+        return;
+    }
+    step_midi_q[w % STEP_MIDI_Q] = (track << 8) | pitch | (on << 10); /* on: 0 off, 1 on, 2 all off */
+    step_midi_w = w + 1u;
+}
 static volatile uint8_t transport_req;   /* 1 start, 2 stop (from the UI) */
 static volatile uint8_t panic_req;       /* bit per track: release every sounding note (preset / engine change) */
 /* The input ISR timestamps clock packets; this state is owned by the audio ISR.

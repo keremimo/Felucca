@@ -72,6 +72,7 @@ static struct {
     uint32_t graph_sig, head_sig, foot_sig, frame;
     uint8_t graph_top;           /* the graph strip's top G_OY rows hold something */
 } ui;
+static uint16_t step_midi_held; /* MIDI notes held for the selected STEP entry */
 
 static const page_t *cur_page(void) { return &PAGES[ui.page]; }
 
@@ -101,6 +102,8 @@ static void page_entered(void)
     const page_t *pg = cur_page();
     song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
     ui.entry_open = 0;
+    step_midi_held = 0;
+    step_midi_r = step_midi_w;
     ui.hot_t = 0;                                /* the white value / focus box was the old page's */
     ui.force = 1;
 }
@@ -114,6 +117,7 @@ static void cursor_set(int32_t c)
     ui.cursor = (uint8_t)((c % len + len) % len);
     ui.bank = (uint8_t)(ui.cursor / 16u);
     ui.entry_open = 0;
+    step_midi_held = 0;
 }
 
 static void cursor_fix(void)                           /* LEN got shorter: onto the last step */
@@ -160,6 +164,8 @@ static void go_home(void)
 {
     ui.home = 1;
     ui.entry_open = 0;
+    step_midi_held = 0;
+    step_midi_r = step_midi_w;
     ui.hot_t = 0;
     song.seq_mode = 0;
     ui.force = 1;
@@ -400,6 +406,8 @@ static void track_select(uint32_t i)
         return;
     song.sel = (uint8_t)i;
     ui.entry_open = 0;
+    step_midi_held = 0;
+    step_midi_r = step_midi_w;
     ui.cursor = 0;
     ui.bank = 0;
     sync_reload = 1;
