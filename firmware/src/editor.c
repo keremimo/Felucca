@@ -279,8 +279,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         fm1_irq_off();
         snapshot[0] = ua.play_alt;
         snapshot[1] = ua.cap_alt;
-        snapshot[2] = ua.play_rate;
-        snapshot[3] = ua.cap_rate;
+        snapshot[2] = UA_RATE;
+        snapshot[3] = UA_RATE;
         snapshot[4] = ua.pw - ua.pr;
         snapshot[5] = ua.cw - ua.cr;
         snapshot[6] = ua.play_underruns;

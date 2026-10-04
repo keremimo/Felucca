@@ -7,7 +7,6 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
-import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,7 +38,7 @@ def descriptors(audio, cdc):
     for key, interface in interfaces.items():
         assert len(endpoints[key]) == interface[4]
     if audio:
-        assert len(data) == 423 and data[4] == 6
+        assert len(data) == 411 and data[4] == 6
         # Two audio functions, so hosts list an output and a separate input
         # device, each on its own clock. IAD and control interface share the name.
         iads = [d for d in records if d[1] == 0x0B]
@@ -56,7 +55,7 @@ def descriptors(audio, cdc):
             assert feedback[2:6] == bytes([0x83, 0x11, 3, 0])
             assert playback[8] == feedback[2]
             for ep, channels in ((playback, 2), (capture, 4)):
-                assert int.from_bytes(ep[4:6], "little") == 49 * channels * width and ep[6] == 1
+                assert int.from_bytes(ep[4:6], "little") == 45 * channels * width and ep[6] == 1
         current = None
         formats, links = {}, {}
         for d in records:
@@ -64,16 +63,16 @@ def descriptors(audio, cdc):
                 current = (d[2], d[3])
             elif current and current[0] in (3, 5) and d[1:3] == bytes([0x24, 1]):
                 links[current] = d[3]
-            elif len(d) == 14 and d[1:3] == bytes([0x24, 2]):
+            elif current and current[0] in (3, 5) and d[1:3] == bytes([0x24, 2]):
                 formats[current] = d
             elif current and current[0] in (3, 5) and d[1] == 0x25:
                 assert d[3] == 1  # sampling-frequency control advertised
         assert set(formats) == {(3, 1), (3, 2), (5, 1), (5, 2)}
         for (interface, alt), fmt in formats.items():
             width = alt + 1
-            assert fmt[3:8] == bytes([1, 4 if interface == 5 else 2, width, width * 8, 2])
+            assert len(fmt) == 11  # exactly one discrete rate; no hidden 48 kHz entry
+            assert fmt[3:8] == bytes([1, 4 if interface == 5 else 2, width, width * 8, 1])
             assert int.from_bytes(fmt[8:11], "little") == 44100
-            assert int.from_bytes(fmt[11:14], "little") == 48000
         # Playback streams into IT1, recording leaves through OT4.
         assert links == {(3, 1): 1, (3, 2): 1, (5, 1): 4, (5, 2): 4}
         # Each AC header lists only its own streaming interface, and its
@@ -100,7 +99,3 @@ def descriptors(audio, cdc):
 
 for mode in ((0, 0), (0, 1), (1, 0)):
     descriptors(*mode)
-
-generated = subprocess.check_output([sys.executable, str(ROOT / "tools/gen_usb_audio.py")], text=True)
-assert generated == (ROOT / "firmware/src/usb_audio_filter.h").read_text()
-print("USB audio FIR tables: reproducible, unity gain and int32 accumulator bounds: OK")

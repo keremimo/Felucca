@@ -4,42 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#define UA_POOL
 #include "../firmware/src/usb_audio_stream.c"
-
-/* The doubled history must present exactly the last UA_TAPS frames, newest
- * first, at every head position: compare with a plainly shifted window. */
-static void converter(void)
-{
-    struct ua_converter s;
-    int16_t window[UA_TAPS][2] = {{0}}, got[2];
-    uint32_t seed = 1, i, k, p;
-    assert(!memcmp(ua_play_taps, ua_play_filter, sizeof ua_play_taps));
-    assert(!memcmp(ua_cap_taps, ua_cap_filter, sizeof ua_cap_taps));
-    ua_src_reset(&s);
-    for (i = 0; i < 3u * UA_TAPS + 5u; i++) {
-        int16_t l, r;
-        seed = seed * 1664525u + 1013904223u;
-        l = (int16_t)(seed >> 16);
-        r = (int16_t)(seed >> 3);
-        ua_src_push(&s, l, r);
-        memmove(window[1], window[0], sizeof window - sizeof window[0]);
-        window[0][0] = l;
-        window[0][1] = r;
-        for (p = 0; p < 160u; p += 7u) {
-            const int16_t *coeff = p < 147u && (i & 1u) ? ua_play_taps[p] : ua_cap_taps[p];
-            int64_t want[2] = {0, 0};
-            for (k = 0; k < UA_TAPS; k++) {
-                want[0] += (int64_t)window[k][0] * coeff[k];
-                want[1] += (int64_t)window[k][1] * coeff[k];
-            }
-            ua_src_sample(&s, coeff, got);
-            assert(got[0] == ua_clip((int32_t)((want[0] + 8192) >> 14)));
-            assert(got[1] == ua_clip((int32_t)((want[1] + 8192) >> 14)));
-        }
-    }
-    puts("USB audio FIR: RAM taps, unwrapped history window: OK");
-}
 
 static void pcm(uint8_t *p, uint32_t frames, int16_t l, int16_t r)
 {
@@ -97,20 +62,18 @@ static void routing(void)
 /* Model a host honoring feedback every 16 ms, with independent I2S clock and
  * the real 256-frame render bursts. Exercise both clock drift directions and
  * each stream alone: playback feedback cannot depend on capture being open. */
-static void drift(int ppm, int play, int cap, uint32_t play_rate, uint32_t cap_rate)
+static void drift(int ppm, int play, int cap)
 {
     uint8_t packet[UA_PACKET], captured[UA_PACKET];
     int32_t out[64];
     uint64_t device_phase = 0;
-    uint32_t host_phase = 0, feedback = play_rate * 16384u / 1000u, ms, i, bytes;
+    uint32_t host_phase = 0, feedback = UA_NOMINAL, ms, i, bytes;
     uint32_t pw = play == 2 ? 3u : 2u, cw = cap == 2 ? 3u : 2u;
     uint64_t step = (uint64_t)UA_RATE * (1000000 + ppm);
     memset(&ua, 0, sizeof ua);
     ua_reset();
     ua.play_alt = play;
     ua.cap_alt = cap;
-    ua.play_rate = play_rate;
-    ua.cap_rate = cap_rate;
     for (ms = 0; ms < 120000; ms++) {
         device_phase += step;
         while (device_phase >= 256ull * 1000000000ull) {
@@ -135,7 +98,7 @@ static void drift(int ppm, int play, int cap, uint32_t play_rate, uint32_t cap_r
             feedback = ua_feedback();
         if (cap) {
             bytes = ua_transmit(captured);
-            assert(bytes <= 49u * cw * 4u && bytes >= 43u * cw * 4u && bytes % (cw * 4u) == 0);
+            assert(bytes <= 45u * cw * 4u && bytes >= 43u * cw * 4u && bytes % (cw * 4u) == 0);
             if (ms > 1000)
                 for (i = 0; i < bytes; i += cw * 4u) {
                     assert(ua_decode(captured + i, cw) == 1000);
@@ -148,8 +111,8 @@ static void drift(int ppm, int play, int cap, uint32_t play_rate, uint32_t cap_r
     }
     assert(!ua.play_underruns && !ua.play_overruns);
     assert(!ua.cap_underruns && !ua.cap_overruns && !ua.bad_packets);
-    printf("USB audio: 120 s, drift %+d ppm, playback %d/%u capture %d/%u: OK\n",
-           ppm, play, play_rate, cap, cap_rate);
+    printf("USB audio: 120 s at 44100 Hz, drift %+d ppm, playback %d capture %d: OK\n",
+           ppm, play, cap);
 }
 
 static void recovery(void)
@@ -212,8 +175,8 @@ static void pcm24(void)
     for (uint32_t i = 0; i < 6; i++)
         assert(ua.play[2u * i] == values[i] && ua.play[2u * i + 1u] == values[i]);
     uint32_t bad = ua.bad_packets;
-    ua_receive(packet, 293);
-    ua_receive(packet, 300);
+    ua_receive(packet, UA_PLAY_PACKET - 1);
+    ua_receive(packet, UA_PLAY_PACKET + 6);
     assert(ua.bad_packets == bad + 2u && ua.pw == 6);
     ua_receive(packet, 0);                   /* legal empty isochronous packet */
     for (uint32_t i = 0; i < 16; i++) block(-32768, 32767, 0, out);
@@ -230,11 +193,10 @@ static void pcm24(void)
     ua.pw = ua.pr = 0xFFFFFFF0u;
     memset(packet, 0, sizeof packet);
     ua_receive(packet, UA_PLAY_PACKET);
-    assert(ua.pw - ua.pr == 49 && ua.bad_packets == bad + 2u);
+    assert(ua.pw - ua.pr == 45 && ua.bad_packets == bad + 2u);
     ua_cap_reset();
     ua.cw = ua.cr = 0xFFFFFFF0u;
     for (uint32_t i = 0; i < 16; i++) block(1234, -2345, 0, out);
-    ua.cap_rate = 48000;
     ua.cap_fill_q8 = (UA_TARGET + 512u) * 256u;
     ua.cap_frac = 16383;
     uint8_t guarded[UA_PACKET + 2];
@@ -249,7 +211,7 @@ struct measurement { double re, im, energy; uint32_t count, used; };
 static void measure(struct measurement *m, int32_t sample, double frequency, uint32_t rate)
 {
     double phase = 6.283185307179586 * frequency * m->count++ / rate;
-    if (m->count < 256) return;              /* exclude filter startup */
+    if (m->count < 256) return;              /* exclude startup */
     m->re += sample * cos(phase);
     m->im += sample * sin(phase);
     m->energy += (double)sample * sample;
@@ -257,28 +219,26 @@ static void measure(struct measurement *m, int32_t sample, double frequency, uin
 }
 
 /* Exercise actual packet -> ring -> engine and engine -> ring -> packet paths.
- * Correlation checks pitch as well as level; RMS detects out-of-band aliases. */
-static void tone(int capture, double frequency, uint32_t channel)
+ * Correlation checks pitch as well as level at both USB sample widths. */
+static void tone(int capture, double frequency, uint32_t channel, uint32_t alt)
 {
     uint8_t packet[UA_PACKET];
     int32_t out[96];
     int32_t tracks[32 * UA_CAP_CHANNELS] = {0};
     struct measurement m = {0};
-    uint32_t source_rate = capture ? 44100u : 48000u;
-    uint32_t destination_rate = capture ? 48000u : 44100u;
+    uint32_t width = ua_sample_bytes(alt);
     ua_reset();
-    ua.play_alt = capture ? 0 : 2;
-    ua.cap_alt = capture ? 2 : 0;
-    ua.play_rate = ua.cap_rate = 48000;
-    for (uint32_t input = 0; input < source_rate;) {
-        uint32_t n = capture ? 32u : 48u;
-        if (n > source_rate - input) n = source_rate - input;
+    ua.play_alt = capture ? 0 : alt;
+    ua.cap_alt = capture ? alt : 0;
+    for (uint32_t input = 0; input < UA_RATE;) {
+        uint32_t n = 32u;
+        if (n > UA_RATE - input) n = UA_RATE - input;
         for (uint32_t i = 0; i < n; i++) {
-            int16_t sample = (int16_t)lrint(10000 * sin(6.283185307179586 * frequency * input++ / source_rate));
+            int16_t sample = (int16_t)lrint(10000 * sin(6.283185307179586 * frequency * input++ / UA_RATE));
             if (capture) tracks[i * 4u + channel] = sample;
             else {
-                ua_encode(packet + i * 6u, 3, sample);
-                ua_encode(packet + i * 6u + 3u, 3, sample);
+                ua_encode(packet + i * 2u * width, width, sample);
+                ua_encode(packet + (i * 2u + 1u) * width, width, sample);
             }
         }
         if (capture) {
@@ -286,61 +246,53 @@ static void tone(int capture, double frequency, uint32_t channel)
             ua_audio(out, tracks, n, 0);
             while (ua.cw - ua.cr >= UA_TARGET + 64u) {
                 uint32_t bytes = ua_transmit(packet);
-                for (uint32_t i = 0; i < bytes; i += 12u) {
-                    measure(&m, ua_decode(packet + i + channel * 3u, 3), frequency, destination_rate);
+                for (uint32_t i = 0; i < bytes; i += 4u * width) {
+                    measure(&m, ua_decode(packet + i + channel * width, width), frequency, UA_RATE);
                     for (uint32_t ch = 0; ch < 4; ch++)
-                        if (ch != channel) assert(ua_decode(packet + i + ch * 3u, 3) == 0);
+                        if (ch != channel) assert(ua_decode(packet + i + ch * width, width) == 0);
                 }
             }
         } else {
-            ua_receive(packet, n * 6u);
+            ua_receive(packet, n * 2u * width);
             while (ua.pw - ua.pr >= UA_TARGET + 32u) {
                 block(0, 0, 4096, out);
                 for (uint32_t i = 0; i < 32u; i++)
-                    measure(&m, out[i * 2u], frequency, destination_rate);
+                    measure(&m, out[i * 2u], frequency, UA_RATE);
             }
         }
     }
     if (capture)
-        assert(ua.cr * 160u - m.count * 147u == ua.cap_src.phase);
+        assert(ua.cr == m.count);
     else
-        assert(ua.pw == 44100 && ua.play_src.phase == 0);
+        assert(ua.pw == 44100);
     double gain = 2 * sqrt(m.re * m.re + m.im * m.im) / m.used / 10000;
     double rms = sqrt(2 * m.energy / m.used) / 10000;
-    if (frequency < 18000) {
-        assert(gain > 0.995 && gain < 1.005);
-        assert(rms > 0.995 && rms < 1.005);
-    } else {
-        assert(rms < 0.01);                 /* >40 dB rejection at 23 kHz */
-    }
-    printf("USB audio conversion: %s ch%u %.0f Hz, gain %.5f, RMS %.5f: OK\n",
-           capture ? "capture" : "playback", channel + 1, frequency, gain, rms);
+    assert(gain > 0.995 && gain < 1.005);
+    assert(rms > 0.995 && rms < 1.005);
+    printf("USB audio native PCM%u: %s ch%u %.0f Hz, gain %.5f, RMS %.5f: OK\n",
+           width * 8u, capture ? "capture" : "playback", channel + 1, frequency, gain, rms);
 }
 
 int main(void)
 {
-    ua_init();
-    converter();
     routing();
     recovery();
     pcm24();
-    tone(0, 1000, 0);
-    tone(0, 10000, 0);
-    tone(0, 23000, 0);
-    for (uint32_t ch = 0; ch < 4; ch++) {
-        tone(1, 1000, ch);
-        tone(1, 10000, ch);
-    }
-    for (uint32_t rate = 44100; rate <= 48000; rate += 3900)
-        for (int alt = 1; alt <= 2; alt++) {
-            drift(-1000, alt, alt, rate, rate);
-            drift(0, alt, alt, rate, rate);
-            drift(1000, alt, alt, rate, rate);
-            drift(-1000, alt, 0, rate, rate);
-            drift(1000, 0, alt, rate, rate);
+    for (int alt = 1; alt <= 2; alt++) {
+        tone(0, 1000, 0, alt);
+        tone(0, 10000, 0, alt);
+        for (uint32_t ch = 0; ch < 4; ch++) {
+            tone(1, 1000, ch, alt);
+            tone(1, 10000, ch, alt);
         }
-    drift(1000, 2, 1, 48000, 44100);
-    drift(-1000, 1, 2, 44100, 48000);
+        drift(-1000, alt, alt);
+        drift(0, alt, alt);
+        drift(1000, alt, alt);
+        drift(-1000, alt, 0);
+        drift(1000, 0, alt);
+    }
+    drift(1000, 2, 1);
+    drift(-1000, 1, 2);
     puts("USB audio routing, drift, packet bounds and recovery: OK");
     return 0;
 }

@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* USB full-speed device on USB0: a class-compliant USB-MIDI interface.
- * All SIE traffic happens in usb_poll(), called from the TIMER5 ISR at 2 kHz,
+ * All SIE traffic happens in usb_poll(), called from the TIMER5 ISR (2 kHz,
+ * up to 4 kHz in USB audio mode),
  * so INDEX is never shared and no USB IRQ is needed. MIDI in goes to a ring
  * the audio ISR drains; MIDI out comes from a ring the audio ISR fills.
  * SysEx F0 22 24 35 7D F7 (soft key) asks the main loop to enter UBOOT.
@@ -111,10 +112,10 @@ static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 /* ------------------------------------------------------- descriptors --- */
 #if FELUCCA_USB_AUDIO
 #include "usb_audio_stream.c"
-static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x05, 0x03,
-                                     1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.05: four capture channels */
+static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x06, 0x03,
+                                     1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.06: native 44.1 kHz only */
 static const uint8_t CFG_DESC[] = {
-    9, 2, 0xA7, 0x01, 6, 1, 0, 0x80, 50,               /* 423 bytes, six interfaces */
+    9, 2, 0x9B, 0x01, 6, 1, 0, 0x80, 50,               /* 411 bytes, six interfaces */
     8, 0x0B, 0, 2, 1, 1, 0, 0,                          /* IAD: MIDI (IF 0-1) */
 #elif FELUCCA_CDC
 static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x01, 0x03,
@@ -718,7 +719,7 @@ static void ep3_tx(void)                                /* <= 63 bytes per packe
 }
 #endif
 
-static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
+static void usb_poll(void)                              /* TIMER5 ISR */
 {
     uint32_t iu, it, ir;
     if (!usb.up)
@@ -732,7 +733,7 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
     }
     if (usb.config) {                                   /* the frame number only advances with a real host */
         static uint32_t tick;
-        if (++tick >= 20u) {                            /* every 20 polls = 10 ms */
+        if (++tick >= 20u) {                            /* periodic liveness check, <= 10 ms */
             uint16_t f;
             tick = 0;
             f = (uint16_t)(sie_rd(S_FRAME1) | (sie_rd(S_FRAME2) & 7u) << 8);
@@ -740,7 +741,7 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
                 usb.frame = f;
                 usb.frame_same = 0;
                 usb.suspended = 0;
-            } else if (++usb.frame_same >= 10u && !usb.suspended) {   /* 100 ms frozen: unplugged / host asleep */
+            } else if (++usb.frame_same >= 10u && !usb.suspended) {   /* repeatedly frozen: unplugged / host asleep */
                 usb.suspended = 1;
                 usb.frame_stalls++;
             }
@@ -810,7 +811,6 @@ static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
 static void usb_start(void)                             /* boot, or main-loop retry while usb.up == 0 */
 {
 #if FELUCCA_USB_AUDIO
-    ua_init();                                          /* USB service is off: nothing reads the taps */
     ua_reset();
     ua_rate_pending = 0;
     ua_frame_valid = ua_paused = 0;

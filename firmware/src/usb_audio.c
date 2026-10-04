@@ -10,7 +10,9 @@
 #define UA_IF_PLAY 3u                           /* streaming interfaces (usb_audio_desc.h) */
 #define UA_IF_CAP 5u
 #define UA_DMA_PACKET ((UA_PACKET + 3u) & ~3u)
-static uint8_t ua_tx[UA_DMA_PACKET] __attribute__((aligned(4)));
+static uint8_t ua_tx[2][UA_DMA_PACKET] __attribute__((aligned(4)));
+static uint32_t ua_tx_bytes;
+static uint8_t ua_tx_slot;
 static uint8_t ua_rx[((UA_PLAY_PACKET + 3u) & ~3u) + 4u] __attribute__((aligned(4)));
 static uint8_t ua_fb[4] __attribute__((aligned(4)));
 static uint16_t ua_frame;
@@ -35,7 +37,8 @@ static void ua_play_config(void)
 
 static void ua_cap_config(void)
 {
-    fm1_usb_ep_txbuf(2, ua_tx);
+    ua_tx_bytes = ua_tx_slot = 0;
+    fm1_usb_ep_txbuf(2, ua_tx[0]);
     sie_wr(S_INDEX, 2);
     sie_wr(S_TXMAXP, 0xFF);
     sie_wr(S_TXCSR1, 0x48);
@@ -48,6 +51,7 @@ static void ua_hw_stop(void)
     ua_reset();
     ua_rate_pending = 0;
     ua_frame_valid = ua_paused = 0;
+    ua_tx_bytes = ua_tx_slot = 0;
     sie_wr(S_INTRRX1E, sie_rd(S_INTRRX1E) & ~0x04u);
     sie_wr(S_INDEX, 2);
     sie_wr(S_RXCSR1, 0x90);
@@ -56,10 +60,10 @@ static void ua_hw_stop(void)
     sie_wr(S_TXCSR1, 0x48);
 }
 
-/* Keep one packet queued on each IN endpoint, refilled as soon as the host has
- * taken the last one. An IN token that finds nothing gets an empty packet: on
- * capture that costs the host a frame of input timeline, and macOS then drops
- * output it believes is late (about 2 ms in every 23 ms IO cycle). */
+/* Keep one packet queued on each IN endpoint. Prepare capture's next packet
+ * while DMA owns the current one, keeping PCM packing out of the critical
+ * path between noticing completion and arming the next IN transfer.
+ * An empty IN response loses a millisecond of the host's audio clock. */
 static void ua_tx_fill(void)
 {
     uint32_t n;
@@ -77,11 +81,21 @@ static void ua_tx_fill(void)
     if (ua.cap_alt) {
         sie_wr(S_INDEX, 2);
         if (!(sie_rd(S_TXCSR1) & 1u)) {
-            n = ua_transmit(ua_tx);
-            fm1_usb_ep_send(2, ua_tx, n);
+            if (!ua_tx_bytes)                   /* first packet after a stream reset */
+                ua_tx_bytes = ua_transmit(ua_tx[ua_tx_slot]);
+            fm1_usb_ep_send(2, ua_tx[ua_tx_slot], ua_tx_bytes);
             sie_wr(S_TXCSR1, 1);
+            ua.tx_packets++;
+            ua_tx_slot ^= 1u;
+            ua_tx_bytes = 0;
         }
     }
+}
+
+static void ua_tx_prepare(void)
+{
+    if (ua.cap_alt && !ua_tx_bytes)
+        ua_tx_bytes = ua_transmit(ua_tx[ua_tx_slot]);
 }
 
 static int ua_set_interface(uint16_t interface, uint16_t alt)
@@ -108,16 +122,19 @@ static int ua_set_interface(uint16_t interface, uint16_t alt)
         else {
             sie_wr(S_INDEX, 2);
             sie_wr(S_TXCSR1, 0x48);
+            ua_tx_bytes = ua_tx_slot = 0;
         }
     }
-    if (alt)
+    if (alt) {
         ua_tx_fill();                           /* ready for the host's first IN token */
+        ua_tx_prepare();
+    }
     return 1;
 }
 
-/* UAC1 endpoint sampling-frequency control; depth is selected by the AS
- * alternate setting (1 = PCM16, 2 = packed PCM24). Each direction owns its
- * rate so host setup order and mixed-rate duplex streams are both supported. */
+/* UAC1 endpoint sampling-frequency control. There is only one discrete rate;
+ * retain these requests for hosts that set it while starting a stream.
+ * Depth is selected by the AS alternate (1 = PCM16, 2 = packed PCM24). */
 static int ua_control_setup(const uint8_t *s)
 {
     uint32_t rate;
@@ -133,10 +150,10 @@ static int ua_control_setup(const uint8_t *s)
     if (s[0] != 0xA2u)
         return 0;
     switch (s[1]) {
-    case 0x81: rate = s[4] == 2u ? ua.play_rate : ua.cap_rate; break;
-    case 0x82: rate = UA_RATE; break;          /* GET_MIN */
-    case 0x83: rate = 48000u; break;          /* GET_MAX */
-    case 0x84: rate = 3900u; break;           /* GET_RES */
+    case 0x81:                               /* GET_CUR */
+    case 0x82:                               /* GET_MIN */
+    case 0x83: rate = UA_RATE; break;          /* GET_MAX */
+    case 0x84: rate = 0; break;                /* GET_RES: fixed frequency */
     default: return 0;
     }
     ua_rate_reply[0] = (uint8_t)rate;
@@ -149,20 +166,12 @@ static int ua_control_setup(const uint8_t *s)
 static int ua_control_data(const uint8_t *p, uint32_t n)
 {
     uint8_t ep = ua_rate_pending;
-    uint32_t rate;
+    (void)p;
     ua_rate_pending = 0;
     if (!usb.config || !ep || n != 3u)
         return 0;
-    rate = p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16;
-    /* UAC1 requires unsupported values to round to the closest discrete rate. */
-    rate = rate <= 46050u ? UA_RATE : 48000u;
-    if (ep == 2u && ua.play_rate != rate) {
-        ua.play_rate = rate;
-        ua_set_interface(UA_IF_PLAY, ua.play_alt);
-    } else if (ep == 0x82u && ua.cap_rate != rate) {
-        ua.cap_rate = rate;
-        ua_set_interface(UA_IF_CAP, ua.cap_alt);
-    }
+    /* UAC1 rounds unsupported values to the closest discrete rate: 44100.
+     * Do not flush an already running stream for this no-op control. */
     return 1;
 }
 
@@ -195,6 +204,7 @@ static void ua_hw_poll(void)
         ua_frame_valid = 0;                     /* idle frames are not missed ones */
         return;
     }
+    ua_tx_fill();                              /* arm IN before unpacking playback */
     if (ua.play_alt) {
         sie_wr(S_INDEX, 2);
         csr = sie_rd(S_RXCSR1);
@@ -225,4 +235,5 @@ static void ua_hw_poll(void)
         ua_sof();
     }
     ua_tx_fill();
+    ua_tx_prepare();
 }

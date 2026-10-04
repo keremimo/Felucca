@@ -15,10 +15,16 @@
 static uint8_t regs[4][24], common[16], index_reg, read_reg, ep0_command;
 static uint32_t USB_CON0, ep_cnt[4];
 static void *ep_tadr[4], *ep_radr[4];
+static void (*send_check)(uint32_t ep);
 static void mock_enable(uint32_t eps) { USB_CON0 &= ~(eps << 19); }
 static void mock_txbuf(uint32_t ep, void *p) { ep_tadr[ep] = p; }
 static void mock_rxbuf(uint32_t ep, void *p) { ep_radr[ep] = p; }
-static void mock_send(uint32_t ep, void *p, uint32_t n) { ep_tadr[ep] = p; ep_cnt[ep] = n; }
+static void mock_send(uint32_t ep, void *p, uint32_t n)
+{
+    ep_tadr[ep] = p;
+    ep_cnt[ep] = n;
+    if (send_check) send_check(ep);
+}
 static void mock_ep0_send(void *p, uint32_t n) { mock_send(0, p, n); }
 static void mock_ep0_buf(void *p) { ep_radr[0] = p; }
 static void mock_nop(void) {}
@@ -69,7 +75,6 @@ static void mock_write(uint32_t r, uint32_t v)
 #define FELUCCA_USB_AUDIO 1
 #define FELUCCA_CDC 0
 #define FELUCCA_OTA 0
-#define UA_POOL
 #include "../firmware/src/usb.c"
 
 static void frame(uint16_t n)
@@ -110,14 +115,14 @@ static void controls(void)
     uint32_t pw;
     ua_hw_stop();
     assert(get_rate(2, 0x81) == 44100 && get_rate(0x82, 0x81) == 44100);
-    assert(get_rate(2, 0x82) == 44100 && get_rate(2, 0x83) == 48000);
-    assert(get_rate(0x82, 0x84) == 3900);
+    assert(get_rate(2, 0x82) == 44100 && get_rate(2, 0x83) == 44100);
+    assert(get_rate(0x82, 0x84) == 0);
     /* A host may set the rate before enabling its alternate setting. */
     setup(0x22, 1, 0x100, 2, 3);
     assert(ua_rate_pending == 2 && ep0_command == 0x40);
-    rate_data(48000, 3);
-    assert(ep0_command == 0x48 && !ua_rate_pending && ua.play_rate == 48000);
-    assert(ua_feedback() == 48000u * 16384u / 1000u);
+    rate_data(44100, 3);
+    assert(ep0_command == 0x48 && !ua_rate_pending && get_rate(2, 0x81) == 44100);
+    assert(ua_feedback() == 44100u * 16384u / 1000u);
     assert(get_rate(0x82, 0x81) == 44100);
     setup(1, 11, 2, 3, 0);
     setup(1, 11, 2, 5, 0);
@@ -146,19 +151,16 @@ static void controls(void)
     assert(ep0_command == 0x60);
     ua.pw = 600;
     ua.cw = 600;
-    ua.play_src.phase = 123;
-    ua.cap_src.phase = 99;
-    /* Changing only capture flushes old packets and converter history. */
+    /* Fixed-rate SET_CUR does not flush either running direction. */
     pw = ua.pw;
     setup(0x22, 1, 0x100, 0x82, 3);
     rate_data(48000, 3);
-    assert(ua.pw == pw && ua.play_src.phase == 123);
-    assert(ua.cw == 0 && ua.cap_src.phase == 0 && ep_cnt[2] == 576);
-    for (uint32_t i = 0; i < ep_cnt[2]; i++) assert(ua_tx[i] == 0);
-    assert(get_rate(0x82, 0x81) == 48000);
+    assert(ua.pw == pw && ua.cw == 600 && ep_cnt[2] == 528);
+    for (uint32_t i = 0; i < ep_cnt[2]; i++) assert(((uint8_t *)ep_tadr[2])[i] == 0);
+    assert(get_rate(0x82, 0x81) == 44100);
     setup(1, 11, 1, 3, 0);
-    assert(ua.play_alt == 1 && ua.pw == 0 && ua.play_src.phase == 0);
-    assert(ua.play_rate == 48000 && ua.cap_alt == 2);
+    assert(ua.play_alt == 1 && ua.pw == 0);
+    assert(get_rate(2, 0x81) == 44100 && ua.cap_alt == 2);
     setup(1, 11, 3, 3, 0);
     assert(ep0_command == 0x60 && ua.play_alt == 1);
     /* Reject malformed selectors, endpoints, lengths and unconfigured access. */
@@ -169,13 +171,14 @@ static void controls(void)
     setup(0x22, 1, 0x100, 2, 2); assert(ep0_command == 0x60);
     setup(0x22, 1, 0x100, 2, 3);
     rate_data(44100, 2);
-    assert(ep0_command == 0x60 && !ua_rate_pending && ua.play_rate == 48000);
+    assert(ep0_command == 0x60 && !ua_rate_pending);
+    assert(get_rate(2, 0x81) == 44100);
     setup(0x22, 1, 0x100, 2, 3);
     rate_data(46000, 3);                     /* UAC1 nearest-rate rounding */
-    assert(ua.play_rate == 44100);
+    assert(get_rate(2, 0x81) == 44100);
     setup(0x22, 1, 0x100, 2, 3);
     rate_data(96000, 3);
-    assert(ua.play_rate == 48000);
+    assert(get_rate(2, 0x81) == 44100 && ua_feedback() == UA_NOMINAL);
     /* Abandon the OUT stage, then send an unrelated request in the same poll. */
     setup(0x22, 1, 0x100, 2, 3);
     const uint8_t get_config[8] = {0x80, 8, 0, 0, 0, 0, 1, 0};
@@ -192,18 +195,77 @@ static void controls(void)
     common[S_INTRUSB] = 4;
     usb_poll();                            /* bus reset restores the defaults */
     assert(!ua_rate_pending && !usb.config && !ua.play_alt && !ua.cap_alt);
-    assert(ua.play_rate == 44100 && ua.cap_rate == 44100);
     setup(0x22, 1, 0x100, 2, 3);
     assert(ep0_command == 0x60);
     usb.config = 1;
     puts("USB audio EP0: formats, rates, malformed/aborted requests, bus reset: OK");
 }
 
+static uint32_t queued_cr, queued_pw, checked_sends;
+static void capture_deadline(uint32_t ep)
+{
+    if (ep != 2u) return;
+    /* Arming the prepared packet must precede either direction's PCM work.
+     * Four-channel PCM24 IN transfers occupy nearly half a USB frame. */
+    assert(ua.cr == queued_cr && ua.pw == queued_pw);
+    checked_sends++;
+}
+
+static void capture_pipeline(void)
+{
+    uint8_t prepared[UA_PACKET], active[UA_PACKET];
+    for (uint32_t alt = 1; alt <= 2; alt++) {
+        ua_hw_stop();
+        assert(ua_set_interface(3, alt) && ua_set_interface(5, alt));
+        for (uint32_t i = 0; i < UA_RING; i++)
+            for (uint32_t ch = 0; ch < UA_CAP_CHANNELS; ch++)
+                ua.cap[i * UA_CAP_CHANNELS + ch] = (int16_t)(1000 * (ch + 1));
+        ua.cw = 800;
+        checked_sends = 0;
+        for (uint32_t packet = 0; packet < 6; packet++) {
+            void *pending = ua_tx[ua_tx_slot];
+            uint32_t bytes = ua_tx_bytes;
+            memcpy(prepared, pending, bytes);
+            queued_cr = ua.cr;
+            queued_pw = ua.pw;
+            send_check = capture_deadline;
+            regs[2][S_TXCSR1] = 0;         /* host completed the previous IN */
+            regs[2][S_RXCSR1] = 1;         /* simultaneous playback packet */
+            regs[2][S_RXCOUNT1] = 24 * 2 * ua_sample_bytes(alt);
+            regs[2][S_RXCOUNT2] = 0;
+            memset(ua_rx, 0, sizeof ua_rx);
+            frame(packet);
+            ua_hw_poll();
+            send_check = NULL;
+            assert(ep_tadr[2] == pending && ep_cnt[2] == bytes);
+            assert(!memcmp(prepared, ep_tadr[2], bytes));
+            assert(ua.cr > queued_cr);     /* packing only after IN is armed */
+            assert(ua_tx[ua_tx_slot] != ep_tadr[2] && ua_tx_bytes);
+            memcpy(active, ep_tadr[2], bytes);
+            queued_cr = ua.cr;
+            ua_hw_poll();                 /* busy DMA and staged PCM stay intact */
+            assert(ua.cr == queued_cr && !memcmp(active, ep_tadr[2], bytes));
+            if (packet >= 3)
+                for (uint32_t ch = 0; ch < UA_CAP_CHANNELS; ch++)
+                    assert(ua_decode(active + ch * ua_sample_bytes(alt), ua_sample_bytes(alt))
+                           == (int16_t)(1000 * (ch + 1)));
+        }
+        assert(checked_sends == 6);
+        assert(ua_set_interface(5, 0) && !ua_tx_bytes);
+        assert(ua_set_interface(5, alt));
+        for (uint32_t i = 0; i < ep_cnt[2]; i++)
+            assert(((uint8_t *)ep_tadr[2])[i] == 0); /* no old prepared audio on restart */
+        for (uint32_t i = 0; i < ua_tx_bytes; i++)
+            assert(ua_tx[ua_tx_slot][i] == 0);
+    }
+    ua_hw_stop();
+    puts("USB audio capture: prebuilt packets meet refill deadlines, DMA isolation, clean restart: OK");
+}
+
 int main(void)
 {
     uint32_t count;
     uint8_t previous[UA_PACKET];
-    ua_init();
     usb.up = usb.config = 1;
     common[S_INTRRX1E] = 2;                    /* MIDI endpoint must survive */
     ua_hw_stop();
@@ -227,17 +289,17 @@ int main(void)
     frame(2047);
     ua_hw_poll();
     assert(ep_cnt[2] == 352 && ep_cnt[3] == 3);
-    assert(ep_tadr[2] == ua_tx && ep_tadr[3] == ua_fb && ep_radr[2] == ua_rx);
+    assert(ep_tadr[2] == ua_tx[0] && ep_tadr[3] == ua_fb && ep_radr[2] == ua_rx);
     assert(regs[2][S_TXCSR1] == 1 && regs[3][S_TXCSR1] == 1);
     assert(ua_fb[0] == (UA_NOMINAL & 255));
-    memcpy(previous, ua_tx, sizeof previous);
+    memcpy(previous, ep_tadr[2], sizeof previous);
     count = ua.tx_packets;
     ua_hw_poll();                           /* second poll in same frame */
     assert(ua.tx_packets == count);
     frame(0);                              /* frame number wraps; DMA still busy */
     ua_hw_poll();
     assert(!ua.missed_frames && ua.tx_packets == count);
-    assert(memcmp(previous, ua_tx, sizeof previous) == 0);
+    assert(memcmp(previous, ep_tadr[2], sizeof previous) == 0);
     regs[2][S_TXCSR1] = 0;                  /* host took the capture packet: refill in the same frame */
     ua_hw_poll();
     assert(ua.tx_packets == count + 1 && regs[2][S_TXCSR1] == 1 && !ua.missed_frames);
@@ -285,5 +347,6 @@ int main(void)
     assert(common[S_INTRRX1E] == 2);
     puts("USB audio endpoints: ownership, alternate settings, suspend/reset, frame wrap: OK");
     controls();
+    capture_pipeline();
     return 0;
 }
