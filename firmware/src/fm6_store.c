@@ -9,6 +9,10 @@
  *   F0 43 0n 09 20 00 <4096 bytes> <checksum> F7   32 voices (VMEM) -> the user bank, saved
  *   F0 43 1n gg pp dd F7                           a voice parameter pp + 128 gg (155: the six
  *                                                  operator switches, OP1 = bit 5) -> the part
+ *   F0 43 1n 08 pp dd F7                           a function parameter (64 mono, 65 bend range,
+ *                                                  66 step, 68 glissando, 69 portamento time,
+ *                                                  70..77 wheel / foot / breath / aftertouch
+ *                                                  range and target) -> the part
  *   F0 43 2n 00 F7 / F0 43 2n 09 F7                dump requests: the part's voice / the bank
  * The FM6 part: the selected track when it plays FM6, else part n + 1, else the first FM6 part.
  * Dexed or any DX7 librarian can so edit a part live and keep the banks. */
@@ -143,6 +147,7 @@ static void fm6_sysex(const uint8_t *b, uint32_t n)
             fm6_set(fm6_ed[p], i, b[6 + i]);
         for (i = 0; i < 6u; i++)
             fm6_ed[p][FV_ON + i] = 1;
+        fm6_pt[p].panic = 1;                             /* a new voice: the notes stop, as in Dexed */
         fm1_irq_on();
         fm6_name(nm, fm6_ed[p]);
         ui_say("FM6 VOICE ", nm);
@@ -161,6 +166,30 @@ static void fm6_sysex(const uint8_t *b, uint32_t n)
             for (i = 0; i < 6u; i++)
                 fm6_ed[p][FV_ON + i] = (int16_t)((b[5] >> (5u - i)) & 1u);
         }
+        ui.force = 1;
+    } else if (n == 7u && st == 0x10u && b[3] == 0x08u && p >= 0) {   /* a function parameter */
+        int16_t *ed = fm6_ed[p];
+        uint32_t v = b[5];
+        fm1_irq_off();
+        switch (b[4]) {
+        case 64:                                         /* MONO: Dexed's (legato, the highest key) */
+            trk[p].p[P_VOICE] = v ? V_LEGATO : V_POLY;
+            if (v)
+                trk[p].p[P_PRIO] = 2;
+            break;
+        case 65:
+            fm6_set(ed, FN_PBUP, (int32_t)v);
+            fm6_set(ed, FN_PBDN, (int32_t)v);
+            break;
+        case 66: fm6_set(ed, FN_PBSTEP, (int32_t)v); break;
+        case 68: fm6_set(ed, FN_GLISS, (int32_t)v); break;
+        case 69: fm6_set(ed, FN_PTIME, (int32_t)(v > 99u ? 99u : v) * 127 / 99); break;   /* 0..99 -> CC 5 */
+        default:
+            if (b[4] >= 70u && b[4] <= 77u)              /* range, target: wheel, foot, breath, aftertouch */
+                fm6_set(ed, FN_MWR + (uint32_t)(b[4] - 70u), (int32_t)v);
+            break;
+        }
+        fm1_irq_on();
         ui.force = 1;
     } else if (n == 5u && st == 0x20u) {                 /* dump requests */
 #if FELUCCA_OTA
@@ -205,6 +234,7 @@ static void fm6_init_voice(void)                         /* INIT: the selected p
         return;
     fm1_irq_off();
     fm6_from_rom(fm6_ed[song.sel], &FM6_INIT);
+    fm6_pt[song.sel].panic = 1;
     fm1_irq_on();
     ui_message("INIT VOICE");
 }

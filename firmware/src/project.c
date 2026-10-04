@@ -4,7 +4,9 @@
  * One project is in RAM at a time (proj_buf); proj_have says which slots hold one. Without
  * the flash (RAM only) proj_buf keeps the last save.
  *
- * Formats: 6 ("FUN6", written) holds NPAT patterns per track, each with its LEN / DIV /
+ * Formats: 7 ("FUN7", written) adds the FM6 parts' DX7 function settings (pitch bend,
+ * portamento, controllers) to format 6; a format 6 project ("FUN6", read in place) gives them
+ * their defaults. Format 6 holds NPAT patterns per track, each with its LEN / DIV /
  * SWING / GATE, and the one playing; the rest as format 5. Older formats are read from
  * their one-sector objects (OBJ_LEGACY0..) and converted: their pattern becomes pattern 1,
  * the others start empty. Format 5 ("FUN5") adds MPC pad degree to format 4. Format 4 ("FUN4")
@@ -20,7 +22,8 @@
  *
  * Built on the host too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP), the engines and trk_def_engine (ui.c). */
-#define PROJ_MAGIC 0x46554E36u                 /* "FUN6": format 5 + NPAT patterns per track */
+#define PROJ_MAGIC 0x46554E37u                 /* "FUN7": format 6 + the FM6 parts' function settings */
+#define PROJ_MAGIC_V6 0x46554E36u              /* "FUN6": format 5 + NPAT patterns per track; read only */
 #define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": format 4 + MPC pad degree; read only */
 #define PROJ_MAGIC_V4 0x46554E34u              /* "FUN4": format 3 + FM6 voices; read only */
 #define PROJ_MAGIC_V3 0x46554E33u              /* "FUN3": four tracks, 57 parameters each; read only */
@@ -43,6 +46,7 @@ typedef struct {
     proj_trk_t t[NTRK];
     uint8_t fm6[NPART][128];                   /* the FM6 parts' voices, DX7 packed (fm6_has: which) */
     uint8_t fm6_on[NPART], fm6_has;            /* their operator switches (bit n - 1: OP n); bit k: part k */
+    int8_t fm6_fn[NPART][16];                  /* the parts' FM6 functions (FN_PBUP..), [0] < 0: defaults */
     uint32_t sum;
 } project_t;
 typedef struct {                               /* a track of format 5, read only */
@@ -118,6 +122,23 @@ static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
     return s;
 }
 static uint32_t proj_sum(const project_t *p) { return proj_hash(p, sizeof *p - 4u); }
+
+/* format 6, in place: the same up to the FM6 switches, then its sum where format 7 has the functions */
+#define PROJ_V6_SIZE (sizeof(project_t) - sizeof(((project_t *)0)->fm6_fn))
+static int proj_from_v6(project_t *q, int n)
+{
+    uint32_t sum;
+    if (n != (int)PROJ_V6_SIZE || q->magic != PROJ_MAGIC_V6 || q->size != PROJ_V6_SIZE)
+        return 0;
+    memcpy(&sum, (const uint8_t *)q + PROJ_V6_SIZE - 4u, 4);
+    if (sum != proj_hash(q, PROJ_V6_SIZE - 4u))
+        return 0;
+    memset(q->fm6_fn, 0xFF, sizeof q->fm6_fn);
+    q->magic = PROJ_MAGIC;
+    q->size = sizeof *q;
+    q->sum = proj_sum(q);
+    return 1;
+}
 static int proj_ok(const project_t *q) { return q->magic == PROJ_MAGIC && q->size == sizeof *q && q->sum == proj_sum(q); }
 
 /* the globals of formats 1 .. 5 (G_* unchanged since; any added later: their defaults) */
@@ -171,6 +192,7 @@ static int proj_from_v2(project_t *q, const project_v2_t *v2, int n)
         v2->sum != proj_hash(v2, sizeof *v2 - 4u))
         return 0;
     memset(q, 0, sizeof *q);
+    memset(q->fm6_fn, 0xFF, sizeof q->fm6_fn);         /* FM6 functions: the defaults */
     q->magic = PROJ_MAGIC;
     q->size = sizeof *q;
     proj_g_from_v2(q->g, v2->g);
@@ -190,6 +212,7 @@ static int proj_from_v1(project_t *q, const project_v1_t *v1, int n)
         v1->sum != proj_hash(v1, sizeof *v1 - 4u))
         return 0;
     memset(q, 0, sizeof *q);
+    memset(q->fm6_fn, 0xFF, sizeof q->fm6_fn);         /* FM6 functions: the defaults */
     q->magic = PROJ_MAGIC;
     q->size = sizeof *q;
     proj_g_from_v2(q->g, v1->g);
@@ -222,6 +245,7 @@ static int proj_from_v4(project_t *q, const project_v4_t *v4, int n)
         v4->sum != proj_hash(v4, sizeof *v4 - 4u))
         return 0;
     memset(q, 0, sizeof *q);
+    memset(q->fm6_fn, 0xFF, sizeof q->fm6_fn);         /* FM6 functions: the defaults */
     q->magic = PROJ_MAGIC;
     q->size = sizeof *q;
     proj_g_from_v2(q->g, v4->g);
@@ -243,6 +267,7 @@ static int proj_from_v3(project_t *q, const project_v3_t *v3, int n)
         v3->sum != proj_hash(v3, sizeof *v3 - 4u))
         return 0;
     memset(q, 0, sizeof *q);
+    memset(q->fm6_fn, 0xFF, sizeof q->fm6_fn);         /* FM6 functions: the defaults */
     q->magic = PROJ_MAGIC;
     q->size = sizeof *q;
     proj_g_from_v2(q->g, v3->g);
@@ -261,6 +286,7 @@ static int proj_from_v5(project_t *q, const project_v5_t *v5, int n)
         v5->sum != proj_hash(v5, sizeof *v5 - 4u))
         return 0;
     memset(q, 0, sizeof *q);
+    memset(q->fm6_fn, 0xFF, sizeof q->fm6_fn);         /* FM6 functions: the defaults */
     q->magic = PROJ_MAGIC;
     q->size = sizeof *q;
     proj_g_from_v2(q->g, v5->g);
@@ -298,7 +324,7 @@ static int proj_fetch(uint32_t slot)
     int n;
     if (flash_ok) {
         n = st_load(OBJ_PROJECT0 + (slot & 3u), &proj_buf, sizeof proj_buf);
-        if (n == (int)sizeof proj_buf && proj_ok(&proj_buf))
+        if ((n == (int)sizeof proj_buf && proj_ok(&proj_buf)) || proj_from_v6(&proj_buf, n))
             return 1;
         n = st_load(OBJ_LEGACY0 + (slot & 3u), &old, sizeof old);
         return proj_import(&proj_buf, &old, n);
@@ -330,13 +356,18 @@ static void project_save(uint32_t slot)
             d->pt[d->pat].set[k] = trk[i].p[P_SLEN + k];
     }
     fm1_irq_on();
-    for (i = 0; i < NPART; i++)                         /* the FM6 parts' voices, edits and all */
+    for (i = 0; i < NPART; i++) {                       /* the FM6 parts' voices, edits and all */
         if (ENGINES[trk[i].eng_req % NENGINES] == &ENG_FM6) {
             fm6_pack(p->fm6[i], fm6_ed[i]);
             for (k = 0; k < 6u; k++)
                 p->fm6_on[i] |= (uint8_t)(fm6_ed[i][FV_ON + k] ? 1u << k : 0u);
             p->fm6_has |= (uint8_t)(1u << i);
         }
+        memset(p->fm6_fn[i], 0xFF, sizeof p->fm6_fn[i]);
+        if (fm6_fnok[i])
+            for (k = 0; k < FM6_NFN; k++)
+                p->fm6_fn[i][k] = (int8_t)fm6_ed[i][FN_PBUP + k];
+    }
     p->sum = proj_sum(p);
 #if FELUCCA_FLASH
     if (flash_ok) {
@@ -392,6 +423,11 @@ static void project_load(uint32_t slot)
         }
         t->preset = (uint8_t)(ENGINES[e]->npresets ? (s->preset == 0xFFu ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
         if (k < NPART) {                                /* FM6: its saved voice, else its VOICE afresh */
+            fm6_fn_reset(fm6_ed[k]);                    /* its functions (older formats: the defaults) */
+            if (p->fm6_fn[k][0] >= 0)
+                for (i = 0; i < FM6_NFN; i++)
+                    fm6_set(fm6_ed[k], FN_PBUP + i, p->fm6_fn[k][i]);
+            fm6_fnok[k] = 1;
             fm6_cur[k] = 0;
             if (ENGINES[e] == &ENG_FM6 && ((p->fm6_has >> k) & 1u)) {
                 fm6_unpack(fm6_ed[k], p->fm6[k]);

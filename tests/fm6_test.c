@@ -109,6 +109,9 @@ static void fresh(void)                                  /* part 1 = FM6 with th
 {
     uint32_t i;
     memset(trk, 0, sizeof trk);
+    memset(fm6_v, 0, sizeof fm6_v);                      /* the engine's part state too: voice 0 first */
+    memset(fm6_pt, 0, sizeof fm6_pt);
+    memset(fm6_lfo, 0, sizeof fm6_lfo);
     host_tracks_init();
     host_preset(T, FM6_E, 0);
     ED = fm6_ed[0];
@@ -409,7 +412,7 @@ static void every_algorithm(void)
             trk_note_on(T, 48 + 7 * k, 127);
         render(wave_l, FS / 4);
         pk = peak(wave_l, 0, FS / 4);
-        CHECK(pk > 1000 && pk < 4 * 65536.0 * VOICE_FS / 32768, "algorithm %u, everything at 99: peak %.0f", a + 1, pk);
+        CHECK(pk > 1000 && pk <= 4 * 8.0 * VOICE_FS, "algorithm %u, everything at 99: peak %.0f", a + 1, pk);   /* 16 unit sines a voice */
     }
     puts("FM6: every algorithm at full levels and feedback stays bounded: OK");
 }

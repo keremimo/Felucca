@@ -6,6 +6,7 @@
 typedef struct {
     int16_t bend;                           /* signed 14-bit value, zero = centre */
     uint8_t wheel, pedal, targets;
+    uint8_t foot, breath, press, porta;     /* CC 4, CC 2, channel pressure, CC 65 (FM6's DX7 controllers) */
     uint8_t owned[NTRK];                    /* held/pedal notes per track, at most 128 per channel */
     uint8_t ready, semis, cents;
     uint8_t rpn_msb, rpn_lsb;
@@ -42,6 +43,11 @@ static void midi_expression(track_t *t, const midi_channel_t *c)
         return;
     t->bend_target = (int32_t)c->bend * range / (c->bend < 0 ? 8192 : 8191);
     t->wheel_target = (int32_t)c->wheel * 256;
+    t->bend_raw = c->bend;
+    t->cc_foot = c->foot;
+    t->cc_breath = c->breath;
+    t->cc_press = c->press;
+    t->cc_porta = c->porta;
 }
 
 static void midi_expression_channel(uint32_t ch)
@@ -159,6 +165,24 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
         c->wheel = (uint8_t)value;
         midi_expression_channel(ch);
         break;
+    case 2:
+        c->breath = (uint8_t)value;
+        midi_expression_channel(ch);
+        break;
+    case 4:
+        c->foot = (uint8_t)value;
+        midi_expression_channel(ch);
+        break;
+    case 65:
+        c->porta = value >= 64u;
+        midi_expression_channel(ch);
+        break;
+    case 5:                                        /* portamento time: FM6 parts keep it (as Dexed) */
+        mask = midi_targets(ch);
+        for (i = 0; i < NPART; i++)
+            if ((mask & (1u << i)) && ENGINES[trk[i].engine] == &ENG_FM6)
+                fm6_ed[i][FN_PTIME] = (int16_t)value;
+        break;
     case 120:                                      /* All Sound Off: ignores the pedal */
         mask = midi_targets(ch);
         for (i = 0; i < NTRK; i++)
@@ -179,6 +203,8 @@ static void midi_control(uint32_t ch, uint32_t cc, uint32_t value)
     case 121:                                      /* Reset All Controllers, keep bend sensitivity */
         c->bend = 0;
         c->wheel = 0;
+        c->press = 0;
+        c->porta = 0;
         c->rpn_msb = c->rpn_lsb = 127;
         midi_expression_channel(ch);
         midi_pedal_up(ch);
@@ -215,6 +241,10 @@ static void __attribute__((noinline)) midi_event(uint32_t st, uint32_t ch, uint3
     else if (st == 0xE0u) {
         midi_channel(ch)->bend = (int16_t)((int32_t)(d1 | (d2 << 7)) - 8192);
         midi_expression_channel(ch);
-    } else if (st == 0xB0u)
+    } else if (st == 0xB0u) {
         midi_control(ch, d1, d2);
+    } else if (st == 0xD0u) {                      /* channel pressure (aftertouch) */
+        midi_channel(ch)->press = (uint8_t)d1;
+        midi_expression_channel(ch);
+    }
 }

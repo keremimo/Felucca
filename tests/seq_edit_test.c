@@ -668,9 +668,12 @@ static void fm6_page_nav_test(void)
     assert(ui.page == page_named("EDIT 1"));
     edit_frame(0, 0);
     assert(ui.page == page_named("EDIT 1"));
-    /* a tap on an EDIT page: the next page on release; FM6 has no EDIT 2, STORE comes right after */
+    /* a tap on an EDIT page: the next page on release; FM6's EDIT 2 (ENGINE), then STORE */
     edit_frame(1, 0);
     assert(ui.page == page_named("EDIT 1"));
+    edit_frame(0, 0);
+    assert(ui.page == page_named("EDIT 2"));
+    edit_frame(1, 0);
     edit_frame(0, 0);
     assert(ui.page == page_named("STORE"));
     assert(fm6_slot == 0);                          /* a factory voice: the first INIT VOICE slot */
@@ -689,7 +692,13 @@ static void fm6_page_nav_test(void)
     assert(fm6_opsel == 2);
     edit_frame(1, 1u << 5);                         /* A#3: ALGO */
     assert(ui.page == page_named("ALGO"));
-    edit_frame(1, 1u << 25);                        /* F#5: nothing there */
+    edit_frame(1, 1u << 25);                        /* F#5: the DX7 functions, FM BEND / FM PORTA */
+    assert(ui.page == page_named("FM BEND"));
+    edit_frame(1, 0);
+    edit_frame(1, 1u << 25);
+    assert(ui.page == page_named("FM PORTA"));
+    edit_frame(1, 0);
+    edit_frame(1, 1u << 5);                         /* A#3: ALGO */
     assert(ui.page == page_named("ALGO"));
     /* the keys stay silent while EDIT is held; the release after a jump is no tap */
     kb_prev = 0;

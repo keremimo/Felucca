@@ -40,7 +40,8 @@ static const uint8_t NAV_BLACK[NAV_N] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25}
 static const uint8_t NAV_WHITE[6] = {0, 2, 4, 6, 7, 9};                              /* F3 .. D4: OP1..OP6 */
 static const char *const NAV_PAGE[NAV_N][2] = {
     {"EDIT 1", "EDIT 2"}, {"STORE", 0}, {"ALGO", 0}, {"FREQ", 0}, {"OUT", 0}, {"EG RATE", "EG LVL"},
-    {"SCALE", "CURVE"}, {"PITCH EG", "PITCH LV"}, {"FM LFO", "FM LFO 2"}, {"VOICE", "VOICE 2"}, {0, 0}};
+    {"SCALE", "CURVE"}, {"PITCH EG", "PITCH LV"}, {"FM LFO", "FM LFO 2"}, {"VOICE", "VOICE 2"},
+    {"FM BEND", "FM PORTA"}};
 
 static uint8_t nav_page(uint32_t g, uint32_t j)   /* page index of NAV_PAGE[g][j], 0xFF = none */
 {

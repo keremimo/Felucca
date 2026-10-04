@@ -7,6 +7,7 @@ FS = 44100 Hz, control rate = every CTL (32) samples. All curves map a
 0..127 parameter value to the unit the DSP needs, plus a display table.
 """
 import math
+import struct
 import sys
 from pathlib import Path
 
@@ -22,19 +23,96 @@ def arr(name, ctype, vals, per=12):
     return out
 
 
+def f32(x):
+    """x rounded to an IEEE single, as C stores a float"""
+    return struct.unpack("f", struct.pack("f", x))[0]
+
+
 def fm6_tables():
-    """FM6 (eng_fm6.c): DX7 frequencies and LFO speeds; logs in Q24 (1 << 24 = one octave)"""
-    L = arr("FM6_EXP2", "uint32_t", [int(round((1 << 30) * 2 ** (i / 256))) for i in range(257)], 8)
-    L += arr("FM6_COARSE", "int32_t", [-(1 << 24)] + [int(round((1 << 24) * math.log2(c))) for c in range(1, 32)], 8)
-    L += arr("FM6_FINE", "int32_t", [int(round((1 << 24) * math.log2(1 + 0.01 * f))) for f in range(100)], 8)
-    # DETUNE: one step of a note, as measured on a DX7 by Pascal Gauthier (Dexed)
+    """FM6 (eng_fm6.c): Dexed's lookup tables, computed as Dexed computes them at 44.1 kHz with its
+    64-sample blocks (MSFA sin.cc, exp2.cc, freqlut.cc, lfo.cc, pitchenv.cc, porta.cpp, dx7note.cc,
+    EngineMkI.cpp; Apache License 2.0 / GPL-3.0-or-later, see LICENSING.md), so FM6 renders the same
+    samples. Logs in Q24 (1 << 24 = one octave)."""
+    N = 64
+    L = [f"#define FM6_N {N}", "#define FM6_LG_N 6"]
+    # sine, Q24 out of a Q24 phase: 1024 points by rotation (sin.cc), the next point for interpolation
+    c = math.floor(math.cos(2 * math.pi / 1024) * (1 << 30) + 0.5)
+    s = math.floor(math.sin(2 * math.pi / 1024) * (1 << 30) + 0.5)
+    u, v, sin_t = 1 << 30, 0, [0] * 1025
+    for i in range(512):
+        sin_t[i] = (v + 32) >> 6
+        sin_t[i + 512] = -((v + 32) >> 6)
+        u, v = (u * c - v * s + (1 << 29)) >> 30, (u * s + v * c + (1 << 29)) >> 30
+    L += arr("FM6_SIN", "int32_t", sin_t, 8)
+    # 2^x: 1024 points of one octave in Q30 (exp2.cc), then 2^31
+    y, inc, e = float(1 << 30), math.exp2(1.0 / 1024), []
+    for i in range(1024):
+        e.append(math.floor(y + 0.5))
+        y *= inc
+    L += arr("FM6_EXP2", "uint32_t", e + [1 << 31], 8)
+    # phase increment of a log frequency (freqlut.cc): Q24 phase, 2^20 Hz at the top of the table
+    y, inc, fl = float(1 << 44) / FS, math.pow(2, 1.0 / 1024), []
+    for i in range(1025):
+        fl.append(math.floor(y + 0.5))
+        y *= inc
+    L += arr("FM6_FREQ", "int32_t", fl, 8)
+    # MARK I (EngineMkI.cpp): log sine (1/1024 octave) and exponent tables, made in float
+    lg = [int(round(f32(-1024 * f32(math.log2(f32(math.sin(((0.5 + i) / 1024.0) * math.pi / 2.0)))))))
+          for i in range(1024)]
+    ex = [int(round(f32((math.pow(2, f32(i / 1024.0)) - 1) * 4096))) for i in range(1024)]
+    L += arr("FM6_MKI_LOG", "uint16_t", lg + lg[::-1], 16)              # half a cycle (the sign: the phase)
+    L += arr("FM6_MKI_EXP", "uint16_t", [4096 + ex[i ^ 1023] for i in range(1024)], 16)   # 4096 + exp, reversed
+    # OPL (EngineOpl.cpp): the OPL's quarter-wave log sine and exponent ROMs
+    opl_log = [
+        2137, 1731, 1543, 1419, 1326, 1252, 1190, 1137, 1091, 1050, 1013, 979, 949, 920, 894, 869,
+        846, 825, 804, 785, 767, 749, 732, 717, 701, 687, 672, 659, 646, 633, 621, 609,
+        598, 587, 576, 566, 556, 546, 536, 527, 518, 509, 501, 492, 484, 476, 468, 461,
+        453, 446, 439, 432, 425, 418, 411, 405, 399, 392, 386, 380, 375, 369, 363, 358,
+        352, 347, 341, 336, 331, 326, 321, 316, 311, 307, 302, 297, 293, 289, 284, 280,
+        276, 271, 267, 263, 259, 255, 251, 248, 244, 240, 236, 233, 229, 226, 222, 219,
+        215, 212, 209, 205, 202, 199, 196, 193, 190, 187, 184, 181, 178, 175, 172, 169,
+        167, 164, 161, 159, 156, 153, 151, 148, 146, 143, 141, 138, 136, 134, 131, 129,
+        127, 125, 122, 120, 118, 116, 114, 112, 110, 108, 106, 104, 102, 100, 98, 96,
+        94, 92, 91, 89, 87, 85, 83, 82, 80, 78, 77, 75, 74, 72, 70, 69,
+        67, 66, 64, 63, 62, 60, 59, 57, 56, 55, 53, 52, 51, 49, 48, 47,
+        46, 45, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30,
+        29, 28, 27, 26, 25, 24, 23, 23, 22, 21, 20, 20, 19, 18, 17, 17,
+        16, 15, 15, 14, 13, 13, 12, 12, 11, 10, 10, 9, 9, 8, 8, 7,
+        7, 7, 6, 6, 5, 5, 5, 4, 4, 4, 3, 3, 3, 2, 2, 2,
+        2, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+    L += arr("FM6_OPL_LOG", "uint16_t", opl_log + opl_log[::-1], 16)  # half a cycle
+    opl_exp = [
+        0, 3, 6, 8, 11, 14, 17, 20, 22, 25, 28, 31, 34, 37, 40, 42,
+        45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84, 87, 90,
+        93, 96, 99, 102, 105, 108, 111, 114, 117, 120, 123, 126, 130, 133, 136, 139,
+        142, 145, 148, 152, 155, 158, 161, 164, 168, 171, 174, 177, 181, 184, 187, 190,
+        194, 197, 200, 204, 207, 210, 214, 217, 220, 224, 227, 231, 234, 237, 241, 244,
+        248, 251, 255, 258, 262, 265, 268, 272, 276, 279, 283, 286, 290, 293, 297, 300,
+        304, 308, 311, 315, 318, 322, 326, 329, 333, 337, 340, 344, 348, 352, 355, 359,
+        363, 367, 370, 374, 378, 382, 385, 389, 393, 397, 401, 405, 409, 412, 416, 420,
+        424, 428, 432, 436, 440, 444, 448, 452, 456, 460, 464, 468, 472, 476, 480, 484,
+        488, 492, 496, 501, 505, 509, 513, 517, 521, 526, 530, 534, 538, 542, 547, 551,
+        555, 560, 564, 568, 572, 577, 581, 585, 590, 594, 599, 603, 607, 612, 616, 621,
+        625, 630, 634, 639, 643, 648, 652, 657, 661, 666, 670, 675, 680, 684, 689, 693,
+        698, 703, 708, 712, 717, 722, 726, 731, 736, 741, 745, 750, 755, 760, 765, 770,
+        774, 779, 784, 789, 794, 799, 804, 809, 814, 819, 824, 829, 834, 839, 844, 849,
+        854, 859, 864, 869, 874, 880, 885, 890, 895, 900, 906, 911, 916, 921, 927, 932,
+        937, 942, 948, 953, 959, 964, 969, 975, 980, 986, 991, 996, 1002, 1007, 1013, 1018]
+    L += arr("FM6_OPL_EXP", "uint16_t", [(0x400 + opl_exp[i ^ 0xFF]) << 1 for i in range(256)], 16)   # reversed, x 2
+    # frequency: coarse ratios, fine (dx7note.cc osc_freq), detune per note x (DET - 7) in Q24 fractions
+    L += arr("FM6_COARSE", "int32_t", [-(1 << 24)] + [int(round((1 << 24) * math.log2(k))) for k in range(1, 32)], 8)
+    L += arr("FM6_FINE", "int32_t", [math.floor(24204406.323123 * math.log(1 + 0.01 * f) + 0.5) for f in range(128)], 8)
     det = []
     for n in range(128):
-        lf = math.log2(440 * 2 ** ((n - 69) / 12))
-        det.append(int(round(0.0209 * math.exp(-0.396 * lf) / 7 * lf * (1 << 24))))
-    L += arr("FM6_DETUNE", "int32_t", det, 8)
-    # LFO SPEED 0..99 in Hz, measured on a DX7 (MSFA, Copyright 2012 Google Inc., Apache License 2.0);
-    # phase increment per control tick
+        lf = 50857777 + ((1 << 24) // 12) * n                       # Dexed's standard tuning
+        r = 0.0209 * math.exp(-0.396 * (f32(float(lf)) / (1 << 24))) / 7
+        det.append(round(r * lf * (1 << 24)))
+        for d in range(16):                                          # the table gives Dexed's result
+            want = int(lf + r * lf * (d - 7)) - lf
+            assert lf + ((det[-1] * (d - 7)) >> 24) - lf == want, (n, d)
+    L += arr("FM6_DETUNE", "int64_t", det, 6)
+    # LFO speeds (lfo.cc): Hz measured on a DX7 (MSFA, Copyright 2012 Google Inc.), as Dexed's phase
+    # increments per 64-sample block
     hz = [0.062541, 0.125031, 0.312393, 0.437120, 0.624610, 0.750694, 0.936330, 1.125302, 1.249609, 1.436782,
           1.560915, 1.752081, 1.875117, 2.062494, 2.247191, 2.374451, 2.560492, 2.686728, 2.873976, 2.998950,
           3.188013, 3.369840, 3.500175, 3.682224, 3.812065, 4.000800, 4.186202, 4.310716, 4.501260, 4.623209,
@@ -47,7 +125,15 @@ def fm6_tables():
           34.317090, 34.674064, 36.416606, 38.197097, 38.550501, 40.387722, 40.749796, 42.625746, 44.326241,
           44.883303, 46.772685, 48.590865, 49.261084]
     assert len(hz) == 100
-    L += arr("FM6_LFO_INC", "uint32_t", [int(h * CTL / FS * 2 ** 32) for h in hz], 8)
+    ratio = int(4437500000.0 * N / FS)
+    L += arr("FM6_LFO_INC", "uint32_t", [int(h * ratio) for h in hz], 8)
+    L += [f"#define FM6_LFO_UNIT {int(N * 25190424 / FS + 0.5)}",
+          f"#define FM6_PEG_UNIT {int(N * (1 << 24) / (21.3 * FS) + 0.5)}"]
+    # portamento (porta.cpp): pitch steps per block, plain and glissando, for CC 5 = 0..127
+    def porta(sps):
+        return [int(0.5 + ((1 << 24) // 12) * (sps * math.pow(2.0, -0.062 * i) / FS * N)) for i in range(128)]
+    L += arr("FM6_PORTA", "int32_t", porta(2100.0), 8)
+    L += arr("FM6_GLISS", "int32_t", porta(1300.0), 8)
     return L
 
 

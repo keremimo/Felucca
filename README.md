@@ -49,9 +49,9 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter (LP / BP / HP / notch)
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
 - **GRAIN**: granular textures from the built-in samples or a user slot
-- **FM6**: six-operator FM that plays DX7 voices: 32 algorithms, DX7 envelopes, key scaling,
-  pitch envelope and LFO; every operator edited on the device; DX7 voices and banks over USB-MIDI
-  ([below](#fm6))
+- **FM6**: six-operator FM that plays DX7 voices sample for sample as Dexed does (its MODERN,
+  MARK I and OPL engines, 16 voices, the DX7 functions: bend, portamento, wheel / foot / breath /
+  aftertouch); every operator edited on the device; DX7 voices and banks over USB-MIDI ([below](#fm6))
 
 **SLICER** (FX page, every track including drums): a tempo-synced 16-step gate or stutter, with 16 patterns.
 
@@ -69,26 +69,50 @@ cymbal DECAY (0 is the stock setting).
 
 ## FM6
 
-FM6 plays DX7 voices: six operators, the 32 DX7 algorithms, four-rate / four-level envelopes,
-level and rate key scaling, velocity, feedback, pitch envelope and LFO, as measured on a DX7 by the
-MSFA and Dexed projects. 16 factory voices (VOICE R01–R16) come with presets of their own; 32 user
-voices (U01–U32) live in flash.
+FM6 plays DX7 voices the way Dexed (Pascal Gauthier's DX7 emulation, on Raph Levien's MSFA) plays
+them: six operators, the 32 DX7 algorithms, four-rate / four-level envelopes with the DX7's attack
+curve and static times, level and rate key scaling, velocity, feedback, pitch envelope, LFO, pitch
+bend, portamento and the controllers, in Dexed's code restated for the FM-1 (fixed point, its
+tables, its 64-sample blocks). A part renders the same samples Dexed renders: `tests/fm6_parity.sh`
+plays hundreds of scores (the factory voices and random DX7 voices; chords, voice stealing, bend,
+the controllers, portamento, mono) through Dexed's own code and through FM6 and compares them sample
+by sample; they are equal. **ENGINE** (EDIT 2) is Dexed's engine resolution: **MARK I** (the DX7's
+log-sine and exponent tables and its 2- and 3-operator feedback loops in algorithms 6 and 4; the
+default, as in Dexed), **MODERN** (MSFA's 24-bit sine) or **OPL**. FM6 has 16 voices, chosen and
+handed over as Dexed chooses them. 16 factory voices (VOICE R01–R16) come with presets of their own;
+32 user voices (U01–U32) live in flash.
+
+The DX7 functions are the part's (as Dexed's are the plugin's), saved with the project:
+
+- **FM BEND**: BEND+ / BEND- (pitch-bend range up and down, semitones), STEP (0 = smooth, else
+  steps of that many semitones), DX VEL (Dexed's velocity scaling to the DX7's range).
+- **FM PORTA**: PORTA (PEDAL: while CC 65 is down, as in Dexed; ON: always), TIME (CC 5 sets it),
+  GLISS (glissando: semitone steps).
+- **FM WH/FT**, **FM BR/AT**: the range (0–99) and target of the mod wheel, foot controller (CC 4),
+  breath controller (CC 2) and channel aftertouch: **P** pitch (LFO depth), **A** amplitude (LFO
+  depth), **E** EG bias, or a mix. The wheel starts at 99 to pitch: vibrato for voices with a PMS.
+- **MONO**: the part's VOICE mode **LEGATO** with PRIO **HIGH** is Dexed's mono mode.
+
+On FM6 parts the generic wheel vibrato and the part's bend range give way to these.
 
 **EDIT** steps through the pages. **PATCH** (also HOME's knobs): VOICE, then MOD (the modulators'
-levels: brightness), M.TIM and C.TIM (the modulators' and carriers' envelope times). Then
-**STORE**, and the voice itself: **ALGO** (algorithm, feedback, key sync, transpose), six operator
-pages (**FREQ**, **OUT**, **EG RATE**, **EG LVL**, **SCALE**, **CURVE**), the pitch envelope and two
-LFO pages. On the operator pages **PRESETS** picks the operator (OP1–OP6); the graph shows the
-algorithm with it highlighted.
+levels: brightness), M.TIM and C.TIM (the modulators' and carriers' envelope times); these are
+Felucca's own and neutral at 0. Then **STORE**, and the voice itself: **ALGO** (algorithm, feedback,
+key sync, transpose), six operator pages (**FREQ**, **OUT**, **EG RATE**, **EG LVL**, **SCALE**,
+**CURVE**), the pitch envelope and two LFO pages. On the operator pages **PRESETS** picks the
+operator (OP1–OP6); the graph shows the algorithm with it highlighted.
 
 Hold **EDIT** to jump instead: the black keys light up as a map of the EDIT pages, in page order
 from F#3 — PATCH, STORE, ALGO, FREQ, OUT, EG RATE / LVL, SCALE / CURVE, PITCH EG / LV, LFO 1 / 2,
-VOICE / VOICE 2 (a key that holds two pages switches between them when pressed again). The white
+VOICE / VOICE 2, FM BEND / FM PORTA (a key that holds two pages switches between them when pressed
+again; the controller pages follow FM PORTA). The white
 keys F3–D4 pick OP1–OP6. The key of the current page and operator blinks. While EDIT is held the
 keys play nothing; let go and they play again, so edits can be heard right away. A short tap of
 EDIT still goes to the next page. Other engines get their EDIT pages on the same keys.
 
-Edits change the part's voice at once and stay until another VOICE or preset is loaded. **STORE**
+Edits change the part's voice at once (held notes go on from their third envelope segment, as in
+Dexed) and stay until another VOICE or preset is loaded; a new VOICE or voice dump stops the notes,
+as a program change does in Dexed. **STORE**
 keeps them: SLOT picks a user voice, STORE writes it there (two detents, like the other GO
 buttons) and VOICE follows it. SLOT starts on the user voice the part plays (when the voice still
 has its name), else on the first free (INIT VOICE) slot. SEND sends the voice as a DX7 single-voice
@@ -103,6 +127,7 @@ voice live or load a cartridge:
 | `F0 43 0n 00 01 1B` + 155 bytes + checksum `F7` (a voice) | into the FM6 part's voice |
 | `F0 43 0n 09 20 00` + 4096 bytes + checksum `F7` (32 voices) | into U01–U32, saved in flash |
 | `F0 43 1n gg pp dd F7` (a voice parameter) | into the FM6 part's voice |
+| `F0 43 1n 08 pp dd F7` (a function parameter: 64 mono, 65 bend range, 66 step, 68 glissando, 69 portamento time, 70–77 wheel / foot / breath / aftertouch range and target) | into the FM6 part's functions |
 | `F0 43 2n 00 F7` / `F0 43 2n 09 F7` (dump requests) | sends the part's voice / the user bank |
 
 The FM6 part is the selected track when it plays FM6, else part n + 1, else the first FM6 part.

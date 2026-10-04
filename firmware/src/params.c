@@ -58,6 +58,16 @@ static const param_desc_t FM6_GD[FV_NAME - FV_PR] = {   /* the voice: FV_PR .. F
     PE("KSYNC", N_ONOFF, 1), PE("WAVE", N_FMLFW, 0), PD("PMS", F_INT, 0, 7, 3), {"TRNS", F_OFS, 0, 48, 24, 0, "st"},
 };
 
+static const char *const N_FMPM[] = {"PEDAL", "ON"};   /* portamento: while CC 65 is down (Dexed), always */
+static const char *const N_FMDEST[] = {"-", "P", "A", "PA", "E", "PE", "AE", "PAE"};   /* pitch, amp, EG bias */
+static const param_desc_t FM6_FD[FM6_NFN] = {          /* the part's DX7 functions: FN_PBUP .. FN_VNORM */
+    {"BEND+", F_INT, 0, 12, 3, 0, "st"}, {"BEND-", F_INT, 0, 12, 3, 0, "st"}, PD("STEP", F_INT, 0, 12, 0),
+    PE("PORTA", N_FMPM, 0), PD("TIME", F_INT, 0, 127, 0), PE("GLISS", N_ONOFF, 0),
+    PD("WHEEL", F_INT, 0, 99, 99), PE("W.DEST", N_FMDEST, 1), PD("FOOT", F_INT, 0, 99, 0), PE("F.DEST", N_FMDEST, 0),
+    PD("BREATH", F_INT, 0, 99, 0), PE("B.DEST", N_FMDEST, 0), PD("AFTER", F_INT, 0, 99, 0), PE("A.DEST", N_FMDEST, 0),
+    PE("DX VEL", N_ONOFF, 0),
+};
+
 /* the frequency of operator fm6_opsel for its CRS and FINE columns: a ratio (CRS: its step 0.5, 1, 2 ..;
  * FINE: the whole ratio) or, FIXED, Hz (CRS: 1, 10, 100, 1000) */
 static void fm6_freq_text(char *val, const char **unit, int coarse)
@@ -351,6 +361,12 @@ static const page_t PAGES[] = {
     {"FM LFO 2", FAM_EDIT, SC_FM6, GR_NONE, {FV_LPMD, FV_LAMD, FV_LPMS, 0xFF}},
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
     {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
+    /* FM6's DX7 functions (Dexed's): pitch bend, portamento, the controllers (wheel, foot, breath,
+     * aftertouch: range and target) */
+    {"FM BEND", FAM_EDIT, SC_FM6, GR_NONE, {FN_PBUP, FN_PBDN, FN_PBSTEP, FN_VNORM}},
+    {"FM PORTA", FAM_EDIT, SC_FM6, GR_NONE, {FN_PMODE, FN_PTIME, FN_GLISS, 0xFF}},
+    {"FM WH/FT", FAM_EDIT, SC_FM6, GR_NONE, {FN_MWR, FN_MWA, FN_FCR, FN_FCA}},
+    {"FM BR/AT", FAM_EDIT, SC_FM6, GR_NONE, {FN_BCR, FN_BCA, FN_ATR, FN_ATA}},
     {"GLOBAL", FAM_GLO, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_CLOCK, G_TUNE}},
 #if FELUCCA_USB_AUDIO
     {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, G_USBOUT, G_USBIN, G_INFO}},   /* + Felucca Out / In on/off */
@@ -420,6 +436,10 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
         if (pg->scope == SC_FMOP) {
             *valp = id == FO_N ? &ed[FV_ON + fm6_opsel] : &ed[FM6_OPB(fm6_opsel + 1u) + id];
             return &FM6_OPD[id];
+        }
+        if (id >= FN_PBUP && id < FM6_NP) {
+            *valp = &ed[id];
+            return &FM6_FD[id - FN_PBUP];
         }
         if (id < FV_PR || id >= FV_NAME)
             return 0;                                 /* (STORE: ui_input.c, ui_draw.c) */
