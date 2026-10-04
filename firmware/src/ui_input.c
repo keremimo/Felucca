@@ -167,6 +167,11 @@ static void edit_param(uint32_t slot, int32_t steps)
     int32_t v;
     if (is_drum(TSEL) && !page_for_drum(pg))
         return;                                           /* "DRUM TRACK": nothing to edit here */
+    if (pg->scope == SC_GLOBAL && id == G_MIDI) {
+        if (steps)
+            ui.midi_view = steps > 0 ? 1u : 0u;
+        return;                                           /* display selection, not an input filter */
+    }
     if (pg->scope == SC_STEP) {
         step_edit(slot, steps);
         return;

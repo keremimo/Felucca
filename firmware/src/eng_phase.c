@@ -138,6 +138,7 @@ static void phase_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     dcw = (uint32_t)depth * 65535u / (127u << 8);
     dcw = (dcw * 56000u) >> 16;                              /* the classic range of the bend */
     inc2 = PITCH_INC[clamp(m->pitch16 + d16, 0, 2047)];
+    inc2 = midi_fine_inc(inc2, m->midi_fine);
     inc2 += (uint32_t)((int32_t)(inc2 >> 12) * (rem * 2367 / 16000));
     pd_setup(&b1, w1, dcw);
     pd_setup(&b2, w2 ? w2 - 1u : w1, dcw);                   /* WAVE2 (every other cycle) */

@@ -59,6 +59,8 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_scale_test" tests/midi_scale
 run "MIDI scales: mapping, recording, routing and held notes" "$OUT/midi_scale_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/seq_edit_test" tests/seq_edit_test.c -lm
 run "sequencer: note length, panel gestures, playback and display" "$OUT/seq_edit_test"
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_expression_test" tests/midi_expression_test.c -lm
+run "MIDI expression: pitch bend, mod wheel, panic, sustain (USB and TRS)" "$OUT/midi_expression_test"
 run "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
 mkdir -p build/tracks_demo
 run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"

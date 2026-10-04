@@ -10,7 +10,8 @@
 #define UM_RING 128u
 static volatile uint8_t um_ring[UM_RING] __attribute__((aligned(16)));
 static struct {
-    uint32_t rd, pend, bytes, drops, msgs;
+    uint32_t rd, pend, drops, msgs;
+    volatile uint32_t bytes;                        /* ISR counter, read by the UI activity indicator */
     uint8_t st, need, got, d0, sysex;
 } um;
 

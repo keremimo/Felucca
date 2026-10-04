@@ -348,7 +348,7 @@ static void slice_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
         v->active = 0;
         return;
     }
-    stepq = (pow2_q16(clamp(m->pitch16 - v->pitch_cur + p[P_E3] * 16, -1536, 576)) >> 8) * (s->rate >> 8);
+    stepq = (midi_fine_inc(pow2_q16(clamp(m->pitch16 - v->pitch_cur + p[P_E3] * 16, -1536, 576)), m->midi_fine) >> 8) * (s->rate >> 8);
     d.pos = v->ph[0];
     d.pred = v->s[0];
     d.idx = v->s[1];

@@ -25,6 +25,7 @@ static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
     /* DTN in cents: whole 1/16 semitones from the table, the rest as a fine factor */
     int32_t d16 = det * 16 / 100, rem = det * 16 - d16 * 100;            /* rem: 1/1600 semitone */
     uint32_t inc2 = PITCH_INC[clamp(m->pitch16 + d16, 0, 2047)];
+    inc2 = midi_fine_inc(inc2, m->midi_fine);
     inc2 += (uint32_t)((int32_t)(inc2 >> 12) * (rem * 2367 / 16000));
     uint32_t pw = 0x80000000u + (uint32_t)((m->shape - (64 << 8)) << 15);
     int32_t m2 = mix * 258, m1 = 32767 - m2;                    /* osc mix Q15 */

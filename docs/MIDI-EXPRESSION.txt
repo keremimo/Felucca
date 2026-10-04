@@ -1,0 +1,66 @@
+Expressive MIDI input
+
+Available over both USB MIDI and the 3.5 mm TRS MIDI input. Synth channels 1-3
+address tracks 1-3. The configured drum channel (default 10) addresses drums.
+Other channels play the selected track; held notes keep their original track
+when selection changes. Saved presets and project formats are unchanged.
+
+MIDI STATUS DISPLAY
+On GLO > SYSTEM, turn knob 1 left for USB status or right for TRS status.
+The first column is labelled MIDI and displays USB ON/--/OFF or TRS ON/RX/OFF.
+USB ON means configured with a host; -- means waiting; OFF means USB is unavailable.
+TRS ON means enabled, not cable detection; RX highlights received bytes for 250 ms.
+This selects the status view only: both inputs stay active. It resets to USB at boot.
+The original SYNC --, ROUT -- and CPU columns are unchanged.
+
+PITCH BEND
+14-bit MIDI Pitch Bend, centre 8192; default range +/-2 semitones.
+Changes are smoothed over several audio blocks. Notes retain their original
+note-off identity. The range can be set per channel using RPN 0:
+  CC101 = 0, CC100 = 0, CC6 = semitones (0-24), CC38 = cents (0-99)
+  CC101 = 127, CC100 = 127 to deselect the RPN afterward.
+For +/-12 semitones use CC6=12 and CC38=0. Range is runtime state, reset on boot.
+Pitch is bounded by the existing engine ranges. GRAIN applies the new pitch
+as grains are spawned; its existing grains finish at their original rate.
+
+MOD WHEEL
+CC1 adds independent sine vibrato at 5 Hz. 0 = none; 127 = +/-50 cents.
+The amount is smoothed. The preset's saved LFO, modulation depths, and sound
+parameters are not changed. Pitch bend and vibrato add together.
+
+PANIC / RESET
+CC123 All Notes Off: release the channel's notes through their normal envelopes.
+The sustain pedal is respected. If no keys/pedal notes remain when the command
+arrives, latched arp notes are cleared too; use CC120 for unconditional silence.
+CC120 All Sound Off: silence the addressed part(s), overriding sustain and long
+release settings. Synth voices fade over one control block to avoid clicks;
+drums use their short declick tail. Captured SLICER repeats are cleared.
+Shared reverb/delay tails may continue. These commands do not stop the sequencer;
+it can trigger new notes on the next scheduled step.
+CC121 Reset All Controllers: centres pitch bend, removes wheel vibrato, releases
+pedal-held notes, and deselects RPN. Physically held notes and bend range remain.
+
+SUSTAIN
+CC64 >=64 = pedal down; <64 = pedal up. Pedal-up releases only notes whose keys
+have already been released. Repeated notes, note-on velocity zero, mono/legato/
+unison modes, and switching the selected track are handled. Sustained arp inputs
+stay in the arp until pedal release (ARP HOLD can keep them latched afterward).
+Sustain extends note duration in live recording; bend/wheel automation is not recorded.
+Drum one-shots ignore bend, wheel and sustain; CC120 can silence them.
+
+ROUTING LIMITS
+USB and TRS share MIDI channel state. They are not independent per-port parts.
+Each synth part has one bend/wheel state; multiple channels sharing a part use
+the last applied controller values. Use separate channels 1-3 for independent parts.
+This is channel expression, not MPE or per-note pitch bend.
+For selected-track channels, controllers reach the selected track and tracks
+still holding that channel's notes. Released tracks do not stay linked indefinitely.
+
+HARDWARE CHECK
+1. On channel 1, hold a note and move pitch bend to each end and back to centre.
+2. Move CC1 up/down: vibrato should fade in/out without altering the preset.
+3. Hold a chord with CC64 down; release keys; lift pedal. Sound should release.
+4. Try CC123 with pedal down (notes remain), then CC120 (voices stop).
+5. Try channels 2/3 and repeat over USB. Check mono/legato and ARP if you use them.
+
+MIDI message reference: https://midi.org/midi-1-0-control-change-messages

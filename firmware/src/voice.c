@@ -475,6 +475,28 @@ static int32_t env_tick(track_t *t, voice_t *v)
     return v->env >> 9;
 }
 
+/* Short control smoothing (~3 ms time constant at CTL=32) with an exact endpoint. */
+static int32_t midi_slew(int32_t current, int32_t target)
+{
+    int32_t d = target - current;
+    return current + (d > 0 ? (d + 3) / 4 : -((-d + 3) / 4));
+}
+
+static int32_t __attribute__((noinline)) midi_pitch_tick(track_t *t, uint32_t n)
+{
+    int32_t pitch;
+    if (!(t->bend_q8 | t->bend_target | t->wheel_q8 | t->wheel_target))
+        return 0;                                  /* neutral controls: keep the idle path cheap */
+    t->bend_q8 = midi_slew(t->bend_q8, t->bend_target);
+    t->wheel_q8 = midi_slew(t->wheel_q8, t->wheel_target);
+    pitch = t->bend_q8;
+    if (t->wheel_q8) {
+        t->wheel_phase += 486958u * n;               /* 5 Hz at 44100 Hz */
+        pitch += mulq15(osc_sine(t->wheel_phase), t->wheel_q8 / 254); /* max +/-50 cents */
+    }
+    return pitch;
+}
+
 /* render one block of a part into out (cleared here); returns the voices rendered */
 static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
 {
@@ -482,6 +504,9 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
     const int16_t *p = t->p;
     uint32_t i;
     int32_t lfo = mulq15(t->lfo_val, t->lfo_fade);
+    int32_t midi_q8 = midi_pitch_tick(t, n);
+    int32_t midi_coarse = midi_q8 >= 0 ? midi_q8 / 16 : -((-midi_q8 + 15) / 16);
+    int32_t midi_fine = (midi_q8 - midi_coarse * 16) * 924 / 1000;
     /* TUNE in cents: whole 1/16 semitones in the pitch, the rest as a fine factor (no dead zone) */
     int32_t tune = song.g[G_TUNE] >= 0 ? song.g[G_TUNE] * 16 / 100 : -((-song.g[G_TUNE] * 16 + 99) / 100);
     int32_t tune_fine = (song.g[G_TUNE] * 16 - tune * 100) * 2367 / 16000;   /* rest, in 1/4096 (1 ct = 2.367) */
@@ -525,9 +550,11 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         }
         if (!env && !m.amp0 && v->stage == 2 && !eng_sampled(e))
             continue;                                   /* held at a silent sustain (SUS 0): nothing to render */
-        pitch = v->pitch_cur + tune + ((lfo * p[P_LD_PIT] * 3) >> 15) + ((m.envq15 * p[P_ED_PIT] * 3) >> 15);
+        pitch = v->pitch_cur + tune + midi_coarse + ((lfo * p[P_LD_PIT] * 3) >> 15) + ((m.envq15 * p[P_ED_PIT] * 3) >> 15);
         m.pitch16 = clamp(pitch, 0, 2047);
+        m.midi_fine = pitch == m.pitch16 ? midi_fine : 0;
         m.inc = PITCH_INC[m.pitch16];
+        m.inc = midi_fine_inc(m.inc, m.midi_fine);
         if (v->fine + tune_fine)                        /* unison detune and fine tune, below 1/16 st */
             m.inc += (uint32_t)((int32_t)(m.inc >> 12) * (v->fine + tune_fine));
         m.cutoff = ((lfo * p[P_LD_FLT]) >> 7) + ((m.envq15 * p[P_ED_FLT]) >> 7);

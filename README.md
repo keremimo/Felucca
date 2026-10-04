@@ -30,7 +30,9 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
   alongside MIDI. Opt-in build mode; tested on macOS, listening tests pending.
   See [USB audio build instructions](BUILDING.md#experimental-usb-audio-mode).
 - **TRS MIDI IN:** enabled by default, with the same channel routing and scale
-  mapping as USB MIDI; channel messages and running status supported
+  mapping as USB MIDI; supports pitch bend, mod-wheel vibrato, sustain and MIDI panic;
+  [controls and limits](docs/MIDI-EXPRESSION.txt)
+- **MIDI status:** GLO > SYSTEM knob 1 switches the first column between USB status and TRS status/activity; both inputs remain active
 
 ## Engines
 

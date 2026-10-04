@@ -5,6 +5,28 @@
 static void draw_menu(void);
 static uint32_t str_hash(uint32_t h, const char *s);
 
+/* Sample every UI frame, even away from SYSTEM. ON means the input is enabled,
+ * not that a cable is connected; RX holds for 250 ms after incoming bytes. */
+static uint32_t ui_trs_state;
+static void ui_midi_status_tick(void)
+{
+#if FELUCCA_UART
+    static uint32_t last_bytes, last_rx_ms;
+    static uint8_t active;
+    uint32_t bytes = um.bytes, now = fm1_ms;
+    if (bytes != last_bytes) {
+        last_bytes = bytes;
+        last_rx_ms = now;
+        active = 1;
+    }
+    if (active && (uint32_t)(now - last_rx_ms) >= 250u)
+        active = 0;
+    ui_trs_state = active ? 2u : 1u;
+#else
+    ui_trs_state = 0;
+#endif
+}
+
 /* --------------------------------------------------------- drawing --- */
 static int is_eng_name(const char *s)                 /* one of the ENGINES[]->name strings */
 {
@@ -1087,9 +1109,11 @@ static void draw_columns(void)
             continue;
         }
         if (cur_page()->id[c] == G_MIDI && cur_page()->scope == SC_GLOBAL) {
-            str_cpy(val, !usb.up ? "OFF" : usb.config ? "MIDI" : usb.setups ? "ENUM" : usb.sof_seen ? "BUS" : "WAIT", 12);
-            unit = "USB";
-            draw_column(c, "USB", val, unit, C_HI, -1, ICON_AUTO);
+            if (ui.midi_view)
+                draw_column(c, "MIDI", "TRS", ui_trs_state == 2u ? "RX" : ui_trs_state ? "ON" : "OFF",
+                            ui_trs_state == 2u ? C_WHITE : VAL(c), -1, ICON_AUTO);
+            else
+                draw_column(c, "MIDI", "USB", !usb.up ? "OFF" : usb.config ? "ON" : "--", VAL(c), -1, ICON_AUTO);
             continue;
         }
         if (cur_page()->id[c] == G_INFO && cur_page()->scope == SC_GLOBAL) {
@@ -1106,6 +1130,7 @@ static void draw_columns(void)
 
 static void ui_draw(void)
 {
+    ui_midi_status_tick();
     ui.frame++;
     if (ui.menu) {
         draw_menu();

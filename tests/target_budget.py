@@ -17,7 +17,7 @@ import sys
 FUNCS = ["analog_render", "digital_render", "phase_render", "lofi_render", "sample_render", "formant_render",
          "trio_render", "trio_pass", "drawbar_render", "drawbar_block",
          "grain_render", "grain_block", "fm6_render", "fm6_block", "slicer_track", "drums_mix",
-         "fm1_alnk0_irq"]
+         "fm1_alnk0_irq", "midi_event", "midi_pitch_tick", "midi_forget_track"]
 TOL = 0.10                      # exact (no noise): small edits pass, a grown render loop does not
 DIV_W = 8                       # a divide weighs 1 + 8 instructions
 NEST = 4                        # an instruction in a loop inside a loop weighs 4, two deep 16, ...
@@ -48,7 +48,7 @@ def functions(path):
     return out
 
 
-def cost(insns):
+def cost(insns, whole_function=False):
     """loops: one span per loop head (the farthest backward branch to it); an instruction inside d
     spans weighs NEST ** (d - 1) (an inner loop runs several times per pass of the outer one)"""
     lo = insns[0][0]
@@ -62,6 +62,8 @@ def cost(insns):
     w = 0
     for a, t in insns:
         d = min(sum(1 for h, e in heads.items() if h <= a <= e), MAXD)
+        if whole_function:
+            d = max(d, 1)                   # the MIDI pitch tick is called every block but has no loop
         if not d:
             continue
         k = NEST ** (d - 1)
@@ -79,7 +81,7 @@ def main():
         print(f"target: skip ({dis} missing: run ./build.sh)")
         return 0
     fns = functions(dis)
-    res = {n: cost(fns[n]) for n in FUNCS if fns.get(n)}
+    res = {n: cost(fns[n], n == "midi_pitch_tick") for n in FUNCS if fns.get(n)}
     missing = [n for n in FUNCS if n not in res]
     base = {}
     if os.path.exists(budget):

@@ -13,6 +13,11 @@ static inline int32_t mulq16(int32_t a, uint32_t k)
 }
 static inline int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+static inline uint32_t midi_fine_inc(uint32_t inc, int32_t fine)
+{
+    return inc + (uint32_t)((int32_t)(inc >> 12) * fine);
+}
+
 /* sine, linearly interpolated between the 1024 table points (plain lookup: THD -55 dB) */
 static inline int32_t sine_i(uint32_t ph)
 {

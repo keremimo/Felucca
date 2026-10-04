@@ -33,7 +33,6 @@ static uint32_t kb_prev;
 static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on which track */
 /* MIDI releases use the original destination, even after root/scale/track changes.
  * Zero means no sounding note; high byte = track + 1, low byte = mapped note. */
-static uint16_t midi_notes[16][128];
 static uint16_t live_refs[NTRK][128];     /* overlapping local/MIDI keys sharing a pitch */
 static uint8_t last_note = 60;
 static volatile uint8_t transport_req;   /* 1 start, 2 stop (from the UI) */
@@ -529,39 +528,16 @@ static track_t *midi_track(uint32_t ch)
     return ch < NPART ? &trk[ch] : TSEL;
 }
 
-static void midi_input_off(uint32_t ch, uint32_t note)
-{
-    uint32_t held = midi_notes[ch][note];
-    midi_notes[ch][note] = 0;
-    if (held)
-        input_off(&trk[(held >> 8) - 1u], held & 0x7Fu);
-}
-
-static void midi_input_on(uint32_t ch, uint32_t note, uint32_t vel)
-{
-    track_t *t = midi_track(ch);
-    uint32_t mapped = midi_map(t, note);
-    /* A repeated note-on retriggers/replaces its previous mapping. */
-    midi_input_off(ch, note);
-    if (mapped == KB_SILENT)
-        return;
-    midi_notes[ch][note] = (uint16_t)(((trk_index(t) + 1u) << 8) | mapped);
-    input_on(t, mapped, vel);
-}
-
 static void live_forget(uint32_t track)
 {
-    uint32_t ch, note;
+    uint32_t note;
     for (note = 0; note < 128u; note++)
         live_refs[track][note] = 0;
-    for (ch = 0; ch < 16u; ch++)
-        for (note = 0; note < 128u; note++)
-            if ((midi_notes[ch][note] >> 8) == track + 1u)
-                midi_notes[ch][note] = 0;
     for (note = 0; note < 27u; note++)
         if (kb_trk[note] == track)
             kb_note[note] = KB_SILENT;
 }
+#include "midi_control.c"
 
 /* everything that happens between two rendered blocks */
 static void events_block(uint32_t n)
@@ -580,7 +556,9 @@ static void events_block(uint32_t n)
         track_t *t = &trk[i];
         if ((pr >> i) & 1u) {
             live_forget(i);
+            midi_forget_track(i);
             trk_all_off(t);
+            t->bend_target = t->bend_q8 = t->wheel_target = t->wheel_q8 = 0;
             t->nheld = 0;
             t->arp_phys = 0;
             t->arp_note = 0;
@@ -605,10 +583,7 @@ static void events_block(uint32_t n)
         uint32_t pkt = midi_in_q[mi_r % MQ], st = (pkt >> 8) & 0xF0u, ch = (pkt >> 8) & 0x0Fu;
         uint32_t d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu;
         mi_r++;
-        if (st == 0x90u && d2)
-            midi_input_on(ch, d1, d2);
-        else if (st == 0x80u || st == 0x90u)
-            midi_input_off(ch, d1);
+        midi_event(st, ch, d1, d2);
     }
     for (i = 0; i < NTRK; i++)
         seq_tick(&trk[i], n);
