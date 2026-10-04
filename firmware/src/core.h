@@ -215,11 +215,12 @@ typedef struct {
 
 static track_t trk[NTRK];        /* the instrument: three parts and the drum track */
 static song_t song;
+static uint32_t midi_beat_samples;  /* measured external quarter note; 0 uses the panel BPM */
+static uint32_t beat_samples(void);  /* fx.c; also used by slicer.c, included before fx.c */
 #define TSEL (&trk[song.sel])    /* the selected track */
 #define TDRUM (&trk[TRK_DRUM])
 static int is_drum(const track_t *t) { return t == TDRUM; }
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")   /* slot store before the index update */
-static volatile uint32_t fm1_ms;  /* milliseconds since boot (TIMER4-based, TIMER5 ISR in main.c) */
 /* boot-loop guard (main.c): two boots in a row that die in the first 30 s -> UBOOT */
 #define BOOTGUARD_MAGIC 0x42475244u
 struct { uint32_t magic, failed, pending; } bootguard __attribute__((section(".noinit")));

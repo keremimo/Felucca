@@ -99,9 +99,14 @@ static inline void master_out(int32_t *l, int32_t *r)
 
 /* length of one division (N_DIV order) in samples at the song tempo */
 static const uint8_t DIV_DEN[6] = {1, 2, 4, 8, 3, 6};    /* beats = 1 / DEN */
+static uint32_t beat_samples(void)
+{
+    return song.g[G_CLOCK] && midi_beat_samples ? midi_beat_samples :
+           (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM];
+}
 static uint32_t div_samples(uint32_t div)
 {
-    return (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM] / DIV_DEN[div % 6u];
+    return beat_samples() / DIV_DEN[div % 6u];
 }
 
 static uint32_t delay_samples(void)

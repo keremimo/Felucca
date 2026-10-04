@@ -173,7 +173,9 @@ def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
     for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_CDC", "FELUCCA_UART",
                  "FELUCCA_ICONS", "FELUCCA_SLICE", "FELUCCA_USB_AUDIO"):
-        v = os.environ.get(flag)    # unset: the default in firmware/src/felucca.c
+        v = os.environ.get(flag, "1" if flag == "FELUCCA_UART" else None)
+        # Keep TRS MIDI IN on in normal and USB audio builds; other unset
+        # flags use the defaults in firmware/src/felucca.c.
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
     flags.append(f'-DFELUCCA_ID="{PRODUCT}"')

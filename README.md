@@ -122,10 +122,10 @@ channels play the selected track. Set ROOT, SCL and QNT on that receiving part.
 Mapped notes feed its arpeggiator and live recording. Note-offs release the pitch
 and part chosen at note-on, even if settings or the selected track change.
 
-This applies to USB MIDI routed from a computer and to TRS MIDI input when it is
-enabled (`FELUCCA_UART`). TRS ignores MIDI clock, transport, system common and
-SysEx. End-to-end TRS reception still needs verification with an external MIDI
-source.
+This applies to USB MIDI routed from a computer and to TRS MIDI input, enabled
+by default (`FELUCCA_UART=1`). TRS also accepts MIDI clock and transport;
+system common and SysEx remain unsupported. End-to-end TRS timing still needs
+verification with an external MIDI source.
 
 ## Sequencer note length
 
@@ -143,6 +143,16 @@ Lengths can cross a 16-step bank or the pattern's loop boundary, up to one full
 pattern. Extensions stop before another note; shortening clears only the removed
 ties. Drum hits remain one-shot. The piano roll shows sustained chords across
 banks, and existing projects keep using the same NOTE/TIE representation.
+
+## MIDI clock and transport
+
+In **GLO > GLOBAL > CLK**, select **INT**, **USB**, or **TRS**. USB and TRS follow
+MIDI Clock (24 pulses per quarter note) and Start, Stop, and Continue from the
+selected input; the other input can still play notes and expressive controls.
+Start resets the patterns to step 1, while Continue resumes their current steps.
+The sequencer stops and releases its notes if clock disappears for 500 ms. The
+displayed BPM, arpeggiator, delay, and SLICER follow the measured tempo. TRS MIDI
+IN is enabled by default (`FELUCCA_UART=1`).
 
 ## Layout
 

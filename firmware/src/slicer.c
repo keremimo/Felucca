@@ -78,7 +78,7 @@ static void sl_enter(const track_t *t, sl_t *s)
     uint32_t mode = (uint32_t)t->p[P_SLCR];
     int32_t sw;
     s->idx = (uint8_t)((s->idx + 1u) & 15u);
-    s->base = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM] / SL_DEN[(uint32_t)t->p[P_SLRATE] % 6u];
+    s->base = beat_samples() / SL_DEN[(uint32_t)t->p[P_SLRATE] % 6u];
     sw = (t->p[P_SSWING] + song.g[G_SWING]) * (int32_t)s->base / 250;   /* as seq.c step_samples */
     s->len = s->base + (uint32_t)((s->idx & 1u) ? -sw : sw);
     s->pos = 0;

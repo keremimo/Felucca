@@ -10,6 +10,8 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(&song, 0, sizeof song);
     memset(midi_notes, 0, sizeof midi_notes);
+    memset(midi_ch, 0, sizeof midi_ch);
+    memset(midi_owners, 0, sizeof midi_owners);
     memset(live_refs, 0, sizeof live_refs);
     memset(&um, 0, sizeof um);
     host_tracks_init();
@@ -285,9 +287,26 @@ static void trs_scale_test(void)
     puts("MIDI scales: TRS parser/running status uses the same mapping and release path");
 }
 
+static void mapped_sustain_test(void)
+{
+    reset();
+    trk[0].p[P_QUANT] = Q_WHITE;
+    trk[0].p[P_SCALE] = 2;
+    send(0xB4, 64, 127);               /* sustain on a selected-track channel */
+    send(0x94, 64, 100);               /* E maps to E-flat in natural minor */
+    assert(midi_notes[4][64] == 0x013F && live_refs[0][63] == 1);
+    song.sel = 1;
+    trk[0].p[P_ROOT] = 5;
+    send(0x84, 64, 0);
+    assert(gated(&trk[0], 63) && midi_notes[4][64] & MIDI_PEDAL_NOTE);
+    send(0xB4, 64, 0);
+    assert(!gated(&trk[0], 63) && !live_refs[0][63] && !midi_notes[4][64]);
+    puts("MIDI scales: sustain releases original mapped pitch after track/scale changes");
+}
+
 int main(void)
 {
     mapping_test(); all_mapping_test(); routing_test(); release_test(); overlap_test(); panic_test();
-    all_events_test(); trs_scale_test();
+    all_events_test(); trs_scale_test(); mapped_sustain_test();
     return 0;
 }

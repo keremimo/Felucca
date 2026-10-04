@@ -12,6 +12,9 @@
  * (EP2 OUT, explicit feedback on EP3) and a separate stereo input device
  * (EP2 IN); TIMER5 must outrank audio rendering. */
 #include "../hal/fm1_usb.h"   /* registers; relative, so the loader and the host tests find it too */
+#if !FELUCCA_LOADER
+static volatile uint32_t fm1_ms;  /* TIMER4-based milliseconds, updated by TIMER5 in main.c */
+#endif
 enum { S_FADDR = 0, S_POWER = 1, S_INTRTX1 = 2, S_INTRTX2 = 3, S_INTRRX1 = 4, S_INTRRX2 = 5, S_INTRUSB = 6,
        S_INTRTX1E = 7, S_INTRTX2E = 8, S_INTRRX1E = 9, S_INTRRX2E = 10, S_INTRUSBE = 11, S_FRAME1 = 12,
        S_FRAME2 = 13, S_INDEX = 14,
@@ -71,7 +74,30 @@ static volatile uint32_t so_w, so_r;
 /* MIDI rings: 4-byte USB-MIDI event packets */
 #define MQ 64u
 static uint32_t midi_in_q[MQ], midi_out_q[MQ];
+static uint32_t midi_in_ms[MQ];                 /* arrival time for 24 PPQN clock */
+static uint8_t midi_in_src[MQ];                 /* 1 USB, 2 TRS */
 static volatile uint32_t mi_w, mi_r, mo_w, mo_r;
+
+static int midi_in_enqueue(uint32_t pkt, uint32_t source, uint32_t ms)
+{
+    if (mi_w - mi_r >= MQ)
+        return 0;
+    midi_in_q[mi_w % MQ] = pkt;
+    midi_in_ms[mi_w % MQ] = ms;
+    midi_in_src[mi_w % MQ] = (uint8_t)source;
+    RING_PUBLISH();
+    mi_w++;
+    return 1;
+}
+
+static void usb_midi_rx_packet(uint32_t pkt, uint32_t ms)
+{
+    uint32_t cin = pkt & 15u, status = (pkt >> 8) & 0xFFu;
+    if ((cin >= 8u && cin <= 0xEu) ||
+        (cin == 0xFu && (status == 0xF8u || status == 0xFAu ||
+                         status == 0xFBu || status == 0xFCu)))
+        midi_in_enqueue(pkt, 1u, ms);
+}
 
 static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 {
@@ -539,11 +565,12 @@ static void ep1_rx(void)
             uint32_t k, nb = cin == 4u || cin == 7u ? 3u : cin == 6u ? 2u : 1u;
             for (k = 0; k < nb; k++)
                 sysex_byte(ep1rx[i + 1 + k]);
-        } else if (cin >= 8u && cin <= 0xEu && mi_w - mi_r < MQ) {
-            midi_in_q[mi_w % MQ] = pkt;
-            RING_PUBLISH();
-            mi_w++;
-        }
+        } else
+#if FELUCCA_LOADER
+            usb_midi_rx_packet(pkt, 0);
+#else
+            usb_midi_rx_packet(pkt, fm1_ms);
+#endif
     }
     usb.rx_pkts++;
     csr = (csr & ~0x164u) | 0x10u;

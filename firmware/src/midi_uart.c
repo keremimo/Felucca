@@ -4,7 +4,8 @@
  * RX DMA into a 128-byte ring, polled from the TIMER5 ISR (no UART IRQ).
  * Built only with FELUCCA_UART=1. Channel messages go into midi_in_q next to
  * USB, as USB-MIDI packets (cable 0, CIN = status >> 4), so seq.c routes them by
- * channel as it does USB; realtime, system common and SysEx are dropped. */
+ * channel as it does USB; clock and transport are queued in order with notes.
+ * Other realtime, system common and SysEx are dropped. */
 #include "../hal/fm1_uart.h"   /* registers; relative, so the host tests find it too */
 
 #define UM_RING 128u
@@ -27,8 +28,15 @@ static uint32_t um_len(uint32_t s)                 /* data bytes of a channel st
 
 static void um_byte(uint32_t b)
 {
-    if (b >= 0xF8u)
-        return;                                    /* realtime: ignored, state kept */
+    if (b >= 0xF8u) {
+        if (b == 0xF8u || b == 0xFAu || b == 0xFBu || b == 0xFCu) {
+            if (midi_in_enqueue(0x0Fu | b << 8, 2u, fm1_ms))
+                um.msgs++;
+            else
+                um.drops++;
+        }
+        return;                                    /* realtime leaves running status intact */
+    }
     if (b & 0x80u) {
         um.sysex = b == 0xF0u;
         um.st = b < 0xF0u ? (uint8_t)b : 0;        /* system common/SysEx cancel running status */
@@ -47,14 +55,10 @@ static void um_byte(uint32_t b)
         uint32_t d1 = um.need == 2u ? um.d0 : b, d2 = um.need == 2u ? b : 0u;
         uint32_t pkt = (um.st >> 4) | (uint32_t)um.st << 8 | d1 << 16 | d2 << 24;
         um.got = 0;
-        if (mi_w - mi_r < MQ) {
-            midi_in_q[mi_w % MQ] = pkt;
-            RING_PUBLISH();
-            mi_w++;
+        if (midi_in_enqueue(pkt, 2u, fm1_ms))
             um.msgs++;
-        } else {
+        else
             um.drops++;
-        }
     }
 }
 

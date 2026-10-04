@@ -35,6 +35,8 @@ run "user presets (UP_PUT parser, bank round trip, versions)" "$OUT/upreset_test
 
 $CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
 run "TRS MIDI parser" "$OUT/midi_uart_test"
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_clock_test" tests/midi_clock_test.c -lm
+run "USB/TRS MIDI clock and transport" "$OUT/midi_clock_test"
 
 $CC -o "$OUT/usb_audio_test" tests/usb_audio_test.c -lm
 run "USB audio: routing, clock drift and stream recovery" "$OUT/usb_audio_test"

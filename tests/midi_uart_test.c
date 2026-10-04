@@ -104,14 +104,17 @@ int main(void)
 {
     static const uint8_t in[] = {
         0x90, 60, 100, 62, 101,          /* note on + running status */
-        0xF8, 64, 0xFE, 102,             /* realtime inside a message */
+        0xF8, 64, 0xFE, 102,             /* clock inside a running-status message */
+        0xFA, 0xFB, 0xFC,                /* transport leaves running status intact */
         0xC1, 5, 6,                      /* program change + running */
         0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7, 70, 71,   /* SysEx dropped; cancels running status */
         0xB0, 7, 0x7F, 0xF2, 1, 2, 9, 9, /* CC, song position (dropped), data without status */
         0x80, 60, 0,
     };
     static const uint32_t want[] = {
-        0x643C9009u, 0x653E9009u, 0x66409009u, 0x0005C10Cu, 0x0006C10Cu, 0x7F07B00Bu, 0x003C8008u,
+        0x643C9009u, 0x653E9009u, 0x0000F80Fu, 0x66409009u,
+        0x0000FA0Fu, 0x0000FB0Fu, 0x0000FC0Fu,
+        0x0005C10Cu, 0x0006C10Cu, 0x7F07B00Bu, 0x003C8008u,
     };
     uint32_t i, bad = 0, n = sizeof want / sizeof want[0];
     for (i = 0; i < sizeof in; i++)
@@ -125,7 +128,21 @@ int main(void)
             printf("pkt %u: %08x want %08x\n", i, midi_in_q[i], want[i]);
             bad = 1;
         }
+    for (i = 0; i < n && i < mi_w; i++)
+        if (midi_in_src[i] != 2u)
+            bad = 1;
     bad += (uint32_t)check("uart: running status, realtime, SysEx, system common", !bad);
+    {
+        uint32_t w0 = mi_w;
+        usb_midi_rx_packet(0x0000F80Fu, 123u);
+        usb_midi_rx_packet(0x0000FA0Fu, 124u);
+        usb_midi_rx_packet(0x0000FB0Fu, 125u);
+        usb_midi_rx_packet(0x0000FC0Fu, 126u);
+        usb_midi_rx_packet(0x0000FE0Fu, 127u);
+        bad += (uint32_t)check("usb: clock/start/continue/stop, ignore active sensing",
+                               mi_w == w0 + 4u && midi_in_src[w0] == 1u && midi_in_ms[w0] == 123u &&
+                               midi_in_q[w0 + 3u] == 0x0000FC0Fu);
+    }
     {   /* 4-track routing reads the channel from the packet as for USB-MIDI: cable 0, CIN = status >> 4 */
         static const uint8_t chs[] = {0x90, 60, 1, 0x91, 61, 2, 0x92, 62, 3, 0x99, 36, 4, 0x9F, 63, 5, 0x89, 36, 0};
         uint32_t w0 = mi_w, ok = 1;
