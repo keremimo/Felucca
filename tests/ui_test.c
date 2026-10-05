@@ -494,7 +494,8 @@ static int test_rec(void)
         press(B_REC);
         bad += check("REC again disarms (the transport runs on)", song.rec == 0u && transport_req == 0u);
         hold(B_REC);
-        bad += check("REC held remains record transport and never clears a pattern", ui.confirm == CF_NONE && song.rec == 4u);
+        bad += check("REC held opens the MIXER (no arming) and never clears a pattern", ui.confirm == CF_NONE && song.rec == 0u &&
+                     !ui.home && cur_page()->fam == FAM_TRK);
     }
     ui_power_on();
     press(B_REC);
@@ -2388,6 +2389,32 @@ static int test_boot_template(void)
     return bad;
 }
 
+/* REC + PLAY: armed and playing at once, REC's release no tap (no disarm); REC held: the MIXER */
+static int test_rec_gestures(void)
+{
+    int bad = 0;
+    ui_power_on();
+    stop_transport();
+    song.rec = 0;
+    btn_down(B_REC); frame();
+    press(B_PLAY);
+    btn_up(B_REC); frame();
+    bad += check("REC + PLAY: the track armed, the transport starting, REC's release no disarm",
+                 (song.rec & 1u) && transport_req == 1u && msg_is("RECORDING"));
+    stop_transport();
+    transport_req = 0;
+    song.rec = 0;
+    hold(B_REC);
+    bad += check("REC held: the MIXER, nothing armed", !ui.home && cur_page()->fam == FAM_TRK && !song.rec && !transport_req);
+    go_home();
+    press(B_REC);
+    bad += check("REC tapped: armed and starting, as ever", (song.rec & 1u) && transport_req == 1u && ui.home);
+    stop_transport();
+    transport_req = 0;
+    song.rec = 0;
+    return bad;
+}
+
 /* LIGHTS (menu): the keys that play glow (QNT OFF: the scale's notes; a layout: the keys not silent; a kit: every
  * key), a key sounding is bright (pressed, or its note held by MIDI on the track), the idle buttons glow; OFF: as 1.0 */
 static uint32_t key_light(uint32_t id)                   /* 2 bright, 1 dim, 0 dark (led id: key k = 14 + k) */
@@ -3724,6 +3751,7 @@ int main(void)
     bad += test_fm6_pages();
     bad += test_boot_template();
     bad += test_key_lights();
+    bad += test_rec_gestures();
 #if MELODEE_SLICE
 #if SMP_USER_SLOTS
     bad += test_slices();

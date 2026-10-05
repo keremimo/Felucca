@@ -239,6 +239,35 @@ static void rec_tap(void)
         ui_message("KEYS RECORD LIVE");               /* (seq_entry pauses while armed and playing) */
 }
 
+/* REC + PLAY (PLAY pressed while REC is held): record on the selected track at once, armed and playing; REC's
+ * release then does nothing (no tap, no hold) */
+static void rec_play(void)
+{
+    uint8_t bit = (uint8_t)(1u << song.sel);
+    ui.rec_t0 |= 2u;
+    if (chain_busy()) {
+        ui_message("STOP TO RECORD");
+        return;
+    }
+    if (!ui.home && cur_page()->graph == GR_SONG) {
+        ui_message("[SEQ] TO RECORD");
+        return;
+    }
+    song.rec |= bit;
+    if (!song.playing)
+        transport_req = 1;
+    ui.force = 1;
+    ui_message("RECORDING");
+}
+
+/* REC held: the MIXER (FAM_TRK), the tracks' arming and mutes at a glance */
+static void rec_hold_mixer(void)
+{
+    ui.page = (uint8_t)page_first(FAM_TRK);
+    ui.home = 0;
+    page_entered();
+}
+
 /* live recording into the selected track now: the STEP page's key entry pauses meanwhile */
 static int live_rec_sel(void) { return ((song.rec >> song.sel) & 1u) && (song.playing || transport_req == 1u); }
 
@@ -837,7 +866,7 @@ static void ui_input(void)
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
     uint32_t bank_notes = notes;
     uint32_t home = btn_hold(&ui.home_t0, B_HOME, now, 1);
-    uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, 0);
+    uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && !ui.confirm && !name_on());   /* held: MIXER */
     uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm);
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
     uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || step_modifier_context());
@@ -917,10 +946,12 @@ static void ui_input(void)
     }
     if (ui.menu || ui.confirm || name_on()) {
         /* REC does nothing in the menu, a dialog or NAME (no transport start there) */
-    } else if (chain_busy() && rec != BT_NONE) {
+    } else if (chain_busy() && rec == BT_TAP) {
         ui_message("STOP TO RECORD");
     } else if (rec == BT_TAP) {
         rec_tap();
+    } else if (rec == BT_HOLD) {
+        rec_hold_mixer();
     }
     if (ui.menu) {                                      /* HOME / SAVE / REC taps do nothing here */
         if (ui.save_t0)
@@ -1025,6 +1056,10 @@ static void ui_input(void)
         b = panel_btn_of(id);
         switch (b) {
         case B_PLAY:
+            if ((fm1_in.buttons >> panel.btn[B_REC]) & 1u) {   /* REC + PLAY: record now */
+                rec_play();
+                break;
+            }
             if (layer_play())                           /* (GLO held: RESTART) */
                 break;
             if (song.playing || chain_busy())

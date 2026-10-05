@@ -71,9 +71,11 @@ runs Felucca.
   **PRESETS** its sound. **KNOB 1–4** edit the four columns of the page
 - FX, SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
   HOME returns home
-- **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the song.
+- **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the song,
+  REC the MIXER.
   When editing synth steps, FX and SCL use the editing controls below
-- PLAY starts and stops all four tracks; REC arms the selected track, on every page
+- PLAY starts and stops all four tracks; REC arms the selected track, on every page (and starts the
+  transport when it is stopped); **REC + PLAY** arms it and starts recording in one gesture
 - OCT− / OCT+ shift the octave (both: reset). On action pages, in dialogs and the menu, OCT+ does it
   and OCT− goes back. During synth step editing, OCT− / OCT+ move the step cursor
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
