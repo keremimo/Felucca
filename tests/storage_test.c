@@ -109,7 +109,7 @@ int main(void)
                      st_sector(OBJ_PROJECT0 + 3, 1) + 4096 == 0x9F000u && st_sector(OBJ_FM6BANK, 1) == 0xFE000u &&
                      st_sector(OBJ_SETTINGS, 1) + 4096 == 0xFE000u);
     {
-        static uint8_t bank[3472], back[3472];
+        static uint8_t bank[3612], back[3612];                 /* (fm6_bank.c fm6_bank_t) */
         uint32_t i;
         for (i = 0; i < sizeof bank; i++) bank[i] = (uint8_t)(i * 7u);
         bad += check("FM6 bank save / load (A then B)", st_save(OBJ_FM6BANK, bank, sizeof bank) == 0 &&

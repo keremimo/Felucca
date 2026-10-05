@@ -402,7 +402,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x55); ed_b(1); ed_b(ed_ui_caps());             /* tagged preferences v1: commands 34..38 */
         ed_b(0x4d); ed_b(1); ed_b(MOTION_MAX); ed_b(1); /* motion + chance v1 */
         ed_b(0x42); ed_b(1); ed_b(3); /* bounded full-backup read + restore */
-        ed_b(0x46); ed_b(1); ed_b(FM6_NFACTORY); ed_b(FM6_BANK_N);   /* FM6 patches: cmds 68..71 */
+        ed_b(0x46); ed_b(1); ed_b(FM6_NFAC); ed_b(FM6_BANK_N);   /* FM6 patches: cmds 68..71 */
         break;
     case ED_GET:
     case ED_SET:

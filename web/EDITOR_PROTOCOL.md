@@ -488,7 +488,7 @@ this firmware sends 3. Requests name objects, never flash addresses.
 | 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, ...) | the settings record's size |
 | 2..5 | PROJECT slots 1..4 (FUN8) | 3584, or 0 if empty |
 | 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size, or 0 if empty |
-| 8 | the FM6 patch bank (B1..B27; firmware with FM6 only) | 3472, or 0 if empty |
+| 8 | the FM6 patch bank (B1..B32) and the FM6 function settings (firmware with FM6 only; Felucca 1.0: B1..B27, 3472) | 3612, or 0 if empty |
 | 32..34 | user sample slots 1..3: header (512 bytes) then ADPCM data | 512 + data length, or 0 if empty |
 
 Reading: `BACKUP_LIST` (no arguments) stops the transport, then takes a snapshot of the runtime object and
@@ -500,7 +500,7 @@ against the list; if it differs the device changed, so start again.
 Restoring: `BACKUP_PUT` takes ids 0..8 (the samples are written with `SMP_BEGIN` / `SMP_WRITE` / `SMP_END`,
 or `SMP_ERASE` for an empty slot). Begin: `0, id, size u32, crc u32`: size is 3584 (FUN8) or 3388 (FUN7, FUN6) for id 0,
 the settings record's size for id 1, 3584, 3388 or 0 (empty the slot) for ids 2..5, the bank's size or 0 for 6 and 7,
-3472 or 0 for 8 (the FM6 bank: its magic, layout and every byte below 128 are checked). FUN7 and FUN6 become FUN8.
+3612 or 0 for 8 (the FM6 bank: its magic, version 2, 32 slots and its function settings in range are checked). FUN7 and FUN6 become FUN8.
 An archive without id 8 (written before FM6) still restores; the web editor reads both. Data: `1, id, offset u32, pack7` with the next offset (they must follow each other)
 and at most 256 decoded bytes. Commit: `2, id`: the device checks the length and the CRC, validates the
 content, and then writes. Abort: `3, id`. Id 0 replaces the music now playing (RAM only, no flash);
@@ -523,10 +523,11 @@ A `LIST` replaces the snapshot, and a `PUT` begin ends it: a `GET` after a begin
 ## FM6 patches (68-71)
 
 The FM6 engine (12) plays a 6-operator patch per track; its eight EDIT parameters are macros on top of it
-(ALG 0 = the patch's algorithm, 1..32 another; FB, MLVL, MRAT, MEG, VMOD offsets; DTUN; PTCH 0..34 = F1..F8
-the factory patches, then B1..B27 the bank: setting PTCH loads that patch into the track). The patch itself
-only travels through these commands. INFO advertises `46 01 nfactory nbank` after the backup tag (this
-firmware: `46 01 08 1B`); firmware without it has no FM6 and does not answer 68..71.
+(ALG 0 = the patch's algorithm, 1..32 another; FB, MLVL, MRAT, MEG, VMOD offsets; DTUN; PTCH 0..55 = F1..F24
+the factory patches (F1..F8 Felucca's, F9..F24 Melodee's), then B1..B32 the bank: setting PTCH loads that patch
+into the track). The patch itself travels through these commands (and as DX7 SysEx, below). INFO advertises
+`46 01 nfactory nbank` after the backup tag (this firmware: `46 01 18 20`; Felucca 1.0: `46 01 08 1B`); firmware
+without it has no FM6 and does not answer 68..71.
 
 A patch is the 128-byte packed record of the generic 6-operator voice (the 32-voice bank's record; every byte is
 7-bit, so it travels as it is, no pack7). Operators come sixth first: per operator 17 bytes (R1..R4, L1..L4,
@@ -543,8 +544,8 @@ The device stores every value clamped into its range.
 | 71 FM6_ERASE | bank index | index, rc |
 
 target: 0 a track's own patch (index 0..3: what it plays and what its project saves; a PUT is heard at once and
-keeps PTCH as it is), 1 a bank slot (index 0..26 = B1..B27; a PUT writes flash: it stops the transport, allow
-1 s; tracks playing that slot reload it), 2 a factory patch (0..7, GET only). rc: 0 ok, 1 arguments (an unknown
+keeps PTCH as it is), 1 a bank slot (index 0..31 = B1..B32; a PUT writes flash: it stops the transport, allow
+1 s; tracks playing that slot reload it), 2 a factory patch (0..23, GET only). rc: 0 ok, 1 arguments (an unknown
 target, an index out of range, a record that is not 128 bytes), 2 an empty bank slot (GET) or a flash error /
 transport that did not stop (PUT, ERASE). The bank is in flash (A 0x9F000, B 0xFE000) and in a full backup (id 8).
 
@@ -552,6 +553,15 @@ The web editor (6-OP FM tab) reads and writes these, and imports / exports the g
 format: a single voice `F0 43 0n 00 01 1B`, the 155-byte unpacked voice, checksum, `F7` (163 bytes), and 32
 voices `F0 43 0n 09 20 00`, 32 x 128 packed, checksum, `F7` (4104 bytes); the checksum is the two's complement
 of the data's sum, 7 bits. Raw 155 / 4096-byte files are read too.
+
+The device itself also takes these as MIDI SysEx on its USB-MIDI port (any channel `n`), so Dexed or a DX7
+librarian can edit a track live: a single voice replaces the FM6 track's patch (the selected track when it plays
+FM6, else track n + 1, else the first FM6 track; the notes stop, as a DX7 program change), 32 voices fill the bank
+B1..B32 (saved; not while the transport runs), a voice parameter change `F0 43 1n gg pp dd F7` edits one byte of
+the patch (pp + 128 gg; 155: the six operator switches, OP1 = bit 5), a function parameter change
+`F0 43 1n 08 pp dd F7` sets the FM6 function settings (64 mono, 65 bend range, 66 step, 68 glissando, 69
+portamento time, 70..77 wheel / foot / breath / aftertouch range and target: one set for every FM6 track, saved
+with the bank), and the dump requests `F0 43 2n 00 F7` / `F0 43 2n 09 F7` answer with the track's voice / the bank.
 
 ## Tagged device preferences v1
 

@@ -64,10 +64,12 @@
 #                   (src/fm4_convert.c): routes and carriers per algorithm, the presets' PTCH, and the sound (pitch,
 #                   centroid, RMS envelope) of its presets and algorithms; demos in build/fm4_demo/. tests/digital_test.c
 #                   (MELODEE_FM4=1 too): DIGITAL's operator envelopes. Default builds have no DIGITAL (engine 1 reserved).
-# FM6 (tests/fm6_test.c): the 6-operator FM engine (src/eng_fm6.c, src/fm6_core.c): the 32 algorithms' carriers, the
-#                   operator envelopes (stages, rates, the voice ending), bit-stable notes, a click-free retrigger, no DC /
-#                   clipping over the factory patches, the macros' directions, PTCH, pack / unpack and the SysEx
-#                   layouts, the 6-voice cap, the cost per voice; demos in build/fm6_demo/.
+# FM6 (tests/fm6_test.c): the 6-operator FM engine (src/eng_fm6.c, src/fm6_core.c) against the DX7: the 32 algorithms
+#                   against its diagrams, pitch, levels, envelopes, modulation; no DC / clipping over the factory
+#                   patches, the macros (neutral at 0, their directions), PTCH, pack / unpack and the SysEx layouts,
+#                   Dexed's 16 voices, the cost per voice; demos in build/fm6_demo/. tests/fm6_ams_test.c: the AMS share
+#                   as Dexed's doubles figure it. With DEXED_SRC (a Dexed checkout's Source/): tests/fm6_parity.sh
+#                   --quick renders scores through Dexed's own code and FM6 and compares them sample by sample.
 # Change baseline entries only for reviewed, intentional differences in sound or cost;
 # retain every unaffected golden / CPU / target entry. VERBOSE=1: every render.
 set -e
@@ -205,7 +207,14 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" "$OUT/noise_test" build/noise_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_test" tests/fm6_test.c -lm
     mkdir -p build/fm6_demo
-    run "FM6: algorithms, envelopes, retrigger, DC, clipping, macros, patch formats, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
+    run "FM6: the DX7's algorithms, pitch, levels, envelopes, modulation; DC, clipping, macros, patches, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_ams_test" tests/fm6_ams_test.c -lm
+    run "FM6: AMS as Dexed's doubles figure it, every modulation" "$OUT/fm6_ams_test"
+    if [ -n "${DEXED_SRC:-}" ]; then
+        run "FM6 vs Dexed: sample-exact renders (DEXED_SRC)" sh tests/fm6_parity.sh --quick
+    else
+        echo "== FM6 vs Dexed: skipped (DEXED_SRC=<dexed>/Source to run tests/fm6_parity.sh)"
+    fi
     # SLICE is in the standard build (firmware/src/core.h): its test always runs (after #22 by andreahaku)
     if grep -q '^#define SLC_BREAK_BPM ' build/gen/melodee_samples.h; then
         mkdir -p build/slice_demo

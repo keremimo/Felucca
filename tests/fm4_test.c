@@ -49,7 +49,6 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(eng_state, 0, sizeof eng_state);
     memset(fm6_eff, 0, sizeof fm6_eff);
-    memset(fm6_lfo, 0, sizeof fm6_lfo);
     memset(digital_env, 0, sizeof digital_env);
     memset(digital_stage, 0, sizeof digital_stage);
     host_tracks_init();

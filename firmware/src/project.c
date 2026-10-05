@@ -596,7 +596,11 @@ static char proj_name[PROJ_NAME_LEN + 1u]    /* the name of the music as it is n
 #define PROJ_NO_SLOT 0xFFu
 static uint8_t proj_cur = PROJ_NO_SLOT;      /* the slot the music was loaded from or last saved to (a rename of it
                                               * renames the music too); PROJ_NO_SLOT none (the editor's restore) */
-static project_store_t proj_wire;            /* serialized main-loop work; no retained expansion */
+static union {                               /* serialized main-loop work; no retained expansion. A backup object */
+    project_store_t p;                       /* is staged here too (editor_backup.c): up to 3840 bytes (the FM6 bank */
+    uint8_t raw[3840];                       /* is 3612) */
+} proj_wire_u;
+#define proj_wire proj_wire_u.p
 static uint8_t proj_wire_gen;                /* +1 whenever proj_wire is rewritten (a backup's runtime copy lives there) */
 
 static void proj_steps(step_t *s)            /* a loaded sequence stays inside its fixed fields */

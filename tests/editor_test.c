@@ -117,7 +117,7 @@ static int preferences(void)
         host_wire[n - 12] == 0x4d && host_wire[n - 11] == 1 &&
         host_wire[n - 10] == MOTION_MAX && host_wire[n - 9] == 1 &&
         host_wire[n - 8] == 0x42 && host_wire[n - 7] == 1 && host_wire[n - 6] == 3 &&
-        host_wire[n - 5] == 0x46 && host_wire[n - 4] == 1 && host_wire[n - 3] == FM6_NFACTORY &&
+        host_wire[n - 5] == 0x46 && host_wire[n - 4] == 1 && host_wire[n - 3] == FM6_NFAC &&
         host_wire[n - 2] == FM6_BANK_N);
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
@@ -369,19 +369,19 @@ static int fm6_patches(void)
     bad += check("FM6_PUT bank B5, then GET: stored in range (a level of 120 -> 99)", host_wire[7] == 0 &&
                  host_wire[8 + 14] == 99 && !memcmp(host_wire + 8 + 118, "MY PATCH  ", 10) && fm6_bank_used(4));
     n = request(ED_FM6_LIST, a, 0);
-    {   /* factory 8, bank 27, then used + name per slot */
-        uint32_t p = 7, k, ok = host_wire[5] == FM6_NFACTORY && host_wire[6] == FM6_BANK_N, named = 0;
-        for (k = 0; k < FM6_NFACTORY + FM6_BANK_N && p < n; k++) {
+    {   /* factory 24, bank 32, then used + name per slot */
+        uint32_t p = 7, k, ok = host_wire[5] == FM6_NFAC && host_wire[6] == FM6_BANK_N, named = 0;
+        for (k = 0; k < FM6_NFAC + FM6_BANK_N && p < n; k++) {
             uint32_t used = host_wire[p++];
-            if (k == FM6_NFACTORY + 4u) named = used && !memcmp(host_wire + p, "MY PATCH", 9);
-            if (k < FM6_NFACTORY) ok &= used == 1u;
+            if (k == FM6_NFAC + 4u) named = used && !memcmp(host_wire + p, "MY PATCH", 9);
+            if (k < FM6_NFAC) ok &= used == 1u;
             while (host_wire[p]) p++;
             p++;
         }
-        bad += check("FM6_LIST: 8 factory names, the bank's used slots by name", ok && named && k == FM6_NSLOT);
+        bad += check("FM6_LIST: 24 factory names, the bank's used slots by name", ok && named && k == FM6_NSLOT);
     }
     trk[1].eng_req = ENGI_FM6;
-    trk[1].p[P_E7] = FM6_NFACTORY + 4;
+    trk[1].p[P_E7] = FM6_NFAC + 4;
     fm6_poll();
     bad += check("PTCH B5 loads the bank patch into the track", !memcmp(fm6_patch[1] + FP_NAME, "MY PATCH  ", 10));
     a[0] = 4;

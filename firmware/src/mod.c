@@ -217,7 +217,7 @@ static void mod_note(track_t *t, uint32_t note, uint32_t vel)
 }
 
 /* a MIDI controller for track t (seq.c events_block): CC1 / CC11 / channel aftertouch; CC121 resets them. Also
- * CC2 breath, CC4 foot and CC65 portamento for FM6 (its DX7 controllers) */
+ * CC2 breath, CC4 foot, CC5 portamento time and CC65 portamento for FM6 (its DX7 controllers) */
 static __attribute__((noinline)) void mod_midi(track_t *t, uint32_t st, uint32_t d1, uint32_t d2)
 {
     if (st == 0xD0u) {
@@ -233,6 +233,8 @@ static __attribute__((noinline)) void mod_midi(track_t *t, uint32_t st, uint32_t
             t->foot = (uint8_t)d2;
         else if (d1 == 65u)
             t->porta = (uint8_t)(d2 >= 64u);
+        else if (d1 == 5u)
+            fm6_fn_set(FN_PTIME, (int32_t)d2);      /* FM6's portamento time */
         else if (d1 == 121u)
             t->mw = t->at = t->ex_off = t->breath = t->foot = t->porta = 0;
     }

@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Editor protocol: the FM6 patches (EDITOR_PROTOCOL.md "FM6 patches", cmds 68..71). A patch travels as the
  * 128-byte packed record (every byte 7-bit: no pack7). Targets: 0 a track's own patch (index 0..3), 1 a bank
- * slot (0..FM6_BANK_N-1, flash), 2 a factory patch (0..FM6_NFACTORY-1, read only). */
+ * slot (0..FM6_BANK_N-1, flash), 2 a factory patch (0..FM6_NFAC-1, read only). */
 enum { ED_FM6_GET = 68, ED_FM6_PUT, ED_FM6_LIST, ED_FM6_ERASE };
 enum { ED_FM6_TRACK, ED_FM6_BANK, ED_FM6_FACTORY };
 
@@ -31,8 +31,8 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
                 fm6_pack(fm6_patch[a[1]], pk);
             else if (a[0] == ED_FM6_BANK && a[1] < FM6_BANK_N)
                 rc = fm6_bank_get(a[1], pk) ? 2u : 0u;
-            else if (a[0] == ED_FM6_FACTORY && a[1] < FM6_NFACTORY)
-                memcpy(pk, FM6_FACTORY[a[1]], FM6_PACKED);
+            else if (a[0] == ED_FM6_FACTORY && a[1] < FM6_NFAC)
+                fm6_factory(a[1], pk);
             else
                 rc = 1;
         }
@@ -60,12 +60,12 @@ static int ed_fm6_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
     case ED_FM6_LIST:                                      /* -> factory count, bank count, then per slot: used, name */
         if (n)
             return 0;
-        ed_b(FM6_NFACTORY); ed_b(FM6_BANK_N);
-        for (i = 0; i < FM6_NFACTORY + FM6_BANK_N; i++) {
-            uint32_t used = i < FM6_NFACTORY || !fm6_bank_get(i - FM6_NFACTORY, pk);
+        ed_b(FM6_NFAC); ed_b(FM6_BANK_N);
+        for (i = 0; i < FM6_NFAC + FM6_BANK_N; i++) {
+            uint32_t used = i < FM6_NFAC ? (fm6_factory(i, pk), 1u) : !fm6_bank_get(i - FM6_NFAC, pk);
             ed_b(used);
             if (used)
-                ed_fm6_name(i < FM6_NFACTORY ? FM6_FACTORY[i] : pk);
+                ed_fm6_name(pk);
             else
                 ed_b(0);
         }

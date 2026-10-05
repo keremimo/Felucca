@@ -571,14 +571,15 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         {
             env = env_tick(t, v);
             if (e->ownenv && v->active) {               /* the engine's envelopes (FM6): they end the voice */
-                if (e->done(t, v)) {
-                    v->active = v->gate = 0;
+                if (e->done(t, v)) {                    /* its last block, faded out (the engine's state goes on */
+                    v->active = v->gate = 0;            /* one more block, as Dexed's) */
                     v->stage = 0;
-                    v->env = v->env_out = 0;
-                    continue;
+                    v->env = 0;
+                    env = 0;
+                } else {
+                    v->env = 1 << 24;                   /* (the ADSR's release never ends it) */
+                    env = 32767;
                 }
-                v->env = 1 << 24;                       /* (the ADSR's release never ends it) */
-                env = 32767;
             }
             if (e->amp)                                 /* the engine's own amplitude curve */
                 env = e->amp(t, v, env);

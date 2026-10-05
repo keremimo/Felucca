@@ -14,7 +14,7 @@
 #include "eng_phys.c"           /* PHYS: DaisySP physical models (phys_dsp.c, MIT) */
 #include "eng_drum.c"           /* DRUM: the 8-lane kit (drum_voice.c) */
 #include "eng_noise.c"
-#include "eng_fm6.c"            /* FM6: 6-operator FM, msfa ported (fm6_core.c, Apache-2.0) */
+#include "eng_fm6.c"            /* FM6: 6-operator FM rendered as Dexed renders it (fm6_core.c) */
 #include "fm4_convert.c"        /* DIGITAL's tables, and its sounds -> FM6 */
 #if MELODEE_FM4
 #include "eng_digital.c"        /* DIGITAL: four-operator FM (retired; MELODEE_FM4=1 builds it) */
@@ -31,7 +31,7 @@ static union {
     gr_part_t grain;
     drum_lane_t drum[DV_NLANE];
     drw_part_t wheel;
-    fm6_note_t fm6[FM6_POLY];
+    fm6_part_t fm6;
 #if MELODEE_SLICE
     slc_rb_t slice;
 #endif
@@ -40,7 +40,7 @@ static phys_slot_t *phys_slots(uint32_t part) { return eng_state[part % NPART].p
 static gr_part_t *gr_part_of(const track_t *t) { return &eng_state[(uint32_t)(t - trk) % NPART].grain; }
 static drum_lane_t *drum_kit_part(uint32_t part) { return eng_state[part % NPART].drum; }
 static drw_part_t *drw_of(const track_t *t) { return &eng_state[(uint32_t)(t - trk) % NPART].wheel; }
-static fm6_note_t *fm6_notes(uint32_t part) { return eng_state[part % NPART].fm6; }
+static fm6_part_t *fm6_part(uint32_t part) { return &eng_state[part % NPART].fm6; }
 #if MELODEE_SLICE
 static int16_t (*slc_rbuf(uint32_t part))[SLC_RB] { return eng_state[part % NPART].slice; }
 #endif

@@ -7,8 +7,8 @@
  */
 static const uint8_t ED_BK_IDS[12] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34};
 #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
-#define ED_BK_MAX ((uint32_t)sizeof proj_wire)
-#define ED_BK_RAW ((uint8_t *)&proj_wire)  /* reuse the existing serialized main-loop scratch */
+#define ED_BK_MAX ((uint32_t)sizeof proj_wire_u)
+#define ED_BK_RAW ((uint8_t *)&proj_wire_u)  /* reuse the existing serialized main-loop scratch */
 static persist_t ed_bk_settings;
 static uint8_t ed_bk_valid, ed_bk_put, ed_bk_id, ed_bk_gen;
 static uint32_t ed_bk_len, ed_bk_crc, ed_bk_pos, ed_bk_ms, ed_bk_usb;
@@ -136,7 +136,7 @@ static uint32_t ed_bk_commit(void)
         if (ed_bk_len) memcpy(&fm6_bank, raw, ed_bk_len);
         fm6_bank_check((int)ed_bk_len);
         for (uint32_t t = 0; t < NTRK; t++)                /* tracks on PTCH B..: the restored patches (fm6_bank_put); */
-            if (fm6_slot[t] >= FM6_NFACTORY) fm6_slot[t] = 0xFFu;   /* a factory patch, or the track's own, stays */
+            if (fm6_slot[t] >= FM6_NFAC) fm6_slot[t] = 0xFFu;   /* a factory patch, or the track's own, stays */
     } else {
         uint32_t b = ed_bk_id - 6u;
         memset(&up_bank[b], 0, sizeof up_bank[b]);
