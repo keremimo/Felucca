@@ -786,9 +786,7 @@ static void render_test(const char *path)
         int y = Y_GRAPH + 24 + 80 - (TSEL->step[14].note[j] - 60) * 74 / 12;
         assert(screen[y * 240] == C_GRAY && screen[y * 240 + 14] == C_GRAY);
     }
-    assert(text_w(&FONT_S, "HOLD + SELECT: 64 STP") <= 232);
-    assert(text_w(&FONT_S, "ENV + SELECT: 64 STP") <= 232);
-    assert(text_w(&FONT_S, "SCALE + SELECT: MOVE") <= 232);
+    assert(text_w(&FONT_S, "64 STP") <= 232);
     if (path) {
         FILE *f = fopen(path, "wb");
         assert(f);

@@ -253,7 +253,6 @@ static void graph_steps(const track_t *t, uint16_t c)
     uint32_t row, i, bank = ui.bank * 16u;
     (void)t;
     (void)c;
-    cv_text(3, 0, &FONT_S, "FOUR TRACKS", C_GRAY);
     for (row = 0; row < NTRK; row++) {
         const track_t *part = &trk[row];
         uint16_t col = control_color(row);
@@ -363,7 +362,6 @@ static void graph_mpc(const track_t *t, uint16_t c)
     char b[24];
     mpc_pad_text(t, b);
     cv_text((240 - text_w(&FONT_S, b)) / 2, 24, &FONT_S, b, c);
-    cv_text(28, 56, &FONT_S, "H01-H16: BANK H ONLY", C_DIM);
 }
 
 static void graph_fx(const track_t *t, uint16_t c)
@@ -530,9 +528,7 @@ static void graph_fmstore(uint16_t c)
     str_cpy(b, N_FM6V[FM6_NROM + fm6_slot % FM6_NUSER], sizeof b);
     str_cpy(b + str_len(b), ": ", 4);
     str_cpy(b + str_len(b), nm, 12);
-    cv_text(4, 20, &FONT_S, "IN THE SLOT", C_GRAY);
     cv_text(4, 38, &FONT_S, b, c);
-    cv_text(4, 62, &FONT_S, "STORE PUTS THIS VOICE THERE", C_DIM);
 }
 static uint32_t steps_hash(const track_t *t)
 {
@@ -842,7 +838,6 @@ static void draw_pan_mixer(void)
         return;
     ui.graph_sig = sig;
     cv_begin(240, H_GRAPH, C_BLACK);
-    cv_text(4, 0, &FONT_S, "STEREO FIELD", C_GRAY);
     cv_text(53, 0, &FONT_S, "L", C_DIM);
     cv_text(221, 0, &FONT_S, "R", C_DIM);
     for (row = 0; row < NTRK; row++) {
@@ -901,8 +896,6 @@ static void graph_scope(uint16_t c, int32_t top, int32_t height)
 static void graph_controls(const page_t *pg)
 {
     uint32_t i;
-    if (!(fm6_shown() && (pg->scope == SC_FM6 || pg->scope == SC_FMOP || pg->scope == SC_ENGINE)))
-        cv_text(6, 1, &FONT_S, "TURN KNOBS 1-4", C_GRAY);
     for (i = 0; i < 4u; i++) {
         int16_t *vp;
         const param_desc_t *d = page_desc(pg, i, &vp);
@@ -1203,8 +1196,6 @@ static void graph_chord(const track_t *t, uint16_t c)
             x = cv_text(x + 2, 0, &FONT_L, "/", c);
             cv_text(x, 0, &FONT_L, N_NOTE[note[0] % 12u], c);
         }
-    } else {
-        cv_text(4, 8, &FONT_S, t->p[P_CHMODE] ? "SCALE VOICING" : "SINGLE NOTES", t->p[P_CHMODE] ? c : C_DIM);
     }
     if (n) {
         notes_fit(b, note, n, &FONT_S, 232);
@@ -1212,7 +1203,6 @@ static void graph_chord(const track_t *t, uint16_t c)
     }
     if (t->p[P_CHMODE] && t->p[P_VOICE] != V_POLY)
         cv_text(4, 64, &FONT_S, "SET VOICE TO POLY", C_GRAY);
-    cv_text(4, 104, &FONT_S, "C4 KEY", C_DIM);
 }
 
 static void draw_graph(void)
@@ -1239,15 +1229,13 @@ static void draw_graph(void)
         if (ui.home_view == 0u) {
             int32_t scope_top = ui.hot_t && settings.zoom ? 52 : 32;
             graph_scope(c, scope_top, H_GRAPH - scope_top);
-            if (!(ui.hot_t && settings.zoom) && !graph_notes())
-                cv_text(4, 2, &FONT_S, "PLAY A NOTE", C_DIM);
+            if (!(ui.hot_t && settings.zoom))
+                graph_notes();
         } else {
             graph_scope(c, 0, H_GRAPH);
         }
     } else if (drum_note) {                          /* a page the drum track has no use for */
-        static const char *const L[2] = {"DRUM TRACK", "SEQ  TRACKS  GLO DRUMS"};
-        cv_text((240 - text_w(&FONT_S, L[0])) / 2, 26, &FONT_S, L[0], C_HI);
-        cv_text((240 - text_w(&FONT_S, L[1])) / 2, 52, &FONT_S, L[1], C_DIM);
+        cv_text((240 - text_w(&FONT_S, "DRUM TRACK")) / 2, 26, &FONT_S, "DRUM TRACK", C_HI);
     } else {
         /* These diagrams were designed with a separate text strip above them. */
         if (pg->graph == GR_ROLL || pg->graph == GR_FMALG || pg->graph == GR_FMEG ||
@@ -1323,12 +1311,8 @@ static void draw_graph(void)
     cv_oy = 0;
     if (!ui.home && pg->scope == SC_ENGINE && pg->id[0] == P_E0 &&
         !is_drum(t) && !fm6_shown() && !(ui.hot_t && settings.zoom)) {
-        if (graph_notes())                            /* the focus readout takes its place */
-            top = 1;
-        else {
-            cv_text(5, 2, &FONT_S, "PLAY A NOTE", C_GRAY);
-            top = 1;
-        }
+        graph_notes();                               /* the focus readout takes its place */
+        top = 1;
     }
     if (!ui.home && fm6_shown() && (pg->scope == SC_FM6 || pg->scope == SC_FMOP || pg->scope == SC_ENGINE)) {
         char nm[24];                                 /* FM6: the voice name; on operator pages the operator */
@@ -1343,16 +1327,13 @@ static void draw_graph(void)
     }
     if (!ui.home && pg->scope == SC_STEP) {
         uint32_t start = step_note_start(t, ui.cursor);
-        char hint[32] = "HOLD + SELECT: LENGTH";
-        if (is_drum(t)) {
-            str_cpy(hint, "DRUMS: ONE SHOT", sizeof hint);
-        } else if (start < NSTEP) {
-            str_cpy(hint, ui.entry_open ? "HOLD + SELECT: " : "ENV + SELECT: ", sizeof hint);
-            fmt_int(hint + str_len(hint), (int32_t)step_note_length(t, start));
+        char hint[16] = "";                          /* the note's length, or MOVE while SCALE is held */
+        if (!is_drum(t) && start < NSTEP) {
+            fmt_int(hint, (int32_t)step_note_length(t, start));
             str_cpy(hint + str_len(hint), " STP", 5);
         }
         if (ui.step_scl && !ui.step_env)
-            str_cpy(hint, "SCALE + SELECT: MOVE", sizeof hint);
+            str_cpy(hint, "MOVE", sizeof hint);
         cv_text(4, 2, &FONT_S, hint, C_HI);
         top = 1;
     }
@@ -1440,14 +1421,8 @@ static void draw_foot(void)
     cv_begin(240, H_FOOT, C_BLACK);
     {
         char tn[3] = {'T', (char)('1' + song.sel), 0};
-        const char *hint = ui.home ? (ui.home_view == 0u ? "HOME: MIXER" : ui.home_view == 1u ? "HOME: PAN"
-                                   : ui.home_view == 2u ? "HOME: FX" : "HOME: NOTES")
-                           : pg->scope == SC_STEP ? "PRESETS PATTERN"
-                           : pg->fam == FAM_SEQ ? "PRESETS PATTERN"
-                           : fm6_shown() && pg->scope == SC_FMOP ? "PRESETS OP"
-                           : preset_pages() ? "PRESETS PAGE" : is_drum(t) ? "DRUM KIT" : "PRESETS SOUND";
         char pf[16];
-        int32_t room = 234 - text_w(&FONT_S, hint) - 12;
+        int32_t room = 228;
         cv_rect(0, 0, 3, H_FOOT, page_color());
         cv_text(7, 0, &FONT_S, tn, page_color());
         fit(en, ename, &FONT_S, 91 - text_w(&FONT_S, tn));
@@ -1457,7 +1432,6 @@ static void draw_foot(void)
         while (pf[0] && text_w(&FONT_S, pf) > room)
             pf[str_len(pf) - 1u] = 0;
         cv_text(8, 14, &FONT_S, pf, C_AMB);
-        cv_text(236 - text_w(&FONT_S, hint), 14, &FONT_S, hint, C_GRAY);
     }
     cv_blit(0, Y_FOOT);
     cv_begin(240, H_STEP, C_BLACK);

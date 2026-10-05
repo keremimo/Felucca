@@ -775,17 +775,11 @@ static void ui_input(void)
         if ((ui.edit_hold & 3u) == 2u && !ui.edit_used && now - ui.edit_t0 < 500u * 1000u * FM1_TICKS_PER_US)
             open_family(FAM_EDIT);                      /* a tap on an EDIT page: the next page */
         ui.edit_hold = 0;
-    } else if (ui.edit_hold && !(ui.edit_hold & 4u) && !ui.edit_used && now - ui.edit_t0 > 400u * 1000u * FM1_TICKS_PER_US) {
-        ui_message(fm6_shown() ? "BLACK: PAGE  WHITE: OP" : "WHITE: SOUND BLACK: PAGE");
-        ui.edit_hold |= 4u;
     }
     if (ui.seq_hold && !((fm1_in.buttons >> panel.btn[B_SEQ]) & 1u)) {   /* SEQ let go */
         if ((ui.seq_hold & 3u) == 2u && !ui.seq_used && now - ui.seq_t0 < 500u * 1000u * FM1_TICKS_PER_US)
             open_family(FAM_SEQ);                       /* a tap on a SEQ page: the next page */
         ui.seq_hold = 0;
-    } else if (ui.seq_hold && !(ui.seq_hold & 4u) && !ui.seq_used && now - ui.seq_t0 > 400u * 1000u * FM1_TICKS_PER_US) {
-        ui_message("WHITE KEYS: PATTERNS");             /* held: what the keys do */
-        ui.seq_hold |= 4u;
     }
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))
