@@ -45,7 +45,7 @@ static struct {                                  /* the patch through the macros
 } fm6_eff[NTRK];
 static fm6_lfo_t fm6_lfo[NTRK];
 static int32_t fm6_lfo_v[NTRK], fm6_lfo_d[NTRK]; /* this block's LFO value and delay (Q24) */
-static fm6_note_t fm6_note[NTRK][FM6_POLY];
+static fm6_note_t *fm6_notes(uint32_t part);    /* engines.c eng_state: the part's FM6_POLY notes */
 
 /* ------------------------------------------------------- patch formats --- */
 /* the highest value of each byte of the 155-byte voice */
@@ -254,7 +254,7 @@ static fm6_note_t *fm6_note_of(track_t *t, voice_t *v)
     if (t < &trk[0] || t >= &trk[NPART])
         return 0;
     i = (uint32_t)(v - t->v);
-    return i < FM6_POLY ? &fm6_note[t - trk][i] : 0;
+    return i < FM6_POLY ? &fm6_notes((uint32_t)(t - trk))[i] : 0;
 }
 
 static void fm6_note_on(track_t *t, voice_t *v)

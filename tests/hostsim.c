@@ -131,6 +131,8 @@ static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 static void host_preset(track_t *t, uint32_t e, uint32_t pi)
 {
     host_preset_req(t, e, pi);
+    if (t->engine != t->eng_req && t >= &trk[0] && t < &trk[NPART])
+        eng_state_clear((uint32_t)(t - trk));     /* as voice.c engine_block on a switch */
     t->engine = t->eng_req;                       /* (DIGITAL without MELODEE_FM4: FM6) */
 }
 

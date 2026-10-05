@@ -456,6 +456,8 @@ static void engine_block(track_t *t)
             v->stage = 0;
             v->env = v->env_out = 0;
         }
+        if (t->engine != eng_idx(t->eng_req))           /* another engine: its state as at power-on */
+            eng_state_clear((uint32_t)(t - trk));
         t->engine = eng_idx(t->eng_req);
         t->xf_on = 0;
         t->nmono = 0;

@@ -34,7 +34,7 @@
  * start per voice and block (<= 255 skipped decodes), one index entry per block. Host count, one
  * part, worst settings: ~1050 instructions / sample (~1170 while the PERC index builds), against
  * PHASE WIRE 1510, TRIO CHIP CHOIR 1455, WHEEL FULL ORGAN 1413 (8 keys, no sends). State: per part the grain pool, the reverse windows and the index
- * (gr_p, in the pool section); per voice s[0] the zone, s[1] the countdown to the next grain,
+ * (gr_part_of: engines.c eng_state, in the pool section); per voice s[0] the zone, s[1] the countdown to the next grain,
  * s[2] the low-pass, voice_t's phases are unused. */
 #define GR_POLY 3                /* voices per part */
 #define GR_NG 12                 /* grains per part */
@@ -97,7 +97,7 @@ typedef struct {
     uint8_t src;                 /* SRC + 1 the index holds, 0 = none */
     uint8_t nz;
 } gr_part_t;
-static gr_part_t gr_p[NPART] __attribute__((section(".pool")));
+static gr_part_t *gr_part_of(const track_t *t);  /* engines.c eng_state: the part's grains and index */
 
 static uint32_t gr_part(const track_t *t) { return (uint32_t)(t - trk) % NPART; }
 static uint32_t gr_nz(uint32_t src) { return src < SMP_NSETS ? SMP_SETS[src].nz : usr_nz[(src - SMP_NSETS) % SMP_USER_SLOTS]; }
@@ -348,7 +348,7 @@ static int gr_run(gr_part_t *P, gr_grain_t *g, int32_t *acc, uint32_t n)
 
 static void grain_note_on(track_t *t, voice_t *v)
 {
-    gr_part_t *P = &gr_p[gr_part(t)];
+    gr_part_t *P = gr_part_of(t);
     uint32_t vi = (uint32_t)(v - t->v) % NVOICE, i;
     v->s[0] = gr_find((uint32_t)t->p[P_E0] % SMP_NALL, v->note);
     v->s[1] = 0;                                    /* the first grain at once */
@@ -364,7 +364,7 @@ static void grain_note_on(track_t *t, voice_t *v)
  * one index entry is built */
 static void grain_block(track_t *t)
 {
-    gr_part_t *P = &gr_p[gr_part(t)];
+    gr_part_t *P = gr_part_of(t);
     uint32_t src = (uint32_t)t->p[P_E0] % SMP_NALL, st = gr_stamp(src), i;
     if (!P->rng)
         P->rng = 0x2545F491;
@@ -382,7 +382,7 @@ static void grain_block(track_t *t)
 
 static void grain_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
-    gr_part_t *P = &gr_p[gr_part(t)];
+    gr_part_t *P = gr_part_of(t);
     const int16_t *p = t->p;
     uint32_t vi = (uint32_t)(v - t->v) % NVOICE, i, mine = 0, nact = 0, iv;
     int32_t zl = v->s[0], acc[CTL], lp, y = v->s[2];

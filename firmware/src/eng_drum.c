@@ -46,7 +46,7 @@ typedef struct {
     uint8_t pad;
 } drum_lane_t;
 
-static drum_lane_t drum_kit[NPART][DV_NLANE] __attribute__((section(".pool")));
+static drum_lane_t *drum_kit_part(uint32_t part);  /* engines.c eng_state: the part's DV_NLANE lanes */
 
 static const char *const N_DRUM_KIT[] = {"STD", "HAND", "CYM", "H+CYM"};
 static const char *const N_DRUM_KICK[] = {"PUNCH", "ROUND"};
@@ -154,7 +154,7 @@ static void step_to_grid(step_t *s)
 
 static drum_lane_t *drum_kit_of(const track_t *t)
 {
-    return t >= &trk[0] && t < &trk[NPART] ? drum_kit[t - trk] : 0;
+    return t >= &trk[0] && t < &trk[NPART] ? drum_kit_part((uint32_t)(t - trk)) : 0;
 }
 
 /* the lane voice v plays, 0 when it plays none (any more) */

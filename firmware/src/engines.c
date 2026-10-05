@@ -23,6 +23,33 @@
 #include "eng_slice.c"
 #endif
 
+/* the engines' runtime state of a part. A part renders one engine at a time (an engine switch fades the old one
+ * out first, voice.c engine_block), so their states share one block per part, cleared at every switch: an engine
+ * finds its state as at power-on (the pool section is zeroed at boot). The patch of a part (FM6's) is not in here */
+static union {
+    phys_slot_t phys[PHYS_POLY];
+    gr_part_t grain;
+    drum_lane_t drum[DV_NLANE];
+    drw_part_t wheel;
+    fm6_note_t fm6[FM6_POLY];
+#if MELODEE_SLICE
+    slc_rb_t slice;
+#endif
+} eng_state[NPART] __attribute__((section(".pool")));
+static phys_slot_t *phys_slots(uint32_t part) { return eng_state[part % NPART].phys; }
+static gr_part_t *gr_part_of(const track_t *t) { return &eng_state[(uint32_t)(t - trk) % NPART].grain; }
+static drum_lane_t *drum_kit_part(uint32_t part) { return eng_state[part % NPART].drum; }
+static drw_part_t *drw_of(const track_t *t) { return &eng_state[(uint32_t)(t - trk) % NPART].wheel; }
+static fm6_note_t *fm6_notes(uint32_t part) { return eng_state[part % NPART].fm6; }
+#if MELODEE_SLICE
+static int16_t (*slc_rbuf(uint32_t part))[SLC_RB] { return eng_state[part % NPART].slice; }
+#endif
+static void eng_state_clear(uint32_t part)
+{
+    if (part < NPART)
+        memset(&eng_state[part], 0, sizeof eng_state[part]);
+}
+
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
 static const engine_t *const ENGINES[NENGINES] = {
     &ENG_ANALOG,                 /* 0 */
