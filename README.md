@@ -65,8 +65,11 @@ mixer, then for pan controls, then for master delay and reverb controls with a s
 select a track. Tap **REC** in
 any musical workspace to arm that track and start playback if stopped, or press **REC + PLAY**
 to begin recording in one gesture. **PLAY** stops or starts the transport. Hold REC to open
-TRACKS for length, pan and the full pattern mixer. Hold HOME for Settings. **SAVE** opens the
-sound and project library; its next pages are USER, PROJECT and TOOLS.
+TRACKS for length, pan and the full pattern mixer. Hold HOME for Settings. Tap **SAVE** to open the
+sound and project library; its next pages are USER, PROJECT and TOOLS. **Hold SAVE** (0.7 s) on any
+page to save the current project (the one last loaded, saved or started at power-on) back to its
+slot at once: `SAVED P2`. A new project (from the template or the default sounds) has no slot yet:
+holding SAVE opens PROJECT with SLOT on a free slot, for SAVE there.
 
 On **PROJECT**, knob 1 picks the slot, knob 3 loads and knob 4 saves (one detent arms, a second
 within ~1.5 s acts). Past slot 4, knob 1 reaches **TMPL**, the template: SAVE there saves the song

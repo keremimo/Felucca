@@ -1163,7 +1163,7 @@ static void boot_project_test(void)
     assert(song.g[G_SLOT] == 3 && !t->step[0].n && !strcmp(ui.msg, "BOOT PROJECT SKIPPED"));
     bootguard.failed = 0;
     project_boot();
-    assert(song.g[G_SLOT] == 3 && t->step[0].n && !strcmp(ui.msg, "PROJECT 3"));
+    assert(song.g[G_SLOT] == 3 && t->step[0].n && !strcmp(ui.msg, "LOADED P3"));
     settings.boot = 4;                              /* an empty slot: nothing loads */
     track_defaults_steps(t);
     project_boot();
@@ -1249,7 +1249,7 @@ static void template_test(void)
     template_load();
     assert(seq_is_empty(t) && song.g[G_SLOT] == 1);
     project_load(1);
-    assert(t->step[0].n && !strcmp(ui.msg, "LOADED"));
+    assert(t->step[0].n && !strcmp(ui.msg, "LOADED P2"));
 
     set_engine(0);                                  /* power-on with BOOT OFF: the template */
     project_boot();
@@ -1264,10 +1264,78 @@ static void template_test(void)
     assert(t->eng_req == 1 && song.g[G_SLOT] == 4);
     settings.boot = 2;                              /* BOOT on a project: that project */
     project_boot();
-    assert(t->step[0].n && song.g[G_SLOT] == 2 && !strcmp(ui.msg, "PROJECT 2"));
+    assert(t->step[0].n && song.g[G_SLOT] == 2 && !strcmp(ui.msg, "LOADED P2"));
     settings.boot = 0;
     memset(&tmpl, 0, sizeof tmpl);
     puts("template: SLOT TMPL saves without patterns, LOAD and power-on start from it, SLOT on a free slot");
+}
+
+static void save_hold(uint32_t frames_ms)       /* SAVE pressed, held frames_ms, let go */
+{
+    uint32_t sv = 1u << panel.btn[B_SAVE];
+    button_edges |= sv;
+    fm1_in.buttons |= sv;
+    fm1_ms += 20;
+    ui_input();
+    fm1_ms += frames_ms;
+    ui_input();
+    fm1_in.buttons &= ~sv;
+    fm1_ms += 20;
+    ui_input();
+}
+
+/* SAVE: a tap opens the library on release; held 0.7 s on any page it saves the current project (the
+ * last loaded, saved or booted) back to its slot at once, "SAVED P3"; SLOT browsing does not move it;
+ * a new project (none yet, the template) opens PROJECT on a free slot instead; nothing in the menu */
+static void quick_save_test(void)
+{
+    track_t *t;
+    uint32_t pg;
+    reset(16);
+    t = TSEL;
+    memset(&tmpl, 0, sizeof tmpl);
+    proj_cur = proj_ram = proj_have = 0;
+    open_family(FAM_ENV);
+    pg = ui.page;
+    save_hold(0);                                   /* a tap */
+    assert(cur_page()->fam == FAM_SAVE && proj_cur == 0);
+
+    open_family(FAM_ENV);                           /* held, a new project: PROJECT, a free slot */
+    save_hold(720);
+    assert(cur_page()->graph == GR_SLOTS && song.g[G_SLOT] == 1 && !proj_have &&
+           !strcmp(ui.msg, "NEW PROJECT: PICK SLOT"));   /* (the release was no tap: still PROJECT) */
+
+    note(0);
+    project_save(2);                                /* SAVE on the PROJECT page: P3 is current */
+    assert(proj_cur == 3 && !strcmp(ui.msg, "SAVED P3 (RAM)"));
+    open_family(FAM_ENV);
+    pg = ui.page;
+    song.g[G_SLOT] = 1;                             /* SLOT looked elsewhere */
+    note(5);
+    ui.msg[0] = 0;
+    save_hold(720);
+    assert(ui.page == pg && proj_ram == 3 && proj_cur == 3 && !strcmp(ui.msg, "SAVED P3 (RAM)"));
+    track_defaults_steps(t);
+    project_load(2);
+    assert(t->step[5].n && song.g[G_SLOT] == 3 && !strcmp(ui.msg, "LOADED P3"));
+    save_hold(300);                                 /* too short: a tap */
+    assert(cur_page()->fam == FAM_SAVE && !strcmp(ui.msg, "LOADED P3"));
+
+    ui.menu = 1;                                    /* in the menu: no save, no tap */
+    pg = ui.page;
+    ui.msg[0] = 0;
+    save_hold(720);
+    assert(!ui.msg[0] && ui.page == pg);
+    ui.menu = 0;
+
+    template_save();                                /* from the template: a new project again */
+    template_load();
+    assert(proj_cur == 0);
+    open_family(FAM_ENV);
+    save_hold(720);
+    assert(cur_page()->graph == GR_SLOTS && !strcmp(ui.msg, "NEW PROJECT: PICK SLOT"));
+    memset(&tmpl, 0, sizeof tmpl);
+    puts("quick save: SAVE held saves the current project, a tap opens SAVE, a new project picks a slot");
 }
 
 int main(int argc, char **argv)
@@ -1289,6 +1357,7 @@ int main(int argc, char **argv)
     playing_key_lights_test();
     boot_project_test();
     template_test();
+    quick_save_test();
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;
 }

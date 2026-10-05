@@ -9,6 +9,7 @@ static void project_save(uint32_t slot);
 static void panel_setup(void);
 static void project_load(uint32_t slot);
 static int project_used(uint32_t slot);
+static void project_quick_save(void);
 static void template_save(void);             /* the template (SLOT TMPL): project.c */
 static void template_load(void);
 static int template_used(void);
@@ -66,6 +67,7 @@ static struct {
     uint8_t bpm_t;               /* frames the BPM stays highlighted after a SELECT turn */
     uint8_t arm, arm_t;          /* destructive action armed: param id, frames left to confirm */
     uint32_t rec_t0;             /* REC press time (btn_hold) */
+    uint32_t save_t0;            /* SAVE press time (btn_hold): a tap opens SAVE, a hold saves the project */
     uint8_t confirm;             /* 1 = "clear the sequence?" (REC held on SEQ / ARP), 2 = "clear track n?" (TRACKS) */
     uint8_t confirm_trk;         /* the track the dialog clears */
     uint8_t uslot;               /* SAVE > USER: the selected user preset slot */

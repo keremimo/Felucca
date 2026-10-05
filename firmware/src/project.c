@@ -316,6 +316,8 @@ static int proj_import(project_t *q, const project_old_t *b, int n)
 static project_t proj_buf __attribute__((section(".pool")));   /* the project being saved or loaded */
 static uint8_t proj_have;                      /* bit per slot: it holds a project (project_used) */
 static uint8_t proj_ram;                       /* RAM only: the slot + 1 whose save proj_buf holds */
+static uint8_t proj_cur;                       /* the current project: the slot + 1 last loaded, saved or booted;
+                                                * 0 = a new one (the template, the default sounds): SAVE held */
 static int project_used(uint32_t slot) { return (proj_have >> (slot & 3u)) & 1u; }
 
 /* slot -> proj_buf (an older format converted): 1, or 0 = none */
@@ -356,6 +358,8 @@ static void project_save(uint32_t slot)
 {
     project_t *p = &proj_buf;
     uint32_t i, k;
+    char b[10] = "P1 (RAM)";                           /* "SAVED P2", "SAVED P2 (RAM)" */
+    b[1] = (char)('1' + (slot & 3u));
     memset(p, 0, sizeof *p);
     p->magic = PROJ_MAGIC;
     p->size = sizeof *p;
@@ -386,13 +390,18 @@ static void project_save(uint32_t slot)
             return;
         }
         proj_have |= (uint8_t)(1u << (slot & 3u));
-        ui_message("SAVED");
+        proj_cur = (uint8_t)((slot & 3u) + 1u);
+        song.g[G_SLOT] = (int16_t)proj_cur;
+        b[2] = 0;
+        ui_say("SAVED ", b);
         return;
     }
 #endif
     proj_ram = (uint8_t)((slot & 3u) + 1u);
     proj_have = (uint8_t)(1u << (slot & 3u));
-    ui_message("SAVED (RAM)");
+    proj_cur = proj_ram;
+    song.g[G_SLOT] = (int16_t)proj_cur;
+    ui_say("SAVED ", b);
 }
 
 static void step_sane(step_t *st)                       /* a loaded step back inside the step model */
@@ -499,7 +508,12 @@ static void project_load(uint32_t slot)
             apply_preset_to(&trk[k], TRK_DEF[k][1]);
             track_defaults_steps(&trk[k]);
         }
-    ui_message("LOADED");
+    proj_cur = (uint8_t)((slot & 3u) + 1u);
+    song.g[G_SLOT] = (int16_t)proj_cur;
+    {
+        char b[3] = {'P', (char)('0' + proj_cur), 0};
+        ui_say("LOADED ", b);
+    }
 }
 
 /* The template (SAVE > PROJECT, SLOT TMPL): a project without patterns, the sounds, the mix and the globals
@@ -581,8 +595,27 @@ static void template_load(void)
         track_defaults_steps(&trk[k]);
     }
     proj_put_end(tmpl.sel);
+    proj_cur = 0;                                       /* a new project */
     song.g[G_SLOT] = project_free_slot();
     ui_message("TEMPLATE LOADED");
+}
+
+/* SAVE held (ui_input), on any page: the current project back to its slot, at once (no second
+ * detent: the hold is the confirmation). A new project has no slot yet: PROJECT opens, SLOT on a
+ * free one, for SAVE there. */
+static void project_quick_save(void)
+{
+    uint32_t i;
+    if (proj_cur) {
+        project_save(proj_cur - 1u);
+        return;
+    }
+    song.g[G_SLOT] = project_free_slot();
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].graph == GR_SLOTS)
+            page_go(i);
+    ui.force = 1;
+    ui_message("NEW PROJECT: PICK SLOT");
 }
 
 /* settings + learned panel table: one flash object. The flash copy wins at
@@ -682,16 +715,13 @@ static void persist_boot(void)                    /* before settings_init / pane
  * FM-1 out. */
 static void project_boot(void)
 {
-    char b[2] = {0, 0};
     if (settings.boot && project_used(settings.boot - 1u)) {
         song.g[G_SLOT] = (int16_t)settings.boot;
         if (bootguard.failed) {
             ui_message("BOOT PROJECT SKIPPED");
             return;
         }
-        project_load(settings.boot - 1u);
-        b[0] = (char)('0' + settings.boot);
-        ui_say("PROJECT ", b);
+        project_load(settings.boot - 1u);           /* (it is the current project now) */
         return;
     }
     song.g[G_SLOT] = settings.boot ? (int16_t)settings.boot : project_free_slot();

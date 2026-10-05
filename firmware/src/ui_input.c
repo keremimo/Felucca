@@ -599,6 +599,7 @@ static void ui_input(void)
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k, fam = cur_fam();
     uint32_t home = btn_hold(&ui.home_t0, B_HOME, now, 1);
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu);
+    uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);
     int32_t s;
     boot_save();
     if (home == BT_HOLD) {                              /* HOME held: open the menu, or leave it */
@@ -619,6 +620,8 @@ static void ui_input(void)
         step_midi_held = ui.entry_open = 0;
         if (ui.rec_t0)
             ui.rec_t0 |= 2u;                            /* a REC press in the menu is no tap later */
+        if (ui.save_t0)
+            ui.save_t0 |= 2u;                           /* (nor a SAVE press) */
         if (!ui.home_t0)
             menu_input(pressed);
         return;
@@ -664,6 +667,10 @@ static void ui_input(void)
     }
     if (home == BT_TAP)                                 /* HOME: notes/scope, levels, pan, master effects */
         home_tap();
+    if (save == BT_HOLD)                                /* SAVE held, on any page: the project back to its slot */
+        project_quick_save();
+    else if (save == BT_TAP)                            /* tapped: the library (on release, as HOME) */
+        open_family(FAM_SAVE);
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     page_fix();                                         /* the track or its engine changed: FM6 pages */
     seq_record_follow();
@@ -698,6 +705,7 @@ static void ui_input(void)
                 transport_req = song.playing ? 2 : 1;
             break;
         case B_REC:                                     /* tap / hold: above */
+        case B_SAVE:
             break;
         case B_OCTDN:
         case B_OCTUP: {
