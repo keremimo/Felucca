@@ -96,6 +96,12 @@ Every button glows dimly; it lights fully while held and while it is engaged: th
 button (HOME, ENV, FX, SAVE, GLO ...), EDIT on the instrument pages, PLAY (blinking while playing),
 REC while recording, OCT- / OCT+ while the octave is shifted.
 
+The GLO values (GLOBAL: BPM, SWG, CLK, TUNE; DRUMS: CH, LVL, REV) are kept on the FM-1 as last
+used, whether set on the panel, from the web editor or by loading a project. They are saved once
+the knob rests and the transport is stopped (writing flash briefly silences the audio), and come
+back at power-on; a BOOT project or the template loaded at power-on then brings its own. A BPM set
+by an outside clock (CLK USB or TRS) is not kept.
+
 ## Engines
 
 - **ANALOG**: virtual analog; two oscillators (saw, square, triangle, sine, PWM), noise, drive, resonant low-pass filter

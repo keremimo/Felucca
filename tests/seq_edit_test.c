@@ -1201,6 +1201,45 @@ static void panel_lights_test(void)
     puts("panel lights: buttons dim / bright, GLO > LIGHTS KEYS OFF, Settings > KEYS level kept");
 }
 
+/* GLO > GLOBAL and DRUMS kept on the device: any change (knob, editor, a project) goes to flash once
+ * it rests and the transport is stopped, BPM not while an outside clock sets it; power-on restores
+ * them (glo_restore), a BOOT project or the template then brings its own */
+static void glo_kept_test(void)
+{
+    uint32_t i;
+    reset(16);
+    for (i = 0; i < G_COUNT; i++)
+        song.g[i] = GP[i].def;
+    ui_input();
+    fm1_ms += 1600;
+    ui_input();
+    assert(!set_t);
+    song.g[G_TUNE] = 7;
+    song.playing = 1;
+    ui_input();
+    assert(settings.glo[3] == 7 && set_t);
+    fm1_ms += 1600;
+    ui_input();
+    assert(set_t);                             /* playing: an erase would silence it */
+    song.playing = 0;
+    ui_input();
+    assert(!set_t);
+    song.g[G_CLOCK] = 1;                       /* USB clock: its BPM is not kept */
+    song.g[G_BPM] = 133;
+    ui_input();
+    assert(settings.glo[2] == 1 && settings.glo[0] == GP[G_BPM].def);
+    song.g[G_CLOCK] = 0;                       /* back on INT: the BPM it plays at is */
+    ui_input();
+    assert(settings.glo[0] == 133);
+    for (i = 0; i < G_COUNT; i++)              /* power-on: the defaults, then the values kept */
+        song.g[i] = GP[i].def;
+    settings.glo[1] = 500;                     /* (a .noinit copy out of range) */
+    glo_restore();
+    assert(song.g[G_TUNE] == 7 && song.g[G_BPM] == 133 && song.g[G_CLOCK] == 0 &&
+           song.g[G_SWING] == GP[G_SWING].max && settings.glo[1] == GP[G_SWING].max);
+    puts("GLO values: kept once they rest while stopped, not an outside clock's BPM; restored at power-on");
+}
+
 #ifndef MELODEE_UI_PREVIEW
 /* SAVE > PROJECT BOOT: KNOB 2 picks OFF / 1..4 (the column shows it) and is kept once it rests;
  * power-on loads that project and points SLOT at it, a failed boot or an empty slot leaves the
@@ -1442,6 +1481,7 @@ int main(int argc, char **argv)
     template_test();
     quick_save_test();
     panel_lights_test();
+    glo_kept_test();
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;
 }

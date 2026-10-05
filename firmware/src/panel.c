@@ -62,14 +62,36 @@ static int32_t panel_enc(uint32_t role)
 enum { KEYS_OFF, KEYS_LOW, KEYS_MID, KEYS_HIGH, KEYS_FULL, KEYS_N };   /* idle key LEDs (menu KEYS) */
 #define KEYS_DARK 0x80u         /* settings.keys flag, GLO > LIGHTS KEYS OFF: no key lit at all; the level stays */
 static const char *const KEYS_NAME[KEYS_N] = {"OFF", "LOW", "MID", "HIGH", "FULL"};
+/* the GLO > GLOBAL and DRUMS values, kept on the device as last used: power-on restores them
+ * (glo_restore), a BOOT project or the template loaded then brings its own */
+static const uint8_t GLO_KEPT[] = {G_BPM, G_SWING, G_CLOCK, G_TUNE, G_DRCH, G_DRLVL, G_DRREV};
+#define NGLO_KEPT (sizeof GLO_KEPT)
 struct {
     uint32_t magic, palette, lowcut, zoom;
     uint32_t usb_off;                          /* USB audio devices switched off: UA_OFF_OUT | UA_OFF_IN */
     uint32_t keys;                             /* KEYS_*: playable keys not sounding; | KEYS_DARK */
     uint32_t boot;                             /* project slot + 1 loaded at power-on, 0 = none (SAVE > PROJECT) */
+    int16_t glo[8];                            /* song.g[GLO_KEPT[i]] (ui_input.c set_save); one spare */
 } settings __attribute__((section(".noinit")));
+_Static_assert(NGLO_KEPT <= sizeof settings.glo / sizeof settings.glo[0], "GLO_KEPT fits settings.glo");
 
 static int settings_save(void);               /* project.c: flash copy (MELODEE_FLASH), 0 = ok */
+
+static void glo_defaults(void)
+{
+    uint32_t i;
+    for (i = 0; i < NGLO_KEPT; i++)
+        settings.glo[i] = GP[GLO_KEPT[i]].def;
+}
+
+static void glo_restore(void)                  /* power-on, after the defaults (melodee_init) */
+{
+    uint32_t i;
+    for (i = 0; i < NGLO_KEPT; i++) {
+        const param_desc_t *d = &GP[GLO_KEPT[i]];
+        song.g[GLO_KEPT[i]] = settings.glo[i] = (int16_t)clamp(settings.glo[i], d->min, d->max);
+    }
+}
 
 static void settings_init(void)
 {
@@ -81,6 +103,7 @@ static void settings_init(void)
         settings.usb_off = 0;                  /* both USB audio devices on */
         settings.keys = KEYS_MID;
         settings.boot = 0;
+        glo_defaults();
     }
     if ((settings.keys & ~KEYS_DARK) >= KEYS_N)   /* a .noinit copy from before KEYS */
         settings.keys = KEYS_MID;

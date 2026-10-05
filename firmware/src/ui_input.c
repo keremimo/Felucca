@@ -370,11 +370,19 @@ static void step_length_edit(int32_t steps)
         ui_message("NEXT NOTE");
 }
 
-/* SAVE > PROJECT BOOT, GLO > LIGHTS: kept in flash once the knob rests (set_save), not on every detent */
+/* SAVE > PROJECT BOOT, GLO > LIGHTS and the GLO values (GLO_KEPT, from any source: knobs, the editor,
+ * a project loaded; BPM not while an outside clock sets it) go to flash once they rest, not on every
+ * detent, and only while stopped: an erase silences the audio */
 static uint32_t set_t;                                    /* fm1_ms of the last change | 1, 0 = saved */
 static void set_save(void)
 {
-    if (set_t && fm1_ms - set_t > 1500u) {
+    uint32_t i;
+    for (i = 0; i < NGLO_KEPT; i++)
+        if (settings.glo[i] != song.g[GLO_KEPT[i]] && (GLO_KEPT[i] != G_BPM || !song.g[G_CLOCK])) {
+            settings.glo[i] = song.g[GLO_KEPT[i]];
+            set_t = fm1_ms | 1u;
+        }
+    if (set_t && fm1_ms - set_t > 1500u && !song.playing) {
         set_t = 0;
         settings_save();                                  /* (nothing to write if it is back where it was) */
     }
