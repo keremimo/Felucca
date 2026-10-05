@@ -226,18 +226,11 @@ static void key_leds(uint8_t *nl, uint8_t *nd, uint32_t lvl)
         }
 }
 
-/* Every button glows dim and is bright while held or engaged: its page family,
- * PLAY (blinking), REC, a shifted octave. GLO > LIGHTS KEYS OFF: no key lit. */
-static void ui_leds(void)
+/* Every button glows dim (nb) and is bright (nl) while held or engaged: its page
+ * family, PLAY (blinking), REC, a shifted octave */
+static void button_leds(uint8_t *nl, uint8_t *nb)
 {
-    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0};
-    uint32_t c, b;
-    uint32_t fam = cur_fam(), lvl = settings.keys & ~KEYS_DARK;
-    static uint8_t ready;
-    if (!ready) {
-        led_pos_init();
-        ready = 1;
-    }
+    uint32_t b, fam = cur_fam();
     for (b = 0; b < NB; b++) {
         led_put(nb, panel.btn[b], 1);
         led_put(nl, panel.btn[b], (int)((fm1_in.buttons >> panel.btn[b]) & 1u));
@@ -249,13 +242,26 @@ static void ui_leds(void)
     led_put(nl, panel.btn[B_REC], song.rec != 0u);
     led_put(nl, panel.btn[B_OCTDN], song.octave < 0);
     led_put(nl, panel.btn[B_OCTUP], song.octave > 0);
+}
+
+/* GLO > LIGHTS KEYS OFF: no key lit and no idle button glow; the engaged buttons still light */
+static void ui_leds(void)
+{
+    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0};
+    uint32_t c, lvl = settings.keys & ~KEYS_DARK;
+    static uint8_t ready;
+    if (!ready) {
+        led_pos_init();
+        ready = 1;
+    }
+    button_leds(nl, nb);
     if (!(settings.keys & KEYS_DARK))
         key_leds(nl, nd, lvl);
     fm1_led_dim_mask[0] = KEYS_DIM_MASK[lvl];
     fm1_led_dim_mask[1] = BTN_DIM_MASK;
     for (c = 0; c < FM1_NCOL; c++) {
         fm1_led_dim[0][c] = (uint8_t)(nd[c] | nl[c]);   /* first: a key going dim <-> bright never goes dark */
-        fm1_led_dim[1][c] = nb[c];
+        fm1_led_dim[1][c] = settings.keys & KEYS_DARK ? 0u : nb[c];
         fm1_led[c] = nl[c];
     }
 }

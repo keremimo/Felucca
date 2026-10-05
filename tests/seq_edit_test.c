@@ -1153,7 +1153,7 @@ static void panel_lights_test(void)
     fm1_in.buttons = 0;
     song.octave = 0;
 
-    page_go(page_named("LIGHTS"));             /* GLO > LIGHTS: KEYS OFF darkens every key */
+    page_go(page_named("LIGHTS"));             /* GLO > LIGHTS: KEYS OFF darkens every LED */
     edit_param(0, -1);
     assert(settings.keys == (KEYS_MID | KEYS_DARK) && set_t);
     fm1_in.notes = 1u << 7;                    /* a played one too */
@@ -1161,8 +1161,11 @@ static void panel_lights_test(void)
     ui_leds();
     for (k = 0; k < 27u; k++)
         assert(!led_lit(fm1_led, 14u + k) && !led_lit(fm1_led_dim[0], 14u + k));
-    for (b = 0; b < NB; b++)                   /* the buttons as before: GLO bright */
-        assert(led_lit(fm1_led_dim[1], panel.btn[b]) && led_lit(fm1_led, panel.btn[b]) == (b == B_GLO));
+    fm1_in.buttons = 1u << panel.btn[B_SAVE];  /* no idle glow; engaged (GLO) and held (SAVE) still light */
+    ui_leds();
+    for (b = 0; b < NB; b++)
+        assert(!led_lit(fm1_led_dim[1], panel.btn[b]) && led_lit(fm1_led, panel.btn[b]) == (b == B_GLO || b == B_SAVE));
+    fm1_in.buttons = 0;
     fm1_in.notes = 0;
     events_block(0);
     page_go(page_named("EDIT 1"));             /* nor the EDIT + keys shortcuts */

@@ -246,10 +246,10 @@ white keys. A key turns bright while it is held or while its pitch plays from
 USB or TRS MIDI on the selected track. Hold **HOME** and set **KEYS** to choose
 how bright the rest of the layout is: OFF, LOW, MID (default), HIGH or FULL (as
 bright as a played key). Holding EDIT or SEQ shows their shortcut lights instead.
-**GLO > LIGHTS** knob 1 turns the key backlight off altogether (saved): no key
-lights at all, neither the layout, played keys nor the EDIT and SEQ shortcut
-lights; only the buttons still light. Turning it back ON, or setting **KEYS**,
-brings the key lights back.
+**GLO > LIGHTS** knob 1 turns the lights off (saved): no key lights (neither the
+layout, played keys nor the EDIT and SEQ shortcut lights) and no idle button glow;
+only the engaged and held buttons still light. Turning it back ON, or setting
+**KEYS**, brings the rest back.
 
 Incoming MIDI uses the receiving track's **WHITE** or **ALL** layout: MIDI note 60
 (C4) plays ROOT, and each participating key advances one scale degree.
