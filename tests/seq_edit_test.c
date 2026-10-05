@@ -28,7 +28,7 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 #define FM1_NCOL 11
 #define FM1_TICKS_PER_US 1u
 static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {{0}};
-static uint8_t fm1_led[FM1_NCOL];
+static uint8_t fm1_led[FM1_NCOL], fm1_led_dim[FM1_NCOL], fm1_led_dim_mask;
 static uint32_t button_edges, note_edges;
 static int32_t encoders[7];
 static void fm1_led_key(uint32_t id, int on) { (void)id; (void)on; }
@@ -1084,7 +1084,38 @@ static void playing_key_lights_test(void)
     t->p[P_QUANT] = Q_ALL;
     assert(play_key_led(t, 7) && play_key_led(t, 8) && play_key_led(t, 9));
     assert(play_key_led(TDRUM, 8));            /* drum keys remain available */
-    puts("playing key lights: scale, root, layouts, transposition and drums");
+    reset(16);                                 /* sounding keys are bright, the layout dim */
+    t = TSEL;
+    t->p[P_SCALE] = 1;
+    t->p[P_QUANT] = Q_WHITE;
+    assert(play_key_led(t, 7) == KL_DIM && play_key_led(t, 8) == KL_OFF);
+    fm1_in.notes = (1u << 7) | (1u << 8);      /* C4 and the silent C#4 held */
+    events_block(0);
+    assert(play_key_led(t, 7) == KL_ON && play_key_led(t, 8) == KL_OFF && play_key_led(t, 9) == KL_DIM);
+    song.octave = 1;                           /* a held key stays lit at its new octave */
+    assert(play_key_led(t, 7) == KL_ON);
+    song.octave = 0;
+    fm1_in.notes = 0;
+    events_block(0);
+    assert(play_key_led(t, 7) == KL_DIM);
+    midi_frame(0x90, 62, 100, 0);              /* MIDI D4: second degree, the D4 key */
+    assert(play_key_led(t, 9) == KL_ON && play_key_led(t, 7) == KL_DIM);
+    midi_frame(0x91, 60, 100, 0);              /* another track's channel */
+    assert(play_key_led(t, 7) == KL_DIM);
+    midi_frame(0x80, 62, 0, 0);
+    assert(play_key_led(t, 9) == KL_DIM);
+    t->p[P_QUANT] = Q_OFF;                     /* a key outside the scale still lights when played */
+    midi_frame(0x90, 61, 100, 0);
+    assert(play_key_led(t, 8) == KL_ON);
+    midi_frame(0x80, 61, 0, 0);
+    assert(play_key_led(t, 8) == KL_OFF);
+    settings.keys = KEYS_LOW;
+    ui_leds();
+    assert(fm1_led_dim_mask == 7u);
+    settings.keys = KEYS_FULL;
+    ui_leds();
+    assert(fm1_led_dim_mask == 0u);
+    puts("playing key lights: scale, root, layouts, transposition, drums; bright when played or from MIDI");
 }
 
 #ifndef MELODEE_UI_PREVIEW
