@@ -76,7 +76,7 @@ current 16-step bank.
 STUDIO is selected on a fresh installation. If the FM-1 already has a saved colour choice, hold
 **HOME**, turn **PRESETS** to **COLOR**, turn **knob 1** until **STUDIO** appears, then press
 **OCT-** to save and leave Settings. **ZOOM** in the same menu controls the large value readout
-that appears when a knob turns.
+that appears when a knob turns; **KEYS** sets how bright the unplayed keys glow.
 
 ## Engines
 
@@ -215,11 +215,13 @@ minor blues (BLUES), whole tone (WHOLE), half-whole diminished (DIMHW), and
 whole-half diminished (DIMWH). Scale degrees continue across keyboard octave
 boundaries; roots need not fall on every C key.
 The drum track and GM sample kit retain their existing note mapping.
-During normal playing, the key LEDs show the selected track's layout. OFF
-highlights notes in the chosen ROOT/SCL (all keys for CHR) without changing
+During normal playing, the key LEDs show the selected track's layout, dimly lit.
+OFF highlights notes in the chosen ROOT/SCL (all keys for CHR) without changing
 their pitches; SNAP and ALL light every sounding key; WHITE and MPC light the
-white keys. Holding EDIT or SEQ shows their shortcut
-lights instead.
+white keys. A key turns bright while it is held or while its pitch plays from
+USB or TRS MIDI on the selected track. Hold **HOME** and set **KEYS** to choose
+how bright the rest of the layout is: OFF, LOW, MID (default), HIGH or FULL (as
+bright as a played key). Holding EDIT or SEQ shows their shortcut lights instead.
 
 Incoming MIDI uses the receiving track's **WHITE** or **ALL** layout: MIDI note 60
 (C4) plays ROOT, and each participating key advances one scale degree.

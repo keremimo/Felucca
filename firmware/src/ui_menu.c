@@ -1,14 +1,15 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Melodee menu (HOME held): COLOR, LOWCUT, ZOOM, HARDWARE CALIBRATION, ABOUT. */
+/* Melodee menu (HOME held): COLOR, LOWCUT, ZOOM, KEYS, HARDWARE CALIBRATION, ABOUT. */
 /* ------------------------------------------------------------ menu --- */
-enum { MI_COLOR, MI_LOWCUT, MI_ZOOM, MI_PANEL, MI_ABOUT, MI_BACK, MI_COUNT };
-static const char *const MI_NAME[MI_COUNT] = {"COLOR", "LOWCUT", "ZOOM", "HARDWARE CALIBRATION", "ABOUT", "BACK"};
+enum { MI_COLOR, MI_LOWCUT, MI_ZOOM, MI_KEYS, MI_PANEL, MI_ABOUT, MI_BACK, MI_COUNT };
+static const char *const MI_NAME[MI_COUNT] = {"COLOR", "LOWCUT", "ZOOM", "KEYS", "HARDWARE CALIBRATION", "ABOUT",
+                                              "BACK"};
 
 static void draw_menu(void)
 {
     uint32_t i, pass, sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u +
-                            settings.zoom * 104729u;
+                            settings.zoom * 104729u + settings.keys * 1299709u;
     if (!ui.force && sig == ui.menu_sig)
         return;
     ui.menu_sig = sig;
@@ -49,6 +50,8 @@ static void draw_menu(void)
                 cv_text(14, y, &FONT_S, MI_NAME[i], sel ? C_WHITE : C_GRAY);
                 if (i == MI_LOWCUT || i == MI_ZOOM)
                     cv_text(90, y, &FONT_S, (i == MI_LOWCUT ? settings.lowcut : settings.zoom) ? "ON" : "OFF", C_HI);
+                if (i == MI_KEYS)                   /* how bright the keys not sounding are */
+                    cv_text(90, y, &FONT_S, KEYS_NAME[settings.keys], C_HI);
                 if (i == MI_COLOR) {
                     uint32_t k;
                     cv_text(90, y, &FONT_S, PALETTES[settings.palette].name, C_HI);
@@ -106,11 +109,16 @@ static void menu_input(uint32_t pressed)
         fx_lowcut = (uint8_t)(settings.lowcut != 0);
         ok = 0;
     }
+    if (s != 0 && ui.menu == 1 && ui.menu_sel == MI_KEYS)   /* KNOB 1: brighter / dimmer; the keys show it */
+        settings.keys = (uint32_t)clamp((int32_t)settings.keys + (s > 0 ? 1 : -1), KEYS_OFF, KEYS_FULL);
     if (ok && ui.menu == 1) {
         switch (ui.menu_sel) {
         case MI_COLOR:                                 /* OCT+ steps through the palettes too */
             settings.palette = (settings.palette + 1u) % NPALETTES;
             palette_set(settings.palette);
+            break;
+        case MI_KEYS:                                  /* OCT+ steps through the levels too */
+            settings.keys = (settings.keys + 1u) % KEYS_N;
             break;
         case MI_PANEL:
             panel_setup();

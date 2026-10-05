@@ -475,6 +475,7 @@ typedef struct {
     uint32_t magic, palette, lowcut, zoom;
     panel_t panel;
     uint32_t usb_off;
+    uint32_t keys;
 } persist_t;
 #define PERSIST_MAGIC 0x50455232u                  /* "PER2" */
 #if MELODEE_FLASH
@@ -501,12 +502,14 @@ static void persist_boot(void)                    /* before settings_init / pane
         int n;
         memset(&p, 0, sizeof p);
         n = st_load(OBJ_SETTINGS, &p, sizeof p);
-        if ((n == (int)sizeof p || n == (int)(sizeof p - sizeof p.usb_off)) && p.magic == PERSIST_MAGIC) {
+        if ((n == (int)sizeof p || n == (int)(sizeof p - sizeof p.keys) ||
+             n == (int)(sizeof p - sizeof p.keys - sizeof p.usb_off)) && p.magic == PERSIST_MAGIC) {
             settings.magic = SETTINGS_MAGIC;
             settings.palette = p.palette;
             settings.lowcut = p.lowcut;
             settings.zoom = p.zoom;
             settings.usb_off = p.usb_off;
+            settings.keys = n == (int)sizeof p ? p.keys : KEYS_MID;
             if (p.panel.magic == PANEL_MAGIC)
                 panel = p.panel;
             persist_saved = p;
@@ -519,6 +522,7 @@ static void persist_boot(void)                    /* before settings_init / pane
             settings.lowcut = 0;
             settings.zoom = 0;
             settings.usb_off = 0;
+            settings.keys = KEYS_MID;
             if (old.magic == PANEL_MAGIC)
                 panel = old;
         }
@@ -548,6 +552,7 @@ static void settings_save(void)
     p.zoom = settings.zoom;
     p.panel = panel;
     p.usb_off = settings.usb_off;
+    p.keys = settings.keys;
     if (!memcmp(&p, &persist_saved, sizeof p))
         return;                                    /* unchanged: no erase cycle */
     if (st_save(OBJ_SETTINGS, &p, sizeof p) == 0)

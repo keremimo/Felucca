@@ -187,22 +187,31 @@ static void pat_leds(uint8_t *nl)
 
 /* The playing layout follows the selected track. OFF leaves pitches chromatic,
  * so mark the keys in ROOT/SCL without changing what they sound. TRN and the
- * octave buttons shift both the note and the scale by the same interval. */
-static int play_key_led(const track_t *t, uint32_t k)
+ * octave buttons shift both the note and the scale by the same interval.
+ * A key is bright while it is held or its pitch sounds from MIDI in (live_refs),
+ * the rest of the layout dim (Settings > KEYS). */
+enum { KL_OFF, KL_DIM, KL_ON };
+static uint32_t play_key_led(const track_t *t, uint32_t k)
 {
+    uint32_t n = kb_map(t, k), ti = trk_index(t);
     int32_t degree;
+    if ((((fm1_in.notes >> k) & 1u) && kb_trk[k] == ti && kb_note[k] != KB_SILENT) ||
+        (n != KB_SILENT && live_refs[ti][n]))
+        return KL_ON;
     if (is_drum(t) || is_gm_sample(t) || is_slice(t))
-        return 1;
+        return KL_DIM;
     if (t->p[P_QUANT] == Q_OFF) {
         degree = (53 + (int32_t)k - t->p[P_ROOT] + 120) % 12;
-        return (int)((scale_mask(t) >> (uint32_t)degree) & 1u);
+        return (scale_mask(t) >> (uint32_t)degree) & 1u ? KL_DIM : KL_OFF;
     }
-    return kb_map(t, k) != KB_SILENT;
+    return n != KB_SILENT ? KL_DIM : KL_OFF;
 }
+
+static const uint8_t KEYS_DIM_MASK[KEYS_N] = {0, 7, 3, 1, 0};   /* frames lit: -, 1/8, 1/4, 1/2, all */
 
 static void ui_leds(void)
 {
-    uint8_t nl[FM1_NCOL] = {0};
+    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0};
     uint32_t k, c;
     uint32_t fam = cur_fam();
     static uint8_t ready;
@@ -222,10 +231,16 @@ static void ui_leds(void)
     else if (nav_held())                                /* EDIT + keys: the key map */
         nav_leds(nl);
     else
-        for (k = 0; k < 27u; k++)
-            led_put(nl, 14u + k, play_key_led(TSEL, k));
-    for (c = 0; c < FM1_NCOL; c++)
+        for (k = 0; k < 27u; k++) {
+            uint32_t lv = play_key_led(TSEL, k);
+            led_put(nl, 14u + k, lv == KL_ON);
+            led_put(nd, 14u + k, lv == KL_DIM && settings.keys != KEYS_OFF);
+        }
+    fm1_led_dim_mask = KEYS_DIM_MASK[settings.keys];
+    for (c = 0; c < FM1_NCOL; c++) {
+        fm1_led_dim[c] = (uint8_t)(nd[c] | nl[c]);    /* first: a key going dim <-> bright never goes dark */
         fm1_led[c] = nl[c];
+    }
 }
 
 /* ---------------------------------------------------------- input --- */

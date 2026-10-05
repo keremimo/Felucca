@@ -26,6 +26,8 @@
  * quadrature cycle. fm1_enc_take() returns the steps.
  * LEDs: set fm1_led[col] (packed row bits, bit1 PA5..bit4 PA8); they are lit
  * while that column is selected. fm1_led_key/btn helpers address them by id.
+ * fm1_led_dim[col] LEDs are lit one frame in (fm1_led_dim_mask + 1), staggered
+ * by column: a dimmer level from the ~900 Hz frame rate, at no cost per tick.
  */
 #pragma once
 #include <stdint.h>
@@ -79,6 +81,8 @@ static volatile struct {
     uint32_t frames;
 } fm1_in;
 static uint8_t fm1_led[FM1_NCOL];
+static uint8_t fm1_led_dim[FM1_NCOL];
+static uint8_t fm1_led_dim_mask;          /* 0 = full, 1 = 1/2, 3 = 1/4, 7 = 1/8 of the frames */
 
 static void fm1__led_lines(uint32_t rowmask)
 {
@@ -89,6 +93,11 @@ static void fm1__led_lines(uint32_t rowmask)
         else
             FM1_PR(FM1_LED_PORT[r], FM1_OUT) &= ~(1u << FM1_LED_BIT[r]);
     }
+}
+
+static uint32_t fm1__led_col(uint32_t p)          /* LED rows of column p in this frame */
+{
+    return fm1_led[p] | (((fm1_in.frames + p) & fm1_led_dim_mask) ? 0u : fm1_led_dim[p]);
 }
 
 static void fm1__sr_word(uint32_t w)
@@ -194,7 +203,7 @@ static void fm1_input_scan(void)
         fm1__sr_word(0xFFFFu ^ (1u << p) ^ (p < 2u ? 1u << (11u + p) : 0u));
         fm1__wait(FM1_SETTLE_US);
         fm1_in.raw[p] = (uint8_t)fm1__rows();
-        fm1__led_lines(fm1_led[p]);
+        fm1__led_lines(fm1__led_col(p));
         fm1__wait(FM1_LED_US);
     }
     fm1__led_lines(0);
@@ -269,7 +278,7 @@ static void fm1_input_tick(void)
     fm1__led_lines(0);
     fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick */
     fm1__sr_word(0xFFFFu ^ (1u << n) ^ (n < 2u ? 1u << (11u + n) : 0u));
-    fm1__led_lines(fm1_led[n]);
+    fm1__led_lines(fm1__led_col(n));
     fm1__tick_col = (uint8_t)n;
     if (n == 0u)
         fm1__frame();
