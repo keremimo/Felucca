@@ -201,6 +201,7 @@ static void fm6_name(char *d, const uint8_t *v)          /* the voice name, trai
 /* ---------------------------------------------------- the track's patch --- */
 /* the patch bank (fm6_bank.c sets it with MELODEE_FLASH): slot k's packed record -> pk, 0 = got it */
 static int (*fm6_bank_read)(uint32_t k, uint8_t *pk);
+static uint32_t fm6_bank_gen;                        /* +1 on every change of the bank (the UI redraws) */
 
 /* track tr's patch = v (155 bytes, sanitized). load: a new voice, as a DX7 program change (the notes stop); else
  * an edit, which the sounding notes follow. Main loop: the ISR takes it at its next block */

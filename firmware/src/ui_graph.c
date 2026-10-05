@@ -47,6 +47,35 @@ static void graph_adsr(const track_t *t, uint16_t c)
 #undef EGY
 }
 
+/* FM6: a DX7 envelope, four rates (a segment's width: slower is wider) and four levels, held at L3 while the key is
+ * down, then R4 to L4; it starts at L4 (as the DX7's). r, l: 0..99 each. pitch: a pitch envelope (50 = the note's
+ * own pitch, a line there). The column just turned in ACCENT */
+static void graph_dxenv(const uint8_t *r, const uint8_t *l, int pitch, uint16_t c)
+{
+    const page_t *pg = cur_page();
+    int32_t x = PANEL_X0, i, top = 6, bot = 88, y0, y1, hot = ui.hot_t ? (int32_t)(ui.hot_col & 3u) : -1;
+#define FMY(v) (bot - (v) * (bot - top) / 99)
+    cv_rect(PANEL_X0, bot + 2, PANEL_W, 1, T_RAISE);
+    if (pitch)
+        cv_rect(PANEL_X0, FMY(50), PANEL_W, 1, T_RAISE);   /* the note's own pitch */
+    y0 = FMY(l[3]);
+    for (i = 0; i < 4; i++) {
+        int32_t w = 8 + (99 - r[i]) * 38 / 99, xe;
+        uint16_t sc = i == hot ? T_ACCENT : c;
+        if (i == 3) {                                    /* held at L3, then the release */
+            cv_line_t(x, y0, x + 30, y0, c, 2);
+            x += 30;
+        }
+        xe = x + w;
+        y1 = FMY(l[i]);
+        cv_line_t(x, y0, xe, y1, (pg->id[0] == FP_L1 || pg->id[0] == FP_PL1) && i == hot ? T_ACCENT : sc, 2);
+        x = xe;
+        y0 = y1;
+    }
+    cv_line_t(x, y0, PANEL_X0 + PANEL_W, y0, T_DIM, 2);
+#undef FMY
+}
+
 static void graph_lfo(const track_t *t, uint16_t c)
 {
     int32_t x, py = 50;
@@ -663,7 +692,11 @@ static void graph_fm6(const track_t *t, uint16_t c)
     uint8_t m[6], fan[6] = {0, 0, 0, 0, 0, 0};
     uint16_t rc = hot == P_E2 ? T_ACCENT : c;
     char b[7] = {'A', 'L', 'G', ' ', (char)('0' + (alg + 1u) / 10u), (char)('0' + (alg + 1u) % 10u), 0};
-    if (hot == P_E3 || hot == P_E4 || hot == P_E5)
+    if (cur_page()->scope == SC_FMOP)                /* FM6's operator pages: the operator they show */
+        hotset = 1u << (fm6_opsel % 6u), hot = 0;
+    else if (cur_page()->scope == SC_FM6)
+        hot = 0;                                     /* (their columns are no macros) */
+    else if (hot == P_E3 || hot == P_E4 || hot == P_E5)
         hotset = 63u & ~car;
     else if (hot == P_E6)
         hotset = car;
@@ -817,6 +850,12 @@ static uint32_t graph_signature(void)
     }
     if (pg->graph == GR_MOD)
         h ^= (mod_ui_slot + 1u) * 40503u;
+    if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* FM6's pages: the patch, switches, functions, bank */
+        h ^= fm6_pgen[song.sel % NTRK] * 2654435761u + fm6_on[song.sel % NTRK] * 40503u + fm6_opsel * 131u +
+             fm6_bslot * 7919u + fm6_bank_gen * 104729u;
+        for (i = 0; i < FM6_NFN; i++)
+            h = (h ^ fm6_fn[i]) * 16777619u;
+    }
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
@@ -970,6 +1009,24 @@ static void graph_user(void)
         else
             str_cpy(nm, "--", sizeof nm);
         list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232);
+    }
+}
+/* FM6 > STORE: the bank slots around the one picked ("B03  WOOD BARS" / --), as USER's */
+static void graph_fmbank(void)
+{
+    int32_t row, first = clamp((int32_t)fm6_bslot - 3, 0, FM6_BANK_N - 7);
+    for (row = 0; row < 7; row++) {
+        uint32_t k = (uint32_t)(first + row);
+        char nm[12];
+        uint8_t pk[FM6_PACKED], v[FP_SIZE + 1u];
+        int used = fm6_bank_read && !fm6_bank_read(k, pk);
+        if (used) {
+            fm6_unpack(pk, v);
+            fm6_name(nm, v);
+        } else {
+            str_cpy(nm, "--", sizeof nm);
+        }
+        list_row(LIST_Y(row), k == fm6_bslot, N_FM6BANK[k], T_MID, nm, used ? T_TEXT : T_DIM, 232);
     }
 }
 /* SEQ > PATTERNS: the pattern list around the one picked ("03  MELODY", "U07  MY BASS") */
@@ -1299,10 +1356,23 @@ static void draw_graph(void)
             graph_slices();
             break;
 #endif
+        case GR_FMEG: {                                  /* FM6: operator fm6_opsel's envelope */
+            const uint8_t *op = &fm6_patch[song.sel % NTRK][(5u - fm6_opsel % 6u) * FP_OP];
+            graph_dxenv(op + FP_R1, op + FP_L1, 0, c);
+            break;
+        }
+        case GR_FMPEG:                                   /* FM6: the pitch envelope */
+            graph_dxenv(fm6_patch[song.sel % NTRK] + FP_PR1, fm6_patch[song.sel % NTRK] + FP_PL1, 1, c);
+            break;
+        case GR_FMSTORE:                                 /* FM6: the bank slots around fm6_bslot */
+            cv_oy = 0;
+            graph_fmbank();
+            break;
         default:
             if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && sample_wave.ready) graph_sample(c);
-            else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c);   /* EDIT 1 and 2 */
+            else if ((pg->scope == SC_ENGINE || pg->scope == SC_FM6 || pg->scope == SC_FMOP) &&
+                     t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c);   /* EDIT 1 and 2, FM6's pages */
 #if MELODEE_FM4
             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */

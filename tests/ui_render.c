@@ -397,7 +397,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV
        S_ENV, S_ENVDEST, S_LFO, S_MOD, S_FX, S_SLICER, S_DLY, S_SCL, S_CHORD, S_CHORD_WIDE, S_CHORD_OFF, S_CHORD_KIT, S_ARP, S_VOICE, S_GLOBAL, S_SYSTEM,
        S_EDIT_ANALOG, S_EDIT_DIGITAL, S_OP_ENV, S_EDIT_WHEEL, S_EDIT_SAMPLE, S_EDIT_GRAIN, S_EDIT_PHYS,
        S_ALG1, S_ALG2, S_ALG3, S_ALG4, S_ALG5, S_ALG6, S_ALG7, S_ALG8, S_OP_LEVEL,
-       S_FM6_ALG1, S_FM6_ALG5, S_FM6_ALG22, S_FM6_ALG32,
+       S_FM6_ALG1, S_FM6_ALG5, S_FM6_ALG22, S_FM6_ALG32, S_FM6_FREQ, S_FM6_EG, S_FM6_PEG, S_FM6_STORE,
        S_CONFIRM_SEQ, S_CONFIRM_PROJ, S_CONFIRM_USER, S_CONFIRM_PAT, S_CONFIRM_MOTION, S_CONFIRM_ERASE,
        S_MENU, S_MENU_SPEAKER, S_ABOUT, S_ABOUT_REC, S_ABOUT_CREDITS, S_ABOUT_END, S_UBOOT, S_CALIBRATION,
        S_BATT0, S_BATT1, S_BATT2, S_BATT3, S_BATT_USB, S_MOTION_REC, S_MOTION_OFF, S_SONG_HOME,
@@ -411,7 +411,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "mes
     "phrases", "project", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
     "voice", "global", "system", "edit_analog", MELODEE_FM4 ? "edit_digital" : "edit_fm6", "op_env", "edit_wheel", "edit_sample",
-    "edit_grain", "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "confirm_seq", "confirm_project", "confirm_user", "confirm_pattern",
+    "edit_grain", "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "fm6_freq", "fm6_eg", "fm6_peg", "fm6_store", "confirm_seq", "confirm_project", "confirm_user", "confirm_pattern",
     "confirm_motion", "confirm_erase", "menu", "menu_speaker", "about", "about_rec", "about_credits", "about_end", "uboot", "calibration",
     "batt_0", "batt_1", "batt_2", "batt_3", "batt_usb", "motion_rec", "motion_off", "song_home",
     "perform_peek", "perform_held", "perform_wait", "perform_harm", "menu_hold", "reverb_spring",
@@ -661,6 +661,16 @@ static void setup(int s)
         eng(ENGI_FM6); TSEL->p[P_E0] = 32; fm6_patch[song.sel][FP_OL] = 0; fm6_pgen[song.sel]++;   /* (op 6: the patch's first) */
         go_title("EDIT 1"); ui.hot_col = 2; ui.hot_t = 30;
         break;
+    /* FM6's own pages: operator 2's FREQ (KNOB 1 just turned), operator 3's EG RATE, the pitch EG, STORE onto B3
+     * (a patch there: its name) */
+    case S_FM6_FREQ: eng(ENGI_FM6); go_title("FREQ"); fm6_opsel = 1; ui.hot_col = 1; ui.hot_t = 30; break;
+    case S_FM6_EG: eng(ENGI_FM6); go_title("EG RATE"); fm6_opsel = 2; break;
+    case S_FM6_PEG: eng(ENGI_FM6); fm6_factory(3, fm6_buf); fm6_unpack(fm6_buf, fm6_patch[song.sel]); fm6_pgen[song.sel]++;
+        go_title("PITCH EG"); break;
+    case S_FM6_STORE:
+        eng(ENGI_FM6); song.playing = 0; fm6_factory(5, fm6_buf); (void)fm6_bank_put(2, fm6_buf);
+        go_title("STORE"); fm6_bslot = 2;
+        break;
     case S_CONFIRM_SEQ: ui.confirm = CF_CLEAR_SEQ; ui.confirm_trk = 2; break;
     case S_CONFIRM_PROJ: ui.confirm = CF_OVR_PROJ; ui.confirm_trk = 0; break;
     case S_CONFIRM_USER: song.playing = 0; up_store(6, "A VERY LONG SOUND NAME"); ui.confirm = CF_OVR_USER; ui.confirm_trk = 6; break;
@@ -805,13 +815,17 @@ static void sweep_columns(void)
             cur_name = name;
             for (c = 0; c < 4u; c++) {
                 int16_t *vp;
-                const param_desc_t *d = PAGES[i].scope == SC_GLOBAL || PAGES[i].scope == SC_TRACK || PAGES[i].scope == SC_ENGINE
+                int fm6 = PAGES[i].scope == SC_FM6 || PAGES[i].scope == SC_FMOP;   /* (a copy: written back) */
+                const param_desc_t *d = PAGES[i].scope == SC_GLOBAL || PAGES[i].scope == SC_TRACK || PAGES[i].scope == SC_ENGINE || fm6
                                         ? page_desc(cur_page(), c, &vp) : 0;
                 int32_t v, v0;
                 if (!d || !d->label || d->label[0] == '-' || PAGES[i].graph == GR_MOD) continue;
                 v0 = *vp;
                 for (v = d->min; v <= d->max; v++) {
-                    *vp = (int16_t)v;
+                    if (fm6)
+                        fm6_page_put(cur_page(), c, v);
+                    else
+                        *vp = (int16_t)v;
                     nscr = npend = 0;
                     ui.force = 1;
                     draw_columns();
@@ -819,7 +833,10 @@ static void sweep_columns(void)
                     nsweep++;
                     if (v - d->min > 300) v = d->max - 1;      /* wide ranges: the ends */
                 }
-                *vp = (int16_t)v0;
+                if (fm6)
+                    fm6_page_put(cur_page(), c, v0);
+                else
+                    *vp = (int16_t)v0;
             }
             draw(-1);                                    /* the whole page */
             lint();

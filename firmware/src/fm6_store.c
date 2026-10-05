@@ -109,6 +109,7 @@ static void fm6_sysex(const uint8_t *b, uint32_t n)
         }
         fm6_bank.used = 0xFFFFFFFFu;
         fm6_bank_read = fm6_bank_get;
+        fm6_bank_gen++;
         for (i = 0; i < NTRK; i++)                       /* tracks on B..: the new patches (fm6_poll) */
             if (fm6_slot[i] >= FM6_NFAC && fm6_slot[i] != 0xFFu)
                 fm6_slot[i] = 0xFFu;

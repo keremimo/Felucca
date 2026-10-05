@@ -80,6 +80,7 @@ static void fm6_bank_check(int n)
         fm6_bank_empty();
     memcpy(fm6_fn, fm6_bank.fn, FM6_NFN);
     fm6_bank_read = fm6_bank_get;
+    fm6_bank_gen++;
 }
 
 /* a bank of earlier firmware (n bytes at b) -> the mirror. 0 = it was one */
@@ -165,6 +166,7 @@ static int fm6_bank_put(uint32_t k, const uint8_t *pk)
         fm6_bank.used &= ~(1u << k);
     }
     fm6_bank_read = fm6_bank_get;
+    fm6_bank_gen++;
 #if MELODEE_FLASH
     if (fm6_bank_save() && flash_ok) {
         memcpy(fm6_bank.pk[k], old, FM6_BANK_PK);

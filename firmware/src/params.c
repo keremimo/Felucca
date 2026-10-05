@@ -39,6 +39,79 @@ static const char *const N_ENGNAME[] = {"ANALOG", MELODEE_FM4 ? "DIGITAL" : "-",
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
 #define PE(l, n, df) {l, F_ENUM, 0, (int16_t)(sizeof(n) / sizeof(n[0]) - 1), df, n, 0}
 
+/* FM6's pages (an FM6 track only): the selected track's patch (fm6_patch), its operator switches and the FM6 function
+ * settings, in the DX7's ranges. The operator pages show operator fm6_opsel (the PRESETS knob picks it); the STORE
+ * page writes bank slot fm6_bslot (fm6_store.c). The values are not track parameters: page_desc gives a copy
+ * (fm6_cell), fm6_page_put writes it back */
+static const char *const N_FM6ALG[32] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15",
+                                        "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28",
+                                        "29", "30", "31", "32"};
+static const char *const N_FMCRV[] = {"-LIN", "-EXP", "+EXP", "+LIN"};
+static const char *const N_FMMODE[] = {"RATIO", "FIXED"};
+static const char *const N_FMLFW[] = {"TRI", "SAWDN", "SAWUP", "SQR", "SIN", "S&H"};
+static const char *const N_FMPM[] = {"PEDAL", "ON"};   /* portamento: while CC 65 is down (Dexed), always */
+static const char *const N_FMDEST[] = {"-", "P", "A", "PA", "E", "PE", "AE", "PAE"};   /* pitch, amp, EG bias */
+static const char *const N_FMENG[] = {"MODRN", "MARK I", "OPL"};                  /* Dexed's engine resolutions */
+static const char *const N_FMONOFF[] = {"OFF", "ON"};
+static uint8_t fm6_opsel, fm6_bslot;                    /* OP1..OP6 = 0..5; bank slot 0..31 (B1..B32) */
+static int16_t fm6_cell[4];
+static const param_desc_t FM6_OPD[FP_OP + 1] = {        /* an operator; FP_OP: its switch */
+    [FP_R1] = PD("R1", F_INT, 0, 99, 99), [FP_R1 + 1] = PD("R2", F_INT, 0, 99, 99),
+    [FP_R1 + 2] = PD("R3", F_INT, 0, 99, 99), [FP_R1 + 3] = PD("R4", F_INT, 0, 99, 99),
+    [FP_L1] = PD("L1", F_INT, 0, 99, 99), [FP_L1 + 1] = PD("L2", F_INT, 0, 99, 99),
+    [FP_L1 + 2] = PD("L3", F_INT, 0, 99, 99), [FP_L1 + 3] = PD("L4", F_INT, 0, 99, 0),
+    [FP_BP] = PD("BRK", F_FMNOTE, 0, 99, 39), [FP_LD] = PD("LDEP", F_INT, 0, 99, 0),
+    [FP_RD] = PD("RDEP", F_INT, 0, 99, 0), [FP_LC] = PE("LCRV", N_FMCRV, 0), [FP_RC] = PE("RCRV", N_FMCRV, 0),
+    [FP_RS] = PD("RSCL", F_INT, 0, 7, 0), [FP_AMS] = PD("AMS", F_INT, 0, 3, 0), [FP_KVS] = PD("VEL", F_INT, 0, 7, 0),
+    [FP_OL] = PD("OUT", F_INT, 0, 99, 99), [FP_MODE] = PE("MODE", N_FMMODE, 0),
+    [FP_FC] = PD("CRS", F_FMFRQ, 0, 31, 1), [FP_FF] = PD("FINE", F_FMFRQ, 0, 99, 0),
+    [FP_DET] = PD("DTN", F_OFS, 0, 14, 7), [FP_OP] = PE("ON", N_FMONOFF, 1),
+};
+static const param_desc_t FM6_GD[FP_NAME - FP_PR1] = {  /* the voice: FP_PR1 .. FP_TRNSP */
+    PD("R1", F_INT, 0, 99, 99), PD("R2", F_INT, 0, 99, 99), PD("R3", F_INT, 0, 99, 99), PD("R4", F_INT, 0, 99, 99),
+    PD("L1", F_INT, 0, 99, 50), PD("L2", F_INT, 0, 99, 50), PD("L3", F_INT, 0, 99, 50), PD("L4", F_INT, 0, 99, 50),
+    PE("ALG", N_FM6ALG, 0), PD("FB", F_INT, 0, 7, 0), PE("SYNC", N_FMONOFF, 1),
+    PD("SPEED", F_INT, 0, 99, 35), PD("DELAY", F_INT, 0, 99, 0), PD("PMD", F_INT, 0, 99, 0), PD("AMD", F_INT, 0, 99, 0),
+    PE("KSYNC", N_FMONOFF, 1), PE("WAVE", N_FMLFW, 0), PD("PMS", F_INT, 0, 7, 3), {"TRNS", F_OFS, 0, 48, 24, 0, "st"},
+};
+static const param_desc_t FM6_FD[FM6_NFN] = {           /* the FM6 function settings: FN_PBUP .. FN_ENGINE */
+    {"BEND+", F_INT, 0, 12, 3, 0, "st"}, {"BEND-", F_INT, 0, 12, 3, 0, "st"}, PD("STEP", F_INT, 0, 12, 0),
+    PE("PORTA", N_FMPM, 0), PD("TIME", F_INT, 0, 127, 0), PE("GLISS", N_FMONOFF, 0),
+    PD("WHEEL", F_INT, 0, 99, 99), PE("W.DST", N_FMDEST, 1), PD("FOOT", F_INT, 0, 99, 0), PE("F.DST", N_FMDEST, 0),
+    PD("BRTH", F_INT, 0, 99, 0), PE("B.DST", N_FMDEST, 0), PD("AFTER", F_INT, 0, 99, 0), PE("A.DST", N_FMDEST, 0),
+    PE("DXVEL", N_FMONOFF, 0), PE("ENGIN", N_FMENG, FM6_MARK1),
+};
+static const char *const N_FM6BANK[] = {"B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11", "B12", "B13",
+                                        "B14", "B15", "B16", "B17", "B18", "B19", "B20", "B21", "B22", "B23", "B24",
+                                        "B25", "B26", "B27", "B28", "B29", "B30", "B31", "B32"};
+static const param_desc_t FM6_SD[4] = {                 /* the STORE page: the slot, then its actions (OCT+) */
+    PE("SLOT", N_FM6BANK, 0), PD("STORE", F_INT, 0, 1, 0), PD("SEND", F_INT, 0, 1, 0), PD("INIT", F_INT, 0, 1, 0),
+};
+
+/* the frequency of operator fm6_opsel for its CRS and FINE columns: a ratio (CRS: its step 0.5, 1, 2 ..; FINE: the
+ * whole ratio) or, FIXED, Hz (CRS: 1, 10, 100, 1000) */
+static void fm6_freq_text(char *val, const char **unit, int coarse)
+{
+    const uint8_t *op = &fm6_patch[song.sel % NTRK][(5u - fm6_opsel % 6u) * FP_OP];
+    int32_t c = op[FP_FC], f = coarse ? 0 : op[FP_FF];
+    if (!op[FP_MODE]) {
+        if (coarse && c)
+            fmt_int(val, c);
+        else
+            fmt_fix(val, (c ? c * 100 : 50) * (100 + f) / 100, 2);
+        *unit = "";
+    } else {                                          /* Hz x 100 = 2^(log2(10) (COARSE % 4 + FINE / 100) + log2(100)) */
+        uint32_t h = fm6_pow2(217706 * ((c & 3) * 100 + f) / 100 + 435412 - (16 << 16));
+        if (h < 1000u)
+            fmt_fix(val, (int32_t)h, 2);
+        else if (h < 100000u)
+            fmt_fix(val, (int32_t)(h / 10u), 1);
+        else
+            fmt_int(val, (int32_t)(h / 100u));
+        *unit = "Hz";
+    }
+}
+
 static const param_desc_t TP[P_COUNT] = {
     [P_LEVEL] = PD("LVL", F_DB, 0, 127, 104),
     [P_ATK] = PD("ATK", F_TIME, 0, 127, 10),
@@ -278,6 +351,25 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
         fmt_int(val, v);
         *unit = "STEP";
         break;
+    case F_OFS: {                                     /* FM6: 0 at the middle of the range (DTN -7..7, TRNS +-24) */
+        int32_t o = v - (d->min + d->max) / 2;
+        if (o > 0) {
+            val[0] = '+';
+            fmt_int(val + 1, o);
+        } else {
+            fmt_int(val, o);
+        }
+        if (d->unit)
+            *unit = d->unit;
+        break;
+    }
+    case F_FMNOTE:                                    /* the DX7 break point: 0 = A-1, 39 = C3 (MIDI 60) */
+        str_cpy(val, N_NOTE[(v + 21) % 12], 6);
+        fmt_int(val + str_len(val), (v + 21) / 12 - 1);
+        break;
+    case F_FMFRQ:                                     /* an operator's frequency: CRS its step, FINE the result */
+        fm6_freq_text(val, unit, d == &FM6_OPD[FP_FC]);
+        break;
     default:
         if (d->names) {                               /* F_INT with a 0-terminated name list: the range */
             uint32_t k = 0;                           /* split evenly over the names (engine desc hooks) */
@@ -296,9 +388,11 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 /* ------------------------------------------------------------ pages --- */
 enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
        FAM_COUNT };
-enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK };   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
+enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
+       SC_FM6, SC_FMOP };                                 /* FM6: its patch, functions; operator fm6_opsel */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
-       GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHANCE, GR_MOTION, GR_CHORD, GR_SLICES };
+       GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHANCE, GR_MOTION, GR_CHORD, GR_SLICES,
+       GR_FMEG, GR_FMPEG, GR_FMSTORE };                   /* FM6: an operator's envelope, the pitch EG, STORE */
 
 typedef struct {
     const char *title;
@@ -323,6 +417,24 @@ static const page_t PAGES[] = {
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},
     {"SLICES", FAM_EDIT, SC_TRACK, GR_SLICES, {0xFF, 0xFF, 0xFF, 0xFF}},   /* SLICE only: the slices by hand (ui_slice.c) */
+    /* FM6 only (page_visible): the patch as the DX7 has it, its operators (PRESETS picks one), the functions */
+    {"STORE", FAM_EDIT, SC_FM6, GR_FMSTORE, {0, 1, 2, 3}},   /* SLOT STORE SEND INIT (ui_input.c act_do) */
+    {"ALGO", FAM_EDIT, SC_FM6, GR_NONE, {FP_ALG, FP_FB, FP_OKS, FP_TRNSP}},
+    {"FREQ", FAM_EDIT, SC_FMOP, GR_NONE, {FP_FC, FP_FF, FP_DET, FP_MODE}},
+    {"OUT", FAM_EDIT, SC_FMOP, GR_NONE, {FP_OL, FP_KVS, FP_AMS, FP_OP}},
+    {"EG RATE", FAM_EDIT, SC_FMOP, GR_FMEG, {FP_R1, FP_R1 + 1, FP_R1 + 2, FP_R1 + 3}},
+    {"EG LVL", FAM_EDIT, SC_FMOP, GR_FMEG, {FP_L1, FP_L1 + 1, FP_L1 + 2, FP_L1 + 3}},
+    {"SCALE", FAM_EDIT, SC_FMOP, GR_NONE, {FP_BP, FP_LD, FP_RD, FP_RS}},
+    {"CURVE", FAM_EDIT, SC_FMOP, GR_NONE, {FP_LC, FP_RC, 0xFF, 0xFF}},
+    {"PITCH EG", FAM_EDIT, SC_FM6, GR_FMPEG, {FP_PR1, FP_PR1 + 1, FP_PR1 + 2, FP_PR1 + 3}},
+    {"PITCH LV", FAM_EDIT, SC_FM6, GR_FMPEG, {FP_PL1, FP_PL1 + 1, FP_PL1 + 2, FP_PL1 + 3}},
+    {"FM LFO", FAM_EDIT, SC_FM6, GR_NONE, {FP_LFW, FP_LFS, FP_LFD, FP_LKS}},
+    {"FM LFO 2", FAM_EDIT, SC_FM6, GR_NONE, {FP_LPMD, FP_LAMD, FP_LPMS, 0xFF}},
+    /* the FM6 function settings (one set for every FM6 track, a DX7's function mode; kept with the bank) */
+    {"FM BEND", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_PBUP, FP_SIZE + FN_PBDN, FP_SIZE + FN_PBSTEP, FP_SIZE + FN_VNORM}},
+    {"FM PORTA", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_PMODE, FP_SIZE + FN_PTIME, FP_SIZE + FN_GLISS, FP_SIZE + FN_ENGINE}},
+    {"FM WH/FT", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_MWR, FP_SIZE + FN_MWA, FP_SIZE + FN_FCR, FP_SIZE + FN_FCA}},
+    {"FM BR/AT", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_BCR, FP_SIZE + FN_BCA, FP_SIZE + FN_ATR, FP_SIZE + FN_ATA}},
     {"OP1 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_REL}},
     {"OP2 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_REL}},
     {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
@@ -349,9 +461,69 @@ static const page_t PAGES[] = {
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
 
+/* FM6's pages: the value in column slot (a copy in fm6_cell) and its descriptor; 0 = none (not an FM6 track) */
+static const param_desc_t *fm6_page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
+{
+    uint32_t id = pg->id[slot], tr = song.sel % NTRK;
+    const uint8_t *v = fm6_patch[tr];
+    const param_desc_t *d;
+    *valp = 0;
+    if (id == 0xFFu || TSEL->eng_req != ENGI_FM6)
+        return 0;
+    if (pg->graph == GR_FMSTORE) {
+        fm6_cell[slot] = (int16_t)(slot ? 0 : fm6_bslot);
+        d = &FM6_SD[slot & 3u];
+    } else if (pg->scope == SC_FMOP) {
+        uint32_t k = 5u - fm6_opsel % 6u;               /* the patch keeps the sixth operator first */
+        fm6_cell[slot] = (int16_t)(id == FP_OP ? (fm6_on[tr] >> k) & 1u : v[k * FP_OP + id]);
+        d = &FM6_OPD[id];
+    } else if (id >= FP_SIZE) {
+        fm6_cell[slot] = fm6_fn[(id - FP_SIZE) % FM6_NFN];
+        d = &FM6_FD[(id - FP_SIZE) % FM6_NFN];
+    } else if (id >= FP_PR1 && id < FP_NAME) {
+        fm6_cell[slot] = v[id];
+        d = &FM6_GD[id - FP_PR1];
+    } else {
+        return 0;
+    }
+    *valp = &fm6_cell[slot];
+    return d;
+}
+
+/* .. and a new value there, into the patch (an edit: the sounding notes follow), the switches or the functions */
+static void fm6_fn_changed(void);                       /* fm6_store.c */
+static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
+{
+    uint32_t id = pg->id[slot], tr = song.sel % NTRK;
+    uint8_t v[FP_SIZE + 1u];
+    if (pg->graph == GR_FMSTORE) {
+        if (!slot)
+            fm6_bslot = (uint8_t)val;
+        return;
+    }
+    memcpy(v, fm6_patch[tr], FP_SIZE);
+    if (pg->scope == SC_FMOP) {
+        uint32_t k = 5u - fm6_opsel % 6u;
+        if (id == FP_OP) {
+            fm6_on[tr] = (uint8_t)(val ? fm6_on[tr] | 1u << k : fm6_on[tr] & ~(1u << k));
+            return;
+        }
+        v[k * FP_OP + id] = (uint8_t)val;
+    } else if (id >= FP_SIZE) {
+        fm6_fn_set((id - FP_SIZE) % FM6_NFN, val);
+        fm6_fn_changed();
+        return;
+    } else {
+        v[id] = (uint8_t)val;
+    }
+    fm6_put_patch(tr, v, 0);
+}
+
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
+    if (pg->scope == SC_FM6 || pg->scope == SC_FMOP)
+        return fm6_page_desc(pg, slot, valp);
     if (id == 0xFFu) {
         *valp = 0;
         return 0;

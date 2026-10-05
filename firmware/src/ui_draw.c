@@ -364,6 +364,10 @@ static void draw_foot(void)
                     k = n;
             }
         str_cpy(ti, pt ? pt : grid_on() ? "GRID" : pg->title, 12);
+        if (pg->scope == SC_FMOP) {                    /* FM6's operator pages: "OP3 FREQ" (PRESETS picks it) */
+            ti[0] = 'O'; ti[1] = 'P'; ti[2] = (char)('1' + fm6_opsel % 6u); ti[3] = ' ';
+            str_cpy(ti + 4, pg->title, 9);
+        }
         if (n > 1) {
             str_cpy(ti + str_len(ti), " ", 4);
             fmt_int(ti + str_len(ti), (int32_t)k);

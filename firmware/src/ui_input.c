@@ -365,6 +365,10 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max));
     *vp = (int16_t)v;
+    if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* (a copy of FM6's value: written back there) */
+        fm6_page_put(pg, slot, v);
+        return;
+    }
     if (pg->scope != SC_GLOBAL) motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
     if (pg->scope == SC_TRACK && scale_shared((uint32_t)(vp - TSEL->p)))
         scale_share(TSEL);
@@ -412,6 +416,16 @@ static void act_do(void)
         return;
     }
 #endif
+    if (cur_page()->graph == GR_FMSTORE) {                /* FM6: 1 STORE (into fm6_bslot), 2 SEND, 3 INIT */
+        if (c == 1u)
+            fm6_store(fm6_bslot);
+        else if (c == 2u)
+            fm6_send();
+        else if (c == 3u)
+            fm6_init_voice();
+        ui.act = 0;
+        return;
+    }
     if (cur_page()->graph == GR_USER) {                   /* 1 LOAD, 2 ERASE, 3 SAVE (the NAME screen first) */
         if (c > 1u)
             ui.act = 0;
@@ -832,6 +846,9 @@ static void ui_input(void)
          * PRESETS page only (never the steps); elsewhere (TRACKS too, where one records) a stray turn
          * would throw away the sound being edited */
         preset_step(s);                                  /* past the factory ones: user presets */
+    } else if (s && !ui.home && cur_page()->scope == SC_FMOP) {   /* FM6's operator pages: the operator */
+        fm6_opsel = (uint8_t)clamp((int32_t)fm6_opsel + (s > 0 ? 1 : -1), 0, 5);
+        ui.force = 1;
     }
     if ((s = panel_enc(EN_ALGO)) != 0)             /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));

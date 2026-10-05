@@ -85,6 +85,7 @@ static struct { uint32_t stage; } melodee_dbg;
 #include "../firmware/src/ui_layer.c"
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
+#include "../firmware/src/fm6_store.c"
 
 static int check(const char *what, int ok)
 {
@@ -2241,6 +2242,9 @@ static int engine_cycle(const char *const *want, uint32_t n)   /* EDIT tapped fr
 static int test_edit_cycle(void)
 {
     static const char *const CYC_A[] = {"EDIT 1", "EDIT 2", "VOICE", "VOICE 2", "EDIT 1"};
+    static const char *const CYC_F[] = {"EDIT 1", "EDIT 2", "STORE", "ALGO", "FREQ", "OUT", "EG RATE", "EG LVL", "SCALE",
+                                        "CURVE", "PITCH EG", "PITCH LV", "FM LFO", "FM LFO 2", "FM BEND", "FM PORTA",
+                                        "FM WH/FT", "FM BR/AT", "VOICE", "VOICE 2", "EDIT 1"};
     static const char *const CYC_D[] = {"EDIT 1", "EDIT 2", "OP1 ENV", "OP2 ENV", "OP3 ENV", "OP4 ENV",
                                         "OP LEVEL", "VOICE", "VOICE 2", "EDIT 1"};
     int bad = 0, ok;
@@ -2261,8 +2265,8 @@ static int test_edit_cycle(void)
                  engine_cycle(CYC_D, NELEM(CYC_D)));
 #else
     set_engine_of(TSEL, ENGI_DIGITAL);
-    bad += check("EDIT cycle (engine 1 asked for: FM6, DIGITAL retired): EDIT 1 EDIT 2 VOICE VOICE 2 EDIT 1",
-                 TSEL->eng_req == ENGI_FM6 && engine_cycle(CYC_A, NELEM(CYC_A)));
+    bad += check("EDIT cycle (engine 1 asked for: FM6, DIGITAL retired): EDIT 1 EDIT 2, FM6's 16 pages, VOICE VOICE 2",
+                 TSEL->eng_req == ENGI_FM6 && engine_cycle(CYC_F, NELEM(CYC_F)));
     (void)CYC_D;
 #endif
     go_title("OP2 ENV"); ui.fam_last[FAM_EDIT] = ui.page;
@@ -2271,6 +2275,71 @@ static int test_edit_cycle(void)
     go_title("EDIT 2"); ui.fam_last[FAM_EDIT] = ui.page;
     go_home(); press(B_EDIT);
     bad += check("EDIT remembers its last page (as every family)", str_eq(cur_page()->title, "EDIT 2"));
+    return bad;
+}
+
+/* FM6's pages (params.c fm6_page_desc / fm6_page_put): the PRESETS knob picks the operator of the operator pages, a
+ * knob edits that operator in the track's patch, ON switches it (fm6_on), the function settings are global and saved
+ * later (fm6_fn_dirty); STORE writes the patch into bank slot KNOB 1 and PTCH follows it, not while playing; INIT */
+static int test_fm6_pages(void)
+{
+    int bad = 0;
+    uint32_t tr;
+    uint8_t *op2, crs;
+    char a[12], b[12];
+    uint8_t pk[FM6_PACKED], v[FP_SIZE + 1u];
+    ui_power_on();
+    stop_transport();
+    set_engine_of(TSEL, ENGI_FM6);
+    tr = song.sel;
+    go_title("FREQ");
+    fm6_opsel = 0;
+    turn(EN_PRESET, 1);
+    bad += check("FM6 FREQ: PRESETS picks the operator (OP2)", fm6_opsel == 1u && TSEL->eng_req == ENGI_FM6);
+    op2 = &fm6_patch[tr][4u * FP_OP];                    /* (the patch keeps operator 6 first) */
+    crs = op2[FP_FC];
+    turn(EN_K1, crs < 20u ? 2 : -2);
+    bad += check("  KNOB 1: OP2's CRS in the patch", op2[FP_FC] == (uint8_t)(crs < 20u ? crs + 2u : crs - 2u));
+    go_title("OUT");
+    turn(EN_K4, -1);
+    bad += check("  OUT ON off: OP2's switch (fm6_on bit 4)", !((fm6_on[tr] >> 4) & 1u) && ((fm6_on[tr] >> 5) & 1u));
+    turn(EN_K4, 1);
+    bad += check("  .. and on again", (fm6_on[tr] & FM6_ON_ALL) == FM6_ON_ALL);
+    go_title("FM PORTA");
+    fm6_fn_dirty = 0;
+    fm6_fn[FN_ENGINE] = FM6_MARK1;
+    turn(EN_K4, 1);
+    bad += check("FM PORTA ENGINE: global, to be saved", fm6_fn[FN_ENGINE] == FM6_MARK1 + 1u && fm6_fn_dirty);
+    fm6_fn[FN_ENGINE] = FM6_MARK1;
+    go_title("STORE");
+    turn(EN_K1, 4);
+    turn(EN_K2, 1);
+    press(B_OCTUP);
+    fm6_name(a, fm6_patch[tr]);
+    b[0] = 0;
+    if (!fm6_bank_get(4, pk)) {
+        fm6_unpack(pk, v);
+        fm6_name(b, v);
+    }
+    bad += check("STORE onto B5: the bank slot, PTCH B5", fm6_bslot == 4u && fm6_bank_used(4) && str_eq(a, b) &&
+                 TSEL->p[P_E7] == (int16_t)(FM6_NFAC + 4u));
+    song.playing = 1;
+    ui.msg_t = 0;
+    turn(EN_K1, 1);
+    turn(EN_K2, 1);
+    press(B_OCTUP);
+    bad += check("  STORE while playing: STOP TO SAVE, B6 empty", msg_is("STOP TO SAVE") && !fm6_bank_used(5) &&
+                 TSEL->p[P_E7] == (int16_t)(FM6_NFAC + 4u));
+    stop_transport();
+    turn(EN_K4, 1);
+    press(B_OCTUP);
+    fm6_name(a, fm6_patch[tr]);
+    fm6_unpack(FM6_INIT, v);
+    fm6_name(b, v);
+    bad += check("  INIT: the init voice", msg_is("INIT VOICE") && str_eq(a, b));
+    set_engine_of(TSEL, 0);
+    frame();
+    bad += check("an FM6 page of a track no longer FM6 falls back to EDIT 1", str_eq(cur_page()->title, "EDIT 1"));
     return bad;
 }
 
@@ -3406,6 +3475,7 @@ int main(void)
     bad += test_layer();
     bad += test_name();
     bad += test_edit_cycle();
+    bad += test_fm6_pages();
 #if MELODEE_SLICE
     bad += test_slices();
 #endif

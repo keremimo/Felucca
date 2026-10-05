@@ -5,6 +5,9 @@
  * named by circled numerals. Four columns <-> KNOB 1..4. Rendering is lazy:
  * every element remembers what it last drew and is redrawn only on change. */
 static int project_save(uint32_t slot);
+static void fm6_store(uint32_t k);                   /* FM6's STORE page: fm6_store.c */
+static void fm6_send(void);
+static void fm6_init_voice(void);
 static void panel_setup(void);
 static void project_load(uint32_t slot);
 static int project_used(uint32_t slot);
@@ -123,6 +126,8 @@ static int page_visible(uint32_t i)
 {
     if (PAGES[i].id[0] == P_MPCDEG && PAGES[i].scope == SC_TRACK)
         return TSEL->p[P_QUANT] == Q_MPC;
+    if (PAGES[i].scope == SC_FM6 || PAGES[i].scope == SC_FMOP)
+        return TSEL->eng_req == ENGI_FM6;              /* FM6's patch, operators and functions */
 #if MELODEE_SLICE
     if (PAGES[i].graph == GR_SLICES)
         return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SLICE;
@@ -1016,6 +1021,8 @@ static uint32_t act_cols(void)                   /* the columns that are actions
         return 14u;                              /* LOAD ERASE SAVE */
     if (pg->graph == GR_SLICES)
         return slice_page_ok() ? 12u : 0u;       /* SPLIT JOIN (a SLICE track only) */
+    if (pg->graph == GR_FMSTORE)
+        return 14u;                              /* STORE SEND INIT */
     if (pg->scope == SC_GLOBAL)
         for (c = 0; c < 4u; c++)
             if (go_id(pg->id[c]))
@@ -1047,6 +1054,8 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
         return UP_GO[(c + 2u) % 3u];
     if (cur_page()->graph == GR_SLICES)
         return c == 3u ? "JOIN" : "SPLIT";
+    if (cur_page()->graph == GR_FMSTORE)
+        return c == 1u ? "STORE" : c == 2u ? "SEND" : "INIT";
     return id == G_CLRSEQ ? "CLEAR" : id == G_INITSND ? "INIT" : id == G_LOAD ? "LOAD" : "SAVE";
 }
 
@@ -1071,6 +1080,8 @@ static int act_ready(void)
     if (cur_page()->graph == GR_SLICES)
         return slice_act_ready(c);
 #endif
+    if (cur_page()->graph == GR_FMSTORE)
+        return c != 1u || !song.playing;             /* STORE writes flash: stopped */
     id = cur_page()->id[c & 3u];
     if (id == G_LOAD)
         return project_used((uint32_t)song.g[G_SLOT] - 1u);
