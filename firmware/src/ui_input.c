@@ -210,19 +210,20 @@ static uint32_t play_key_led(const track_t *t, uint32_t k)
 static const uint8_t KEYS_DIM_MASK[KEYS_N] = {0, 7, 3, 1, 0};   /* frames lit: -, 1/8, 1/4, 1/2, all */
 #define BTN_DIM_MASK 3u                                           /* idle buttons: 1/4 of the frames */
 
-/* the keys: EDIT / SEQ held their shortcuts, else the playing layout (play_key_led): nl bright, nd dim */
-static void key_leds(uint8_t *nl, uint8_t *nd, uint32_t lvl)
+/* the keys: EDIT / SEQ held their shortcuts, else the playing layout (play_key_led): nl bright, nd dim.
+ * GLO > LIGHTS KEYS OFF (keys & KEYS_DARK): only the keys sounding, held or from MIDI in */
+static void key_leds(uint8_t *nl, uint8_t *nd, uint32_t keys)
 {
-    uint32_t k;
-    if (nav_held() && cur_fam() == FAM_SEQ)            /* SEQ + keys: the patterns */
+    uint32_t k, dark = keys & KEYS_DARK, lvl = keys & ~KEYS_DARK;
+    if (!dark && nav_held() && cur_fam() == FAM_SEQ)   /* SEQ + keys: the patterns */
         pat_leds(nl);
-    else if (nav_held())                                /* EDIT + keys: the key map */
+    else if (!dark && nav_held())                       /* EDIT + keys: the key map */
         nav_leds(nl);
     else
         for (k = 0; k < 27u; k++) {
             uint32_t lv = play_key_led(TSEL, k);
             led_put(nl, 14u + k, lv == KL_ON);
-            led_put(nd, 14u + k, lv == KL_DIM && lvl != KEYS_OFF);
+            led_put(nd, 14u + k, lv == KL_DIM && lvl != KEYS_OFF && !dark);
         }
 }
 
@@ -244,7 +245,8 @@ static void button_leds(uint8_t *nl, uint8_t *nb)
     led_put(nl, panel.btn[B_OCTUP], song.octave > 0);
 }
 
-/* GLO > LIGHTS KEYS OFF: no key lit and no idle button glow; the engaged buttons still light */
+/* GLO > LIGHTS KEYS OFF: nothing idle lit (layout, shortcuts, button glow); the keys sounding and the
+ * engaged buttons still light */
 static void ui_leds(void)
 {
     uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0};
@@ -255,8 +257,7 @@ static void ui_leds(void)
         ready = 1;
     }
     button_leds(nl, nb);
-    if (!(settings.keys & KEYS_DARK))
-        key_leds(nl, nd, lvl);
+    key_leds(nl, nd, settings.keys);
     fm1_led_dim_mask[0] = KEYS_DIM_MASK[lvl];
     fm1_led_dim_mask[1] = BTN_DIM_MASK;
     for (c = 0; c < FM1_NCOL; c++) {

@@ -60,7 +60,7 @@ static int32_t panel_enc(uint32_t role)
 /* user settings that survive a reset */
 #define SETTINGS_MAGIC 0x53455434u              /* "SET4" */
 enum { KEYS_OFF, KEYS_LOW, KEYS_MID, KEYS_HIGH, KEYS_FULL, KEYS_N };   /* idle key LEDs (menu KEYS) */
-#define KEYS_DARK 0x80u         /* settings.keys flag, GLO > LIGHTS KEYS OFF: no key, no idle button lit; the level stays */
+#define KEYS_DARK 0x80u         /* settings.keys flag, GLO > LIGHTS KEYS OFF: nothing idle lit; the level stays */
 static const char *const KEYS_NAME[KEYS_N] = {"OFF", "LOW", "MID", "HIGH", "FULL"};
 /* the GLO > GLOBAL and DRUMS values, kept on the device as last used: power-on restores them
  * (glo_restore), a BOOT project or the template loaded then brings its own */
