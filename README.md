@@ -57,7 +57,7 @@ move through a workspace's pages both ways.
 
 **SEQ** opens LOOP, a four-track view of the current 16-step bank. Turn **PRESETS** to queue the
 selected track's next pattern, **ALGORITHM** to change track, and **OCT−/OCT+** to move the step
-cursor. Tap SEQ again for STEP entry; **FX** clears the current step there, and **SELECT** moves
+cursor. Tap SEQ again for STEP entry; **FX** clears the current step and its following ties, and **SELECT** moves
 the cursor (faster when turned quickly). Tap SEQ once more for **TEMPO**: knob 1 **BPM**, knob 2
 **SWG** (the swing every track gets on top of its own). Tempo and swing belong to the project: a
 project and the template save them, and loading one brings them back. Hold SEQ and use the

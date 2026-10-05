@@ -786,7 +786,7 @@ static void ui_input(void)
             /* fall through */
         case B_FX:
             if (b == B_FX && cur_fam() == FAM_SEQ && cur_page()->scope == SC_STEP) {
-                step_clear(&TSEL->step[ui.cursor]);
+                step_delete(TSEL, ui.cursor);
                 cursor_set(ui.cursor + 1);
                 ui_message("STEP CLEARED");
                 break;
