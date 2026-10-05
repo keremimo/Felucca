@@ -36,6 +36,9 @@
  * fm1_enc_take() returns the steps.
  * LEDs: set fm1_led[col] (packed row bits, bit1 PA5..bit4 PA8); they are lit
  * while that column is selected. fm1_led_key/btn helpers address them by id.
+ * fm1_led_dim[plane][col] LEDs are lit one frame in (fm1_led_dim_mask[plane] + 1),
+ * staggered by column: dimmer levels from the ~900 Hz frame rate, at no cost per
+ * tick. Two planes, each with its own level (the UI: idle keys, idle buttons).
  */
 #pragma once
 #include <stdint.h>
@@ -93,6 +96,8 @@ static volatile struct {
     uint32_t frames;
 } fm1_in;
 static uint8_t fm1_led[FM1_NCOL];
+static uint8_t fm1_led_dim[2][FM1_NCOL];
+static uint8_t fm1_led_dim_mask[2];       /* 0 = full, 1 = 1/2, 3 = 1/4, 7 = 1/8 of the frames */
 
 /* scan diagnostics (console `inp`, read and cleared by the main loop): the gap between ticks
  * = the on-time of the column lit in it, in TIMER4 ticks (24 MHz) */
@@ -114,6 +119,13 @@ static void fm1__led_lines(uint32_t rowmask)       /* row bit 1 PA9, 2 PA10, 3 P
     uint32_t h = FM1_PR(FM1_PH, FM1_OUT) & ~((1u << 6) | (1u << 9));
     FM1_PR(FM1_PA, FM1_OUT) = a | (rowmask & 2u) << 8 | (rowmask & 4u) << 8;
     FM1_PR(FM1_PH, FM1_OUT) = h | (rowmask & 8u) << 3 | (rowmask & 16u) << 5;
+}
+
+static uint32_t fm1__led_col(uint32_t p)          /* LED rows of column p in this frame (the dim planes in theirs) */
+{
+    uint32_t f = fm1_in.frames + p;
+    return fm1_led[p] | ((f & fm1_led_dim_mask[0]) ? 0u : fm1_led_dim[0][p]) |
+           ((f & fm1_led_dim_mask[1]) ? 0u : fm1_led_dim[1][p]);
 }
 
 static void fm1__sr_word(uint32_t w)
@@ -230,7 +242,7 @@ static void fm1_input_scan(void)
         fm1__wait(FM1_SETTLE_US);
         fm1_in.raw[p] = (uint8_t)fm1__rows();
         fm1__keys(p);
-        fm1__led_lines(fm1_led[p]);
+        fm1__led_lines(fm1__led_col(p));
         fm1__wait(FM1_LED_US);
     }
     fm1__led_lines(0);
@@ -310,7 +322,7 @@ static void fm1_input_tick(void)
         fm1_in_stat.on_max[p] = g;
     fm1_in.raw[p] = (uint8_t)fm1__rows();          /* column p has been latched one tick */
     fm1__sr_word(0xFFFFu ^ (1u << n) ^ (n < 2u ? 1u << (11u + n) : 0u));
-    fm1__led_lines(fm1_led[n]);
+    fm1__led_lines(fm1__led_col(n));
     fm1__tick_col = (uint8_t)n;
     fm1__keys(p);                                  /* its keys now: no wait for the frame's end */
     if (n == 0u)

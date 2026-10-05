@@ -116,10 +116,32 @@ static void pattern_keys(uint32_t notes)
         ui.pat_key = ui.pat_copy = 0;
     }
 }
+/* key k of track t as the keys play now (LIGHTS): bright while it sounds (pressed, or its note held on the track by
+ * a key or MIDI), dim when it plays something (a kit's or the slices' own map: every key; QNT OFF: the notes in the
+ * scale; the layouts: the keys not silent), else dark */
+enum { KL_OFF, KL_DIM, KL_ON };
+static uint32_t play_key_led(const track_t *t, uint32_t k)
+{
+    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+    uint32_t n = kb_map(t, k), ti = trk_index(t);
+    if (((fm1_in.notes >> k) & 1u) || (n < 128u && ((live_held[ti][n >> 5] >> (n & 31u)) & 1u)))
+        return KL_ON;
+    if (n >= 128u)
+        return KL_OFF;
+    if (e->keys && e->keys(t, k) >= 0)
+        return KL_DIM;
+    if (t->p[P_QUANT] == Q_OFF)
+        return (scale_mask(t) >> ((n + 120u - (uint32_t)t->p[P_ROOT]) % 12u)) & 1u ? KL_DIM : KL_OFF;
+    return KL_DIM;
+}
+
+static const uint8_t LIGHTS_MASK[LIGHTS_N] = {0, 7, 3, 1, 0};   /* the dim keys' frames: -, 1/8, 1/4, 1/2, all */
+#define BTN_DIM_MASK 3u                                         /* idle buttons: 1/4 of the frames */
+
 static void ui_leds(void)
 {
-    uint8_t nl[FM1_NCOL] = {0};
-    uint32_t k, c;
+    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0};
+    uint32_t k, c, play, lights = settings_lights % LIGHTS_N;
     uint32_t fam = cur_fam();
     static uint8_t ready;
     if (!ready) {
@@ -137,16 +159,27 @@ static void ui_leds(void)
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)(k >> 1));
+    play = !pattern_keys_on() && !(name_on() && !ui.menu) && !ui.layer && !grid_on();
     c = pattern_keys_on() ? pattern_leds() : name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds() : grid_on() ? grid_leds() :
         fm1_in.notes & ~kb_layer;                       /* NAME's keys, the map, the grid, the keys held */
 #if MELODEE_SLICE
     if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
         c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
 #endif
-    for (k = 0; k < 27u; k++)
-        led_put(nl, 14u + k, (int)((c >> k) & 1u));
-    for (c = 0; c < FM1_NCOL; c++)
+    for (k = 0; k < 27u; k++) {
+        uint32_t lv = play ? play_key_led(TSEL, k) : KL_OFF;   /* playing: the layout, MIDI's notes too (LIGHTS) */
+        led_put(nl, 14u + k, (int)(((c >> k) & 1u) || lv == KL_ON));
+        led_put(nd, 14u + k, lv == KL_DIM && lights != LIGHTS_OFF);
+    }
+    for (k = 0; lights != LIGHTS_OFF && k < NB; k++)   /* the buttons glow when idle */
+        led_put(nb, panel.btn[k], 1);
+    fm1_led_dim_mask[0] = LIGHTS_MASK[lights];
+    fm1_led_dim_mask[1] = BTN_DIM_MASK;
+    for (c = 0; c < FM1_NCOL; c++) {
+        fm1_led_dim[0][c] = (uint8_t)(nd[c] | nl[c]);   /* first: a key going dim <-> bright never goes dark */
+        fm1_led_dim[1][c] = nb[c];
         fm1_led[c] = nl[c];
+    }
 }
 
 /* ---------------------------------------------------------- input --- */

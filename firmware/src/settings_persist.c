@@ -4,7 +4,8 @@
  * PER1/PER2 are upstream; PER3 added bold; PER4 added favorites (Felucca 1.0); PER5 added Melodee's ext block:
  * usb_off (the USB audio devices left out, USB AUDIO in the menu), boot (BOOT: 0 OFF, 1..4 the project power-on
  * loads), glo (CLK TUNE MIDI ROUT as last used, GLO_KEPT: restored at power-on, a project's own win), drumch
- * (GLO > SYSTEM DRUM: 0 channel 10, 1..16, 17 OFF); every field 0 = the default, so spare words can take new ones. A saved template (project.c tmpl_t) follows the record.
+ * (GLO > SYSTEM DRUM: 0 channel 10, 1..16, 17 OFF), lights (the menu's LIGHTS: 0 MID, else OFF..FULL + 1); every
+ * field 0 = the default, so spare words can take new ones. A saved template (project.c tmpl_t) follows the record.
  * palette: UI_PAL_TAG + index; an old id (below 20, earlier firmware) is migrated on import.
  * bold: no longer used (one font weight); kept as it was saved, unless it holds the HOLD setting (panel.c). */
 typedef struct {
@@ -12,7 +13,9 @@ typedef struct {
     panel_t panel;
     uint32_t bold;
     struct { uint8_t factory[16][32]; uint32_t user, filter; } favorites;
-    struct { uint32_t usb_off, boot; int16_t glo[4]; uint32_t drumch, spare[3]; } ext;   /* drumch: 0 = 10, 17 OFF */
+    struct { uint32_t usb_off, boot; int16_t glo[4]; uint32_t drumch, lights, spare[2]; } ext;   /* drumch: 0 = 10,
+                                                                                                * 17 OFF; lights: 0 MID,
+                                                                                                * else level + 1 */
 } persist_t;
 #define PERSIST_MAGIC 0x50455235u
 #define PERSIST_MAGIC4 0x50455234u                  /* Felucca 1.0: no ext */
@@ -46,6 +49,7 @@ static int settings_import(persist_t *p, int n)
     if (p->ext.drumch > 17u)
         p->ext.drumch = 0;
     settings_drumch = (uint8_t)(!p->ext.drumch ? 10u : p->ext.drumch == 17u ? 0u : p->ext.drumch);
+    settings_lights = (uint8_t)(p->ext.lights && p->ext.lights <= LIGHTS_N ? p->ext.lights - 1u : LIGHTS_MID);
     memcpy(settings_glo, p->ext.glo, sizeof settings_glo);
 #if MELODEE_USB_AUDIO
     ua_off = ua_off_want = (uint8_t)p->ext.usb_off;    /* (usb_start, after this, builds the configuration) */
@@ -92,5 +96,6 @@ static void settings_export(persist_t *p)
 #endif
     p->ext.boot = settings_boot;
     p->ext.drumch = settings_drumch == 10u ? 0u : !settings_drumch ? 17u : settings_drumch;
+    p->ext.lights = settings_lights == LIGHTS_MID ? 0u : settings_lights + 1u;
     memcpy(p->ext.glo, settings_glo, sizeof settings_glo);
 }

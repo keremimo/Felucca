@@ -75,6 +75,13 @@ static void settings_save(void);              /* project.c: flash copy (MELODEE_
 #define HOLD_DEF 1u
 static const uint16_t HOLD_MS[4] = {300, 400, 500, 600};
 static uint8_t settings_hold = HOLD_DEF;
+
+/* LIGHTS (menu): OFF the keys light only while they sound or are pressed, the buttons while engaged (as Felucca 1.0);
+ * LOW .. FULL the keys that play something glow at that level, in the scale with QNT OFF, and the idle buttons at 1/4
+ * (ui_input.c ui_leds). Saved in the settings' ext block */
+enum { LIGHTS_OFF, LIGHTS_LOW, LIGHTS_MID, LIGHTS_HIGH, LIGHTS_FULL, LIGHTS_N };
+static const char *const LIGHTS_NAME[LIGHTS_N] = {"OFF", "LOW", "MID", "HIGH", "FULL"};
+static uint8_t settings_lights = LIGHTS_MID;
 static uint32_t hold_from_stored(uint32_t v) { return (v & ~3u) == HOLD_TAG ? v & 3u : HOLD_DEF; }
 static uint32_t hold_to_stored(uint32_t old, uint32_t i)
 {

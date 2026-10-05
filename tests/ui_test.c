@@ -38,6 +38,7 @@ static uint32_t host_slots[3u * 0x14000u / 4u];          /* USR1..3 (zero: empty
 #define FM1_NCOL 11u
 static const int8_t FM1_KEYMAP[6][FM1_NCOL];
 static uint8_t fm1_led[FM1_NCOL];
+static uint8_t fm1_led_dim[2][FM1_NCOL], fm1_led_dim_mask[2];   /* (hal/fm1_input.h: the dim planes) */
 #define FM1_TICKS_PER_US 1u
 static uint32_t host_ticks, host_pressed, host_notes;
 static int32_t host_enc[7];
@@ -2387,6 +2388,72 @@ static int test_boot_template(void)
     return bad;
 }
 
+/* LIGHTS (menu): the keys that play glow (QNT OFF: the scale's notes; a layout: the keys not silent; a kit: every
+ * key), a key sounding is bright (pressed, or its note held by MIDI on the track), the idle buttons glow; OFF: as 1.0 */
+static uint32_t key_light(uint32_t id)                   /* 2 bright, 1 dim, 0 dark (led id: key k = 14 + k) */
+{
+    uint8_t q = led_pos[id];
+    if (q == 0xFF)
+        return 0;
+    return (fm1_led[q >> 3] >> (q & 7u)) & 1u ? 2u : (fm1_led_dim[0][q >> 3] >> (q & 7u)) & 1u ? 1u : 0u;
+}
+static int test_key_lights(void)
+{
+    int bad = 0, ok;
+    uint32_t k, c = 60u - 53u, cs = 61u - 53u;          /* the keys C4 and C#4 */
+    ui_power_on();
+    ui_leds();                                           /* (its led_pos_init first: then a map of the test's own, */
+    for (k = 0; k < 41u; k++)                            /* the host's FM1_KEYMAP being empty) */
+        led_pos[k] = (uint8_t)((k % FM1_NCOL) << 3 | (1u + k / FM1_NCOL));
+    settings_lights = LIGHTS_MID;
+    TSEL->p[P_QUANT] = Q_OFF;
+    TSEL->p[P_ROOT] = 0;
+    TSEL->p[P_SCALE] = 1;                                /* (C major) */
+    frame(); ui_leds();
+    bad += check("LIGHTS MID, QNT OFF C MAJ: C glows, C# dark, the dim plane at 1/4, idle buttons glow",
+                 key_light(14u + c) == 1u && !key_light(14u + cs) && fm1_led_dim_mask[0] == 3u &&
+                 ((fm1_led_dim[1][led_pos[panel.btn[B_LFO]] >> 3] >> (led_pos[panel.btn[B_LFO]] & 7u)) & 1u));
+    fm1_in.notes |= 1u << cs;
+    frame(); ui_leds();
+    bad += check("  a key held bright, out of the scale too", key_light(14u + cs) == 2u);
+    fm1_in.notes = 0;
+    midi_event(0x90, 0, 64, 100);
+    frame(); ui_leds();
+    bad += check("  MIDI holding E4 on the track: its key bright", key_light(14u + 64u - 53u) == 2u);
+    midi_event(0x80, 0, 64, 0);
+    frame(); ui_leds();
+    bad += check("  .. and back to its glow when it is let go", key_light(14u + 64u - 53u) == 1u);
+    TSEL->p[P_QUANT] = Q_WHITE;
+    frame(); ui_leds();
+    for (k = 0, ok = 1; k < 27u; k++)
+        ok &= key_light(14u + k) == (key_black(k) ? 0u : 1u);
+    bad += check("QNT WHITE: the white keys glow, the black ones (silent) dark", ok);
+    set_engine_of(TSEL, ENGI_DRUM);
+    frame(); ui_leds();
+    for (k = 0, ok = 1; k < 27u; k++)
+        ok &= key_light(14u + k) == 1u;
+    bad += check("a DRUM kit: every key glows", ok);
+    settings_lights = LIGHTS_OFF;
+    frame(); ui_leds();
+    for (k = 0, ok = 1; k < 27u; k++)
+        ok &= !key_light(14u + k);
+    for (k = 0; k < FM1_NCOL; k++)
+        ok &= !fm1_led_dim[1][k];
+    bad += check("LIGHTS OFF: no glow, keys or buttons (as Felucca 1.0)", ok);
+    settings_lights = LIGHTS_FULL;
+    frame(); ui_leds();
+    bad += check("LIGHTS FULL: the dim plane every frame", fm1_led_dim_mask[0] == 0u && key_light(14u) == 1u);
+    {   /* kept with the settings */
+        persist_t p = {0};
+        p.magic = PERSIST_MAGIC; p.panel = panel;
+        settings_export(&p); settings_lights = LIGHTS_MID;
+        bad += check("  LIGHTS kept with the settings", settings_import(&p, sizeof p) && settings_lights == LIGHTS_FULL);
+    }
+    settings_lights = LIGHTS_MID;
+    led_pos_init();
+    return bad;
+}
+
 /* FM6's pages (params.c fm6_page_desc / fm6_page_put): the PRESETS knob picks the operator of the operator pages, a
  * knob edits that operator in the track's patch, ON switches it (fm6_on), the function settings are the track's and
  * go with the project; STORE writes the patch into bank slot KNOB 1 and PTCH follows it, not while playing; INIT */
@@ -3656,6 +3723,7 @@ int main(void)
     bad += test_edit_cycle();
     bad += test_fm6_pages();
     bad += test_boot_template();
+    bad += test_key_lights();
 #if MELODEE_SLICE
 #if SMP_USER_SLOTS
     bad += test_slices();

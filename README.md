@@ -49,6 +49,9 @@ runs Felucca.
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
 - **Screen:** flat UI with Inter Tight and Fukiai icons, 8 palettes including grayscale and high contrast;
   HOME shows the played notes and recognized chords above the live waveform, retaining the last voicing after release
+- **Lights:** the keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up while
+  its note sounds, MIDI in too, and the idle buttons glow; the HOME-held menu's LIGHTS sets the level (OFF: only
+  what is pressed or engaged)
 - **USB:** class-compliant MIDI in and out; **Melodee Out** plays the computer through the FM-1,
   **Melodee In** records four mono tracks (one channel per track, after level and before pan, sends
   and master effects). Both support 16/24-bit audio at 44.1 kHz; each can be disabled in the
