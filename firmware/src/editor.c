@@ -17,7 +17,8 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_WATCH, ED_CHANGED, ED_RELOAD, ED_PING, ED_STEP_CHANGED,              /* v2: live sync */
        ED_TRACK, ED_TRACK_MIX, ED_TRACK_DUMP, ED_TRACK_STEP,                    /* v3: tracks */
        ED_TRACK_PARAM, ED_TRACK_CHANGED,                                        /* v4: any track's parameters */
-       ED_AUDIO_STATS };                                                        /* 33: USB audio diagnostics */
+       ED_AUDIO_STATS,                                                          /* 33: USB audio diagnostics */
+       ED_SDRAM_PROBE };                                                        /* 34: in-package SDRAM probe */
 
 static uint8_t ed_out[600];
 static uint32_t ed_n;
@@ -307,6 +308,17 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         break;
     }
 #endif
+    case ED_SDRAM_PROBE: {                                 /* [flags: bit 0 keeps found SDRAM up] -> schema 1, then the */
+        static fm1_sdram_probe_t r;                        /* fm1_sdram_probe_t words, five 7-bit groups each */
+        const uint32_t *v = (const uint32_t *)&r;
+        uint32_t k;
+        fm1_sdram_probe(&r, na && (a[0] & 1u));
+        ed_b(1);
+        for (i = 0; i < sizeof r / 4u; i++)
+            for (k = 0; k < 5u; k++)
+                ed_b(v[i] >> (7u * k));
+        break;
+    }
     case ED_INFO:
         ed_str("MELODEE " MELODEE_VERSION, 24);
         ed_b(NENGINES);
