@@ -52,7 +52,7 @@ static void fm6_bank_init(void)                          /* every user slot: the
 
 static void fm6_boot(void)                               /* the user bank from flash (main.c, after persist_boot) */
 {
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     uint8_t *b = fm6_buf;
     if (flash_ok && st_load(OBJ_FM6, b, 4u + FM6_PACKED) == (int)(4u + FM6_PACKED) &&
         (b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24) == FM6_MAGIC) {
@@ -65,7 +65,7 @@ static void fm6_boot(void)                               /* the user bank from f
 
 static int fm6_bank_save(void)                           /* 0 = saved (RAM only without flash: -1) */
 {
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     uint8_t *b = fm6_buf;
     if (!flash_ok)
         return -1;
@@ -104,7 +104,7 @@ static uint8_t fm6_chk(const uint8_t *p, uint32_t n)    /* DX7 checksum: data + 
 }
 
 /* ------------------------------------------------------------- out --- */
-#if FELUCCA_OTA
+#if MELODEE_OTA
 #define fm6_tx fm6_buf
 
 static void fm6_send_voice(uint32_t p)                   /* VCED: the part's voice */
@@ -192,7 +192,7 @@ static void fm6_sysex(const uint8_t *b, uint32_t n)
         fm1_irq_on();
         ui.force = 1;
     } else if (n == 5u && st == 0x20u) {                 /* dump requests */
-#if FELUCCA_OTA
+#if MELODEE_OTA
         if (b[3] == 0x00 && p >= 0)
             fm6_send_voice((uint32_t)p);
         else if (b[3] == 0x09)
@@ -241,7 +241,7 @@ static void fm6_init_voice(void)                         /* INIT: the selected p
 
 static void fm6_send(void)                               /* SEND: the selected part's voice as a DX7 dump */
 {
-#if FELUCCA_OTA
+#if MELODEE_OTA
     if (fm6_is(song.sel)) {
         fm6_send_voice(song.sel);
         ui_message("VOICE SENT");

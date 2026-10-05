@@ -3,8 +3,8 @@
 /* Two UAC1 functions: stereo playback, four mono capture tracks; PCM16/24 at 44.1 kHz.
  * Hosts list them as two devices, each on its own clock: macOS times a single
  * duplex device from its recording packets, so a late one there cost playback.
- * IF2 control + IF3 streaming: playback "Felucca Out", EP2 OUT, EP3 IN explicit feedback.
- * IF4 control + IF5 streaming: recording "Felucca In", EP2 IN.
+ * IF2 control + IF3 streaming: playback "Melodee Out", EP2 OUT, EP3 IN explicit feedback.
+ * IF4 control + IF5 streaming: recording "Melodee In", EP2 IN.
  * Fixed native sample rate; alternate 1 = 16 bit, 2 = 24 bit. */
     8, 0x0B, 2, 2, 1, 1, 0, 3,                      /* IAD: playback (IF 2-3) */
     9, 4, 2, 0, 0, 1, 1, 0, 3,

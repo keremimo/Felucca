@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 # FM6 against Dexed, sample by sample (tests/fm6_parity.py). Needs a Dexed checkout (its Source/
 # directory: msfa/, EngineMkI.cpp, EngineOpl.cpp; https://github.com/asb2m10/dexed), and the host
-# tables (./build.sh, or python3 tools/gen_tables.py build/gen/felucca_tables.h).
+# tables (./build.sh, or python3 tools/gen_tables.py build/gen/melodee_tables.h).
 #   DEXED_SRC=~/src/dexed/Source tests/fm6_parity.sh [--quick] [--seed=N]
 set -e
 cd "$(dirname "$0")/.."

@@ -11,12 +11,12 @@ static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(4)));
 
 /* diagnostics, kept across resets and UBOOT entry: read with `fm1t memr` */
 #define DBG_MAGIC 0x44424731u                       /* "DBG1" */
-struct felucca_dbg {
+struct melodee_dbg {
     uint32_t magic, halves, max_us, nested, in_audio, late, timer_irqs, ui_frames;
     uint32_t last_us, cpu_q8, boots;
     uint32_t stage, page, home;           /* where the main loop is (breadcrumbs) */
     uint32_t prev_stage, prev_page, prev_home, prev_rst, prev_frames;   /* as found at boot */
-} felucca_dbg __attribute__((section(".noinit")));
+} melodee_dbg __attribute__((section(".noinit")));
 static volatile uint32_t audio_halves, audio_max_us;
 #define SCOPE_N 512u
 static int16_t scope_buf[SCOPE_N];
@@ -26,7 +26,7 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
 {
     uint32_t i;
     mix_block(out, n);
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
     /* TIMER5 outranks rendering in audio mode. Serialize only the short PCM
      * copy, including stream resets/alt changes, not the synth/FX work. */
     fm1_irq_off();
@@ -86,7 +86,7 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
     uint8_t p = fm1_audio_pending();
     uint32_t t0 = fm1_ticks();
     fm1_audio_ack_aux(p);
-    felucca_dbg.in_audio = 1;
+    melodee_dbg.in_audio = 1;
     if (p & FM1_AUDIO_HALF) {
         uint32_t half = fm1_audio_free_half(), b, us;
         int32_t *o = &abuf[half * HALF_WORDS];
@@ -105,14 +105,14 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
             shed_req = 1;
         song.cpu_q8 = (song.cpu_q8 * 15u + (us * 256u) / (HALF_FRAMES * 1000000u / FS)) / 16u;
         if (fm1_audio_free_half() != half)
-            felucca_dbg.late++;                         /* the DMA moved on while we rendered */
-        felucca_dbg.halves++;
-        felucca_dbg.last_us = us;
-        if (us > felucca_dbg.max_us)
-            felucca_dbg.max_us = us;
-        felucca_dbg.cpu_q8 = song.cpu_q8;
+            melodee_dbg.late++;                         /* the DMA moved on while we rendered */
+        melodee_dbg.halves++;
+        melodee_dbg.last_us = us;
+        if (us > melodee_dbg.max_us)
+            melodee_dbg.max_us = us;
+        melodee_dbg.cpu_q8 = song.cpu_q8;
     }
-    felucca_dbg.in_audio = 0;
+    melodee_dbg.in_audio = 0;
 }
 extern void isr_alnk0(void);
 

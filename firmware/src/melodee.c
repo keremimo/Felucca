@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FELUCCA: one compilation unit (the HAL is header-only). Order matters. */
+/* MELODEE: one compilation unit (the HAL is header-only). Order matters. */
 #include <stdint.h>
 #include "fm1_time.h"
 #include "fm1_sys.h"
@@ -11,10 +11,10 @@
 #include "fm1_audio.h"
 #include "fm1_adc.h"
 #include "fm1_lcd_hw.h"
-#include "felucca_tables.h"
+#include "melodee_tables.h"
 
-#ifndef FELUCCA_USB_AUDIO
-#define FELUCCA_USB_AUDIO 1      /* UAC1 + MIDI by default; replaces CDC */
+#ifndef MELODEE_USB_AUDIO
+#define MELODEE_USB_AUDIO 1      /* UAC1 + MIDI by default; replaces CDC */
 #endif
 #include "libc.c"
 #include "lcd.c"
@@ -26,43 +26,43 @@
 #include "voice.c"
 #include "slicer.c"          /* per-track SLICER insert, used by fx.c */
 #include "fx.c"
-#ifndef FELUCCA_OTA
-#define FELUCCA_OTA 1            /* M-UPGRADE update entry; needs FELUCCA_FLASH */
+#ifndef MELODEE_OTA
+#define MELODEE_OTA 1            /* M-UPGRADE update entry; needs MELODEE_FLASH */
 #endif
-#ifndef FELUCCA_OTA_DRYRUN
-#define FELUCCA_OTA_DRYRUN 0     /* 1 = stage, ask "success", then undo: no record, no reset */
+#ifndef MELODEE_OTA_DRYRUN
+#define MELODEE_OTA_DRYRUN 0     /* 1 = stage, ask "success", then undo: no record, no reset */
 #endif
-#ifndef FELUCCA_ID
-#define FELUCCA_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
+#ifndef MELODEE_ID
+#define MELODEE_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
 #endif
-#ifndef FELUCCA_CDC
-#define FELUCCA_CDC (!FELUCCA_USB_AUDIO) /* USB CDC-ACM serial console */
+#ifndef MELODEE_CDC
+#define MELODEE_CDC (!MELODEE_USB_AUDIO) /* USB CDC-ACM serial console */
 #endif
-#if FELUCCA_USB_AUDIO && FELUCCA_CDC
-#error "USB audio uses the CDC endpoints; build with FELUCCA_CDC=0"
+#if MELODEE_USB_AUDIO && MELODEE_CDC
+#error "USB audio uses the CDC endpoints; build with MELODEE_CDC=0"
 #endif
 #include "usb.c"
-#ifndef FELUCCA_UART
-#define FELUCCA_UART 1           /* TRS MIDI IN on UART1; set to 0 to omit it */
+#ifndef MELODEE_UART
+#define MELODEE_UART 1           /* TRS MIDI IN on UART1; set to 0 to omit it */
 #endif
-#if FELUCCA_UART
+#if MELODEE_UART
 #include "midi_uart.c"
 #endif
 #include "seq.c"
 #include "audio.c"
 #include "panel.c"
 #include "ui.c"
-#include "icons.c"           /* parameter icons (FELUCCA_ICONS), used by ui_draw.c */
+#include "icons.c"           /* parameter icons (MELODEE_ICONS), used by ui_draw.c */
 #include "ui_draw.c"
 #include "ui_menu.c"
 #include "ui_input.c"
-#ifndef FELUCCA_FLASH
-#define FELUCCA_FLASH 1          /* flash driver + storage.c */
+#ifndef MELODEE_FLASH
+#define MELODEE_FLASH 1          /* flash driver + storage.c */
 #endif
-#if FELUCCA_OTA && !FELUCCA_FLASH
-#error "FELUCCA_OTA needs FELUCCA_FLASH"
+#if MELODEE_OTA && !MELODEE_FLASH
+#error "MELODEE_OTA needs MELODEE_FLASH"
 #endif
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
 #include "fm1_flash.h"
 static uint8_t flash_ok;                 /* JEDEC id matched at boot (persist_boot) */
 static int st_read(uint32_t off, void *dst, uint32_t n)   /* 256-byte IRQ-off windows: audio keeps up */
@@ -102,10 +102,10 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 }
 #include "storage.c"
 #endif
-#include "upreset.c"          /* user presets (RAM mirror; flash with FELUCCA_FLASH) */
+#include "upreset.c"          /* user presets (RAM mirror; flash with MELODEE_FLASH) */
 #include "project.c"
 #include "fm6_store.c"         /* FM6 user bank, DX7 SysEx, STORE */
-#if FELUCCA_OTA
+#if MELODEE_OTA
 #include "ota.c"
 static uint32_t ota_now_ms(void) { return fm1_ms; }
 static void ota_idle(void) { fm1_wdt_feed(); }
@@ -158,10 +158,10 @@ static void ota_commit(const uint8_t *parm)
     fm1_enter_update(parm);                             /* record into RAM, core reset (fm1_sys.h) */
 }
 #endif
-#if FELUCCA_OTA
+#if MELODEE_OTA
 #include "editor.c"          /* web editor SysEx (needs the OTA SysEx plumbing) */
 #endif
-#if FELUCCA_CDC
+#if MELODEE_CDC
 #include "console.c"
 #endif
 #include "main.c"

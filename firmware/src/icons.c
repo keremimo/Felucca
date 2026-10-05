@@ -1,21 +1,21 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Parameter icons: a 12 x 12 px, 2-bit glyph left of each column label.
- * Art: assets/icons.png + icons.json -> build/gen/felucca_icons.h
+ * Art: assets/icons.png + icons.json -> build/gen/melodee_icons.h
  * (tools/gen_icons.py). Which icon a parameter gets is decided here, by its label.
- * FELUCCA_ICONS=0 turns them off (labels get their full width back). */
-#include "felucca_icons.h"
-#ifndef FELUCCA_ICONS
-#define FELUCCA_ICONS (FELUCCA_ICONS_N > 0)   /* on when the atlas has icons */
+ * MELODEE_ICONS=0 turns them off (labels get their full width back). */
+#include "melodee_icons.h"
+#ifndef MELODEE_ICONS
+#define MELODEE_ICONS (MELODEE_ICONS_N > 0)   /* on when the atlas has icons */
 #endif
-#if FELUCCA_ICONS && FELUCCA_ICONS_N == 0
-#error "FELUCCA_ICONS=1 but felucca_icons.h has no icons (assets/icons.png missing?)"
+#if MELODEE_ICONS && MELODEE_ICONS_N == 0
+#error "MELODEE_ICONS=1 but melodee_icons.h has no icons (assets/icons.png missing?)"
 #endif
 #define ICON_NONE 0xFFu                   /* no icon (empty column) */
 #define ICON_AUTO 0xFEu                   /* draw_column: look the label up */
 #define ICON_GAP 2                        /* px between the icon and the label */
 
-#if FELUCCA_ICONS
+#if MELODEE_ICONS
 typedef struct {
     const char *label;
     uint8_t icon;
@@ -116,7 +116,7 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
         return d->label[1] == '1' ? ICON_ATTACK : ICON_DECAY;   /* FM6 envelope rates (DIGITAL's R2..R4 are ratios) */
     if (d->names == N_TRIO_MODE)
         return ICON_CUTOFF;                   /* TRIO's MODE is the filter type, not the arp mode */
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     if (d->names == N_SLC_DIV)
         return ICON_SLICE;                    /* SLICE: DIV is the slicing, MODE the gate, REV the direction */
     if (d->names == N_SLC_MODE)
@@ -150,7 +150,7 @@ static void cv_icon(int32_t x, int32_t y, uint32_t id, uint16_t c)
     uint16_t ramp[4];
     uint32_t r = c >> 11, g = (c >> 5) & 63u, b = c & 31u, a, i, j;
     const uint8_t *p;
-    if (id >= FELUCCA_ICONS_N)
+    if (id >= MELODEE_ICONS_N)
         return;
     for (a = 0; a < 4u; a++)
         ramp[a] = (uint16_t)(((r * a / 3u) << 11) | ((g * a / 3u) << 5) | (b * a / 3u));

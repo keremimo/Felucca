@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FELUCCA boot and main loop. Boot order: WDT first, boot-loop guard, fatal
+/* MELODEE boot and main loop. Boot order: WDT first, boot-loop guard, fatal
  * vectors, guards; then LCD, input (TIMER5 IRQ, 10 kHz), audio (ALNK0 IRQ). */
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
@@ -10,11 +10,11 @@ void fm1_timer5_irq(void)
 {
     static uint32_t sub;
     fm1_timer5_ack();
-    felucca_dbg.timer_irqs++;
-    if (felucca_dbg.in_audio)
-        felucca_dbg.nested++;                      /* only possible if this IRQ outranks ALNK0 */
+    melodee_dbg.timer_irqs++;
+    if (melodee_dbg.in_audio)
+        melodee_dbg.nested++;                      /* only possible if this IRQ outranks ALNK0 */
     fm1_input_tick();
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
     {
         static uint32_t last_poll;
         uint32_t start = fm1_ticks(), gap = start - last_poll, elapsed;
@@ -34,7 +34,7 @@ void fm1_timer5_irq(void)
     if (sub % 5u == 0u)
         usb_poll();                             /* 2 kHz: all USB SIE traffic lives here */
 #endif
-#if FELUCCA_UART
+#if MELODEE_UART
     if (sub % 5u == 2u)
         uart_midi_poll();                       /* 2 kHz: <= ~7 bytes per call at 31250 baud */
 #endif
@@ -55,7 +55,7 @@ extern void isr_timer5(void);
 
 static void timer5_start(void)                 /* OSC /4 = 6 MHz, PRD 600 -> 10 kHz */
 {
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
     fm1_timer5_start(isr_timer5, 4);   /* isochronous service cannot wait for a 5.8 ms render */
 #else
     fm1_timer5_start(isr_timer5, 1);   /* below ALNK0 (3): no nesting into audio */
@@ -76,7 +76,7 @@ static void fm1_fault(const fm1_crash_t *c)
     uint32_t t0;
     fm1_audio_stop();
     lcd_fill(0, 0, 240, 240, RGB(160, 0, 0));
-    draw_text_box(0, 8, 240, &FONT_S, "FELUCCA CRASH", C_WHITE, 1);
+    draw_text_box(0, 8, 240, &FONT_S, "MELODEE CRASH", C_WHITE, 1);
     hexs(b, c->vec);
     draw_text_box(10, 40, 220, &FONT_S, b, C_WHITE, 0);
     hexs(b, c->pc);
@@ -94,7 +94,7 @@ static void fm1_fault(const fm1_crash_t *c)
 }
 
 /* power-on: three parts with their default sounds (TRK_DEF), the drum track, empty patterns */
-static void felucca_init(void)
+static void melodee_init(void)
 {
     uint32_t i;
     for (i = 0; i < G_COUNT; i++)
@@ -121,32 +121,32 @@ static void fm1_main(void)
     int32_t knob = 512 * 16;
     persist_boot();
     fm6_boot();                                         /* the FM6 user bank */
-#if FELUCCA_OTA
+#if MELODEE_OTA
     if (flash_ok)
         ota_boot_cleanup();                             /* staging area left by an update */
 #endif
     settings_init();
     lcd_init();
-    draw_text_box(0, 100, 240, &FONT_L, "FELUCCA", C_HI, 1);
+    draw_text_box(0, 100, 240, &FONT_L, "MELODEE", C_HI, 1);
     draw_text_box(0, 130, 240, &FONT_S, "MULTI-ENGINE SYNTH", C_GRAY, 1);
-    if (felucca_dbg.magic != DBG_MAGIC) {
-        memset(&felucca_dbg, 0, sizeof felucca_dbg);
-        felucca_dbg.magic = DBG_MAGIC;
+    if (melodee_dbg.magic != DBG_MAGIC) {
+        memset(&melodee_dbg, 0, sizeof melodee_dbg);
+        melodee_dbg.magic = DBG_MAGIC;
     }
-    felucca_dbg.boots++;
-    felucca_dbg.max_us = 0;
-    felucca_dbg.prev_stage = felucca_dbg.stage;     /* a WDT reset leaves the last breadcrumb here */
-    felucca_dbg.prev_page = felucca_dbg.page;
-    felucca_dbg.prev_home = felucca_dbg.home;
-    felucca_dbg.prev_frames = felucca_dbg.ui_frames;
-    felucca_dbg.prev_rst = fm1_boot.p3_rst;
+    melodee_dbg.boots++;
+    melodee_dbg.max_us = 0;
+    melodee_dbg.prev_stage = melodee_dbg.stage;     /* a WDT reset leaves the last breadcrumb here */
+    melodee_dbg.prev_page = melodee_dbg.page;
+    melodee_dbg.prev_home = melodee_dbg.home;
+    melodee_dbg.prev_frames = melodee_dbg.ui_frames;
+    melodee_dbg.prev_rst = fm1_boot.p3_rst;
     fm1_input_init();
     fm1_adc_init();
     panel_init();
-    felucca_init();
+    melodee_init();
     audio_init();
     usb_start();
-#if FELUCCA_UART
+#if MELODEE_UART
     uart_midi_init();
 #endif
     timer5_start();
@@ -164,8 +164,8 @@ static void fm1_main(void)
         uint32_t m = fm1_ms;
         fm1_wdt_feed();
         usb_retry(fm1_ms);
-#if FELUCCA_USB_AUDIO
-        if (ua_off_apply(fm1_ms)) {                     /* GLO > SYSTEM switched Felucca Out / In */
+#if MELODEE_USB_AUDIO
+        if (ua_off_apply(fm1_ms)) {                     /* GLO > SYSTEM switched Melodee Out / In */
             settings.usb_off = ua_off;
             settings_save();                            /* while off the bus: no USB deadline missed */
             ui_say("USB ", "RECONNECTING");
@@ -216,7 +216,7 @@ static void fm1_main(void)
             }
         }
         fm6_service();                                  /* DX7 SysEx for FM6 */
-#if FELUCCA_OTA
+#if MELODEE_OTA
         ed_service();                                   /* web editor SysEx */
         ota_service();                                  /* M-UPGRADE handshake */
         if (usb.ota_req) {                              /* M-UPGRADE upgrade command */
@@ -238,21 +238,21 @@ static void fm1_main(void)
             bootguard.pending = 0;
             fm1_enter_uboot();
         }
-#if FELUCCA_CDC
+#if MELODEE_CDC
         cdc_task();
 #endif
-        felucca_dbg.ui_frames++;
-        felucca_dbg.page = ui.page;
-        felucca_dbg.home = ui.home;
-        felucca_dbg.stage = 1;
+        melodee_dbg.ui_frames++;
+        melodee_dbg.page = ui.page;
+        melodee_dbg.home = ui.home;
+        melodee_dbg.stage = 1;
         ui_input();
-        felucca_dbg.stage = 2;
+        melodee_dbg.stage = 2;
         ui_leds();
         ui_draw();
-        felucca_dbg.stage = 9;
+        melodee_dbg.stage = 9;
         while (fm1_ms - m < 15u) {                               /* ~60 UI frames/s at most */
             ui_input();
-#if FELUCCA_OTA
+#if MELODEE_OTA
             ed_service();                       /* editor replies without waiting for the next frame */
 #endif
         }

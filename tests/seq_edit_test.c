@@ -45,7 +45,7 @@ static int32_t fm1_enc_take(uint32_t e) { int32_t n = encoders[e]; encoders[e] =
 #define SCOPE_N 512u
 static int16_t scope_buf[SCOPE_N];
 static uint32_t scope_w;
-static struct { uint32_t stage; } felucca_dbg;
+static struct { uint32_t stage; } melodee_dbg;
 #include "../firmware/src/ui_draw.c"
 #include "../firmware/src/ui_menu.c"
 #include "../firmware/src/ui_input.c"
@@ -1087,7 +1087,7 @@ static void playing_key_lights_test(void)
     puts("playing key lights: scale, root, layouts, transposition and drums");
 }
 
-#ifndef FELUCCA_UI_PREVIEW
+#ifndef MELODEE_UI_PREVIEW
 int main(int argc, char **argv)
 {
     lengths_test();

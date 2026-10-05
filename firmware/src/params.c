@@ -21,7 +21,7 @@ static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};             /* SL_O
 static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
 static const char *const N_ENGNAME[] = {"ANALOG", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
                                              "FM6",
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
                                              "SLICE",
 #endif
 };
@@ -368,8 +368,8 @@ static const page_t PAGES[] = {
     {"FM WH/FT", FAM_EDIT, SC_FM6, GR_NONE, {FN_MWR, FN_MWA, FN_FCR, FN_FCA}},
     {"FM BR/AT", FAM_EDIT, SC_FM6, GR_NONE, {FN_BCR, FN_BCA, FN_ATR, FN_ATA}},
     {"GLOBAL", FAM_GLO, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_CLOCK, G_TUNE}},
-#if FELUCCA_USB_AUDIO
-    {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, G_USBOUT, G_USBIN, G_INFO}},   /* + Felucca Out / In on/off */
+#if MELODEE_USB_AUDIO
+    {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, G_USBOUT, G_USBIN, G_INFO}},   /* + Melodee Out / In on/off */
 #else
     {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, 0xFF, 0xFF, G_INFO}},
 #endif

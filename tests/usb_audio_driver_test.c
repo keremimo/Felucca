@@ -72,9 +72,9 @@ static void mock_write(uint32_t r, uint32_t v)
 #define fm1_usb_attach mock_attach
 #define fm1_usb_sof_take mock_zero
 #define RING_PUBLISH() ((void)0)
-#define FELUCCA_USB_AUDIO 1
-#define FELUCCA_CDC 0
-#define FELUCCA_OTA 0
+#define MELODEE_USB_AUDIO 1
+#define MELODEE_CDC 0
+#define MELODEE_OTA 0
 #include "../firmware/src/usb.c"
 
 static void frame(uint16_t n)

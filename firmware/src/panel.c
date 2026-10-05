@@ -3,7 +3,7 @@
 /* Physical panel: which matrix button / encoder carries which printed label.
  * The default table can be overridden by HARDWARE CALIBRATION (hold OCT- and
  * OCT+ while powering on), which asks for each label in turn. The learned
- * table lives in .noinit and, with FELUCCA_FLASH, in flash with the settings
+ * table lives in .noinit and, with MELODEE_FLASH, in flash with the settings
  * (project.c). */
 enum { B_FX, B_SCL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC,
        B_OCTDN, B_OCTUP, NB };
@@ -64,7 +64,7 @@ struct {
     uint32_t usb_off;                          /* USB audio devices switched off: UA_OFF_OUT | UA_OFF_IN */
 } settings __attribute__((section(".noinit")));
 
-static void settings_save(void);              /* project.c: flash copy (FELUCCA_FLASH) */
+static void settings_save(void);              /* project.c: flash copy (MELODEE_FLASH) */
 
 static void settings_init(void)
 {
@@ -77,7 +77,7 @@ static void settings_init(void)
     }
     palette_set(settings.palette);
     fx_lowcut = (uint8_t)(settings.lowcut != 0);
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
     settings.usb_off &= UA_OFF_OUT | UA_OFF_IN;
     ua_off = ua_off_want = (uint8_t)settings.usb_off;   /* before usb_start: the host sees only these */
 #endif

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca menu (HOME held): COLOR, LOWCUT, ZOOM, HARDWARE CALIBRATION, ABOUT. */
+/* Melodee menu (HOME held): COLOR, LOWCUT, ZOOM, HARDWARE CALIBRATION, ABOUT. */
 /* ------------------------------------------------------------ menu --- */
 enum { MI_COLOR, MI_LOWCUT, MI_ZOOM, MI_PANEL, MI_ABOUT, MI_BACK, MI_COUNT };
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "LOWCUT", "ZOOM", "HARDWARE CALIBRATION", "ABOUT", "BACK"};
@@ -15,7 +15,7 @@ static void draw_menu(void)
     if (ui.force)                                   /* head + rule + two bands cover rows 0..229 */
         lcd_fill(0, H_HEAD + 1 + 124 + 85, 240, 240 - (H_HEAD + 1 + 124 + 85), C_BLACK);
     cv_begin(240, H_HEAD, C_BLACK);
-    cv_text(4, 1, &FONT_S, ui.menu == 2 ? "ABOUT FELUCCA" : "SETTINGS", C_HI);
+    cv_text(4, 1, &FONT_S, ui.menu == 2 ? "ABOUT MELODEE" : "SETTINGS", C_HI);
     for (i = 0; i < 4u; i++)
         cv_rect((int32_t)i * 60, 18, 60, 2, control_color(i));
     cv_blit(0, Y_HEAD);
@@ -24,15 +24,15 @@ static void draw_menu(void)
         cv_begin(240, pass ? 85u : 124u, C_BLACK);
         cv_oy = pass ? -124 : 0;
         if (ui.menu == 2) {
-            cv_text(4, 4, &FONT_L, "FELUCCA", C_HI);
+            cv_text(4, 4, &FONT_L, "MELODEE", C_HI);
             cv_text(4, 36, &FONT_S, "MULTI-ENGINE SYNTHESIZER", C_AMB);
-            cv_text(4, 54, &FONT_S, FELUCCA_VERSION, C_HI);
+            cv_text(4, 54, &FONT_S, MELODEE_VERSION, C_HI);
             cv_text(236 - text_w(&FONT_S, __DATE__), 54, &FONT_S, __DATE__, C_GRAY);   /* build date */
-            cv_text(cv_text(4, 72, &FONT_S, "LEO KUROSHITA", C_HI) + 8, 72, &FONT_S, "@KUROGEDELIC", C_AMB);
-            cv_text(4, 88, &FONT_S, "H\xDCGELTON INSTRUMENTS", C_HI);   /* Latin-1 U-umlaut */
-            cv_text(4, 104, &FONT_S, "HUGELTON.COM", C_AMB);
+            cv_text(4, 72, &FONT_S, "ELLIC STUDIO", C_HI);
+            cv_text(4, 88, &FONT_S, "BASED ON FELUCCA BY", C_AMB);
+            cv_text(cv_text(4, 104, &FONT_S, "LEO KUROSHITA", C_HI) + 8, 104, &FONT_S, "@KUROGEDELIC", C_AMB);
             cv_text(4, 119, &FONT_S, "GPL-3.0, NO WARRANTY", C_HI);
-            cv_text(4, 132, &FONT_S, "GITHUB.COM/HUGELTON/FELUCCA", C_AMB);
+            cv_text(4, 132, &FONT_S, "GITHUB.COM/KEREMIMO/MELODEE", C_AMB);
             cv_text(4, 146, &FONT_S, "FONT: TERMINUS (OFL)", C_DIM);
             cv_text(4, 159, &FONT_S, "SAMPLES: VERSILIAN (CC0)", C_DIM);
             cv_text(4, 172, &FONT_S, "+ H\xDCGELTON SAMPLE PACK", C_DIM);

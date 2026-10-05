@@ -7,14 +7,14 @@
  * the audio ISR drains; MIDI out comes from a ring the audio ISR fills.
  * SysEx F0 22 24 35 7D F7 (soft key) asks the main loop to enter UBOOT.
  * VID 0x1209 / PID 0x0001 is the pid.codes test id.
- * FELUCCA_CDC=1 adds a CDC-ACM serial function (IAD composite: EP2 notify,
+ * MELODEE_CDC=1 adds a CDC-ACM serial function (IAD composite: EP2 notify,
  * EP3 bulk data) for the console in console.c.
- * FELUCCA_USB_AUDIO=1 instead adds two UAC1 functions, a stereo output device
+ * MELODEE_USB_AUDIO=1 instead adds two UAC1 functions, a stereo output device
  * (EP2 OUT, explicit feedback on EP3) and a separate four-track input device
  * (EP2 IN); TIMER5 must outrank audio rendering. Either can be left out of the
  * configuration (ua_off, GLO > SYSTEM); usb_replug makes the host see the change. */
 #include "../hal/fm1_usb.h"   /* registers; relative, so the loader and the host tests find it too */
-#if !FELUCCA_LOADER
+#if !MELODEE_LOADER
 static volatile uint32_t fm1_ms;  /* TIMER4-based milliseconds, updated by TIMER5 in main.c */
 #endif
 enum { S_FADDR = 0, S_POWER = 1, S_INTRTX1 = 2, S_INTRTX2 = 3, S_INTRRX1 = 4, S_INTRRX2 = 5, S_INTRUSB = 6,
@@ -26,7 +26,7 @@ enum { S_FADDR = 0, S_POWER = 1, S_INTRTX1 = 2, S_INTRTX2 = 3, S_INTRRX1 = 4, S_
 static uint8_t ep0buf[64 + 4] __attribute__((aligned(4)));
 static uint8_t ep1tx[64] __attribute__((aligned(4)));
 static uint8_t ep1rx[64 + 4] __attribute__((aligned(4)));
-#if FELUCCA_CDC
+#if MELODEE_CDC
 static uint8_t ep2tx[8] __attribute__((aligned(4)));
 static uint8_t ep3tx[64] __attribute__((aligned(4)));
 static uint8_t ep3rx[64 + 4] __attribute__((aligned(4)));
@@ -58,10 +58,10 @@ static struct {
     uint8_t sysex[16];
     uint8_t sx_len, sx_on;
     volatile uint8_t uboot_req;
-    volatile uint8_t ota_req;    /* F0 22 24 35 7F F7: M-UPGRADE upgrade command (FELUCCA_OTA) */
+    volatile uint8_t ota_req;    /* F0 22 24 35 7F F7: M-UPGRADE upgrade command (MELODEE_OTA) */
 } usb;
 
-#if FELUCCA_OTA
+#if MELODEE_OTA
 /* M-UPGRADE SysEx (ota.c): one received frame at a time (7-bit bytes between
  * F0 and F7; frames arriving while one is pending are dropped, the host
  * retries), and a TX ring of SysEx event packets sent before any MIDI. */
@@ -112,25 +112,25 @@ static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 }
 
 /* ------------------------------------------------------- descriptors --- */
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
 #include "usb_audio_stream.c"
 static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x06, 0x03,
                                      1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.06: native 44.1 kHz only */
 static const uint8_t CFG_DESC[] = {
     9, 2, 0x9B, 0x01, 6, 1, 0, 0x80, 50,               /* 411 bytes, six interfaces */
     8, 0x0B, 0, 2, 1, 1, 0, 0,                          /* IAD: MIDI (IF 0-1) */
-#elif FELUCCA_CDC
+#elif MELODEE_CDC
 static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x01, 0x03,
                                      1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.01 */
 static const uint8_t CFG_DESC[175] = {
     9, 2, 175, 0, 4, 1, 0, 0x80, 50,
     8, 0x0B, 0, 2, 1, 1, 0, 0,                          /* IAD: MIDI (IF 0-1) */
 #else
-#ifndef FELUCCA_USB_PID
-#define FELUCCA_USB_PID 0x0001   /* the update loader is 0x0002 */
+#ifndef MELODEE_USB_PID
+#define MELODEE_USB_PID 0x0001   /* the update loader is 0x0002 */
 #endif
-static const uint8_t DEV_DESC[18] = {18, 1, 0x10, 0x01, 0, 0, 0, 64, 0x09, 0x12, FELUCCA_USB_PID & 0xFF,
-                                     FELUCCA_USB_PID >> 8, 0x00, 0x03,
+static const uint8_t DEV_DESC[18] = {18, 1, 0x10, 0x01, 0, 0, 0, 64, 0x09, 0x12, MELODEE_USB_PID & 0xFF,
+                                     MELODEE_USB_PID >> 8, 0x00, 0x03,
                                      1, 2, 0, 1};
 static const uint8_t CFG_DESC[101] = {
     9, 2, 101, 0, 2, 1, 0, 0x80, 50,
@@ -147,7 +147,7 @@ static const uint8_t CFG_DESC[101] = {
     5, 0x25, 1, 1, 1,
     9, 5, 0x81, 2, 64, 0, 0, 0, 0,
     5, 0x25, 1, 1, 3,
-#if FELUCCA_CDC
+#if MELODEE_CDC
     8, 0x0B, 2, 2, 2, 2, 1, 0,                          /* IAD: CDC ACM (IF 2-3) */
     9, 4, 2, 0, 1, 2, 2, 1, 0,                          /* IF2 communication */
     5, 0x24, 0x00, 0x10, 0x01,                          /* header 1.10 */
@@ -159,23 +159,23 @@ static const uint8_t CFG_DESC[101] = {
     7, 5, 0x03, 2, 64, 0, 0,                            /* EP3 OUT bulk */
     7, 5, 0x83, 2, 64, 0, 0,                            /* EP3 IN bulk */
 #endif
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
 #include "usb_audio_desc.h"
 #endif
 };
 static const uint8_t STR0[4] = {4, 3, 0x09, 0x04};
-static const uint8_t STR1[] = {42, 3, 'H', 0, 0xFC, 0, 'g', 0, 'e', 0, 'l', 0, 't', 0, 'o', 0, 'n', 0, ' ', 0, 'I', 0,
-                               'n', 0, 's', 0, 't', 0, 'r', 0, 'u', 0, 'm', 0, 'e', 0, 'n', 0, 't', 0, 's', 0};
-#ifdef FELUCCA_LOADER
-static const uint8_t STR2[] = {30, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c', 0, 'a', 0, ' ', 0, 'U', 0, 'p', 0,
+static const uint8_t STR1[] = {26, 3, 'E', 0, 'l', 0, 'l', 0, 'i', 0, 'c', 0, ' ', 0, 'S', 0, 't', 0, 'u', 0, 'd', 0,
+                               'i', 0, 'o', 0};
+#ifdef MELODEE_LOADER
+static const uint8_t STR2[] = {30, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0, 'U', 0, 'p', 0,
                                'd', 0, 'a', 0, 't', 0, 'e', 0};
 #else
-static const uint8_t STR2[] = {16, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c', 0, 'a', 0};
+static const uint8_t STR2[] = {16, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0};
 #endif
-#if FELUCCA_USB_AUDIO                                   /* the audio functions: host device names */
-static const uint8_t STR3[] = {24, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c', 0, 'a', 0, ' ', 0, 'O', 0, 'u', 0,
+#if MELODEE_USB_AUDIO                                   /* the audio functions: host device names */
+static const uint8_t STR3[] = {24, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0, 'O', 0, 'u', 0,
                                't', 0};
-static const uint8_t STR4[] = {22, 3, 'F', 0, 'e', 0, 'l', 0, 'u', 0, 'c', 0, 'c', 0, 'a', 0, ' ', 0, 'I', 0, 'n', 0};
+static const uint8_t STR4[] = {22, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0, 'I', 0, 'n', 0};
 static uint8_t ua_cfg[sizeof CFG_DESC];              /* the configuration as sent (usb_audio.c ua_cfg_build) */
 static uint16_t ua_cfg_len;
 #endif
@@ -188,7 +188,7 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
         *l = sizeof DEV_DESC;
         return 1;
     case 2:
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
         *d = ua_cfg;
         *l = ua_cfg_len;
 #else
@@ -210,7 +210,7 @@ static int get_desc(uint32_t wvalue, const uint8_t **d, uint16_t *l)
             *d = STR2;
             *l = sizeof STR2;
             return 1;
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
         case 3:
             *d = STR3;
             *l = sizeof STR3;
@@ -272,7 +272,7 @@ static void ep1_config(void)
     sie_wr(S_RXCSR2, 0);
     sie_wr(S_INTRRX1E, 0x02);
     fm1_usb_ep_enable(1u << 1);
-#if FELUCCA_CDC
+#if MELODEE_CDC
     fm1_usb_ep_txbuf(2, ep2tx);
     sie_wr(S_INDEX, 2);
     sie_wr(S_TXMAXP, 0xFF);
@@ -324,7 +324,7 @@ static void e0_send(const uint8_t *p, uint16_t len, uint16_t wlen)
     e0_chunk();
 }
 
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
 #include "usb_audio.c"
 #endif
 
@@ -343,10 +343,10 @@ static void ep0_service(void)
     if (csr & 0x04u) {                                  /* SentStall */
         sie_wr(S_CSR0, 0);
         usb.e0_tx = 0;
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
         ua_rate_pending = 0;
 #endif
-#if FELUCCA_CDC
+#if MELODEE_CDC
         cdc.e0_rx = 0;
 #endif
         return;
@@ -354,10 +354,10 @@ static void ep0_service(void)
     if (csr & 0x10u) {                                  /* SetupEnd: the host abandoned the transfer */
         sie_wr(S_CSR0, 0x80);
         usb.e0_tx = 0;
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
         ua_rate_pending = 0;
 #endif
-#if FELUCCA_CDC
+#if MELODEE_CDC
         cdc.e0_rx = 0;                                  /* else the next SETUP is taken as line coding */
 #endif
     }
@@ -369,14 +369,14 @@ static void ep0_service(void)
     if (!(csr & 0x01u))
         return;
     fm1_usb_rx_sync();
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
     if (ua_rate_pending) {
         if (ua_control_data(ep0buf, sie_rd(S_COUNT0)))
             goto ack;
         goto stall;
     }
 #endif
-#if FELUCCA_CDC
+#if MELODEE_CDC
     if (cdc.e0_rx) {                                    /* SET_LINE_CODING data stage */
         uint32_t n = sie_rd(S_COUNT0);
         for (i = 0; i < 7u && i < n; i++)
@@ -391,7 +391,7 @@ static void ep0_service(void)
     wvalue = (uint16_t)(s[2] | s[3] << 8);
     wlength = (uint16_t)(s[6] | s[7] << 8);
     switch ((uint32_t)s[0] << 8 | s[1]) {
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
     case 0x2201:                                        /* UAC1 sampling frequency */
     case 0xA281:
     case 0xA282:
@@ -419,7 +419,7 @@ static void ep0_service(void)
     case 0x0009:                                        /* SET_CONFIGURATION: 0 or 1 only */
         if (s[2] > 1u)
             goto stall;
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
         ua_hw_stop();
 #endif
         usb.config = s[2];
@@ -437,7 +437,7 @@ static void ep0_service(void)
         e0_send(zero2, 2, wlength);
         return;
     case 0x010B:                                        /* SET_INTERFACE */
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
         if (wlength || s[5] || !usb.config || s[4] >= ua_nif)
             goto stall;
         if (s[4] == ua_if_play || s[4] == ua_if_cap) {
@@ -450,7 +450,7 @@ static void ep0_service(void)
             goto ack;
         goto stall;
     case 0x810A:
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
         if (wvalue || s[5] || s[4] >= ua_nif || !usb.config)
             goto stall;
         if (s[4] == ua_if_play || s[4] == ua_if_cap) {
@@ -461,7 +461,7 @@ static void ep0_service(void)
         e0_send(zero2, 1, wlength);
         return;
     case 0x0201: {                                      /* CLEAR_FEATURE(ENDPOINT_HALT): data toggle reset */
-#if FELUCCA_CDC
+#if MELODEE_CDC
         uint32_t ep = s[4] & 0x0Fu, last = 3u;
 #else
         uint32_t ep = s[4] & 0x0Fu, last = 1u;
@@ -477,7 +477,7 @@ static void ep0_service(void)
         }
         goto ack;
     }
-#if FELUCCA_CDC
+#if MELODEE_CDC
     case 0x2120:                                        /* SET_LINE_CODING: 7 bytes follow */
         if (wlength) {
             cdc.e0_rx = 1;
@@ -517,14 +517,14 @@ static void sysex_byte(uint8_t b)
     if (b == 0xF0) {
         usb.sx_on = 1;
         usb.sx_len = 0;
-#if FELUCCA_OTA
+#if MELODEE_OTA
         sx_collect = !sx_ready;
         sx_pos = 0;
 #endif
     }
     if (!usb.sx_on)
         return;
-#if FELUCCA_OTA
+#if MELODEE_OTA
     if (sx_collect && b != 0xF0 && b != 0xF7) {
         if (sx_pos < sizeof sx_frame)
             sx_frame[sx_pos++] = b;
@@ -540,7 +540,7 @@ static void sysex_byte(uint8_t b)
             ok = usb.sysex[i] == UBOOT_KEY[i];
         if (ok)
             usb.uboot_req = 1;
-#if FELUCCA_OTA
+#if MELODEE_OTA
         else if (usb.sx_len == 6u && usb.sysex[1] == 0x22 && usb.sysex[2] == 0x24 && usb.sysex[3] == 0x35 &&
                  usb.sysex[4] == 0x7F)
             usb.ota_req = 1;
@@ -586,7 +586,7 @@ static void ep1_rx(void)
     for (i = 0; i + 3u < n; i += 4u) {
         uint32_t pkt = (uint32_t)ep1rx[i] | (uint32_t)ep1rx[i + 1] << 8 | (uint32_t)ep1rx[i + 2] << 16 |
                        (uint32_t)ep1rx[i + 3] << 24;
-#if FELUCCA_LOADER
+#if MELODEE_LOADER
         usb_midi_rx(pkt, 0);
 #else
         usb_midi_rx(pkt, fm1_ms);
@@ -598,8 +598,8 @@ static void ep1_rx(void)
     sie_wr(S_RXCSR2, csr >> 8);
 }
 
-#if FELUCCA_OTA
-/* ---- SysEx frames for the main loop (ota.c / editor.c hooks; felucca.c and the
+#if MELODEE_OTA
+/* ---- SysEx frames for the main loop (ota.c / editor.c hooks; melodee.c and the
  * update loader supply ota_now_ms / ota_idle) ---- */
 static uint32_t ota_now_ms(void);
 static void ota_idle(void);
@@ -647,7 +647,7 @@ static void ota_frame_done(void)
 static void ep1_tx(void)
 {
     uint32_t csr, n = 0;
-#if FELUCCA_OTA
+#if MELODEE_OTA
     if (mo_w == mo_r && so_w == so_r)
         return;
 #else
@@ -660,7 +660,7 @@ static void ep1_tx(void)
         return;                                         /* previous packet still pending */
     if (csr & 0x80u)
         sie_wr(S_TXCSR1, csr & ~0x80u);
-#if FELUCCA_OTA
+#if MELODEE_OTA
     while (so_r != so_w && n < 64u) {                   /* SysEx first, never split by notes */
         uint32_t pkt = sx_out_q[so_r % SXQ];
         ep1tx[n] = (uint8_t)pkt;
@@ -692,7 +692,7 @@ static void ep1_tx(void)
     usb.tx_pkts++;
 }
 
-#if FELUCCA_CDC
+#if MELODEE_CDC
 static void ep3_rx(void)                                /* leaves the packet (NAK) while the ring is full */
 {
     uint32_t csr, n, i;
@@ -767,7 +767,7 @@ static void usb_poll(void)                              /* TIMER5 ISR */
         }
     }
     iu = sie_rd(S_INTRUSB);
-#ifdef FELUCCA_LOADER
+#ifdef MELODEE_LOADER
     it = sie_rd(S_INTRTX1) | sie_rd(S_INTRTX2) << 8;    /* the update loader reads both */
     ir = sie_rd(S_INTRRX1) | sie_rd(S_INTRRX2) << 8;
 #else
@@ -781,7 +781,7 @@ static void usb_poll(void)                              /* TIMER5 ISR */
     if (iu & 0x02u)                                     /* resume */
         usb.suspended = 0;
     if (iu & 0x04u) {                                   /* bus reset */
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
         ua_hw_stop();
 #endif
         usb.resets++;
@@ -790,13 +790,13 @@ static void usb_poll(void)                              /* TIMER5 ISR */
         usb.suspended = 0;
         mo_r = mo_w;                                    /* nothing stale for the next host */
         usb.sx_on = 0;
-#if FELUCCA_OTA
+#if MELODEE_OTA
         so_r = so_w;
         sx_collect = 0;
 #endif
         usb.e0_tx = 0;
         usb.has_pend_addr = 0;
-#if FELUCCA_CDC
+#if MELODEE_CDC
         cdc.dtr = 0;
         cdc.e0_rx = 0;
         cdc.rx_pend = 0;
@@ -808,14 +808,14 @@ static void usb_poll(void)                              /* TIMER5 ISR */
     }
     if (it & 0x01u)
         ep0_service();
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
     ua_hw_poll();                                       /* deadline traffic before MIDI */
 #endif
     if (ir & 0x02u)
         ep1_rx();
     if (usb.config)
         ep1_tx();
-#if FELUCCA_CDC
+#if MELODEE_CDC
     if (usb.config) {
         if (ir & 0x08u)
             cdc.rx_pend = 1;
@@ -829,7 +829,7 @@ static void usb_poll(void)                              /* TIMER5 ISR */
 
 static void usb_start(void)                             /* boot, or main-loop retry while usb.up == 0 */
 {
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
     ua_reset();
     ua_rate_pending = 0;
     ua_frame_valid = ua_paused = 0;
@@ -875,7 +875,7 @@ static void usb_replug(uint32_t now_ms)
     usb.retry_ms = now_ms;
 }
 
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
 /* GLO > SYSTEM switches an audio device on or off (main loop). The host gets
  * the new configuration once the knob has rested for 0.6 s, so turning
  * through OFF and back costs no replug. ua_off_apply: 1 = replugged. */

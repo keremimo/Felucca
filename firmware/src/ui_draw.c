@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca UI drawing: status bar (top), columns + gauges, graphs, focus readout,
+/* Melodee UI drawing: status bar (top), columns + gauges, graphs, focus readout,
  * footer (steps + engine / preset / page). */
 static void draw_menu(void);
 static uint32_t str_hash(uint32_t h, const char *s);
@@ -11,7 +11,7 @@ static uint16_t page_color(void);
 static uint32_t ui_trs_state;
 static void ui_midi_status_tick(void)
 {
-#if FELUCCA_UART
+#if MELODEE_UART
     static uint32_t last_bytes, last_rx_ms;
     static uint8_t active;
     uint32_t bytes = um.bytes, now = fm1_ms;
@@ -39,7 +39,7 @@ static int is_eng_name(const char *s)                 /* one of the ENGINES[]->n
 }
 
 /* at most 5 characters, and no wider than maxw */
-static void fit(char *d, const char *src, const felucca_font_t *f, int32_t maxw)
+static void fit(char *d, const char *src, const melodee_font_t *f, int32_t maxw)
 {
     str_cpy(d, src, is_eng_name(src) ? 8 : 6);           /* engine names are kept whole */
     while (d[0] && text_w(f, d) > maxw)
@@ -90,7 +90,7 @@ static void draw_head(void)
         cv_rect(18, 6, 6, 6, rec == 2u ? C_WHITE : C_GRAY);
     fmt_int(b, song.g[G_BPM]);
     x = 32;
-    if (FELUCCA_ICONS) {                              /* metronome, then the BPM */
+    if (MELODEE_ICONS) {                              /* metronome, then the BPM */
         cv_icon(x, 2, ICON_TEMPO, C_GRAY);
         x += 14;
     }
@@ -101,7 +101,7 @@ static void draw_head(void)
         cv_text(x + 12, 1, &FONT_S, "OCT", C_GRAY);
         cv_text(x + 40, 1, &FONT_S, b, C_HI);
     }
-    if (FELUCCA_ICONS) {                              /* the selected track: tape + number */
+    if (MELODEE_ICONS) {                              /* the selected track: tape + number */
         cv_icon(156, 2, ICON_TAPE, C_GRAY);
         b[0] = (char)('1' + song.sel);
         b[1] = 0;
@@ -148,7 +148,7 @@ static void draw_frame(void)
 
 /* one column: [icon] LABEL / value unit / gauge, redrawn only when it changed.
  * ratio: 0..1000 for the gauge, -1 = no gauge. icon: ICON_* (icons.c), ICON_AUTO = by label */
-#define LABEL_X (FELUCCA_ICONS ? ICON_CELL + ICON_GAP : 0)
+#define LABEL_X (MELODEE_ICONS ? ICON_CELL + ICON_GAP : 0)
 static void draw_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc,
                         int32_t ratio, uint32_t icon)
 {
@@ -180,7 +180,7 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         return;
     str_cpy(ui.col[c], key, sizeof ui.col[c]);
     cv_begin(55, Y_SEP_END - Y_LABEL, C_BLACK);         /* x 4..58: the rule at 59 stays */
-    if (FELUCCA_ICONS && icon != ICON_NONE && l[0])
+    if (MELODEE_ICONS && icon != ICON_NONE && l[0])
         cv_icon(0, 1, icon, control_color(c));
     else if (l[0])
         cv_rect(0, 5, 5, 5, control_color(c));
@@ -1039,7 +1039,7 @@ static void graph_engine(const track_t *t)
         }
         break;
     }
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     case 10:                                           /* SLICE: start slice on a 32-part strip */
         for (i = 0; i < 32u; i++) {
             x = 5 + (int32_t)i * 7;
@@ -1127,7 +1127,7 @@ static const char *chord_of(uint32_t pcs, uint32_t bass, uint32_t *root)
 
 /* the lowest of n notes (note[] holds the first 8) that fit in w px of font f, "C4 E4 G4",
  * " .." when some are left out; returns how many are shown */
-static uint32_t notes_fit(char *b, const uint8_t *note, uint32_t n, const felucca_font_t *f, int32_t w)
+static uint32_t notes_fit(char *b, const uint8_t *note, uint32_t n, const melodee_font_t *f, int32_t w)
 {
     uint32_t m, i;
     for (m = n < 8u ? n : 8u; m > 1u; m--) {
@@ -1571,7 +1571,7 @@ static void draw_columns(void)
                 draw_column(c, "MIDI", "USB", !usb.up ? "OFF" : usb.config ? "ON" : "--", VAL(c), -1, ICON_AUTO);
             continue;
         }
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
         if ((cur_page()->id[c] == G_USBOUT || cur_page()->id[c] == G_USBIN) && cur_page()->scope == SC_GLOBAL) {
             uint32_t out = cur_page()->id[c] == G_USBOUT;   /* the wanted state; the host follows (main.c) */
             draw_column(c, "AUDIO", out ? "OUT" : "IN", ua_off_want & (out ? UA_OFF_OUT : UA_OFF_IN) ? "OFF" : "ON",
@@ -1628,11 +1628,11 @@ static void ui_draw(void)
     seq_record_follow();
     if (ui.force)
         draw_frame();
-    felucca_dbg.stage = 3;
+    melodee_dbg.stage = 3;
     draw_head();
-    felucca_dbg.stage = 4;
+    melodee_dbg.stage = 4;
     draw_columns();
-    felucca_dbg.stage = 5;
+    melodee_dbg.stage = 5;
     draw_graph();
     if (ui.msg_t)
         ui.msg_t--;
@@ -1642,7 +1642,7 @@ static void ui_draw(void)
         ui.arm = 0;
     if (ui.hot_t)
         ui.hot_t--;
-    felucca_dbg.stage = 6;
+    melodee_dbg.stage = 6;
     draw_foot();
     ui.force = 0;
 }

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* GRAIN: a granular engine over the SAMPLE material. Felucca's own design.
+/* GRAIN: a granular engine over the SAMPLE material. Melodee's own design.
  *
  * Source: the SAMPLE sets (built in, IMA ADPCM in flash) and the user slot USR1 (XIP), the
  * same zones across the keyboard as SAMPLE: a note picks its zone, its pitch sets the grain

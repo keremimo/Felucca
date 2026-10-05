@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Serial console on the CDC-ACM function (FELUCCA_CDC=1): read-only
+/* Serial console on the CDC-ACM function (MELODEE_CDC=1): read-only
  * diagnostics. Runs in the main loop (cdc_task); usb_poll moves the bytes.
  * The baud rate is ignored. Nothing here writes memory or flash; `uboot`
  * does what the SysEx soft key does. */
@@ -134,7 +134,7 @@ static void con_memr(const char *p)
     }
 }
 
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
 static void con_flr(const char *p)                  /* flash read over SPI (no XIP decryption) */
 {
     static uint8_t b[256];
@@ -170,12 +170,12 @@ static void con_flr(const char *p)                  /* flash read over SPI (no X
 static void con_status(void)
 {
     const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
-    con_puts("felucca ");
-    con_puts(FELUCCA_VERSION);
+    con_puts("melodee ");
+    con_puts(MELODEE_VERSION);
     con_puts("\r\n");
     con_kv("uptime_ms", (int32_t)fm1_ms);
     con_kv("cpu_pct", (int32_t)(song.cpu_q8 * 100u / 256u));
-    con_kv("audio_max_us", (int32_t)felucca_dbg.max_us);
+    con_kv("audio_max_us", (int32_t)melodee_dbg.max_us);
     con_kv("voices_shed", (int32_t)shed_count);
     con_kv("voices_given_up", (int32_t)voice_kills);
     con_kv("track", (int32_t)song.sel + 1);
@@ -188,7 +188,7 @@ static void con_status(void)
     con_puts("\r\n");
     con_kv("bpm", song.g[G_BPM]);
     con_kv("playing", song.playing);
-    con_kv("boots", (int32_t)felucca_dbg.boots);
+    con_kv("boots", (int32_t)melodee_dbg.boots);
     con_kv("usb_resets", (int32_t)usb.resets);
     con_kv("usb_sof", (int32_t)usb.sof_seen);
     con_kv("usb_suspends", (int32_t)usb.suspends);
@@ -198,26 +198,26 @@ static void con_status(void)
     con_kv("usb_max_gap_polls", (int32_t)usb.max_gap);
     con_kv("midi_rx_pkts", (int32_t)usb.rx_pkts);
     con_kv("midi_tx_pkts", (int32_t)usb.tx_pkts);
-    con_kv("trs_midi", FELUCCA_UART);
-#if FELUCCA_UART
+    con_kv("trs_midi", MELODEE_UART);
+#if MELODEE_UART
     con_kv("trs_rx_bytes", (int32_t)um.bytes);
     con_kv("trs_rx_msgs", (int32_t)um.msgs);
     con_kv("trs_rx_drops", (int32_t)um.drops);
 #endif
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     con_kv("flash", flash_ok);
 #endif
 }
 
 static void con_dbg(void)
 {
-    const uint32_t *w = (const uint32_t *)&felucca_dbg;
+    const uint32_t *w = (const uint32_t *)&melodee_dbg;
     static const char *const NAMES[] = {"magic", "halves", "max_us", "nested", "in_audio", "late",
                                         "timer_irqs", "ui_frames", "last_us", "cpu_q8", "boots",
                                         "stage", "page", "home", "prev_stage", "prev_page",
                                         "prev_home", "prev_rst", "prev_frames"};
     uint32_t i;
-    for (i = 0; i < sizeof NAMES / sizeof NAMES[0] && i < sizeof felucca_dbg / 4u; i++)
+    for (i = 0; i < sizeof NAMES / sizeof NAMES[0] && i < sizeof melodee_dbg / 4u; i++)
         con_kx(NAMES[i], w[i]);
 }
 
@@ -263,7 +263,7 @@ static void con_exec(const char *p)
         con_params();
     else if (con_word(&p, "memr"))
         con_memr(p);
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     else if (con_word(&p, "flr"))
         con_flr(p);
 #endif
@@ -281,8 +281,8 @@ static void con_exec(const char *p)
 static void cdc_task(void)                              /* main loop */
 {
     if (cdc.dtr && !con.dtr_seen) {
-        con_puts("\r\nFelucca ");
-        con_puts(FELUCCA_VERSION);
+        con_puts("\r\nMelodee ");
+        con_puts(MELODEE_VERSION);
         con_puts(" console - 'help'\r\n> ");
     }
     con.dtr_seen = cdc.dtr;

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca core types: tracks, voices, engines, parameters.
+/* Melodee core types: tracks, voices, engines, parameters.
  * Four tracks: tracks 1..3 are synth parts (each its own engine, preset, parameters,
  * voices and NPAT 64-step patterns), track 4 is the GM drum part (drums.c; its own voices,
  * patterns and the pattern parameters of its track_t). The parts share one budget of
@@ -13,7 +13,7 @@
 #define NPART 3                  /* synth parts: tracks 1..3 */
 #define NTRK 4                   /* + the drum track */
 #define TRK_DRUM 3
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
 /* Interleaved mono stems, cleared by mix_block; post insert/level, pre pan/FX/master. */
 static int32_t track_capture[CTL * NTRK];
 #endif
@@ -22,10 +22,10 @@ enum { Q_OFF, Q_SNAP, Q_WHITE, Q_ALL, Q_MPC }; /* P_QUANT; legacy ON = SNAP */
 #define NSTEP 64
 #define NPAT 8                   /* patterns per track (SEQ + white keys, seq.c pat_*) */
 #define HALF_FRAMES 256          /* I2S half buffer: 5.8 ms at 44.1 kHz */
-#ifndef FELUCCA_SLICE
-#define FELUCCA_SLICE 0          /* the SLICE engine (eng_slice.c): kept in the tree, not built by default */
+#ifndef MELODEE_SLICE
+#define MELODEE_SLICE 0          /* the SLICE engine (eng_slice.c): kept in the tree, not built by default */
 #endif
-#define NENGINES (10 + FELUCCA_SLICE)  /* SLICE, when built, comes last: the other engines keep their numbers */
+#define NENGINES (10 + MELODEE_SLICE)  /* SLICE, when built, comes last: the other engines keep their numbers */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 
 /* ------------------------------------------------------- parameters --- */

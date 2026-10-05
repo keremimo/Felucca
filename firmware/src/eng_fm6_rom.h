@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FM6 factory voices (VOICE R01..): Felucca's own DX7 voices; SEND puts any of them out
+/* FM6 factory voices (VOICE R01..): Melodee's own DX7 voices; SEND puts any of them out
  * as a DX7 single-voice dump.
  *
  * OP(EG rates 1-4, EG levels 1-4, key level scaling: break point, left / right depth,

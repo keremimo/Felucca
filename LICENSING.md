@@ -1,12 +1,17 @@
-# Felucca licensing
+# Melodee licensing
 
-Felucca is free software. Its **code** is licensed under the GNU General Public License,
+Melodee is a modified version of Felucca by Leo Kuroshita (@kurogedelic), Hügelton Instruments
+(<https://github.com/hugelton/Felucca>). It began as a fork in 2026 and keeps Felucca's licensing.
+
+Melodee is free software. Its **code** is licensed under the GNU General Public License,
 version 3 only (`GPL-3.0-only`, full text in `LICENSE`). Its **assets** are not part of
 that licence: the icon atlas `assets/icons.png`, the panel image `docs/panel.jpg` and the drum sounds made by
-`tools/gen_waves.py` (the Hügelton Sample Pack) are Copyright (C) 2026 Hügelton Instruments,
-all rights reserved. Their licence terms will be published later.
+`tools/gen_waves.py` (the Hügelton Sample Pack) come from Felucca and are Copyright (C) 2026 Hügelton
+Instruments, all rights reserved. Their licence terms will be published later. In this document they
+are the **Felucca Assets**.
 
-Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments\
+Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 
 ## What is code (GPL-3.0-only)
 
@@ -17,24 +22,27 @@ Every file in this tree that carries an `SPDX-License-Identifier: GPL-3.0-only` 
 - the web pages (installer, editor) and their tests: `web/` (not the Fukiai font, below)
 - the host tests: `tests/`
 
-You may use, study, change and share it under the GPL. If you distribute Felucca, or
+You may use, study, change and share it under the GPL. If you distribute Melodee, or
 firmware derived from it, you must also give your recipients its complete corresponding
-source under the same licence. That includes devices that ship with modified Felucca
+source under the same licence. That includes devices that ship with modified Melodee
 inside.
 
 ## Additional permission (GPL-3.0 section 7)
 
-As an additional permission under GPL-3.0 section 7, you may combine Felucca, or a work
-based on it, with the Felucca Assets (above), and convey the combination.
-This is allowed even though the Felucca Assets are not licensed under the GPL, provided
-that:
+Felucca's copyright holder grants the permission below, quoted unchanged from Felucca. Melodee is a
+work based on Felucca, and its modifications are offered under the same permission.
 
-- you follow the GPL for every part that is not a Felucca Asset; and
-- you follow the terms published for the assets.
-
-The Felucca Assets are data (wavetables, icons, sample data). They are not program
-code. A firmware image built from the GPL sources with replacement assets, or with no
-assets, is entirely governed by the GPL.
+> As an additional permission under GPL-3.0 section 7, you may combine Felucca, or a work
+> based on it, with the Felucca Assets (above), and convey the combination.
+> This is allowed even though the Felucca Assets are not licensed under the GPL, provided
+> that:
+>
+> - you follow the GPL for every part that is not a Felucca Asset; and
+> - you follow the terms published for the assets.
+>
+> The Felucca Assets are data (wavetables, icons, sample data). They are not program
+> code. A firmware image built from the GPL sources with replacement assets, or with no
+> assets, is entirely governed by the GPL.
 
 ## Third-party material
 
@@ -55,12 +63,14 @@ combined with the Felucca Assets under the section 7 permission above.
 
 ## Trademarks
 
-"Felucca" and "Hügelton Instruments" are names of Hügelton Instruments.
+"Felucca" and "Hügelton Instruments" are names of Hügelton Instruments. Melodee is an
+independent modified version of Felucca. It is not affiliated with, endorsed by or supported by
+Hügelton Instruments.
 
-"M-VAVE" and "FM-1" are trademarks of their respective owners. Felucca is independent
+"M-VAVE" and "FM-1" are trademarks of their respective owners. Melodee is independent
 firmware that runs on FM-1 hardware. It is not affiliated with, endorsed by or supported
 by those owners.
 
 ## Radio
 
-Felucca never enables the Bluetooth / Wi-Fi radio of the hardware.
+Melodee never enables the Bluetooth / Wi-Fi radio of the hardware.

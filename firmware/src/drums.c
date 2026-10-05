@@ -668,7 +668,7 @@ static inline void drums_mix(int32_t *ml, int32_t *mr, int32_t *rev, int32_t *mo
         }
         ml[i] += (s * gl) >> 12;
         mr[i] += (s * gr) >> 12;
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
         track_capture[i * NTRK + TRK_DRUM] += s;
 #endif
         if (send)

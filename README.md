@@ -1,16 +1,22 @@
-# Felucca
+# Melodee
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/hugelton)
 
 **TL;DR:** connect your FM-1 to a computer by USB, open the
-[web installer](https://hugelton.github.io/Felucca/) in Chrome or Edge, and press Install.
+[web installer](https://keremimo.github.io/Melodee/) in Chrome or Edge, and press Install.
 No extra hardware is needed. Beta: use at your own risk; M-VAVE's own updater takes you back
 to the official firmware.
 
 Multi-engine synthesizer firmware for the M-VAVE FM-1.
 
-![FM-1 controls with Felucca](docs/panel.jpg)
+Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
+([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com). It
+started as a fork and has since gone its own way: USB audio, TRS MIDI in, MIDI clock, the FM6 engine,
+the TR-808 drum kit, multiple patterns per track and the STUDIO workspaces, among others. Melodee is
+not affiliated with or endorsed by Hügelton Instruments; please report Melodee problems here, not
+to Felucca. The installer also finds an FM-1 that still runs Felucca.
+
+![FM-1 controls](docs/panel.jpg)
 
 ## Features
 
@@ -97,8 +103,8 @@ millisecond and sighs as it decays, and velocity is the accent (louder hits are 
 the drum track: bass drum TONE, DECAY and TUNE, snare TONE and SNAPPY, tom / conga tuning, open hi-hat and
 cymbal DECAY (0 is the stock setting).
 
-- Install: [web installer](https://hugelton.github.io/Felucca/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
-- Editor: [web editor](https://hugelton.github.io/Felucca/webapp/editor/)
+- Install: [web installer](https://keremimo.github.io/Melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
+- Editor: [web editor](https://keremimo.github.io/Melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
 
 ## FM6
@@ -131,7 +137,7 @@ On FM6 parts the generic wheel vibrato and the part's bend range give way to the
 
 **EDIT** steps through the pages. **PATCH**: VOICE, then MOD (the modulators'
 levels: brightness), M.TIM and C.TIM (the modulators' and carriers' envelope times); these are
-Felucca's own and neutral at 0. Then **STORE**, and the voice itself: **ALGO** (algorithm, feedback,
+Melodee's own and neutral at 0. Then **STORE**, and the voice itself: **ALGO** (algorithm, feedback,
 key sync, transpose), six operator pages (**FREQ**, **OUT**, **EG RATE**, **EG LVL**, **SCALE**,
 **CURVE**), the pitch envelope and two LFO pages. On the operator pages **PRESETS** picks the
 operator (OP1–OP6); the graph shows the algorithm with it highlighted.
@@ -167,7 +173,7 @@ voice live or load a cartridge:
 The FM6 part is the selected track when it plays FM6, else part n + 1, else the first FM6 part.
 
 In the web editor, **Library → Import** accepts DX7 `.syx` single voices and 32-voice banks
-alongside Felucca JSON files. Each bank voice becomes a separate named library entry; importing
+alongside Melodee JSON files. Each bank voice becomes a separate named library entry; importing
 works offline and checks the dump's length and checksum. Library JSON exports retain the voice data.
 Select a synth track and **Audition** to send a voice to FM6; **Keep in U03** (the selected FM6 slot,
 else the first free one) stores it in the user bank, and the auditioned track goes on playing it from
@@ -251,7 +257,7 @@ Note-offs release the pitch and part chosen at note-on, even if settings or the
 selected track change.
 
 This applies to USB MIDI routed from a computer and to TRS MIDI input, enabled
-by default (`FELUCCA_UART=1`). TRS also accepts MIDI clock and transport;
+by default (`MELODEE_UART=1`). TRS also accepts MIDI clock and transport;
 system common and SysEx remain unsupported. End-to-end TRS timing still needs
 verification with an external MIDI source.
 
@@ -302,7 +308,7 @@ selected input; the other input can still play notes and expressive controls.
 Start resets the patterns to step 1, while Continue resumes their current steps.
 The sequencer stops and releases its notes if clock disappears for 500 ms. The
 displayed BPM, arpeggiator, delay, and SLICER follow the measured tempo. TRS MIDI
-IN is enabled by default (`FELUCCA_UART=1`).
+IN is enabled by default (`MELODEE_UART=1`).
 
 ## Layout
 
@@ -316,19 +322,22 @@ IN is enabled by default (`FELUCCA_UART=1`).
 
 ## Support
 
-If Felucca is useful to you, [sponsoring on GitHub](https://github.com/sponsors/hugelton) or a donation
-on [itch.io](https://hugelton.itch.io/felucca) helps keep its development going.
+Melodee lives at <https://github.com/keremimo/Melodee>: bug reports, ideas and pull requests are
+welcome there.
 
-Pull requests are welcome, and so are ideas and requests: post them in
-[Discussions](https://github.com/hugelton/Felucca/discussions) or on X ([@kurogedelic](https://x.com/kurogedelic)).
+Felucca, which Melodee is built on, is Leo Kuroshita's work. If Melodee is useful to you, consider
+[sponsoring him on GitHub](https://github.com/sponsors/hugelton) or supporting Felucca on
+[itch.io](https://hugelton.itch.io/felucca).
 
 ## Credits
 
-- Felucca by Leo Kuroshita ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com)
+- Melodee by Ellic Studio
+- Based on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com)
 - Font: [Terminus](https://terminus-font.sourceforge.net/) by Dimitar Toshkov Zhekov, [SIL OFL 1.1](assets/fonts/Terminus-LICENSE.txt)
 - Samples: [Versilian Studios](https://versilian-studios.com/) [VSCO-2 Community Edition](https://github.com/sgossner/VSCO-2-CE) and [VCSL](https://github.com/sgossner/VCSL), CC0 1.0 ([attribution](assets/samples-cc0/ATTRIBUTION.txt))
 - PHASE engine: oscillator ported from [CrispyZebra](https://github.com/hugelton/CrispyZebra) by Leo Kuroshita (GPL-3.0)
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
+- FM6 engine: [Dexed](https://github.com/asb2m10/dexed) by Pascal Gauthier and MSFA (Google), restated in fixed point (GPL-3.0-or-later, Apache-2.0)
 - Web editor icons: Fukiai by [Hügelton Instruments](https://hugelton.com), [MIT](web/FUKIAI-LICENSE.txt)
 - Package format and boot files: [JieLi AC79 SDK](https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK) (Apache-2.0, not included)
 
@@ -336,6 +345,8 @@ Pull requests are welcome, and so are ideas and requests: post them in
 
 Code: [GPL-3.0-only](LICENSE). Third-party material: [LICENSING.md](LICENSING.md).
 
-M-VAVE and FM-1 are trademarks of their respective owners. Felucca is not affiliated with or endorsed by them.
+"Felucca" and "Hügelton Instruments" are names of Hügelton Instruments. M-VAVE and FM-1 are
+trademarks of their respective owners. Melodee is not affiliated with or endorsed by any of them.
 
-Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments\
+Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
