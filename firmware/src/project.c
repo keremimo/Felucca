@@ -749,6 +749,32 @@ static int project_save_as(uint32_t slot, const char *name)
     return 0;
 }
 static int project_save(uint32_t slot) { return project_save_as(slot, 0); }
+
+/* SAVE + REC (ui_input.c, stopped): the music back to the slot it was loaded from or last saved to, at once ("SAVED
+ * B"); a new one (the template, the power-on sounds) has none yet: PROJECT opens on a free slot, SAVE picked */
+static uint32_t project_free_slot(void);
+static void project_quick_save(void)
+{
+    uint32_t i;
+    if (proj_cur < 4u) {
+        uint32_t slot = proj_cur;
+        if (!project_save(slot)) {
+            char b[12] = "SAVED A";
+            b[6] = (char)('A' + slot);
+            ui_message(b);
+        }
+        return;
+    }
+    song.g[G_SLOT] = (int16_t)(project_free_slot() + 1u);
+    for (i = 0; i < NPAGES && PAGES[i].graph != GR_SLOTS; i++)
+        ;
+    ui.home = 0;
+    ui.page = (uint8_t)i;
+    page_entered();
+    ui.act = 4;                                         /* (SAVE: OCT+ names and writes it) */
+    ui.force = 1;
+    ui_message("NEW PROJECT: PICK SLOT");
+}
 static void project_cur_name(char *b) { str_cpy(b, proj_name, PROJ_NAME_LEN + 1u); }   /* b: 13 bytes */
 
 /* slot's name -> b (PROJ_NAME_LEN + 1 bytes); 0 = an empty slot (b ""). Uses proj_scratch */

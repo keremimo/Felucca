@@ -260,6 +260,28 @@ static void rec_play(void)
     ui_message("RECORDING");
 }
 
+/* SAVE + REC (either pressed while the other is held): the project back to its slot (project.c project_quick_save);
+ * playing, the transport stops first and the save follows (qsave_poll). Neither button then does its own thing */
+static void project_quick_save(void);
+static uint8_t qsave_req;
+static void qsave_chord(void)
+{
+    ui.save_t0 |= 2u;
+    ui.rec_t0 |= 2u;
+    if (transport_busy()) {
+        transport_req = 2;
+        ui_message("STOPPING TO SAVE");
+    }
+    qsave_req = 1;
+}
+static void qsave_poll(void)
+{
+    if (qsave_req && !transport_busy() && !transport_req) {
+        qsave_req = 0;
+        project_quick_save();
+    }
+}
+
 /* REC held: the MIXER (FAM_TRK), the tracks' arming and mutes at a glance */
 static void rec_hold_mixer(void)
 {
@@ -1047,6 +1069,12 @@ static void ui_input(void)
         uint32_t idx = TSEL->seq_pos == 0x7FFFFFFFu ? 0u : TSEL->seq_idx;
         if (ui.cursor != idx)
             cursor_set((int32_t)idx);
+    }
+    {   /* SAVE + REC: the quick save */
+        uint32_t sv = 1u << panel.btn[B_SAVE], rc = 1u << panel.btn[B_REC];
+        if (((pressed & rc) && (fm1_in.buttons & sv)) || ((pressed & sv) && (fm1_in.buttons & rc)))
+            qsave_chord();
+        qsave_poll();
     }
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))

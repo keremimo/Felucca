@@ -2389,6 +2389,45 @@ static int test_boot_template(void)
     return bad;
 }
 
+/* SAVE + REC: the project back to its slot at once ("SAVED B"); playing: stopped first, then saved; a new project:
+ * PROJECT on a free slot, SAVE picked; neither button does its own thing (no page, no undo, no arming) */
+static int test_quick_save(void)
+{
+    int bad = 0, i;
+    ui_power_on();
+    stop_transport();
+    memset(proj_slot, 0, sizeof proj_slot);
+    memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+    project_save(1);
+    trk[0].p[P_LEVEL] = 55;
+    btn_down(B_SAVE); frame();
+    btn_down(B_REC); frame();
+    btn_up(B_REC); btn_up(B_SAVE); frame();
+    bad += check("SAVE + REC: back into B at once, SAVED B; no SAVE page, no arming", stored_param(1, 0, P_LEVEL) == 55 &&
+                 msg_is("SAVED B") && ui.home && !song.rec);
+    trk[0].p[P_LEVEL] = 66;
+    song.playing = 1;
+    btn_down(B_REC); frame();
+    btn_down(B_SAVE); frame();
+    btn_up(B_SAVE); btn_up(B_REC); frame();
+    bad += check("  REC + SAVE while playing: the transport stops first", transport_req == 2u && stored_param(1, 0, P_LEVEL) == 55);
+    song.playing = 0;
+    transport_req = 0;
+    for (i = 0; i < 3; i++)
+        frame();
+    bad += check("  .. then the save", stored_param(1, 0, P_LEVEL) == 66 && msg_is("SAVED B"));
+    project_load(1);
+    proj_cur = PROJ_NO_SLOT;
+    btn_down(B_SAVE); frame();
+    btn_down(B_REC); frame();
+    btn_up(B_REC); btn_up(B_SAVE); frame();
+    bad += check("  a new project: PROJECT on a free slot (A), SAVE picked", !ui.home && cur_page()->graph == GR_SLOTS &&
+                 song.g[G_SLOT] == 1 && ui.act == 4u && msg_is("NEW PROJECT: PICK SLOT"));
+    memset(proj_slot, 0, sizeof proj_slot);
+    memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+    return bad;
+}
+
 /* REC + PLAY: armed and playing at once, REC's release no tap (no disarm); REC held: the MIXER */
 static int test_rec_gestures(void)
 {
@@ -3752,6 +3791,7 @@ int main(void)
     bad += test_boot_template();
     bad += test_key_lights();
     bad += test_rec_gestures();
+    bad += test_quick_save();
 #if MELODEE_SLICE
 #if SMP_USER_SLOTS
     bad += test_slices();

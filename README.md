@@ -79,6 +79,8 @@ runs Felucca.
 - OCT− / OCT+ shift the octave (both: reset). On action pages, in dialogs and the menu, OCT+ does it
   and OCT− goes back. During synth step editing, OCT− / OCT+ move the step cursor
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
+- **SAVE + REC** saves the project back to the slot it was loaded from or last saved to (`SAVED B`), stopping
+  the transport first; a new project opens SAVE > PROJECT on a free slot
 
 ### Patterns and songs
 
