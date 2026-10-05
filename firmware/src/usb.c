@@ -76,7 +76,10 @@ static volatile uint32_t so_w, so_r;
 
 /* MIDI rings: 4-byte USB-MIDI event packets */
 #define MQ 64u
-static uint32_t midi_in_q[MQ], midi_out_q[MQ];
+/* A panel scan can release and press 27 four-note voicings before USB drains
+ * the ring. Keep room for that complete burst; input timing stays independent. */
+#define MOQ 256u
+static uint32_t midi_in_q[MQ], midi_out_q[MOQ];
 static uint32_t midi_in_ms[MQ];                 /* arrival time for 24 PPQN clock */
 static uint8_t midi_in_src[MQ];                 /* 1 USB, 2 TRS */
 static volatile uint32_t mi_w, mi_r, mo_w, mo_r;
@@ -104,8 +107,8 @@ static void usb_midi_rx_packet(uint32_t pkt, uint32_t ms)
 
 static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 {
-    if (usb.config && mo_w - mo_r < MQ) {
-        midi_out_q[mo_w % MQ] = pkt;
+    if (usb.config && mo_w - mo_r < MOQ) {
+        midi_out_q[mo_w % MOQ] = pkt;
         RING_PUBLISH();
         mo_w++;
     }
@@ -676,7 +679,7 @@ static void ep1_tx(void)
 #endif
         uint32_t pkt;
         RING_PUBLISH();                                 /* the audio ISR (producer) can preempt us: */
-        pkt = midi_out_q[mo_r % MQ];                    /* slot read strictly between the index checks */
+        pkt = midi_out_q[mo_r % MOQ];                   /* slot read strictly between the index checks */
         ep1tx[n] = (uint8_t)pkt;
         ep1tx[n + 1] = (uint8_t)(pkt >> 8);
         ep1tx[n + 2] = (uint8_t)(pkt >> 16);

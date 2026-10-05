@@ -5,7 +5,7 @@
  * the flash (RAM only) proj_buf keeps the last save. The template (a project without
  * patterns, SLOT TMPL) is kept in the settings record: tmpl_t below.
  *
- * Formats: 7 ("FUN7", written) adds the FM6 parts' DX7 function settings (pitch bend,
+ * Formats: 8 ("FUN8", written) adds panel chord settings; 7 ("FUN7", read only) adds the FM6 parts' DX7 function settings (pitch bend,
  * portamento, controllers) to format 6; a format 6 project ("FUN6", read in place) gives them
  * their defaults. Format 6 holds NPAT patterns per track, each with its LEN / DIV /
  * SWING / GATE, and the one playing; the rest as format 5. Older formats are read from
@@ -23,7 +23,8 @@
  *
  * Built on the host too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP), the engines and trk_def_engine (ui.c). */
-#define PROJ_MAGIC 0x46554E37u                 /* "FUN7": format 6 + the FM6 parts' function settings */
+#define PROJ_MAGIC 0x46554E38u                 /* "FUN8": panel chord performance */
+#define PROJ_MAGIC_V7 0x46554E37u              /* "FUN7": FM6 functions, 58 parameters */
 #define PROJ_MAGIC_V6 0x46554E36u              /* "FUN6": format 5 + NPAT patterns per track; read only */
 #define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": format 4 + MPC pad degree; read only */
 #define PROJ_MAGIC_V4 0x46554E34u              /* "FUN4": format 3 + FM6 voices; read only */
@@ -50,6 +51,23 @@ typedef struct {
     int8_t fm6_fn[NPART][16];                  /* the parts' FM6 functions (FN_PBUP..), [0] < 0: defaults */
     uint32_t sum;
 } project_t;
+/* Fixed legacy layouts: never derive stored offsets from the current P_COUNT. */
+typedef struct {
+    int16_t p[PROJ_NP_V5];
+    uint8_t engine, preset, pat, rsv;
+    pattern_t pt[NPAT];
+} proj_trk_v7_t;
+typedef struct {
+    uint32_t magic, size;
+    int16_t g[PROJ_NG_V2];
+    uint8_t sel, rsv[3];
+    proj_trk_v7_t t[NTRK];
+    uint8_t fm6[NPART][128], fm6_on[NPART], fm6_has;
+    int8_t fm6_fn[NPART][16];
+    uint32_t sum;
+} project_v7_t;
+#define PROJ_V6_SIZE (sizeof(project_v7_t) - sizeof(((project_v7_t *)0)->fm6_fn))
+static void proj_p_from(int16_t *p, const int16_t *s, uint32_t np);
 typedef struct {                               /* a track of format 5, read only */
     int16_t p[PROJ_NP_V5];
     uint8_t engine, preset;
@@ -124,22 +142,42 @@ static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
 }
 static uint32_t proj_sum(const project_t *p) { return proj_hash(p, sizeof *p - 4u); }
 
-/* format 6, in place: the same up to the FM6 switches, then its sum where format 7 has the functions */
-#define PROJ_V6_SIZE (sizeof(project_t) - sizeof(((project_t *)0)->fm6_fn))
-static int proj_from_v6(project_t *q, int n)
+/* Expand formats 6/7 in place, from the last track backwards. Save the
+ * voice/function tail before the larger parameter arrays move patterns over it. */
+static int proj_from_pattern_legacy(project_t *q, int n, int v7)
 {
-    uint32_t sum;
-    if (n != (int)PROJ_V6_SIZE || q->magic != PROJ_MAGIC_V6 || q->size != PROJ_V6_SIZE)
+    project_v7_t *old = (project_v7_t *)q;
+    uint8_t fm6[NPART][128], on[NPART], has;
+    int8_t fn[NPART][16];
+    uint32_t size = v7 ? sizeof(project_v7_t) : PROJ_V6_SIZE, sum;
+    int k;
+    if (n != (int)size || old->magic != (v7 ? PROJ_MAGIC_V7 : PROJ_MAGIC_V6) || old->size != size)
         return 0;
-    memcpy(&sum, (const uint8_t *)q + PROJ_V6_SIZE - 4u, 4);
-    if (sum != proj_hash(q, PROJ_V6_SIZE - 4u))
-        return 0;
-    memset(q->fm6_fn, 0xFF, sizeof q->fm6_fn);
-    q->magic = PROJ_MAGIC;
-    q->size = sizeof *q;
-    q->sum = proj_sum(q);
+    memcpy(&sum, (uint8_t *)q + size - 4u, 4);
+    if (sum != proj_hash(q, size - 4u)) return 0;
+    memcpy(fm6, old->fm6, sizeof fm6);
+    memcpy(on, old->fm6_on, sizeof on); has = old->fm6_has;
+    if (v7) memcpy(fn, old->fm6_fn, sizeof fn);
+    else memset(fn, 0xFF, sizeof fn);
+    for (k = NTRK - 1; k >= 0; k--) {
+        int16_t params[PROJ_NP_V5];
+        uint8_t engine = old->t[k].engine, preset = old->t[k].preset, pat = old->t[k].pat;
+        memcpy(params, old->t[k].p, sizeof params);
+        /* Target libc has no memmove. Destination is always higher. */
+        { uint32_t j = sizeof q->t[k].pt; uint8_t *d = (uint8_t *)q->t[k].pt;
+          const uint8_t *s = (const uint8_t *)old->t[k].pt;
+          while (j) { j--; d[j] = s[j]; } }
+        proj_p_from(q->t[k].p, params, PROJ_NP_V5);
+        q->t[k].engine = engine; q->t[k].preset = preset; q->t[k].pat = pat; q->t[k].rsv = 0;
+    }
+    memcpy(q->fm6, fm6, sizeof fm6);
+    memcpy(q->fm6_on, on, sizeof on); q->fm6_has = has;
+    memcpy(q->fm6_fn, fn, sizeof fn);
+    q->magic = PROJ_MAGIC; q->size = sizeof *q; q->sum = proj_sum(q);
     return 1;
 }
+static int proj_from_v6(project_t *q, int n) { return proj_from_pattern_legacy(q, n, 0); }
+static int proj_from_v7(project_t *q, int n) { return proj_from_pattern_legacy(q, n, 1); }
 static int proj_ok(const project_t *q) { return q->magic == PROJ_MAGIC && q->size == sizeof *q && q->sum == proj_sum(q); }
 
 /* the globals of formats 1 .. 5 (G_* unchanged since; any added later: their defaults) */
@@ -328,7 +366,7 @@ static int proj_fetch(uint32_t slot)
     int n;
     if (flash_ok) {
         n = st_load(OBJ_PROJECT0 + (slot & 3u), &proj_buf, sizeof proj_buf);
-        if ((n == (int)sizeof proj_buf && proj_ok(&proj_buf)) || proj_from_v6(&proj_buf, n))
+        if ((n == (int)sizeof proj_buf && proj_ok(&proj_buf)) || proj_from_v6(&proj_buf, n) || proj_from_v7(&proj_buf, n))
             return 1;
         n = st_load(OBJ_LEGACY0 + (slot & 3u), &old, sizeof old);
         return proj_import(&proj_buf, &old, n);
@@ -520,7 +558,8 @@ static void project_load(uint32_t slot)
 /* The template (SAVE > PROJECT, SLOT TMPL): a project without patterns, the sounds, the mix and the globals
  * a new project starts from; power-on loads it while BOOT is OFF. Small as it is, it rides at the end of
  * the settings record (settings_save; the projects' flash is full) and is kept in RAM. */
-#define TMPL_MAGIC 0x544D5031u                     /* "TMP1" */
+#define TMPL_MAGIC 0x544D5032u                     /* "TMP2": chord settings */
+#define TMPL_MAGIC_V1 0x544D5031u
 typedef struct {
     int16_t g[G_COUNT];
     uint8_t sel, fm6_has, rsv[2];                  /* the selected track; the parts with an FM6 voice */
@@ -535,8 +574,38 @@ typedef struct {
 } tmpl_t;
 /* As with the project formats: a change of P_COUNT, G_COUNT .. changes this, and a template saved
  * before would be dropped. Convert it in persist_boot first, then update the size. */
-_Static_assert(sizeof(tmpl_t) == 976u, "template format 1 as stored");
+typedef struct {
+    int16_t g[PROJ_NG_V2];
+    uint8_t sel, fm6_has, rsv[2];
+    struct { int16_t p[PROJ_NP_V5]; uint8_t engine, preset; } t[NTRK];
+    uint8_t fm6[NPART][128], fm6_on[NPART];
+    int8_t fm6_fn[NPART][16];
+    uint32_t size, magic;
+} tmpl_v1_t;
+_Static_assert(sizeof(tmpl_v1_t) == 976u, "template format 1 as stored");
+_Static_assert(sizeof(tmpl_t) == 1008u, "template format 2 as stored");
 static tmpl_t tmpl;
+
+static int template_import(const void *data, uint32_t size)
+{
+    uint32_t k;
+    const tmpl_v1_t *old = (const tmpl_v1_t *)data;
+    if (size == sizeof tmpl && ((const tmpl_t *)data)->magic == TMPL_MAGIC && ((const tmpl_t *)data)->size == size) {
+        memcpy(&tmpl, data, sizeof tmpl); return 1;
+    }
+    if (size != sizeof *old || old->magic != TMPL_MAGIC_V1 || old->size != size) return 0;
+    memset(&tmpl, 0, sizeof tmpl);
+    memcpy(tmpl.g, old->g, sizeof tmpl.g); tmpl.sel = old->sel; tmpl.fm6_has = old->fm6_has;
+    for (k = 0; k < NTRK; k++) {
+        proj_p_from(tmpl.t[k].p, old->t[k].p, PROJ_NP_V5);
+        tmpl.t[k].engine = old->t[k].engine; tmpl.t[k].preset = old->t[k].preset;
+    }
+    memcpy(tmpl.fm6, old->fm6, sizeof tmpl.fm6);
+    memcpy(tmpl.fm6_on, old->fm6_on, sizeof tmpl.fm6_on);
+    memcpy(tmpl.fm6_fn, old->fm6_fn, sizeof tmpl.fm6_fn);
+    tmpl.magic = TMPL_MAGIC; tmpl.size = sizeof tmpl;
+    return 1;
+}
 
 static int template_used(void) { return tmpl.magic == TMPL_MAGIC && tmpl.size == sizeof tmpl; }
 
@@ -663,10 +732,9 @@ static void persist_boot(void)                    /* before settings_init / pane
         ns = n;                                            /* the settings' bytes */
         if (n >= (int)sizeof w) {
             memcpy(w, rec + n - sizeof w, sizeof w);
-            if (w[1] == TMPL_MAGIC && w[0] <= (uint32_t)n) {   /* a template at the end */
+            if ((w[1] == TMPL_MAGIC || w[1] == TMPL_MAGIC_V1) && w[0] <= (uint32_t)n) {   /* a template at the end */
                 ns = n - (int)w[0];
-                if (w[0] == sizeof tmpl)
-                    memcpy(&tmpl, rec + ns, sizeof tmpl);   /* (another layout: not this firmware's) */
+                template_import(rec + ns, w[0]);
             }
         }
         if (ns > 0)

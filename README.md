@@ -275,7 +275,7 @@ routing, so use a synth-part channel or one that follows the selected track.
 The H-bank input filter also applies to the drum channel, GM sample kits and
 SLICE; those destinations retain their existing mapping for accepted notes.
 
-With **QNT = MPC**, tap **SCL** again to open the **MPC** subpage. **Knob 1
+With **QNT = MPC**, tap **SCL** again past CHORD to open the **MPC** subpage. **Knob 1
 (DEG)** selects which scale degree H02 plays; the display previews the resulting
 note, for example `H02: 3 -> E4` in C major. H01 is one degree below H02 and
 H03–H16 continue upward through the scale. ROOT stays unchanged. DEG ranges from
@@ -296,6 +296,21 @@ This applies to USB MIDI routed from a computer and to TRS MIDI input, enabled
 by default (`MELODEE_UART=1`). TRS also accepts MIDI clock and transport;
 system common and SysEx remain unsupported. End-to-end TRS timing still needs
 verification with an external MIDI source.
+
+## Chord performance
+
+Press **SCL** twice (or SCL, then turn SELECT) to reach **CHORD**. Knob 1 chooses OFF,
+scale TRIAD, scale 7TH (seventh), or FIXED shape. Knob 2 chooses one of ten fixed shapes (FIXED only;
+the scale modes take their quality from the scale); knobs 3 and 4 set inversion and CLOSE / OPEN /
+WIDE voicing. Scale modes stack alternate degrees of the selected scale; with a chromatic scale
+this stacks alternate semitones. The page shows the actual voicing of the C4 panel key. Enabling
+chords selects POLY, and browsing sounds keeps the chord setup.
+
+Panel keys expand before the arpeggiator and recording. Incoming MIDI and stored steps already
+contain pitches and pass through without further chord expansion. STEP and live recording store
+up to four actual notes. Each held key remembers its original voicing for reliable releases even
+after changing track, scale or chord settings. Drum and sliced/GM sample layouts bypass chords.
+Projects now save format FUN8; FUN1–FUN7 projects, old user presets and TMP1 templates migrate.
 
 ## Sequencer note length
 

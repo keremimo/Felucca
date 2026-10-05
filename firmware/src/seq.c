@@ -32,6 +32,7 @@ static const uint16_t SCALE_MASK[] = {
 #define KB_SILENT 255u
 static uint32_t kb_prev;
 static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on which track */
+static uint8_t kb_chord[27][4], kb_chord_n[27]; /* original voicing owns its releases */
 static volatile uint32_t kb_nav_btn;      /* ui_input.c: EDIT's button bit on an EDIT page; while it is held keys navigate, silent */
 /* MIDI releases use the original destination, even after root/scale/track changes.
  * Zero means no sounding note; high byte = track + 1, low byte = mapped note. */
@@ -442,6 +443,18 @@ static void input_off(track_t *t, uint32_t note)
     trk_note_off(t, note);                          /* other mode (ARP switched while held) */
 }
 
+#include "chord.c"
+
+static int kb_pitch_owned(uint32_t track, uint32_t skip, uint32_t pitch)
+{
+    uint32_t k, i;
+    for (k = 0; k < 27u; k++)
+        if (k != skip && kb_trk[k] == track && kb_note[k] != KB_SILENT)
+            for (i = 0; i < kb_chord_n[k]; i++)
+                if (kb_chord[k][i] == pitch) return 1;
+    return 0;
+}
+
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
@@ -449,7 +462,7 @@ static void keyboard_block(void)
     if (!ch)
         return;
     for (k = 0; k < 27u; k++) {
-        uint32_t mc;
+        uint32_t mc, i;
         if (!((ch >> k) & 1u))
             continue;
         if ((cur >> k) & 1u) {                    /* the selected track; the key-up goes to the same one */
@@ -457,15 +470,23 @@ static void keyboard_block(void)
             kb_note[k] = (uint8_t)(kb_nav_btn && (fm1_in.buttons & kb_nav_btn) ? KB_SILENT : kb_map(&trk[kb_trk[k]], k));
             if (kb_note[k] == KB_SILENT)
                 continue;
-            input_on(&trk[kb_trk[k]], kb_note[k], 100);
+            kb_chord_n[k] = (uint8_t)chord_notes(&trk[kb_trk[k]], kb_note[k], kb_chord[k]);
             mc = trk_midi_ch(kb_trk[k]);
-            midi_out_event(0x09u | (0x90u | mc) << 8 | (uint32_t)kb_note[k] << 16 | 100u << 24);
+            for (i = 0; i < kb_chord_n[k]; i++) {
+                input_on(&trk[kb_trk[k]], kb_chord[k][i], 100);
+                if (!kb_pitch_owned(kb_trk[k], k, kb_chord[k][i]))
+                    midi_out_event(0x09u | (0x90u | mc) << 8 | (uint32_t)kb_chord[k][i] << 16 | 100u << 24);
+            }
         } else {
             if (kb_note[k] == KB_SILENT)
                 continue;
-            input_off(&trk[kb_trk[k] % NTRK], kb_note[k]);
             mc = trk_midi_ch(kb_trk[k] % NTRK);
-            midi_out_event(0x08u | (0x80u | mc) << 8 | (uint32_t)kb_note[k] << 16);
+            for (i = 0; i < kb_chord_n[k]; i++) {
+                input_off(&trk[kb_trk[k] % NTRK], kb_chord[k][i]);
+                if (!kb_pitch_owned(kb_trk[k], k, kb_chord[k][i]))
+                    midi_out_event(0x08u | (0x80u | mc) << 8 | (uint32_t)kb_chord[k][i] << 16);
+            }
+            kb_chord_n[k] = 0;
         }
     }
     kb_prev = cur;
@@ -751,14 +772,21 @@ static track_t *midi_track(uint32_t ch)
 
 static void live_forget(uint32_t track)
 {
-    uint32_t note;
+    uint32_t note, i, bits[4] = {0,0,0,0};
     for (note = 0; note < 128u; note++) {
         live_refs[track][note] = 0;
         live_held_update(note);
     }
     for (note = 0; note < 27u; note++)
-        if (kb_trk[note] == track)
+        if (kb_trk[note] == track) {
+            for (i = 0; i < kb_chord_n[note]; i++)
+                bits[kb_chord[note][i] >> 5] |= 1u << (kb_chord[note][i] & 31u);
             kb_note[note] = KB_SILENT;
+            kb_chord_n[note] = 0;
+        }
+    for (note = 0; note < 128u; note++)
+        if ((bits[note >> 5] >> (note & 31u)) & 1u)
+            midi_out_event(0x08u | (0x80u | trk_midi_ch(track)) << 8 | note << 16);
 }
 #include "midi_control.c"
 

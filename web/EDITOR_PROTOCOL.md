@@ -164,6 +164,10 @@ first ones = P_LEVEL.. in order, missing ones = defaults). P_COUNT was 53 (P_E0 
 parameters (SLCR, PAT, RATE, DEPTH: ids 45..48) went in just before P_E0: P_COUNT 57, P_E0 49. An
 editor takes both from `INFO`; records stored with 53 load with the SLICER off.
 MPC pad degree (`DEG`, id 49) adds one more common parameter: P_COUNT 58, P_E0 50.
+Chord performance adds ids 50..53: CHORD (0 OFF, 1 scale triad, 2 scale seventh "7TH", 3 fixed),
+SHAPE (major, minor, dim, aug, sus2, sus4, 7, maj7, min7, m7b5), INV (0..3), and SPRD
+(0 close, 1 open, 2 wide). P_COUNT is now 62 and P_E0 is 54. Chord settings are per-track,
+retained on sound changes and stored in FUN8 projects. Older records default to chords OFF.
 Older records default to degree 1. `DEG` is shared across the three synth parts
 and retained when loading a preset, like SCL and QNT. `DESC` exposes its full
 range 1–12; `SET` and `TRACK_PARAM` additionally clamp it to the receiving scale's

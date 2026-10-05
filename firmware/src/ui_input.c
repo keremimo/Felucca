@@ -517,11 +517,20 @@ static void edit_param(uint32_t slot, int32_t steps)
         up_ui(slot - 1u, ui.uslot);
         return;
     }
+    if (pg->graph == GR_CHORD && slot == 1u && (TSEL->p[P_CHMODE] == 1 || TSEL->p[P_CHMODE] == 2)) {
+        ui_message("QUALITY FOLLOWS SCALE");                /* SHAPE is the FIXED mode's */
+        return;
+    }
     d = page_desc(pg, slot, &vp);
     if (!d || !vp || d->max == d->min)
         return;
     v = clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max);
     *vp = (int16_t)v;
+    if (pg->scope == SC_TRACK && id == P_CHMODE && v && TSEL->p[P_VOICE] != V_POLY) {
+        TSEL->p[P_VOICE] = V_POLY;                        /* chords need the part's voices */
+        panic_req |= (uint8_t)(1u << song.sel);
+        ui_message("CHORD: POLY VOICE");
+    }
     if (pg->scope == SC_TRACK && is_scale_setting(id))
         scale_setting_set(TSEL, id, (int16_t)v);
     if (!v)
@@ -626,13 +635,16 @@ static void seq_entry(uint32_t pressed)
 {
     uint32_t k;
     for (k = 0; k < 27u; k++) {
-        uint32_t note;
+        uint32_t note, i, n;
+        uint8_t chord[4];
         if (!((pressed >> k) & 1u))
             continue;
         note = kb_map(TSEL, k);
         if (note == KB_SILENT)
             continue;
-        seq_entry_note(note);
+        n = chord_notes(TSEL, note, chord);               /* a panel key enters its whole voicing */
+        for (i = 0; i < n; i++)
+            seq_entry_note(chord[i]);
     }
 }
 
