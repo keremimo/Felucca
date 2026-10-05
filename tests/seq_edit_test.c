@@ -1046,6 +1046,65 @@ static void performance_gestures_test(void)
     puts("performance: REC+PLAY punch-in, EDIT sound keys, FX step clear");
 }
 
+static void step_delete_test(void)
+{
+    static const struct { uint32_t len, start, duration, offset; } cases[] = {
+        {16, 0, 4, 0},                           /* chord and ties, next note adjacent */
+        {64, 15, 5, 0},                          /* crosses a display bank */
+        {16, 14, 4, 0},                          /* crosses the pattern boundary */
+        {16, 14, 6, 2},                          /* delete within a tie chain */
+        {16, 4, 16, 0},                          /* one note fills the whole loop */
+        {1, 0, 1, 0},                            /* single-step pattern */
+    };
+    uint32_t c, i, fx = 1u << panel.btn[B_FX];
+    step_t before[NSTEP];
+    for (c = 0; c < sizeof cases / sizeof cases[0]; c++) {
+        uint32_t len = cases[c].len, start = cases[c].start;
+        uint32_t duration = cases[c].duration, offset = cases[c].offset;
+        uint32_t at = (start + offset) % len;
+        reset(len);
+        note(start);
+        assert(step_note_resize(TSEL, start, (int32_t)duration) == duration);
+        if (duration < len)
+            note((start + duration) % len);
+        memcpy(before, TSEL->step, sizeof before);
+        cursor_set((int32_t)at);
+        button_edges |= fx;
+        fm1_in.buttons |= fx;
+        ui_input();
+        assert(ui.cursor == (at + 1u) % len && cur_page()->scope == SC_STEP);
+        assert(!strcmp(ui.msg, "STEP CLEARED"));
+        for (i = 0; i < NSTEP; i++) {
+            uint32_t distance = (i + len - at) % len;
+            step_t *st = &TSEL->step[i];
+            if (i < len && distance < duration - offset)
+                assert(st->time == ST_REST && !st->n && !st->flags && !st->vel);
+            else
+                assert(!memcmp(st, &before[i], sizeof *st));
+        }
+        fm1_in.buttons &= ~fx;
+        ui_input();
+    }
+
+    reset(16);
+    note(0);
+    assert(step_note_resize(TSEL, 0, 3) == 3);
+    note(7);
+    assert(step_note_resize(TSEL, 7, 3) == 3);
+    memcpy(before, TSEL->step, sizeof before);
+    cursor_set(0);
+    button_edges |= fx;
+    fm1_in.buttons |= fx;
+    ui_input();
+    for (i = 0; i < 3; i++)
+        assert(TSEL->step[i].time == ST_REST && !TSEL->step[i].n);
+    for (i = 3; i < NSTEP; i++)
+        assert(!memcmp(&TSEL->step[i], &before[i], sizeof before[i]));
+    fm1_in.buttons &= ~fx;
+    ui_input();
+    puts("STEP delete: following ties cleared, bank/loop wrap, tie suffix, full loop, neighboring notes/rests preserved");
+}
+
 static void scope_fixture(uint32_t period)
 {
     uint32_t i;
@@ -1565,6 +1624,7 @@ int main(int argc, char **argv)
     workspace_test();
     select_knob_test();
     performance_gestures_test();
+    step_delete_test();
     home_render_navigation_test();
     loop_redraw_test();
     playing_key_lights_test();

@@ -51,6 +51,16 @@ boot. Flags bit 0 clears the three maxima after the snapshot, so the next one
 covers only the time in between; nothing else changes audio settings.
 `tools/usb_audio_stats.py` reads these snapshots over MIDI (`--window` sets bit 0).
 
+Every build accepts the diagnostic command **34 SDRAM_PROBE**, with an optional
+flags byte: it powers up the SDRAM controller as the AC79 SDK does, sweeps its 96
+timing phases, checks a passing one and reports whether the chip carries an SDRAM
+die (`firmware/hal/fm1_sdram.h`). It takes up to about half a second, during which the
+UI and MIDI input wait; audio keeps playing. The reply starts with schema version 1,
+then the 26 words of `fm1_sdram_probe_t`, each encoded as five 7-bit bytes, least
+significant group first. Every register the probe touches is restored afterwards;
+flags bit 0 leaves found SDRAM running. `tools/sdram_probe.py` sends it and explains
+the reply.
+
 | cmd | Request args | Reply args |
 | --- | --- | --- |
 | 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4); older firmware ends after the names |

@@ -11,6 +11,7 @@
 #include "fm1_audio.h"
 #include "fm1_adc.h"
 #include "fm1_lcd_hw.h"
+#include "fm1_sdram.h"
 #include "melodee_tables.h"
 
 #ifndef MELODEE_USB_AUDIO

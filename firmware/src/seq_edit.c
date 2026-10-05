@@ -16,6 +16,21 @@ static uint32_t step_pattern_len(const track_t *t)
     return (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
 }
 
+/* Deleting a step also removes its remaining tie tail, including loop wrap. */
+static void step_delete(track_t *t, uint32_t at)
+{
+    uint32_t len = step_pattern_len(t), i;
+    if (at >= len)
+        return;
+    step_clear(&t->step[at]);
+    for (i = 1; i < len; i++) {
+        step_t *st = &t->step[(at + i) % len];
+        if (st->time != ST_TIE)
+            break;
+        step_clear(st);
+    }
+}
+
 /* Resolve any tied step to its onset, including across the loop. A rest or
  * an orphan tie has no onset (NSTEP). */
 static uint32_t step_note_start(const track_t *t, uint32_t at)
