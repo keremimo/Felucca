@@ -211,13 +211,17 @@ static const uint8_t KEYS_DIM_MASK[KEYS_N] = {0, 7, 3, 1, 0};   /* frames lit: -
 #define BTN_DIM_MASK 3u                                           /* idle buttons: 1/4 of the frames */
 
 /* the keys: EDIT / SEQ held their shortcuts, else the playing layout (play_key_led): nl bright, nd dim.
- * GLO > LIGHTS KEYS OFF (keys & KEYS_DARK): only the keys sounding, held or from MIDI in */
+ * GLO > LIGHTS KEYS OFF (keys & KEYS_DARK): only the keys sounding, held or from MIDI in, and with
+ * EDIT / SEQ held the keys pressed */
 static void key_leds(uint8_t *nl, uint8_t *nd, uint32_t keys)
 {
     uint32_t k, dark = keys & KEYS_DARK, lvl = keys & ~KEYS_DARK;
-    if (!dark && nav_held() && cur_fam() == FAM_SEQ)   /* SEQ + keys: the patterns */
+    if (dark && nav_held())                             /* KEYS OFF, EDIT / SEQ + keys: the keys held */
+        for (k = 0; k < 27u; k++)
+            led_put(nl, 14u + k, (int)((fm1_in.notes >> k) & 1u));
+    else if (nav_held() && cur_fam() == FAM_SEQ)        /* SEQ + keys: the patterns */
         pat_leds(nl);
-    else if (!dark && nav_held())                       /* EDIT + keys: the key map */
+    else if (nav_held())                                /* EDIT + keys: the key map */
         nav_leds(nl);
     else
         for (k = 0; k < 27u; k++) {
