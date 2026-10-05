@@ -630,6 +630,7 @@ typedef struct {
     uint32_t usb_off;
     uint32_t keys;
     uint32_t boot;                                 /* settings.boot */
+    int16_t glo[8];                                /* settings.glo */
 } persist_t;
 #define PERSIST_MAGIC 0x50455232u                  /* "PER2" */
 #if MELODEE_FLASH
@@ -669,16 +670,22 @@ static void persist_boot(void)                    /* before settings_init / pane
         }
         if (ns > 0)
             memcpy(&p, rec, (uint32_t)ns < sizeof p ? (uint32_t)ns : sizeof p);
-        tail = (uint32_t)((int)sizeof p - ns);             /* the fields a shorter record does not have */
-        if ((tail == 0u || tail == sizeof p.boot || tail == sizeof p.boot + sizeof p.keys ||
-             tail == sizeof p.boot + sizeof p.keys + sizeof p.usb_off) && p.magic == PERSIST_MAGIC) {
+        tail = ns >= (int)sizeof p ? 0u                    /* (a longer one, from newer firmware: its prefix) */
+                                   : (uint32_t)((int)sizeof p - ns);   /* the fields a shorter record does not have */
+        if ((tail == 0u || tail == sizeof p.glo || tail == sizeof p.glo + sizeof p.boot ||
+             tail == sizeof p.glo + sizeof p.boot + sizeof p.keys ||
+             tail == sizeof p.glo + sizeof p.boot + sizeof p.keys + sizeof p.usb_off) && p.magic == PERSIST_MAGIC) {
             settings.magic = SETTINGS_MAGIC;
             settings.palette = p.palette;
             settings.lowcut = p.lowcut;
             settings.zoom = p.zoom;
             settings.usb_off = p.usb_off;
-            settings.keys = tail <= sizeof p.boot ? p.keys : KEYS_MID;
+            settings.keys = tail <= sizeof p.glo + sizeof p.boot ? p.keys : KEYS_MID;
             settings.boot = p.boot;
+            if (tail == 0u)
+                memcpy(settings.glo, p.glo, sizeof p.glo);
+            else
+                glo_defaults();
             if (p.panel.magic == PANEL_MAGIC)
                 panel = p.panel;
             persist_len = (uint32_t)n;
@@ -694,6 +701,7 @@ static void persist_boot(void)                    /* before settings_init / pane
             settings.usb_off = 0;
             settings.keys = KEYS_MID;
             settings.boot = 0;
+            glo_defaults();
             if (old.magic == PANEL_MAGIC)
                 panel = old;
         }
@@ -753,6 +761,7 @@ static int settings_save(void)                     /* 0: in flash (or nothing to
     p.usb_off = settings.usb_off;
     p.keys = settings.keys;
     p.boot = settings.boot;
+    memcpy(p.glo, settings.glo, sizeof p.glo);
     memcpy(rec, &p, sizeof p);
     if (template_used()) {
         memcpy(rec + n, &tmpl, sizeof tmpl);

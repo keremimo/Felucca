@@ -158,6 +158,7 @@ static void fm1_main(void)
         panel_setup();                        /* OCT- + OCT+ held at power-on */
         settings_save();
     }
+    glo_restore();                            /* the GLO values as last used */
     project_boot();                           /* SAVE > PROJECT BOOT: that project instead of TRK_DEF */
     fm1_delay_ms(400);
     lcd_fill(0, 0, 240, 240, C_BLACK);
