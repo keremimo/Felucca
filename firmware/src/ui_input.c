@@ -189,7 +189,7 @@ static void pat_leds(uint8_t *nl)
  * so mark the keys in ROOT/SCL without changing what they sound. TRN and the
  * octave buttons shift both the note and the scale by the same interval.
  * A key is bright while it is held or its pitch sounds from MIDI in (live_refs),
- * the rest of the layout dim (Settings > KEYS); GLO > LIGHTS KEYS OFF: none lit. */
+ * the rest of the layout dim (Settings > KEYS). */
 enum { KL_OFF, KL_DIM, KL_ON };
 static uint32_t play_key_led(const track_t *t, uint32_t k)
 {
@@ -210,13 +210,28 @@ static uint32_t play_key_led(const track_t *t, uint32_t k)
 static const uint8_t KEYS_DIM_MASK[KEYS_N] = {0, 7, 3, 1, 0};   /* frames lit: -, 1/8, 1/4, 1/2, all */
 #define BTN_DIM_MASK 3u                                           /* idle buttons: 1/4 of the frames */
 
+/* the keys: EDIT / SEQ held their shortcuts, else the playing layout (play_key_led): nl bright, nd dim */
+static void key_leds(uint8_t *nl, uint8_t *nd, uint32_t lvl)
+{
+    uint32_t k;
+    if (nav_held() && cur_fam() == FAM_SEQ)            /* SEQ + keys: the patterns */
+        pat_leds(nl);
+    else if (nav_held())                                /* EDIT + keys: the key map */
+        nav_leds(nl);
+    else
+        for (k = 0; k < 27u; k++) {
+            uint32_t lv = play_key_led(TSEL, k);
+            led_put(nl, 14u + k, lv == KL_ON);
+            led_put(nd, 14u + k, lv == KL_DIM && lvl != KEYS_OFF);
+        }
+}
+
 /* Every button glows dim and is bright while held or engaged: its page family,
- * PLAY (blinking), REC, a shifted octave. The keys show the playing layout
- * (play_key_led) or, EDIT / SEQ held, their shortcuts. */
+ * PLAY (blinking), REC, a shifted octave. GLO > LIGHTS KEYS OFF: no key lit. */
 static void ui_leds(void)
 {
     uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0};
-    uint32_t k, c, b;
+    uint32_t c, b;
     uint32_t fam = cur_fam(), lvl = settings.keys & ~KEYS_DARK;
     static uint8_t ready;
     if (!ready) {
@@ -234,16 +249,8 @@ static void ui_leds(void)
     led_put(nl, panel.btn[B_REC], song.rec != 0u);
     led_put(nl, panel.btn[B_OCTDN], song.octave < 0);
     led_put(nl, panel.btn[B_OCTUP], song.octave > 0);
-    if (nav_held() && cur_fam() == FAM_SEQ)            /* SEQ + keys: the patterns */
-        pat_leds(nl);
-    else if (nav_held())                                /* EDIT + keys: the key map */
-        nav_leds(nl);
-    else if (!(settings.keys & KEYS_DARK))
-        for (k = 0; k < 27u; k++) {
-            uint32_t lv = play_key_led(TSEL, k);
-            led_put(nl, 14u + k, lv == KL_ON);
-            led_put(nd, 14u + k, lv == KL_DIM && lvl != KEYS_OFF);
-        }
+    if (!(settings.keys & KEYS_DARK))
+        key_leds(nl, nd, lvl);
     fm1_led_dim_mask[0] = KEYS_DIM_MASK[lvl];
     fm1_led_dim_mask[1] = BTN_DIM_MASK;
     for (c = 0; c < FM1_NCOL; c++) {

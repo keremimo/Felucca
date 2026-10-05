@@ -1165,6 +1165,18 @@ static void panel_lights_test(void)
         assert(led_lit(fm1_led_dim[1], panel.btn[b]) && led_lit(fm1_led, panel.btn[b]) == (b == B_GLO));
     fm1_in.notes = 0;
     events_block(0);
+    page_go(page_named("EDIT 1"));             /* nor the EDIT + keys shortcuts */
+    edit_frame(1, 0);
+    assert(nav_held());
+    ui_leds();
+    for (k = 0; k < 27u; k++)
+        assert(!led_lit(fm1_led, 14u + k) && !led_lit(fm1_led_dim[0], 14u + k));
+    settings.keys = KEYS_MID;                  /* (they show with the keys on) */
+    ui_leds();
+    assert(TSEL->preset != 1u && led_lit(fm1_led, 14u + SOUND_KEY[1]));   /* (steady: not the current sound) */
+    settings.keys = KEYS_MID | KEYS_DARK;
+    edit_frame(0, 0);
+    page_go(page_named("LIGHTS"));
     ui.force = 1;
     ui_draw();
     assert(!strncmp(ui.col[0], "KEYS|OFF|", 9));
