@@ -242,8 +242,9 @@ function mockTables() {
        ph.presets.length === 9 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
        "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
     ok(dr.name === "DRUM" && dr.edit.map((d) => d.label).join() === "KIT,TUNE,TONE,DECY,SNAP,ACC,KICK,DRV" &&
-       dr.presets.length === 1 && dr.presets.every((p) => p.pat === 12),
-       "editor: DRUM engine 10 (KIT TUNE TONE DECY SNAP ACC KICK DRV), one kit suggesting BEAT");
+       dr.edit[0].names.join() === "STD,HAND,CYM,H+CYM,808" && dr.presets.length === 2 &&
+       dr.presets.every((p) => p.pat === 12),
+       "editor: DRUM engine 10 (KIT TUNE TONE DECY SNAP ACC KICK DRV, KIT 808), two kits suggesting BEAT");
   }
   const dj = join(HERE, "../build/host/desc.json");
   if (!existsSync(dj)) { console.log("editor: mock tables == firmware (no build/host/desc.json)        skip"); return; }

@@ -745,6 +745,140 @@ static void engine(void)
     fails += bad != 0;
 }
 
+/* ----------------------------------------------------------- KIT 808 --- */
+/* the mix's RMS (dB re full scale) over nb blocks */
+static double blocks_rms(uint32_t nb)
+{
+    int32_t o[2 * CTL];
+    double s = 0;
+    uint32_t i, k;
+    for (i = 0; i < nb; i++) {
+        mix_block(o, CTL);
+        for (k = 0; k < 2u * CTL; k++)
+            s += (double)o[k] * o[k];
+    }
+    return 10 * log10(s / (2.0 * CTL * nb) + 1e-9) - 20 * log10(32768.0);
+}
+static double note_rms(int16_t kit, uint32_t note, uint32_t vel)   /* one hit through the engine: its first 0.2 s */
+{
+    kit_fresh();
+    trk[0].p[P_E0] = kit;
+    trk_note_on(&trk[0], note, vel);
+    return blocks_rms(FS / 5u / CTL);
+}
+
+/* KIT 808 (drum_808.c): every lane and every one of the 808's instruments sounds through the engine, the BD as loud
+ * as PUNCH (+-3 dB) and the lanes within 9 dB of the other kit's, velocity louder, a closed hat chokes the open one,
+ * the voices free themselves, KIT changed between hits: each hit its own kit's, no clipping at the knobs' corners */
+static void kit_808(void)
+{
+    static const uint8_t KIT[8] = {36, 38, 39, 42, 46, 45, 37, 56};
+    static const uint8_t ALL[DR_N] = {36, 38, 41, 45, 50, 64, 63, 62, 37, 75, 39, 70, 56, 49, 46, 42};   /* DR_* order */
+    uint32_t i, k, bad = 0, n;
+    char why[512] = "";
+    double kick = note_rms(DK_808, 36, 110) - note_rms(DK_STD, 36, 110);
+    if (kick < -3 || kick > 3) {
+        snprintf(why + strlen(why), sizeof why - strlen(why), " BD %+.1f dB of PUNCH;", kick);
+        bad++;
+    }
+    for (i = 1; i < 8u; i++) {
+        double a = note_rms(DK_808, KIT[i], 110), b = note_rms(DK_STD, KIT[i], 110);
+        printf("drum_test: 808 lane %u (note %u): %.1f dB, STD %.1f dB\n", i, KIT[i], a, b);
+        if (a - b < -9 || a - b > 9) {
+            snprintf(why + strlen(why), sizeof why - strlen(why), " lane %u %+.1f dB;", i, a - b);
+            bad++;
+        }
+    }
+    printf("drum_test: KIT 808: BD %+.1f dB of PUNCH, the other lanes within 9 dB of STD's%s: %s\n", kick, why,
+           bad ? "FAIL" : "ok");
+    fails += bad != 0;
+    bad = 0;
+    why[0] = 0;
+    for (i = 0; i < DR_N; i++) {                         /* each instrument: its circuit, it sounds, it ends */
+        double r;
+        kit_fresh();
+        trk[0].p[P_E0] = DK_808;
+        trk_note_on(&trk[0], ALL[i], 110);
+        k = DV_TYPE_LANE[DRUM_GM[ALL[i] - 35][0]];
+        n = drum_kit_part(0)[k].k8 && drum_kit_part(0)[k].r.ins == i;
+        r = blocks_rms(FS / 5u / CTL);
+        trk_note_off(&trk[0], ALL[i]);
+        for (k = 0; k < 8u * FS / CTL && voices_on(&trk[0]); k++)
+            blocks_peak(1);
+        if (!n || r < -60 || voices_on(&trk[0])) {
+            snprintf(why + strlen(why), sizeof why - strlen(why), " note %u (%s%.0f dB%s);", ALL[i],
+                     n ? "" : "not its circuit, ", r, voices_on(&trk[0]) ? ", rings on" : "");
+            bad++;
+        }
+    }
+    printf("drum_test: KIT 808: the 16 instruments from their GM notes sound and free their voices%s: %s\n", why,
+           bad ? "FAIL" : "ok");
+    fails += bad != 0;
+    {   /* velocity, the trigger level: 127 louder than 64 (the circuits compress it: brighter more than louder) */
+        static const uint8_t V[4] = {36, 38, 39, 56};
+        for (i = 0, k = 1; i < 4u; i++) {
+            double hi = note_rms(DK_808, V[i], 127), lo = note_rms(DK_808, V[i], 64);
+            printf("drum_test: KIT 808: note %u at velocity 127 %+.1f dB over 64\n", V[i], hi - lo);
+            k &= hi > lo + 2;
+        }
+        printf("drum_test: KIT 808: velocity 127 at least 2 dB over 64: %s\n", k ? "ok" : "FAIL");
+        fails += !k;
+    }
+    {   /* the choke: a closed hat 100 ms into the open one */
+        drum_lane_t *o;
+        kit_fresh();
+        trk[0].p[P_E0] = DK_808;
+        trk_note_on(&trk[0], 46, 110);
+        blocks_peak(FS / 10u / CTL);
+        o = &drum_kit_part(0)[DV_HATO];
+        k = o->r.on;
+        trk_note_on(&trk[0], 42, 110);
+        blocks_peak(FS / 20u / CTL);
+        k = k && !o->r.on;
+        printf("drum_test: KIT 808: a closed hat 100 ms into the open one ends it within 50 ms: %s\n", k ? "ok" : "FAIL");
+        fails += !k;
+    }
+    {   /* KIT moved between two hits of a lane: the 808, then STD's drum from rest, then the 808 again */
+        drum_lane_t *L;
+        kit_fresh();
+        trk[0].p[P_E0] = DK_808;
+        trk_note_on(&trk[0], 36, 110);
+        blocks_peak(4);
+        L = &drum_kit_part(0)[DV_KICK];
+        k = L->k8 && L->r.on;
+        trk[0].p[P_E0] = DK_STD;
+        trk_note_on(&trk[0], 36, 110);
+        blocks_peak(4);
+        k = k && !L->k8 && L->v.live && voices_on(&trk[0]) == 1u;
+        trk[0].p[P_E0] = DK_808;
+        trk_note_on(&trk[0], 36, 110);
+        k = k && blocks_rms(4) > -40 && L->k8 && L->r.on;
+        printf("drum_test: KIT 808 <-> STD between hits of a lane: each hit its kit's, one voice: %s\n", k ? "ok" : "FAIL");
+        fails += !k;
+    }
+    {   /* the corners: TUNE TONE DECY SNAP at 0 / 127, ACC 127, velocity 127, the whole kit at once: no clipping */
+        int32_t pk = 0, q;
+        uint32_t c;
+        for (c = 0; c < 16u; c++) {
+            kit_fresh();
+            trk[0].p[P_E0] = DK_808;
+            trk[0].p[P_E1] = c & 1u ? 127 : 0;
+            trk[0].p[P_E2] = c & 2u ? 127 : 0;
+            trk[0].p[P_E3] = c & 4u ? 127 : 0;
+            trk[0].p[P_E4] = c & 8u ? 127 : 0;
+            trk[0].p[P_E5] = 127;
+            for (i = 0; i < 8u; i++)
+                trk_note_on(&trk[0], KIT[i], 127);
+            q = blocks_peak(FS / CTL);
+            pk = q > pk ? q : pk;
+        }
+        k = pk < 32767;
+        printf("drum_test: KIT 808 at the knobs' corners, the 8 lanes at velocity 127: peak %d (< full scale): %s\n", pk,
+               k ? "ok" : "FAIL");
+        fails += !k;
+    }
+}
+
 /* ------------------------------------------------------------- cost --- */
 static uint64_t instr_now(void)
 {
@@ -908,6 +1042,7 @@ static void demos(const char *dir)
     demo_seq(dir, "kit_keys", (const uint8_t(*)[3])kit, 16, 64, 0, DK_HCYM);
     demo_seq(dir, "beat_punch", BEAT, sizeof BEAT / sizeof BEAT[0], 64, 0, DK_STD);
     demo_seq(dir, "beat_round", BEAT, sizeof BEAT / sizeof BEAT[0], 64, 1, DK_STD);
+    demo_seq(dir, "beat_808", BEAT, sizeof BEAT / sizeof BEAT[0], 64, 0, DK_808);
     printf("drum_test: demos in %s: %u voices (designed, DECAY / TONE / extra low and high, TUNE -5 / +5 st), the kit's "
            "keys, a beat (PUNCH, ROUND)\n", dir, (uint32_t)DVT_COUNT);
 }
@@ -925,6 +1060,7 @@ int main(int argc, char **argv)
     keys();
     lane_budget();
     engine();
+    kit_808();
     if (argc > 1)
         demos(argv[1]);
     printf("drum_test: %s\n", fails ? "FAILED" : "all checks ok");
