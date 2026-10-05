@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """A user-style drum loop for the SLICE AUTO test (tests/slice_test.c): two bars at 96 BPM with a
-swing, played by Felucca's generated drums (build/genwav, tools/gen_waves.py) at
+swing, played by Melodee's generated drums (build/genwav, tools/gen_waves.py) at
 44.1 kHz with a little noise, not on the BREAK's grid or tempo. Writes OUT.wav and OUT.hits (one
 line per onset: seconds).
   tests/slice_loop.py OUT"""

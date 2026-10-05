@@ -193,7 +193,7 @@ static void slicer_drums(int32_t *ml, int32_t *mr, int32_t *rev, uint32_t n)
         int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
         for (i = 0; i < n; i++) {
             int32_t x = sl_dbuf[i];
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
             track_capture[i * NTRK + TRK_DRUM] = x;
 #endif
             ml[i] += (x * gl) >> 12;

@@ -205,7 +205,7 @@ static void mix_part(track_t *t, uint32_t n)
              * Dexed's headroom: 16 unit sines a voice) */
             int32_t x = clamp(((clamp(b[i], -884000, 884000) >> 2) * lvl) >> 10, -524287, 524287), a = x < 0 ? -x : x;
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
             track_capture[i * NTRK + (uint32_t)(t - trk)] = x;
 #endif
             if (a > pk)
@@ -226,7 +226,7 @@ static void mix_part(track_t *t, uint32_t n)
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
     for (i = 0; i < n * NTRK; i++)
         track_capture[i] = 0;
 #endif

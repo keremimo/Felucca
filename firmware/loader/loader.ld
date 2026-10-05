@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca update loader: one RAM image at the address the SPL loads it to.
+/* Melodee update loader: one RAM image at the address the SPL loads it to.
  * Everything (code, constants, data) lives in RAM: the loader rewrites the
  * flash, so nothing may execute from XIP. Stacks far above, clear of the
  * update record (0x01C7FD88) and the crash record (0x01C7C000). */

@@ -5,7 +5,7 @@
  * author's own phase-distortion core: a -cos table read through a bent phase whose
  * bend is DCW. WAVE2 alternates with WAVE every other cycle. A second
  * line (DTN) can be mixed or ring-modulated; SUB adds a sine an octave down.
- * Envelopes are Felucca's own (ADSR, ENV -> DCW). */
+ * Envelopes are Melodee's own (ADSR, ENV -> DCW). */
 static const char *const N_PD_WAVE[] = {"SAW", "SQR", "PLS", "DSIN", "SPLS", "RSAW", "RTRI", "RTRP"};
 static const char *const N_PD_WAVE2[] = {"-", "SAW", "SQR", "PLS", "DSIN", "SPLS", "RSAW", "RTRI", "RTRP"};
 static const char *const N_PD_LINE[] = {"MIX", "RING"};

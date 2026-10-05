@@ -273,7 +273,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     const param_desc_t *d;
     ed_begin(cmd);
     switch (cmd) {
-#if FELUCCA_USB_AUDIO
+#if MELODEE_USB_AUDIO
     case ED_AUDIO_STATS: {
         uint32_t snapshot[20], k;
         fm1_irq_off();
@@ -293,12 +293,12 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         snapshot[13] = ua.missed_frames;
         snapshot[14] = ua.poll_max_ticks / FM1_TICKS_PER_US;
         snapshot[15] = ua.service_max_ticks / FM1_TICKS_PER_US;
-        snapshot[16] = felucca_dbg.late;
+        snapshot[16] = melodee_dbg.late;
         snapshot[17] = ua_feedback();
-        snapshot[18] = felucca_dbg.max_us;              /* render time, TIMER5 preemption included */
+        snapshot[18] = melodee_dbg.max_us;              /* render time, TIMER5 preemption included */
         snapshot[19] = song.cpu_q8;
         if (na && (a[0] & 1u))                          /* optional: start new maxima */
-            ua.poll_max_ticks = ua.service_max_ticks = felucca_dbg.max_us = 0;
+            ua.poll_max_ticks = ua.service_max_ticks = melodee_dbg.max_us = 0;
         fm1_irq_on();
         ed_b(2);                                        /* snapshot schema version */
         for (i = 0; i < 20u; i++)
@@ -308,7 +308,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     }
 #endif
     case ED_INFO:
-        ed_str("FELUCCA " FELUCCA_VERSION, 24);
+        ed_str("MELODEE " MELODEE_VERSION, 24);
         ed_b(NENGINES);
         ed_b(P_COUNT);
         ed_b(G_COUNT);

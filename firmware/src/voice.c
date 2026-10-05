@@ -15,7 +15,7 @@
  * voices only start when there is room. The drum track has its own voices (drums.c). */
 static uint32_t vage;                                   /* voice ages: one clock for every part */
 /* engines that play recorded material (a position, not a phase): no phases kept or spread */
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
 static int eng_sampled(const engine_t *e) { return e == &ENG_SAMPLE || e == &ENG_SLICE; }
 #else
 static int eng_sampled(const engine_t *e) { return e == &ENG_SAMPLE; }

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* TRIO: three oscillators with ring modulation and hard sync into a 12 dB/oct multimode
- * filter, in the style of the sound chips of early 8-bit home computers. Felucca's own design.
+ * filter, in the style of the sound chips of early 8-bit home computers. Melodee's own design.
  *
  * Oscillators: triangle, saw, pulse (PW), pitched noise (a new random value 16 times a cycle)
  * and two combined waves (saw AND triangle, pulse AND saw: the bitwise AND of the 16-bit

@@ -1,5 +1,5 @@
 /* Render representative device pages through the real UI code for visual QA. */
-#define FELUCCA_UI_PREVIEW 1
+#define MELODEE_UI_PREVIEW 1
 #include "seq_edit_test.c"
 
 int main(int argc, char **argv)

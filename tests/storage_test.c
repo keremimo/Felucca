@@ -103,7 +103,7 @@ int main(void)
                     }
             }
         ok &= st_sector(OBJ_PROJECT0, 0) == 0xB4000 && st_sector(OBJ_PROJECT0 + 3, 1) + ST_PROJ_SPAN * 4096 == 0xDC000;
-        bad += check("data stays in the Felucca regions, no two copies overlap", ok);
+        bad += check("data stays in the Melodee regions, no two copies overlap", ok);
     }
     {   /* the FM6 bank: its copies are not neighbours (0x9F000 / 0xFE000) */
         static uint8_t big[3588], back[3588];

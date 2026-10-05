@@ -125,7 +125,7 @@ static int is_gm_sample(const track_t *t)          /* (the engine it switches to
 
 static int is_slice(const track_t *t)
 {
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     return ENGINES[t->eng_req % NENGINES] == &ENG_SLICE;
 #else
     (void)t;
@@ -183,7 +183,7 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
         return DRUM_KEYS[k % 27u];
     if (is_gm_sample(t))                              /* GM KIT: lowest key = kick (C2), no scale */
         return (uint32_t)clamp(36 + 12 * song.octave + (int32_t)k, 0, 127);
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     if (is_slice(t))                                  /* SLICE: lowest key = slice 0 (C4 + ROOT), no scale */
         return (uint32_t)clamp(SLC_BASE + t->p[P_ROOT] + 12 * song.octave + (int32_t)k, 0, 127);
 #endif

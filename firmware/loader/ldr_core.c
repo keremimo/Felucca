@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca update loader, the portable part (step 2 of the M-UPGRADE update
+/* Melodee update loader, the portable part (step 2 of the M-UPGRADE update
  * protocol).
  *
  * The host serves the package ("logical image") with cmd 0x30 reads (ota.c).
@@ -25,7 +25,7 @@
 #define LDR_APP_LO 0x4000u
 #define LDR_APP_HI 0x93000u
 #define LDR_REC_LO 0x93000u                     /* update records live above the app ... */
-#define LDR_REC_HI 0xFC000u                     /* ... and below Felucca's globals */
+#define LDR_REC_HI 0xFC000u                     /* ... and below Melodee's globals */
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n);
 static int ldr_erase(uint32_t off);

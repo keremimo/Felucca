@@ -13,7 +13,7 @@ Input
                2 bits: 0 = background, 1 / 2 / 3 = a third / two thirds / full ink.
 
 Output: per icon cell*cell 2-bit pixels, row-major, 4 pixels per byte, first pixel in the
-high bits (12 x 12 -> 36 B), plus the enum ICON_<NAME> and FELUCCA_ICONS_N (the number of
+high bits (12 x 12 -> 36 B), plus the enum ICON_<NAME> and MELODEE_ICONS_N (the number of
 drawn icons; 0 when the PNG, the JSON or Pillow is missing, so the firmware builds without).
 """
 import json
@@ -73,7 +73,7 @@ def main(out, assets=ASSETS):
         lines += [f"    {ident}," for ident in ids]
         lines.append("    ICON_COUNT\n};")
     n = len(cells) if cells else 0
-    lines.append(f"#define FELUCCA_ICONS_N {n}")
+    lines.append(f"#define MELODEE_ICONS_N {n}")
     if n:
         bpi = (cell * cell + 3) // 4
         lines.append(f"#define ICON_BYTES {bpi}")

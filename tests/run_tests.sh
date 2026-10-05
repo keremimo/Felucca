@@ -9,7 +9,7 @@
 #                   each in tests/golden.txt. A change of the sound fails with the list of renders.
 #   health          clipping, DC, peak level, voices free after the release, silence at the end.
 #   CPU             instructions / sample per preset and mix (tests/cpu_baseline.txt, +25 %), ns printed;
-#                   target: loop instructions of the render functions in build/felucca.dis
+#                   target: loop instructions of the render functions in build/melodee.dis
 #                   (tests/target_budget.txt, +10 %; exact, static).
 #   voices          the budget of 8, steal fades, MONO / LEGATO / UNISON keep their note, the VOICE cap,
 #                   no hanging notes on any MIDI / key routing.
@@ -25,7 +25,7 @@ CC="${CC:-cc} -O1 -Wall -Wno-unused-function"
 fail=0
 run() { echo "== $1"; shift; "$@" || fail=1; }
 
-[ -f build/felucca.fwsc ] || { echo "run ./build.sh first"; exit 1; }
+[ -f build/melodee.fwsc ] || { echo "run ./build.sh first"; exit 1; }
 
 $CC -w -Ifirmware/hal -o "$OUT/encoder_test" tests/encoder_test.c
 run "encoders: first click, direction and reversed transitions" "$OUT/encoder_test"
@@ -50,12 +50,12 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/usb_audio_tracks_test" tests/usb_
 run "USB audio: four isolated track stems through the real mixer" "$OUT/usb_audio_tracks_test"
 
 $CC -o "$OUT/ota_test" tests/ota_test.c
-run "M-UPGRADE entry" "$OUT/ota_test" build/felucca.fwsc
+run "M-UPGRADE entry" "$OUT/ota_test" build/melodee.fwsc
 
-head -c 200000 build/felucca.bin > "$OUT/old_app.bin"
+head -c 200000 build/melodee.bin > "$OUT/old_app.bin"
 python3 tools/fm1pkg_make.py "$OUT/old_app.bin" build/loader/ota.bin "$OUT/old.fwsc" >/dev/null
 $CC -o "$OUT/ldr_test" tests/ldr_test.c
-run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" build/felucca.fwsc
+run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" build/melodee.fwsc
 
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_test" tests/fm6_test.c -lm
@@ -85,10 +85,10 @@ mkdir -p build/slicer_demo
 run "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" "$OUT/slicer_test" build/slicer_demo
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm
 run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
-# SLICE (tests/slice_test.c) needs a FELUCCA_SLICE=1 build; the engine is not built by default
+# SLICE (tests/slice_test.c) needs a MELODEE_SLICE=1 build; the engine is not built by default
 
 run "regression: target cost of the render loops" python3 tests/target_budget.py \
-    build/felucca.dis tests/target_budget.txt
+    build/melodee.dis tests/target_budget.txt
 
 run "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/install_test.py
 

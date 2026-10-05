@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def descriptors(audio, cdc):
     source = subprocess.check_output([
         *shlex.split(os.environ.get("CC", "cc")), "-E", "-P",
-        f"-DFELUCCA_USB_AUDIO={audio}", f"-DFELUCCA_CDC={cdc}",
+        f"-DMELODEE_USB_AUDIO={audio}", f"-DMELODEE_CDC={cdc}",
         str(ROOT / "firmware/src/usb.c"),
     ], text=True)
     body = re.search(r"CFG_DESC\[.*?\]\s*=\s*\{(.*?)\};", source, re.S)[1]

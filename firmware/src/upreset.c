@@ -162,7 +162,7 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
 
 static void up_boot(void)                      /* persist_boot: the banks from flash */
 {
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     uint32_t b;
     for (b = 0; b < UP_SLOTS / UP_PER_BANK; b++)
         up_bank_check(b, flash_ok ? st_load(OBJ_UPRESET0 + b, &up_bank[b], sizeof up_bank[b]) : -1);
@@ -187,7 +187,7 @@ static int up_put(uint32_t k, const up_rec_t *r)
                 trk[i].user = 0;
     }
     up_gen++;
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     if (flash_ok)
         return st_save(OBJ_UPRESET0 + k / UP_PER_BANK, bk, sizeof *bk) ? 2 : 0;
 #endif

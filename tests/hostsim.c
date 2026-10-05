@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Host-side render of the FELUCCA DSP (engines, voices, FX, sequencer) to a WAV,
+/* Host-side render of the MELODEE DSP (engines, voices, FX, sequencer) to a WAV,
  * for debugging sound without hardware. Same sources as the firmware.
  *   tests/run_tests.sh builds it into build/host/;
  *   build/host/hostsim ENGINE PRESET MONO OUT.wav [CHORUS]
@@ -19,10 +19,10 @@
 #include <stdlib.h>
 #include <string.h>
 #define __attribute__(x)
-#define memset felucca_memset
-#define memcpy felucca_memcpy
-#define memcmp felucca_memcmp
-#include "felucca_tables.h"
+#define memset melodee_memset
+#define memcpy melodee_memcpy
+#define memcmp melodee_memcmp
+#include "melodee_tables.h"
 #include "../firmware/src/libc.c"
 #undef memset
 #undef memcpy
@@ -67,7 +67,7 @@ static uint64_t now_ns(void)
     return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
 }
 
-static void host_tracks_init(void)                /* as felucca_init: defaults, empty patterns */
+static void host_tracks_init(void)                /* as melodee_init: defaults, empty patterns */
 {
     uint32_t i, k;
     for (i = 0; i < G_COUNT; i++)
@@ -770,7 +770,7 @@ int main(int argc, char **argv)
         inst.p[P_SUS] = p->env[2]; inst.p[P_REL] = p->env[3]; inst.p[P_ED_FLT] = p->fenv;
     }
     inst.p[P_VOICE] = (int16_t)mono;
-    inst.p[P_CHOR] = argc > 5 ? atoi(argv[5]) : 24;      /* as felucca_init */
+    inst.p[P_CHOR] = argc > 5 ? atoi(argv[5]) : 24;      /* as melodee_init */
     inst.p[P_DLY] = argc > 5 ? atoi(argv[5]) : 28;
     inst.p[P_REV] = argc > 5 ? atoi(argv[5]) : 36;
     if (getenv("PRESET"))                               /* PRESET=1: sends, ARP, voice mode too (then SENDS, PSET) */

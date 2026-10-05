@@ -319,7 +319,7 @@ static uint8_t proj_ram;                       /* RAM only: the slot + 1 whose s
 /* slot -> proj_buf (an older format converted): 1, or 0 = none */
 static int proj_fetch(uint32_t slot)
 {
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     static project_old_t old;
     int n;
     if (flash_ok) {
@@ -369,7 +369,7 @@ static void project_save(uint32_t slot)
                 p->fm6_fn[i][k] = (int8_t)fm6_ed[i][FN_PBUP + k];
     }
     p->sum = proj_sum(p);
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     if (flash_ok) {
         if (st_save(OBJ_PROJECT0 + (slot & 3u), p, sizeof *p)) {
             ui_message("SAVE ERROR");
@@ -477,13 +477,13 @@ typedef struct {
     uint32_t usb_off;
 } persist_t;
 #define PERSIST_MAGIC 0x50455232u                  /* "PER2" */
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
 static persist_t persist_saved;
 #endif
 
 static void persist_boot(void)                    /* before settings_init / panel_init */
 {
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     persist_t p;
     uint32_t f = irq_save();
     flash_ok = FL_FAR(fl_jedec_ram)() == 0x856014u;       /* the expected 1 MiB part, else stay RAM-only */
@@ -537,7 +537,7 @@ static int project_used(uint32_t slot) { return (proj_have >> (slot & 3u)) & 1u;
 
 static void settings_save(void)
 {
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     persist_t p;
     if (!flash_ok)
         return;
@@ -555,7 +555,7 @@ static void settings_save(void)
 #endif
 }
 
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
 _Static_assert(sizeof(project_t) <= ST_PROJ_SPAN * ST_SECTOR - ST_PAYLOAD_OFF, "project does not fit its flash object");
 #endif
 #endif /* PROJ_HOST */

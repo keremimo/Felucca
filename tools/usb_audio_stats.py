@@ -35,7 +35,7 @@ def snapshot(incoming, outgoing, window=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--port', default='Felucca')
+    parser.add_argument('--port', default='Melodee')
     parser.add_argument('--seconds', type=float, default=0)
     parser.add_argument('--interval', type=float, default=5)
     parser.add_argument('--window', action='store_true',

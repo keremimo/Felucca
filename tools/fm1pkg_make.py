@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Build an FM-1 update package (.fwsc) from the Felucca app and update loader.
+"""Build an FM-1 update package (.fwsc) from the Melodee app and update loader.
 
   flash.bin  head [0, 0x4000): flash header (JieLi SDK default values), JLFS
              entries, the SDK SPL (uboot.boot, Apache-2.0) and an isd_config
@@ -9,7 +9,7 @@
              the head.
              app area 0x4000..: app_area_head, app.bin, the SDK cfg_tool.bin and
              eq_cfg_hw.bin, the region descriptors; SFC-encrypted with the chip key
-  ota.bin    the Felucca update loader (firmware/loader)
+  ota.bin    the Melodee update loader (firmware/loader)
 
 The SDK files come from the JieLi AC79 SDK (AC79_SDK, or --sdk).
 All integrity checks in the format are CRC16 (poly 0x1021, init 0).
@@ -102,7 +102,7 @@ def flash_image(app, key):
     spl = sdk_file("uboot.boot")                         # SDK SPL, BANKCB-encoded as in the SDK
     cfg_tool = sdk_file("cfg_tool.bin")
     eq = sdk_file("cfg/eq_cfg_hw.bin")
-    isd = key_blob(key) + b"[FELUCCA]\r\n"
+    isd = key_blob(key) + b"[FELUCCA]\r\n"                # tag from before the rename, kept
     f = bytearray(b"\xFF" * FLASH_SIZE)
     # ---- head
     spl_off = 0xA0

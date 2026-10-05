@@ -3,7 +3,7 @@
 /* Real render path: isolated stems, inserts, level, silent-block clearing,
  * and independence from monitor pan, sends and MASTER. */
 #include <assert.h>
-#define FELUCCA_USB_AUDIO 1
+#define MELODEE_USB_AUDIO 1
 #define main hostsim_main
 #include "hostsim.c"
 #undef main

@@ -17,12 +17,12 @@
  * and static times, output, level and rate key scaling, velocity, the 32 algorithms, the LFO,
  * pitch envelope, pitch bend, portamento and the controllers (wheel, foot, breath, aftertouch
  * to pitch, amplitude and EG bias) follow Dexed's code and its DX7 measurements, at 44.1 kHz
- * in Dexed's 64-sample blocks (two of Felucca's 32-sample control ticks); voices are chosen
+ * in Dexed's 64-sample blocks (two of Melodee's 32-sample control ticks); voices are chosen
  * and handed over as Dexed does (16 of them). tests/fm6_parity.sh renders scores through both
  * and compares the samples. Tables: tools/gen_tables.py ("DX7 data": Apache License 2.0 /
  * GPL-3.0-or-later, see LICENSING.md).
  *
- * Felucca's own controls sit on top and are neutral at their defaults: MOD (P_E1) and the
+ * Melodee's own controls sit on top and are neutral at their defaults: MOD (P_E1) and the
  * SHP modulation shift the modulators' levels, M.TIM / C.TIM (P_E2 / P_E3) their envelope rates,
  * and the part's glide, LFO and envelope pitch modulation, unison detune and TUNE move the
  * pitch; the ADSR stays an overall shape.
@@ -224,7 +224,7 @@ static uint32_t fm6_store_slot(uint32_t p, uint32_t k)
  * envelope (samples at 44.1 kHz, rates 0..76); the velocity curve; the exponential
  * key-scaling curve; pitch-modulation sensitivity; the pitch envelope's rates and steps
  * (1/32 octave). The sine, 2^x, frequency, MARK I / OPL, detune, LFO and portamento tables
- * are in felucca_tables.h (tools/gen_tables.py) */
+ * are in melodee_tables.h (tools/gen_tables.py) */
 static const uint8_t FM6_LEVELLUT[20] = {0, 5, 9, 13, 17, 20, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 42, 43, 45, 46};
 static const int32_t FM6_STATICS[77] = {
     1764000, 1764000, 1411200, 1411200, 1190700, 1014300, 992250, 882000, 705600, 705600,
@@ -1132,7 +1132,7 @@ static void fm6_legato(track_t *t, voice_t *v)
     fm6_mtake(t, s);
 }
 
-/* the voice amplitude: Felucca's ADSR, until the voice is over: released, and every output
+/* the voice amplitude: Melodee's ADSR, until the voice is over: released, and every output
  * operator's envelope (and the feedback operator's) gone under what any engine renders, for
  * good. Dexed keeps computing such a voice; FM6 keeps only its control path running (fm6_ghost) */
 static int32_t fm6_amp(track_t *t, voice_t *v, int32_t adsr)
@@ -1171,7 +1171,7 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
     }
     tune = song.g[G_TUNE] * 13981;                       /* cents, Q24 */
     pbase = fm6_pt[p].pb + tune;
-    pm += pbase + m->plog;                               /* + Felucca's glide, LFO / ENV pitch, unison */
+    pm += pbase + m->plog;                               /* + Melodee's glide, LFO / ENV pitch, unison */
     /* amplitude: the LFO (AMD, after the delay) or a controller's, at least the EG bias */
     lfo = (1 << 24) - lfo;
     a1 = (int32_t)(((int64_t)((((uint32_t)ed[FV_LAMD] * 165u) >> 6) * (uint32_t)dly) >> 8) * lfo >> 24);
