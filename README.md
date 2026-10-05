@@ -78,6 +78,10 @@ STUDIO is selected on a fresh installation. If the FM-1 already has a saved colo
 **OCT-** to save and leave Settings. **ZOOM** in the same menu controls the large value readout
 that appears when a knob turns; **KEYS** sets how bright the unplayed keys glow.
 
+Every button glows dimly; it lights fully while held and while it is engaged: the open page's
+button (HOME, ENV, FX, SAVE, GLO ...), EDIT on the instrument pages, PLAY (blinking while playing),
+REC while recording, OCT- / OCT+ while the octave is shifted.
+
 ## Engines
 
 - **ANALOG**: virtual analog; two oscillators (saw, square, triangle, sine, PWM), noise, drive, resonant low-pass filter
@@ -222,6 +226,9 @@ white keys. A key turns bright while it is held or while its pitch plays from
 USB or TRS MIDI on the selected track. Hold **HOME** and set **KEYS** to choose
 how bright the rest of the layout is: OFF, LOW, MID (default), HIGH or FULL (as
 bright as a played key). Holding EDIT or SEQ shows their shortcut lights instead.
+**GLO > LIGHTS** knob 1 turns the key backlight off altogether (saved): no layout
+and no played keys lit; the buttons, and the EDIT and SEQ shortcut lights while
+held, still light. Turning it back ON, or setting **KEYS**, brings the layout back.
 
 Incoming MIDI uses the receiving track's **WHITE** or **ALL** layout: MIDI note 60
 (C4) plays ROOT, and each participating key advances one scale degree.

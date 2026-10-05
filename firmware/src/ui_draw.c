@@ -1579,6 +1579,10 @@ static void draw_columns(void)
             continue;
         }
 #endif
+        if (cur_page()->id[c] == G_LIGHTS && cur_page()->scope == SC_GLOBAL) {
+            draw_column(c, "KEYS", settings.keys & KEYS_DARK ? "OFF" : "ON", "", VAL(c), -1, ICON_AUTO);
+            continue;
+        }
         if (cur_page()->id[c] == G_INFO && cur_page()->scope == SC_GLOBAL) {
             fmt_int(val, (int32_t)(song.cpu_q8 * 100u / 256u));
             unit = "%";

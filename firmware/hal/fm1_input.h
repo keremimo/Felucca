@@ -26,8 +26,9 @@
  * quadrature cycle. fm1_enc_take() returns the steps.
  * LEDs: set fm1_led[col] (packed row bits, bit1 PA5..bit4 PA8); they are lit
  * while that column is selected. fm1_led_key/btn helpers address them by id.
- * fm1_led_dim[col] LEDs are lit one frame in (fm1_led_dim_mask + 1), staggered
- * by column: a dimmer level from the ~900 Hz frame rate, at no cost per tick.
+ * fm1_led_dim[plane][col] LEDs are lit one frame in (fm1_led_dim_mask[plane] + 1),
+ * staggered by column: dimmer levels from the ~900 Hz frame rate, at no cost per
+ * tick. Two planes, each with its own level (the UI: idle keys, idle buttons).
  */
 #pragma once
 #include <stdint.h>
@@ -81,8 +82,8 @@ static volatile struct {
     uint32_t frames;
 } fm1_in;
 static uint8_t fm1_led[FM1_NCOL];
-static uint8_t fm1_led_dim[FM1_NCOL];
-static uint8_t fm1_led_dim_mask;          /* 0 = full, 1 = 1/2, 3 = 1/4, 7 = 1/8 of the frames */
+static uint8_t fm1_led_dim[2][FM1_NCOL];
+static uint8_t fm1_led_dim_mask[2];       /* 0 = full, 1 = 1/2, 3 = 1/4, 7 = 1/8 of the frames */
 
 static void fm1__led_lines(uint32_t rowmask)
 {
@@ -97,7 +98,9 @@ static void fm1__led_lines(uint32_t rowmask)
 
 static uint32_t fm1__led_col(uint32_t p)          /* LED rows of column p in this frame */
 {
-    return fm1_led[p] | (((fm1_in.frames + p) & fm1_led_dim_mask) ? 0u : fm1_led_dim[p]);
+    uint32_t f = fm1_in.frames + p;
+    return fm1_led[p] | ((f & fm1_led_dim_mask[0]) ? 0u : fm1_led_dim[0][p]) |
+           ((f & fm1_led_dim_mask[1]) ? 0u : fm1_led_dim[1][p]);
 }
 
 static void fm1__sr_word(uint32_t w)

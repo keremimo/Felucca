@@ -167,7 +167,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_LOAD] = PE("LOAD", N_GO, 0),
     [G_SAVE] = PE("SAVE", N_GO, 0),
     [G_ENGSEL] = PE("ENG", N_ENGNAME, 0),
-    [G_ENGGO] = PE("SET", N_GO, 0),
+    [G_LIGHTS] = PE("KEYS", N_DASH, 0),             /* device setting, not song.g: as OUT / IN */
     [G_CLRSEQ] = PE("CLRSQ", N_GO, 0),
     [G_INITSND] = PE("INIT", N_GO, 0),
     [G_DRCH] = PD("CH", F_INT, 0, 16, 10),            /* drum part MIDI channel (GM keys), 0 = off */
@@ -373,6 +373,7 @@ static const page_t PAGES[] = {
 #else
     {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, 0xFF, 0xFF, G_INFO}},
 #endif
+    {"LIGHTS", FAM_GLO, SC_GLOBAL, GR_NONE, {G_LIGHTS, 0xFF, 0xFF, 0xFF}},      /* key backlight on / off */
     {"DRUMS", FAM_GLO, SC_GLOBAL, GR_NONE, {G_DRCH, G_DRLVL, G_DRREV, 0xFF}},   /* GM kit on MIDI ch 10 */
     {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, {0xFF, 0xFF, 0xFF, 0xFF}},   /* browser: PRESETS knob / KNOB 1 */
     {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, {0xFF, 0xFF, 0xFF, 0xFF}},       /* user presets: SLOT LOAD ERASE SAVE */

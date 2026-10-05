@@ -27,8 +27,15 @@ static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 #include "../firmware/src/gfx.c"
 #define FM1_NCOL 11
 #define FM1_TICKS_PER_US 1u
-static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {{0}};
-static uint8_t fm1_led[FM1_NCOL], fm1_led_dim[FM1_NCOL], fm1_led_dim_mask;
+static const int8_t FM1_KEYMAP[6][FM1_NCOL] = {      /* as fm1_input.h: where the LEDs are */
+    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+    { 5, 11,  4, 10,  3,  9,  2,  8, -1, -1, -1},
+    {34, 35, 36, 37, 38, 40, 39, 13,  7,  6, 12},
+    {23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33},
+    { 0,  1, 15, 14, 17, 16, 19, 18, 20, 21, 22},
+    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+};
+static uint8_t fm1_led[FM1_NCOL], fm1_led_dim[2][FM1_NCOL], fm1_led_dim_mask[2];
 static uint32_t button_edges, note_edges;
 static int32_t encoders[7];
 static void fm1_led_key(uint32_t id, int on) { (void)id; (void)on; }
@@ -1111,11 +1118,75 @@ static void playing_key_lights_test(void)
     assert(play_key_led(t, 8) == KL_OFF);
     settings.keys = KEYS_LOW;
     ui_leds();
-    assert(fm1_led_dim_mask == 7u);
+    assert(fm1_led_dim_mask[0] == 7u);
     settings.keys = KEYS_FULL;
     ui_leds();
-    assert(fm1_led_dim_mask == 0u);
+    assert(fm1_led_dim_mask[0] == 0u);
     puts("playing key lights: scale, root, layouts, transposition, drums; bright when played or from MIDI");
+}
+
+static int led_lit(const uint8_t *pic, uint32_t id)   /* id's LED in fm1_led or a dim plane */
+{
+    uint8_t q = led_pos[id];
+    return q != 0xFF && ((pic[q >> 3] >> (q & 7u)) & 1u);
+}
+
+static void panel_lights_test(void)
+{
+    uint32_t b, k;
+    reset(16);
+    settings.keys = KEYS_MID;
+    TSEL->p[P_SCALE] = 1;
+    TSEL->p[P_QUANT] = Q_WHITE;
+    page_go(page_named("ENV"));
+    ui_leds();
+    assert(fm1_led_dim_mask[0] == KEYS_DIM_MASK[KEYS_MID] && fm1_led_dim_mask[1] == BTN_DIM_MASK);
+    for (b = 0; b < NB; b++)                   /* every button glows; ENV and its workspace EDIT bright */
+        assert(led_lit(fm1_led_dim[1], panel.btn[b]) &&
+               led_lit(fm1_led, panel.btn[b]) == (b == B_ENV || b == B_EDIT));
+    assert(led_lit(fm1_led_dim[0], 14u + 7) && !led_lit(fm1_led, 14u + 7));   /* C4: the layout, dim */
+    fm1_in.buttons = 1u << panel.btn[B_SAVE];  /* a held button is bright */
+    song.octave = 1;
+    ui_leds();
+    assert(led_lit(fm1_led, panel.btn[B_SAVE]) && led_lit(fm1_led, panel.btn[B_OCTUP]) &&
+           !led_lit(fm1_led, panel.btn[B_OCTDN]));
+    fm1_in.buttons = 0;
+    song.octave = 0;
+
+    page_go(page_named("LIGHTS"));             /* GLO > LIGHTS: KEYS OFF darkens every key */
+    edit_param(0, -1);
+    assert(settings.keys == (KEYS_MID | KEYS_DARK) && set_t);
+    fm1_in.notes = 1u << 7;                    /* a played one too */
+    events_block(0);
+    ui_leds();
+    for (k = 0; k < 27u; k++)
+        assert(!led_lit(fm1_led, 14u + k) && !led_lit(fm1_led_dim[0], 14u + k));
+    for (b = 0; b < NB; b++)                   /* the buttons as before: GLO bright */
+        assert(led_lit(fm1_led_dim[1], panel.btn[b]) && led_lit(fm1_led, panel.btn[b]) == (b == B_GLO));
+    fm1_in.notes = 0;
+    events_block(0);
+    ui.force = 1;
+    ui_draw();
+    assert(!strncmp(ui.col[0], "KEYS|OFF|", 9));
+    fm1_ms += 1600;                            /* to flash once the knob rests */
+    ui_input();
+    assert(!set_t);
+    edit_param(0, -1);                         /* already off: nothing to save */
+    assert(!set_t);
+    edit_param(0, 1);                          /* ON: the level as it was */
+    assert(settings.keys == KEYS_MID && set_t);
+    ui_leds();
+    assert(led_lit(fm1_led_dim[0], 14u + 7));
+    settings.keys = KEYS_LOW | KEYS_DARK;      /* a flash copy with the flag keeps it */
+    settings_init();
+    assert(settings.keys == (KEYS_LOW | KEYS_DARK));
+    ui.menu = 1;                               /* Settings > KEYS turned: the keys are back on */
+    ui.menu_sel = MI_KEYS;
+    encoders[panel.enc[EN_K1]] = 1;
+    menu_input(0);
+    assert(settings.keys == KEYS_MID);
+    ui.menu = 0;
+    puts("panel lights: buttons dim / bright, GLO > LIGHTS KEYS OFF, Settings > KEYS level kept");
 }
 
 #ifndef MELODEE_UI_PREVIEW
@@ -1136,6 +1207,7 @@ int main(int argc, char **argv)
     home_render_navigation_test();
     loop_redraw_test();
     playing_key_lights_test();
+    panel_lights_test();
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;
 }

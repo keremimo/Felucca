@@ -69,7 +69,8 @@ enum {                          /* global parameters */
     G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH,
     G_MIDI, G_USBOUT, G_USBIN, G_INFO,   /* SYSTEM: USBOUT / USBIN are the USB audio devices (settings.usb_off) */
     G_SLOT, G_NAME, G_LOAD, G_SAVE,
-    G_ENGSEL, G_ENGGO,          /* no page (the ENGINE page is gone); a SET of G_ENGSEL switches the engine (editor) */
+    G_ENGSEL,                   /* no page (the ENGINE page is gone); a SET of it switches the engine (editor) */
+    G_LIGHTS,                   /* LIGHTS: the key backlight (settings.keys KEYS_DARK) */
     G_CLRSEQ, G_INITSND,
     G_DRCH, G_DRLVL, G_DRREV,
     G_COUNT
