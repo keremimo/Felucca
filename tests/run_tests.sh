@@ -27,6 +27,9 @@ run() { echo "== $1"; shift; "$@" || fail=1; }
 
 [ -f build/felucca.fwsc ] || { echo "run ./build.sh first"; exit 1; }
 
+$CC -w -Ifirmware/hal -o "$OUT/encoder_test" tests/encoder_test.c
+run "encoders: first click, direction and reversed transitions" "$OUT/encoder_test"
+
 $CC -o "$OUT/storage_test" tests/storage_test.c
 run "flash storage (A/B, torn writes)" "$OUT/storage_test"
 
