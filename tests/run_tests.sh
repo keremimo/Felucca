@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-# Host tests of the Felucca sources (no hardware). Run from the repo root after ./build.sh:
+# Host tests of the Melodee sources (no hardware). Run from the repo root after ./build.sh:
 #   tests/run_tests.sh
 #
 # Regression suite (tests/regress.c, tests/target_budget.py; details at the top of regress.c):
@@ -18,7 +18,7 @@
 #                   ellipsised), MONO gray, the draw cost, the text audit (build/ui_new/text_audit.tsv);
 #                   PNGs of MONO GREEN PAPER in build/ui_new (tests/ui_render.py), the findings in build/ui_new/report.txt;
 #                   FM6's 32 algorithm charts as drawn (no box overlapping, no route through a box or crossing another);
-#                   DIGITAL's screens (its algorithm charts, OP ENV) with FELUCCA_FM4=1 too (build/ui_fm4: lint, MONO);
+#                   DIGITAL's screens (its algorithm charts, OP ENV) with MELODEE_FM4=1 too (build/ui_fm4: lint, MONO);
 #                   every frame of the rolling digits (lint, MONO), their filmstrips in build/ui_slot.
 # UI (tests/ui_test.c): the UI sources against stub display / buttons / knobs: sound loads keep the steps and
 #                   the track's ARP / SCL / SLICER, the SEQ > PATTERNS loader and its REPLACE? dialog, the
@@ -54,16 +54,16 @@
 #                   the heaviest factory preset, demos in build/phys_demo/; tests/phys_ref.cpp compares the
 #                   fixed-point models with DaisySP's float originals when DaisySP is there (DAISYSP=path).
 # DRUM (tests/drum_test.c): the drum voices (src/drum_voice.c): pitch, decay, centroid and level against
-#                   Felucca's targets, the controls' directions, no clipping, DC, retriggers, the hat choke, the
+#                   Melodee's targets, the controls' directions, no clipping, DC, retriggers, the hat choke, the
 #                   kick on a small speaker; the DRUM engine (src/eng_drum.c): its key map, the 8 lanes together,
 #                   one hit per lane, the choke between lanes; the cost per voice; demos in build/drum_demo/.
 # NOISE (tests/noise_test.c): the engine (src/eng_noise.c): COLR's slope (white, pink, brown), the filter and the
 #                   register clock following the key, META periodic at the key, no DC, no clipping at the
 #                   corners, a note from silence the same twice, the cost per voice; demos in build/noise_demo/.
-# DIGITAL -> FM6 (tests/fm4_test.c, built with FELUCCA_FM4=1): the retired four-operator engine against its conversion
+# DIGITAL -> FM6 (tests/fm4_test.c, built with MELODEE_FM4=1): the retired four-operator engine against its conversion
 #                   (src/fm4_convert.c): routes and carriers per algorithm, the presets' PTCH, and the sound (pitch,
 #                   centroid, RMS envelope) of its presets and algorithms; demos in build/fm4_demo/. tests/digital_test.c
-#                   (FELUCCA_FM4=1 too): DIGITAL's operator envelopes. Default builds have no DIGITAL (engine 1 reserved).
+#                   (MELODEE_FM4=1 too): DIGITAL's operator envelopes. Default builds have no DIGITAL (engine 1 reserved).
 # FM6 (tests/fm6_test.c): the 6-operator FM engine (src/eng_fm6.c, src/fm6_core.c): the 32 algorithms' carriers, the
 #                   operator envelopes (stages, rates, the voice ending), bit-stable notes, a click-free retrigger, no DC /
 #                   clipping over the factory patches, the macros' directions, PTCH, pack / unpack and the SysEx
@@ -73,6 +73,8 @@
 set -e
 export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
 cd "$(dirname "$0")/.."
+# Pillow's Raqm (text spacing, renders): macOS strips DYLD_* on the way into /bin/sh (build.sh)
+[ "$(uname -s)" = Darwin ] && export DYLD_FALLBACK_LIBRARY_PATH="${DYLD_FALLBACK_LIBRARY_PATH:-/opt/homebrew/lib:/usr/local/lib:/usr/lib}"
 OUT=build/host
 mkdir -p "$OUT"
 CC="${CC:-cc} -O1 -Wall -Wno-unused-function"
@@ -97,17 +99,17 @@ run "USB audio input: descriptors (with CDC), ring and packets" "$OUT/uac_test"
 $CC -DT_CDC=0 -DHALF_FRAMES=$HALF -o "$OUT/uac_test_nocdc" tests/uac_test.c
 run "USB audio input: descriptors (without CDC), ring and packets" "$OUT/uac_test_nocdc"
 
-[ -f build/felucca.fwsc ] || { echo "run ./build.sh first"; exit 1; }
+[ -f build/melodee.fwsc ] || { echo "run ./build.sh first"; exit 1; }
 
 $CC -DOWN_PKG=1 -o "$OUT/ota_test" tests/ota_test.c
-run "M-UPGRADE entry (own loader)" "$OUT/ota_test" build/felucca.fwsc
+run "M-UPGRADE entry (own loader)" "$OUT/ota_test" build/melodee.fwsc
 
-head -c 200000 build/felucca.bin > "$OUT/old_app.bin"
+head -c 200000 build/melodee.bin > "$OUT/old_app.bin"
 python3 tools/fm1pkg_make.py "$OUT/old_app.bin" build/loader/ota.bin "$OUT/old.fwsc" >/dev/null
 $CC -o "$OUT/ldr_test" tests/ldr_test.c
-run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" build/felucca.fwsc
+run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" build/melodee.fwsc
 
-if [ -f build/gen/felucca_tables.h ]; then
+if [ -f build/gen/melodee_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/scale_test" tests/scale_test.c -lm
     run "scales: white-key mapping and note lifecycle" "$OUT/scale_test"
@@ -124,11 +126,11 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "motion, whole-step chance, FUN7 migration, song restore and ARP repeat" "$OUT/motion_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_control_test" tests/midi_control_test.c -lm
     run "USB/TRS clock, bend, sustain, ownership and panic recovery" "$OUT/midi_control_test"
-    $CC -O1 -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/digital_test" tests/digital_test.c -lm
-    run "DIGITAL (retired, built here with FELUCCA_FM4=1): operator envelopes/levels; sample zone priority" "$OUT/digital_test"
-    $CC -O2 -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/fm4_test" tests/fm4_test.c -lm
+    $CC -O1 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/digital_test" tests/digital_test.c -lm
+    run "DIGITAL (retired, built here with MELODEE_FM4=1): operator envelopes/levels; sample zone priority" "$OUT/digital_test"
+    $CC -O2 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/fm4_test" tests/fm4_test.c -lm
     mkdir -p build/fm4_demo
-    run "DIGITAL -> FM6: the conversion against DIGITAL (FELUCCA_FM4=1): pitch, centroid, RMS envelope; demos" \
+    run "DIGITAL -> FM6: the conversion against DIGITAL (MELODEE_FM4=1): pitch, centroid, RMS envelope; demos" \
         "$OUT/fm4_test" build/fm4_demo
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/theme_test" tests/theme_test.c -lm
     run "themes: contrast, text blending and font metrics" "$OUT/theme_test"
@@ -147,11 +149,11 @@ if [ -f build/gen/felucca_tables.h ]; then
     run "UI renders: layout lint (every screen and palette, every page, engine and column value), MONO gray, draw cost" \
         "$OUT/ui_render" build/ui_new build/ui_slot
     if python3 -c "import PIL" 2>/dev/null; then python3 tests/ui_render.py build/ui_new build/ui_slot; fi
-    $CC -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test_fm4" tests/ui_test.c -lm
-    run "UI built with FELUCCA_FM4=1 (DIGITAL, kept in the tree): its OP pages, EDIT cycle, algorithm charts" "$OUT/ui_test_fm4"
-    $CC -O1 -w -DFELUCCA_FM4=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render_fm4" tests/ui_render.c -lm
+    $CC -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test_fm4" tests/ui_test.c -lm
+    run "UI built with MELODEE_FM4=1 (DIGITAL, kept in the tree): its OP pages, EDIT cycle, algorithm charts" "$OUT/ui_test_fm4"
+    $CC -O1 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render_fm4" tests/ui_render.c -lm
     mkdir -p build/ui_fm4/ppm build/ui_fm4_slot
-    run "UI renders with FELUCCA_FM4=1: DIGITAL's screens (EDIT, OP ENV, the 8 algorithm charts), lint, MONO gray" \
+    run "UI renders with MELODEE_FM4=1: DIGITAL's screens (EDIT, OP ENV, the 8 algorithm charts), lint, MONO gray" \
         "$OUT/ui_render_fm4" build/ui_fm4 build/ui_fm4_slot
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/audio_test" tests/audio_test.c -lm
     run "audio: overload protection, bounded fades and DMA diagnostics" "$OUT/audio_test"
@@ -203,7 +205,7 @@ if [ -f build/gen/felucca_tables.h ]; then
     mkdir -p build/fm6_demo
     run "FM6: algorithms, envelopes, retrigger, DC, clipping, macros, patch formats, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
     # SLICE is in the standard build (firmware/src/core.h): its test always runs (after #22 by andreahaku)
-    if grep -q '^#define SLC_BREAK_BPM ' build/gen/felucca_samples.h; then
+    if grep -q '^#define SLC_BREAK_BPM ' build/gen/melodee_samples.h; then
         mkdir -p build/slice_demo
         python3 tests/slice_loop.py build/slice_demo/loop
         python3 tools/fm1_sample_upload.py build LOOP build/slice_demo/loop build/slice_demo/loop.wav:60 >/dev/null
@@ -211,7 +213,7 @@ if [ -f build/gen/felucca_tables.h ]; then
         run "SLICE: tables, onsets, reverse, keys, modes, MAN slices and their store, demos" "$OUT/slice_test" \
             build/slice_demo/loop build/slice_demo
     else
-        echo "== SLICE: build/ was made with FELUCCA_SLICE=0 (no BREAK); run ./build.sh without it first"
+        echo "== SLICE: build/ was made with MELODEE_SLICE=0 (no BREAK); run ./build.sh without it first"
         fail=1
     fi
 else
@@ -219,7 +221,7 @@ else
 fi
 
 run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py \
-    build/felucca.dis tests/target_budget.txt
+    build/melodee.dis tests/target_budget.txt
 
 run "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/install_test.py
 

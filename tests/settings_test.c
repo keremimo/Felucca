@@ -43,7 +43,7 @@ int main(void)
         assert(settings.magic == SETTINGS_MAGIC && settings.palette == 6u);
         p = original; assert(settings_import(&p, sizeof p) == 1); settings_init();
     }
-#ifdef FELUCCA_FAVORITES
+#ifdef MELODEE_FAVORITES
     assert(favorite_has(8, 0) && favorite_has(NENGINES, 31) && favorites.filter);
 #endif
     settings.lowcut = 0;

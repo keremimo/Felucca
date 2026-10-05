@@ -1,4 +1,4 @@
-Fukiai icon font (fukiai.ttf), used for the Felucca firmware icons and the web editor.
+Fukiai icon font (fukiai.ttf), used for the Melodee firmware icons and the web editor.
 
 MIT License
 

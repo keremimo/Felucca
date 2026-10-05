@@ -35,7 +35,7 @@ static void fresh(void)
     memset(&chain, 0, sizeof chain);
     host_tracks_init();
     for (p = 0; p < NPART; p++) host_preset(&trk[p], 0, 0);
-    memset(&felucca_dbg, 0, sizeof felucca_dbg);
+    memset(&melodee_dbg, 0, sizeof melodee_dbg);
     audio_cpu_rem = audio_halves = audio_max_us = 0;
     shed_req = 0; shed_count = 0; shed_over = 0;
     host_clock = host_us = host_half_reads = host_dma_advanced = host_acks = host_nest = 0;
@@ -107,22 +107,22 @@ static void dma(void)
     fresh();
     host_pending = 0;
     fm1_alnk0_irq();
-    check("an auxiliary interrupt does not render a DMA half", !host_acks && !audio_halves && !felucca_dbg.in_audio);
+    check("an auxiliary interrupt does not render a DMA half", !host_acks && !audio_halves && !melodee_dbg.in_audio);
     host_pending = FM1_AUDIO_HALF;
     host_us = 5000;
     fm1_alnk0_irq();
-    check("one slow half records elapsed load but does not shed yet", host_acks == 1u && !shed_req && felucca_dbg.last_us == 5000u && !felucca_dbg.late);
+    check("one slow half records elapsed load but does not shed yet", host_acks == 1u && !shed_req && melodee_dbg.last_us == 5000u && !melodee_dbg.late);
     fm1_alnk0_irq();
     check("a second slow half in a row requests shedding", host_acks == 2u && shed_req);
     shed_req = 0;
     host_half_reads = 0; host_dma_advanced = 1; host_us = 100;
     fm1_alnk0_irq();
-    check("DMA advancing during a render is counted once", host_acks == 3u && felucca_dbg.late == 1u && !felucca_dbg.in_audio && !shed_req);
+    check("DMA advancing during a render is counted once", host_acks == 3u && melodee_dbg.late == 1u && !melodee_dbg.in_audio && !shed_req);
     fresh();
     expected = HALF_FRAMES * 1000000u / FS;            /* the half's deadline in us */
     host_us = expected * 90u / 100u; host_nest = expected * 30u / 100u;   /* the render 60 %, TIMER5 nested 30 % */
     fm1_alnk0_irq(); fm1_alnk0_irq();
-    check("TIMER5 nested in the render counts toward the deadline", shed_req && felucca_dbg.last_us == host_us - host_nest);
+    check("TIMER5 nested in the render counts toward the deadline", shed_req && melodee_dbg.last_us == host_us - host_nest);
     fresh();
     host_us = 5000;
     fm1_alnk0_irq(); host_us = 100; fm1_alnk0_irq(); host_us = 5000; fm1_alnk0_irq();

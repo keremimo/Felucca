@@ -3,10 +3,10 @@
 /* Icons: 4-bit alpha cells of the Fukiai icon font (MIT), 12 px (parameters, lists) and 16 px
  * (header, dialogs, menu): web/fukiai.ttf -> build/gen/ui_icons.h
  * (tools/gen_aa_icons.py; names from assets/icons.json). Which icon a parameter gets is decided
- * here, by its label. FELUCCA_ICONS=0 turns the parameter icons off (labels get their full width back). */
+ * here, by its label. MELODEE_ICONS=0 turns the parameter icons off (labels get their full width back). */
 #include "ui_icons.h"
-#ifndef FELUCCA_ICONS
-#define FELUCCA_ICONS 1
+#ifndef MELODEE_ICONS
+#define MELODEE_ICONS 1
 #endif
 #define ICON_CELL 12
 
@@ -55,7 +55,7 @@ static int32_t cv_icon_mid(int32_t x, int32_t cy, uint32_t size, uint32_t id, ui
 #define ICON_AUTO 0xFEu                   /* draw_column: look the label up */
 #define ICON_GAP 2                        /* px between the icon and the label */
 
-#if FELUCCA_ICONS
+#if MELODEE_ICONS
 typedef struct {
     const char *label;
     uint8_t icon;
@@ -152,7 +152,7 @@ static uint32_t param_icon(const param_desc_t *d, int32_t v)
         return ICON_NOISE;                    /* NOISE's MODE is the source; its CLK the register clock */
     if (d == &NOISE_CLK)
         return ICON_RATE;
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     if (d->names == N_SLC_DIV)
         return ICON_SLICE;                    /* SLICE: DIV is the slicing, MODE the gate, REV the direction */
     if (d->names == N_SLC_MODE)
@@ -187,7 +187,7 @@ static uint32_t engine_icon(const char *name)
 {
     static const icon_map_t M[] = {
         {"ANALOG", ICON_WAVE},
-#if FELUCCA_FM4
+#if MELODEE_FM4
         {"DIGITAL", ICON_ALGORITHM},
 #endif
         {"PHASE", ICON_PHASE}, {"LOFI", ICON_BITS},

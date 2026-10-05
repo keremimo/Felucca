@@ -86,7 +86,7 @@ def main():
             print(f"  {name:8s} {dest.name}  {n // 1024} KiB")
     import datetime
     (DEST / "ATTRIBUTION.txt").write_text(
-        "Felucca SAMPLE engine - source material\n"
+        "Melodee SAMPLE engine - source material\n"
         f"Retrieved: {datetime.date.today().isoformat()} (first ~400 KB of each file)\n"
         "Licence: CC0 1.0 Universal (public domain dedication)\n"
         "  https://creativecommons.org/publicdomain/zero/1.0/\n"

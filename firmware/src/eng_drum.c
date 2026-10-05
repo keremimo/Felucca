@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* DRUM: a drum kit of 8 lanes (drum_voice.c, Felucca's own): KICK, SNARE, CLAP, HAT CL, HAT OP, TOM, RIM,
+/* DRUM: a drum kit of 8 lanes (drum_voice.c, Melodee's own): KICK, SNARE, CLAP, HAT CL, HAT OP, TOM, RIM,
  * BELL. Before 1.0 it was PHYS's MODEL DRUM; projects and user presets saved then load as this engine
  * (drum_from_phys in core.h).
  *

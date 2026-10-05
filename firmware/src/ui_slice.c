@@ -14,7 +14,7 @@
  * the slices shown into the slot's MAN table (eng_slice.c) and sets DIV to MAN; later edits change that table (the
  * audio side switches tables between notes). Leaving the page saves them with the sample (slice_store.c, once
  * stopped). Included by ui.c (before the action pages); the cards: ui_draw.c, the waveform: ui_graph.c. */
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
 #define SP_COLS 216u                                 /* the waveform's columns (the panel's x 12..227) */
 static struct {
     uint8_t sel;                                     /* the marker: slice 0..n - 1, n = END */

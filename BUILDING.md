@@ -1,17 +1,18 @@
-# Building Felucca
+# Building Melodee
 
 The build makes three files in `build/`:
 
 | File | What |
 | --- | --- |
-| `felucca.bin` | the firmware app |
+| `melodee.bin` | the firmware app |
 | `loader/ota.bin` | the update loader |
-| `felucca.fwsc` | the installable package (app + loader) |
+| `melodee.fwsc` | the installable package (app + loader) |
 
 ## Prerequisites (macOS)
 
 - Python 3 with Pillow and fontTools: `pip3 install Pillow fonttools` (the UI font and icons are
-  rasterised at build time)
+  rasterised at build time). Pillow's Raqm layout needs FriBidi: `brew install fribidi` (build.sh and
+  tests/run_tests.sh point `DYLD_FALLBACK_LIBRARY_PATH` at Homebrew's lib)
 - Docker Desktop. The JieLi toolchain is Linux x86-64 only; the build runs each tool in a
   `linux/amd64` `debian:bookworm-slim` container (Rosetta on Apple silicon). Keep the source
   tree in a folder Docker can share, e.g. under `/Users`.
@@ -43,23 +44,23 @@ On Linux x86-64 the toolchain runs natively and Docker is not needed.
 (`~/.jieli/toolchain`, `~/fw-AC79_AIoT_SDK`).
 
 `./build.sh --release 1.0` makes a release build: the package identity becomes `FM-1_910`
-and the version string `v1.0`; the package is `build/felucca-1.0.fwsc`, and
+and the version string `v1.0`; the package is `build/melodee-1.0.fwsc`, and
 `build/release-1.0/` holds what a release ships: the package, the app
-(`felucca-1.0-app.bin`), `SHA256SUMS`, the sample attribution, `LICENSE`, `LICENSING.md` and
+(`melodee-1.0-app.bin`), `SHA256SUMS`, the sample attribution, `LICENSE`, `LICENSING.md` and
 `LICENSES/` (the package contains Apache-2.0 SDK files, so the licence texts travel with it).
 
-Build options (environment, `0` or `1`; defaults in `firmware/src/felucca.c`, `core.h` and `icons.c`):
+Build options (environment, `0` or `1`; defaults in `firmware/src/melodee.c`, `core.h` and `icons.c`):
 
 | Flag | Default | |
 | --- | --- | --- |
-| `FELUCCA_FLASH` | 1 | settings, presets and projects in flash |
-| `FELUCCA_OTA` | 1 | update entry (needs `FELUCCA_FLASH`) |
-| `FELUCCA_CDC` | 1 | USB serial console |
-| `FELUCCA_UAC` | 1 | USB audio input (the master output, 44.1 kHz stereo) |
-| `FELUCCA_UART` | 1 | TRS MIDI IN |
-| `FELUCCA_SLICE` | 1 | the SLICE engine |
-| `FELUCCA_ICONS` | 1 | parameter icons on the knob cards |
-| `FELUCCA_FM4` | 0 | the retired DIGITAL engine (4-operator FM) instead of its FM6 conversion |
+| `MELODEE_FLASH` | 1 | settings, presets and projects in flash |
+| `MELODEE_OTA` | 1 | update entry (needs `MELODEE_FLASH`) |
+| `MELODEE_CDC` | 1 | USB serial console |
+| `MELODEE_UAC` | 1 | USB audio input (the master output, 44.1 kHz stereo) |
+| `MELODEE_UART` | 1 | TRS MIDI IN |
+| `MELODEE_SLICE` | 1 | the SLICE engine |
+| `MELODEE_ICONS` | 1 | parameter icons on the knob cards |
+| `MELODEE_FM4` | 0 | the retired DIGITAL engine (4-operator FM) instead of its FM6 conversion |
 
 ## Samples
 
@@ -93,12 +94,12 @@ does the same for the cost files.
 ## Install
 
 Use the web installer in Chrome or Edge:
-<https://hugelton.github.io/Felucca/webapp/installer/>. It installs the released package.
+<https://keremimo.github.io/melodee/webapp/installer/>. It installs the released package.
 
 From the command line (needs `pip3 install mido python-rtmidi`):
 
 ```
-python3 tools/fm1_install.py build/felucca.fwsc
+python3 tools/fm1_install.py build/melodee.fwsc
 python3 tools/fm1_install.py --info          # identity of the connected FM-1
 ```
 
@@ -106,8 +107,8 @@ Or, to install your own build from the web installer, make a local copy of the s
 (Web MIDI needs a secure context):
 
 ```
-python3 web/make_site.py build/felucca.fwsc dev /tmp/felucca-site
-cd /tmp/felucca-site && python3 -m http.server 8000
+python3 web/make_site.py build/melodee.fwsc dev /tmp/melodee-site
+cd /tmp/melodee-site && python3 -m http.server 8000
 # open http://localhost:8000/webapp/installer/
 ```
 

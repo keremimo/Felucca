@@ -59,7 +59,7 @@ static uint32_t ed_bk_capture(void)
     project_capture(&proj_scratch);
     if (!proj_pack((project_store_t *)ED_BK_RAW, &proj_scratch)) return 2;
     ed_bk_gen = ++proj_wire_gen;
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     ed_bk_settings = persist_saved;                 /* fields absent from this build survive */
 #else
     memset(&ed_bk_settings, 0, sizeof ed_bk_settings);
@@ -114,7 +114,7 @@ static uint32_t ed_bk_commit(void)
         if (ed_bk_len && (ed_bk_len != sizeof fm6_bank || !fm6_bank_valid((const fm6_bank_t *)raw))) return 2;
         obj = OBJ_FM6BANK;
     } else return 1;
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     if (!flash_ok || st_save(obj, raw, ed_bk_len)) return 4;
 #else
     (void)obj;
@@ -128,7 +128,7 @@ static uint32_t ed_bk_commit(void)
         memcpy(&ed_bk_settings, raw, sizeof ed_bk_settings);
         settings_import(&ed_bk_settings, sizeof ed_bk_settings);
         panel_init(); settings_init(); palette_set(settings.palette);
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
         persist_saved = ed_bk_settings; persist_pending = 0;
 #endif
     } else if (ed_bk_id == 8u) {

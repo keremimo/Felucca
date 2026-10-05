@@ -4,9 +4,9 @@
  * Build with the generated tables and the same flags as hostsim.c. */
 static unsigned char host_samples[3][0x14000];
 #define SMP_USER_XIP(k) host_samples[k]
-#define FELUCCA_OTA 1
-#define FELUCCA_FLASH 0
-#define FELUCCA_VERSION "TEST"
+#define MELODEE_OTA 1
+#define MELODEE_FLASH 0
+#define MELODEE_VERSION "TEST"
 #define main hostsim_main
 #include "hostsim.c"
 #undef main

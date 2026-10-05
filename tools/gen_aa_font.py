@@ -42,7 +42,7 @@ PHASES, PHASES_L = 4, 2                # horizontal phases per glyph (aa_raster.
 # faces stored Huffman-coded (--huff): M and L. S, the most drawn and the least compressible (-15 %), stays
 # 2 px per byte, so the labels draw at full speed
 HUFF = [("M", "L")]
-# L draws only "FELUCCA", the UPDATE MODE countdown digit and the calibration's control names (panel.c
+# L draws only "MELODEE", the UPDATE MODE countdown digit and the calibration's control names (panel.c
 # B_NAME / E_NAME): a sparse face of those glyphs, the space as its range and the rest as extras
 # (ui_test.c checks that every L string is covered)
 L_CHARS = " +-0123456789ABCDEFGHIKLMNOPQRSTUVXY"

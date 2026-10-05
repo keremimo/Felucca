@@ -5,7 +5,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Felucca</title>
+<title>Melodee</title>
 <style>
   :root { --bg: #fff; --fg: #000; --dim: #777; }
   @media (prefers-color-scheme: dark) {
@@ -29,7 +29,7 @@
 <body>
 <main>
   <button class="lang" id="lang"></button>
-  <h1>Felucca</h1>
+  <h1>Melodee</h1>
   <p data-t="intro"></p>
   <p data-t="warn"></p>
   <p class="small" data-t="direct"></p>
@@ -50,11 +50,12 @@
   <p id="status"></p>
   <pre id="log"></pre>
   <p><a href="../editor/" style="color:inherit" data-t="editor"></a></p>
-  <p class="small">Felucca by Leo Kuroshita (@kurogedelic), <a href="https://hugelton.com" target="_blank" rel="noopener" style="color:inherit">Hügelton Instruments</a>, with its CrispyZebra waveforms, drum voices, Sample Pack and Fukiai icons (MIT).<br>
+  <p class="small">Melodee by Ellic Studio, based on <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener" style="color:inherit">Felucca</a>
+    by Leo Kuroshita (@kurogedelic), <a href="https://hugelton.com" target="_blank" rel="noopener" style="color:inherit">Hügelton Instruments</a>, with its CrispyZebra waveforms, drum voices, Sample Pack and Fukiai icons (MIT).<br>
     Font: Inter Tight (The Inter Project Authors, SIL OFL 1.1). Samples: Versilian Studios VSCO-2 Community Edition and VCSL (CC0 1.0).<br>
     FM6 engine: msfa from Dexed (Google Inc., Pascal Gauthier, Apache-2.0). The package also holds three JieLi AC79 SDK files, uboot.boot, cfg_tool.bin and eq_cfg_hw.bin (JieLi Technology, Apache-2.0). <a href="../../firmware/LICENSING.md" style="color:inherit">Licences</a>: <a href="../../firmware/LICENSE" style="color:inherit">GPL-3.0</a>, <a href="../../firmware/LICENSES/Apache-2.0.txt" style="color:inherit">Apache-2.0</a>, <a href="../../firmware/LICENSES/" style="color:inherit">all</a>.<br>
     M-VAVE and FM-1 are trademarks of their respective owners.<br>
-    <span data-t="license"></span> <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener" style="color:inherit">github.com/hugelton/Felucca</a></p>
+    <span data-t="license"></span> <a href="https://github.com/keremimo/melodee" target="_blank" rel="noopener" style="color:inherit">github.com/keremimo/melodee</a></p>
 </main>
 <script type="module">
 /*LIB*/
@@ -67,14 +68,14 @@ const TEXT = {
     editor: "エディタ（インストール後、パソコンから音色やシーケンスを編集）",
     direct: "USB ケーブルはパソコンに直接つないでください。Probe や Transporter などの機材は不要です。",
     brick: "万一インストールに失敗して起動しなくなった場合は、復旧に Transporter が必要です:",
-    beta: "Felucca 1.0 は実地テスト版です。不具合は GitHub で知らせてください。このカスタムファームウェアを使ったことで FM-1 が壊れたり不具合が起きたりしても、作者は一切の責任を負いません。自己責任でお使いください。",
+    beta: "Melodee 1.0 は実地テスト版です。不具合は GitHub で知らせてください。このカスタムファームウェアを使ったことで FM-1 が壊れたり不具合が起きたりしても、作者は一切の責任を負いません。自己責任でお使いください。",
     back: "M-VAVEから公式FM-1 V15を取得し、未変更のFM-1.fwscを選んでください。ファイルはこのブラウザ内で検証し、サーバーへ送りません。",
     stockTitle: "公式V15に戻す", stockFile: "公式FM-1.fwsc", stockGo: "バックアップして公式V15へ戻す",
-    stockBackup: "現在の曲・保存曲・音色バンク・サンプル・設定を先に保存します。全体バックアップ非対応版は、Feluccaを更新してから行ってください。復元はFeluccaを再インストールしてエディタから行います。",
+    stockBackup: "現在の曲・保存曲・音色バンク・サンプル・設定を先に保存します。全体バックアップ非対応版は、Melodeeを更新してから行ってください。復元はMelodeeを再インストールしてエディタから行います。",
     stockRecovery: "更新中断の再開：全体バックアップはすでにパソコンへ保存済み",
-    stockValid: "公式V15を確認しました", stockConfirm: "全体バックアップファイルをパソコンに保存できましたか？ 続けると公式V15へ戻します。Feluccaの曲は公式V15では開けません。",
+    stockValid: "公式V15を確認しました", stockConfirm: "全体バックアップファイルをパソコンに保存できましたか？ 続けると公式V15へ戻します。Melodeeの曲は公式V15では開けません。",
     stockNeedBackup: "書き込みモードからはバックアップできません。保存済みバックアップがある場合だけ、更新中断の再開にチェックしてください。",
-    stockUnsupported: "このFeluccaは全体バックアップに未対応です。先に最新版をインストールしてください。",
+    stockUnsupported: "このMelodeeは全体バックアップに未対応です。先に最新版をインストールしてください。",
     backup: "全体バックアップ保存中 ", stockError: "公式ファイルを確認できません: ",
     nomidi: "このブラウザでは使えません。Chrome か Edge で開いてください。", loadfail: "読み込めませんでした: ",
     start: "開始します", verify: "確認中", loader: "書き込みモードに切り替え中", write: "書き込み中",
@@ -98,14 +99,14 @@ const TEXT = {
     editor: "Editor (after installing: edit sounds and sequences from the computer)",
     direct: "Connect the USB cable directly to the computer. No probe or Transporter is needed.",
     brick: "If an install fails and the FM-1 no longer starts, recovering it needs a Transporter:",
-    beta: "Felucca 1.0 is a field-testing release; please report problems on GitHub. The author accepts no responsibility if your FM-1 is damaged or misbehaves because of this custom firmware. Use it at your own risk.",
+    beta: "Melodee 1.0 is a field-testing release; please report problems on GitHub. The author accepts no responsibility if your FM-1 is damaged or misbehaves because of this custom firmware. Use it at your own risk.",
     back: "Get official FM-1 V15 from M-VAVE and select the unmodified FM-1.fwsc. The browser validates it locally; it is not sent to a server.",
     stockTitle: "Return to official V15", stockFile: "Official FM-1.fwsc", stockGo: "Back up and return to official V15",
-    stockBackup: "Current music, saved music, sound banks, samples and settings are saved first. Older firmware needs a Felucca update for complete backups. To restore an archive later, reinstall Felucca and use the editor.",
+    stockBackup: "Current music, saved music, sound banks, samples and settings are saved first. Older firmware needs a Melodee update for complete backups. To restore an archive later, reinstall Melodee and use the editor.",
     stockRecovery: "Resume an interrupted update: I already saved a complete backup to this computer",
-    stockValid: "Official V15 verified", stockConfirm: "Has the complete backup file been saved to this computer? Continue to return to official V15. Official V15 cannot open Felucca music.",
+    stockValid: "Official V15 verified", stockConfirm: "Has the complete backup file been saved to this computer? Continue to return to official V15. Official V15 cannot open Melodee music.",
     stockNeedBackup: "An update loader cannot export a backup. Only select resume if you already saved a complete backup.",
-    stockUnsupported: "This Felucca does not support complete backups. Install the current Felucca first.",
+    stockUnsupported: "This Melodee does not support complete backups. Install the current Melodee first.",
     backup: "Saving complete backup ", stockError: "Cannot validate official firmware: ",
     nomidi: "This browser cannot do it. Open the page in Chrome or Edge.", loadfail: "Could not load: ",
     start: "Starting", verify: "Verifying", loader: "Switching to update mode", write: "Writing",
@@ -152,7 +153,7 @@ window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault
     const pkg = new Uint8Array(await r.arrayBuffer());
     if (productOf(pkg) !== meta.product) { sayK("badpkg"); return; }
     image = logicalImage(pkg);
-    say(`Felucca ${meta.version}`);
+    say(`Melodee ${meta.version}`);
     $("go").disabled = false;
   } catch (e) { sayK("loadfail", e.message); }
 })();
@@ -202,7 +203,7 @@ $("stock-file").addEventListener("change", async () => {
 });
 function saveArchive(archive) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(archive)], {type:"application/json"}));
-  const a = document.createElement("a"); a.href = url; a.download = `Felucca-backup-${new Date().toISOString().slice(0,10)}.json`;
+  const a = document.createElement("a"); a.href = url; a.download = `Melodee-backup-${new Date().toISOString().slice(0,10)}.json`;
   document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function archiveInfo(a) {
@@ -211,7 +212,7 @@ function archiveInfo(a) {
   const engines = a[pos]; pos += 5;
   for (let i = 0; i < engines; i++) { const end = a.indexOf(0,pos); if (end < 0) throw new Error("Invalid INFO"); pos = end + 1; }
   const ext = a.slice(pos + 1);
-  const supported = /^FELUCCA /i.test(version) && ext[0] === 16 && ext[1] === 0x55 && ext[2] === 1 &&
+  const supported = /^(MELODEE|FELUCCA) /i.test(version) && ext[0] === 16 && ext[1] === 0x55 && ext[2] === 1 &&
     ext[4] === 0x4d && ext[5] === 1 && ext[8] === 0x42 && ext[9] === 1 && (ext[10] & 1);
   return {version,supported};
 }

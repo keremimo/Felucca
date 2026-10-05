@@ -1,20 +1,22 @@
-# Felucca
+# Melodee
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/hugelton)
 
-![Felucca 1.0](docs/felucca-1.0.png)
+**TL;DR:** connect your FM-1 to a computer by USB, open the
+[web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
+No extra hardware is needed. Beta: use at your own risk; M-VAVE's own updater or the installer's
+**Return to official V15** takes you back to the official firmware.
 
-**TL;DR:** Felucca 1.0 — Big New Features, field testing. Connect your FM-1 to a computer by USB,
-open the [web installer](https://hugelton.github.io/Felucca/) in Chrome or Edge, and press Install;
-no extra hardware is needed. Installing is at your own risk: M-VAVE's updater or the installer's
-**Return to official V15** takes you back.
+Multi-engine synthesizer firmware for the M-VAVE FM-1.
 
-Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you find in
-[Issues](https://github.com/hugelton/Felucca/issues).
+Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
+([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
+follows Felucca 1.0's design. Melodee is not affiliated with or endorsed by Hügelton Instruments;
+please report Melodee problems here, not to Felucca. The installer also finds an FM-1 that still
+runs Felucca.
 
-- Install: [web installer](https://hugelton.github.io/Felucca/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
-- Editor: [web editor](https://hugelton.github.io/Felucca/webapp/editor/)
+- Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
+- Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
 
 ## Features
@@ -41,7 +43,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
 - **Presets:** factory presets, 32 user preset slots and 4 projects, named on the device;
   projects from every earlier version load
 - **Screen:** flat UI with Inter Tight and Fukiai icons, 8 palettes including grayscale and high contrast
-- **USB:** class-compliant MIDI in and out, and a 44.1 kHz stereo audio input ("Felucca") that
+- **USB:** class-compliant MIDI in and out, and a 44.1 kHz stereo audio input ("Melodee") that
   records the master output on the computer, no driver needed
 - **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4 (other channels the selected track),
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS
@@ -51,7 +53,7 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1. Please report what you fi
 
 ## Controls
 
-![FM-1 controls with Felucca 1.0](docs/panel.jpg)
+![FM-1 controls](docs/panel.jpg)
 
 - **SELECT** sets the BPM, **MASTER** the volume, **ALGORITHM** picks the track (T1–T4) and
   **PRESETS** its sound. **KNOB 1–4** edit the four columns of the page
@@ -120,14 +122,17 @@ sevenths, or a fixed shape) and VOIC the voicing.
 
 ## Support
 
-If Felucca is useful to you, [sponsoring on GitHub](https://github.com/sponsors/hugelton) or a donation
-on [itch.io](https://hugelton.itch.io/felucca) helps keep its development going.
+Melodee lives at <https://github.com/keremimo/melodee>: bug reports, ideas and pull requests are
+welcome there.
 
-Pull requests are welcome, and so are ideas and requests: post them in
-[Discussions](https://github.com/hugelton/Felucca/discussions) or on X ([@kurogedelic](https://x.com/kurogedelic)).
+Felucca, which Melodee is built on, is Leo Kuroshita's work. If Melodee is useful to you, consider
+[sponsoring him on GitHub](https://github.com/sponsors/hugelton) or supporting Felucca on
+[itch.io](https://hugelton.itch.io/felucca).
 
 ## Credits
 
+- Melodee by Ellic Studio (Kerem Kilic, [@keremimo](https://github.com/keremimo))
+- Based on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com)
 - **[Hügelton Instruments](https://hugelton.com)** (Leo Kuroshita, [@kurogedelic](https://github.com/kurogedelic)):
   Felucca itself; the PHASE engine's waveforms (a C port of the oscillator of
   [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the DRUM voices; the Hügelton Sample
@@ -148,6 +153,8 @@ Pull requests are welcome, and so are ideas and requests: post them in
 Free software: [GPL-3.0-only](LICENSE), the Hügelton Sample Pack included. The bundled font and the
 ported DSP keep their own licences ([LICENSES/](LICENSES/)); details in [LICENSING.md](LICENSING.md).
 
-M-VAVE and FM-1 are trademarks of their respective owners. Felucca is not affiliated with or endorsed by them.
+"Felucca" and "Hügelton Instruments" are names of Hügelton Instruments. M-VAVE and FM-1 are
+trademarks of their respective owners. Melodee is not affiliated with or endorsed by any of them.
 
-Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments\
+Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)

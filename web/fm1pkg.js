@@ -174,7 +174,7 @@ export class Package {
     this.dec = dec;
   }
 
-  // the new app, padded to the stock size (Felucca never changes the layout)
+  // the new app, padded to the stock size (Melodee never changes the layout)
   setApp(app) {
     if (app.length > this.app.size) throw new Error(`app is ${app.length} B, the slot is ${this.app.size} B`);
     const nw = new Uint8Array(this.app.size).fill(0xFF);
@@ -245,8 +245,8 @@ export async function validateStockPackage(bytes) {
   return { product: pkg.product, image: logicalImage(bytes), sha256: STOCK_V15_SHA256 };
 }
 
-// official V15 + Felucca app -> installable package (Uint8Array)
-export async function buildFeluccaPackage(stockBytes, appBytes, product) {
+// official V15 + Melodee app -> installable package (Uint8Array)
+export async function buildMelodeePackage(stockBytes, appBytes, product) {
   const sha = await sha256hex(stockBytes);
   if (sha !== STOCK_V15_SHA256) throw new Error("this is not the official FM-1 V15 firmware file (FM-1.fwsc)");
   const pkg = new Package(stockBytes);

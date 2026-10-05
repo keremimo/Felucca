@@ -505,7 +505,7 @@ int main(void)
                      c.t[0].step[3].hit == 0x05u && c.t[0].step[3].acc == 0x05u);
     }
 
-#if !FELUCCA_FM4
+#if !MELODEE_FM4
     {   /* DIGITAL tracks (engine 1, retired: src/fm4_convert.c) in FUN8 / FUN7 / FUN4 / FUN1 projects load as FM6 with
          * the converted patch as the track's own; their motion on the EDIT or OP ENV values goes, the rest stays */
         project_t a, c, d;

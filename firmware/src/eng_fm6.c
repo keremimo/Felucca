@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM6: classic 6-operator FM. The synthesis is msfa (Dexed's core), ported to integer C in fm6_core.c
- * (Apache-2.0); this file is the Felucca engine around it.
+ * (Apache-2.0); this file is the Melodee engine around it.
  *
  * The patch is the sound: every track has one (fm6_patch, the generic 155-byte single-voice layout: six
  * operators with their 4-rate / 4-level envelopes, keyboard level and rate scaling, velocity, ratio or
@@ -26,7 +26,7 @@
  * small), per part the patch, the patch through the macros (fm6_eff, rebuilt in the audio ISR when either
  * changes) and the LFO (once a block). */
 #include "fm6_core.c"
-#include "felucca_fm6.h"         /* tools/gen_fm6_patches.py: FM6_INIT, FM6_FACTORY[] */
+#include "melodee_fm6.h"         /* tools/gen_fm6_patches.py: FM6_INIT, FM6_FACTORY[] */
 
 #define ENGI_FM6 12u             /* engines.c ENGINES[] (append-only) */
 #define FM6_POLY 6               /* engine_t.poly */
@@ -138,7 +138,7 @@ static void fm6_pack(const uint8_t *v, uint8_t *b)
 }
 
 /* ---------------------------------------------------- the track's patch --- */
-/* the patch bank (fm6_bank.c sets it with FELUCCA_FLASH): slot k's packed record -> pk, 0 = got it */
+/* the patch bank (fm6_bank.c sets it with MELODEE_FLASH): slot k's packed record -> pk, 0 = got it */
 static int (*fm6_bank_read)(uint32_t k, uint8_t *pk);
 
 /* track tr's patch = v (155 bytes, sanitized). Main loop: the ISR takes it at its next block */

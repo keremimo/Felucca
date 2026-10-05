@@ -1,4 +1,4 @@
-# Felucca editor protocol (SysEx over USB-MIDI)
+# Melodee editor protocol (SysEx over USB-MIDI)
 
 The firmware side is `firmware/src/editor.c`. Commands 1-15, track selection, dumps, step reads
 and parameter writes (27, 29, 30, 31) were checked on hardware. `tests/editor_test.c` also exercises the real C
@@ -55,7 +55,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 SLICE (NENGINES 14; a build with `FELUCCA_SLICE=0` has 13). The device and the editor list them in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE SLICE DRUM: `ENGINE_ORDER`); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 SLICE (NENGINES 14; a build with `MELODEE_SLICE=0` has 13). The device and the editor list them in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE SLICE DRUM: `ENGINE_ORDER`); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (83..90), and `INFO` gives `P_E0`.
 Their meaning, range and names depend on the current engine, so re-read `DESC` for them
@@ -76,7 +76,7 @@ P_COUNT 69): slot k (1..4) is `SRCk`, `DSTk`, `AMTk` at ids 49 + 3 (k − 1) .. 
 `DUMP` and the pushes report what was set.
 
 **DIGITAL (engine 1) was replaced by FM6 (Dexed-based)** in 1.0. The number stays reserved: `INFO` names it
-"-" (a build with `FELUCCA_FM4=1` has DIGITAL back, named "DIGITAL"), `NAMES 1` lists no presets, its EDIT
+"-" (a build with `MELODEE_FM4=1` has DIGITAL back, named "DIGITAL"), `NAMES 1` lists no presets, its EDIT
 descriptors are "-" with DIGITAL's ranges, and no track ever has it. Whatever brings a DIGITAL sound plays it as
 FM6 with a patch converted from its values (`firmware/src/fm4_convert.c`; the patch is the track's own, `FM6_GET`
 reads it, a project keeps it): `SET` of `G_ENGSEL` = 1 (DIGITAL's first preset), `PRESET` 1 k (its preset k),
@@ -351,9 +351,9 @@ grid lives in the steps themselves, so every engine has it:
   The device holds only one incoming SysEx frame.
 - **Following the device.** With v2 firmware, `WATCH` and `PING` (above). Older firmware pushes
   nothing (no reply to `PING`): poll `DUMP` about every 300–500 ms while the page is visible.
-- **Port.** The device's MIDI port is named "Felucca" (USB 1209:0001). Updates use the same
+- **Port.** The device's MIDI port is named "Melodee" (USB 1209:0001). Updates use the same
   port with other SysEx (the `F0 22 24 35 …` keys, `00 59 …` frames); never send those
-  from the editor. Since 1.0 the same USB device also has an audio input ("Felucca",
+  from the editor. Since 1.0 the same USB device also has an audio input ("Melodee",
   44.1 kHz stereo; bcdDevice 3.11); the MIDI port and this protocol are unchanged, and both
   work while the computer records.
 - **Global ids.** `G_ROUTE` (id 14, label "ROUT", GLO > SYSTEM) was a placeholder ("--", range 0..0);
@@ -388,7 +388,7 @@ grid lives in the steps themselves, so every engine has it:
   another write or zone scan. A different header is rejected (rc 2) until SMP_BEGIN,
   so sounding sample voices cannot see their zone table change.
 - **Safety.** `PROJECT` save, sample-slot commands, `UP_PUT` / `UP_STORE` / `UP_ERASE`, and the tagged preference writes below write flash, and only in
-  Felucca's own storage; never the app or the update area.
+  Melodee's own storage; never the app or the update area.
 
 
 ## v6: song chain

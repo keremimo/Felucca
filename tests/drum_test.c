@@ -7,7 +7,7 @@
  *    pitch (the dominant frequency of 20..300 ms, the kicks' of 150..400 ms: the end of the sweep) within
  *    +-10 cents of the design, t-30 (10 ms RMS frames, from the loudest to the first 30 dB below) within
  *    +-15 % + 10 ms, the spectral centroid of the first 100 ms within +-20 %, the RMS level of 0..0.2 s
- *    within +-1.5 dB of the targets in TGT below (Felucca's own numbers, set by ear and measured).
+ *    within +-1.5 dB of the targets in TGT below (Melodee's own numbers, set by ear and measured).
  * 2. controls: TUNE up -> pitch up, DECAY up -> t-30 up, TONE up -> centroid up (snare, clap, hats, cymbal),
  *    each extra control changes the sound, the kick's DRIVE adds harmonics.
  * 3. safety: every type at the corners of DECAY / TONE / extra / TUNE with LEVEL 127 and full accent: no sample
@@ -226,7 +226,7 @@ static double dc_share(const buf_t *b)
 /* ----------------------------------------------------------- targets --- */
 static double hz_of(int32_t p16) { return 440.0 * pow(2.0, (p16 / 16.0 - 69) / 12); }
 
-/* Felucca's targets at the designed parameters (LEVEL 100, no accent): t-30 (s), centroid of the first
+/* Melodee's targets at the designed parameters (LEVEL 100, no accent): t-30 (s), centroid of the first
  * 100 ms (Hz), RMS level of 0..0.2 s (dBFS) */
 static const struct {
     double t30, centroid, level;

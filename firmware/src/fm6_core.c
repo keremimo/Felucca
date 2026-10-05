@@ -19,15 +19,15 @@
  * Kept from msfa: its envelope (env.cc, with ACCURATE_ENVELOPE), pitch envelope (pitchenv.cc), LFO (lfo.cc),
  * note set-up (the note: level / rate scaling, velocity, operator pitch) and its renderer (fm_core.cc,
  * fm_op_kernel.cc): one operator at a time over a block, two buses, the 32 algorithm tables, feedback on
- * the operator that has it. Changed for Felucca:
+ * the operator that has it. Changed for Melodee:
  *   - no float or double: the start-up tables (Exp2, Freqlut, Lfo, PitchEnv, the detune curve, FINE) are
  *     const tables from tools/gen_tables.py (FM6_*); the amplitude-modulation exp() is an Exp2 of the same
- *     curve; msfa's float pitch bend, MPE and microtuning are gone (Felucca's pitch, bend, glide and tune
+ *     curve; msfa's float pitch bend, MPE and microtuning are gone (Melodee's pitch, bend, glide and tune
  *     arrive as the note's pitch in 1/16 semitone plus a fine factor: fm6_note_logfreq);
- *   - the sine is Felucca's 1024-point SINE (Q15), linearly interpolated, scaled by the Q24 gain to msfa's
+ *   - the sine is Melodee's 1024-point SINE (Q15), linearly interpolated, scaled by the Q24 gain to msfa's
  *     Q24 operator output;
  *   - a block is CTL (32) samples (msfa: 64);
- *   - no portamento, no operator switches, no controllers (mod wheel, breath, ...): Felucca's matrix does that.
+ *   - no portamento, no operator switches, no controllers (mod wheel, breath, ...): Melodee's matrix does that.
  * The patch is the 155-byte single-voice layout (FP_* below), operator 0 = the sixth operator, as msfa. */
 
 #define FM6_N CTL
@@ -498,7 +498,7 @@ static void fm6_note_key(fm6_note_t *n, const uint8_t *p, int down)
     n->down = (uint8_t)down;
 }
 
-/* the log2 frequency (Q24) of a pitch in 1/16 semitone plus a fine factor (1 + fine / 4096: Felucca's
+/* the log2 frequency (Q24) of a pitch in 1/16 semitone plus a fine factor (1 + fine / 4096: Melodee's
  * unison detune, tune and bend below 1/16 semitone): log2(1 + x) ~ x / ln 2 for these small factors */
 static int32_t fm6_note_logfreq(int32_t pitch16, int32_t fine)
 {

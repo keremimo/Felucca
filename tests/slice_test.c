@@ -23,8 +23,8 @@ static uint32_t host_slots[3u * 0x14000u / 4u];          /* USR1..3, as the flas
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
-#if !FELUCCA_SLICE
-#error "slice_test needs the SLICE engine (FELUCCA_SLICE=1, the default)"
+#if !MELODEE_SLICE
+#error "slice_test needs the SLICE engine (MELODEE_SLICE=1, the default)"
 #endif
 #define SLC_ENG 13u                                      /* SLICE's engine number (engines.c, the protocol's) */
 

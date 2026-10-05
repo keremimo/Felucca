@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Build Felucca: the app, the update loader and an installable .fwsc package.
+"""Build Melodee: the app, the update loader and an installable .fwsc package.
 
   tools/build.py [--release X.Y[-suffix]]
 
-Outputs in build/: felucca.bin (app), loader/ota.bin (update loader),
-felucca.fwsc (package). A release build (--release X.Y) writes felucca-X.Y.fwsc and a folder
+Outputs in build/: melodee.bin (app), loader/ota.bin (update loader),
+melodee.fwsc (package). A release build (--release X.Y) writes melodee-X.Y.fwsc and a folder
 release-X.Y/ with the package, the app, SHA256SUMS, the sample attribution and the licence files.
 See BUILDING.md for the toolchain and the SDK.
 
@@ -50,7 +50,7 @@ SDK_SHA256 = {
 }
 
 PRODUCT = "FM-1_900"                # package identity; release builds are FM-1_9XY
-VERSION = None                      # FELUCCA_VERSION for release builds (default: firmware/src/felucca.c)
+VERSION = None                      # MELODEE_VERSION for release builds (default: firmware/src/melodee.c)
 
 
 def toolchain():
@@ -93,16 +93,16 @@ def tc_all(*cmds):
 def generate():
     """generated headers (UI fonts, icons, keycaps, palettes, tables, samples)"""
     GEN.mkdir(parents=True, exist_ok=True)
-    for old in ("felucca_font.h", "felucca_icons.h"):     # headers of the bitmap font and icon atlas
+    for old in ("melodee_font.h", "melodee_icons.h"):     # headers of the bitmap font and icon atlas
         (GEN / old).unlink(missing_ok=True)
     tools = SRC / "tools"
     cmds = [[tools / "gen_aa_font.py", GEN / "ui_fonts.h", "--preset", "inter-tight"],
             [tools / "gen_aa_icons.py", GEN / "ui_icons.h"],
             [tools / "gen_aa_keycaps.py", GEN / "ui_keycaps.h"],
             [tools / "gen_ui_palettes.py", GEN / "ui_palettes.h"],
-            [tools / "gen_tables.py", GEN / "felucca_tables.h"],
-            [tools / "gen_fm6_patches.py", GEN / "felucca_fm6.h"],
-            [tools / "gen_samples.py", GEN / "felucca_samples.h"]]
+            [tools / "gen_tables.py", GEN / "melodee_tables.h"],
+            [tools / "gen_fm6_patches.py", GEN / "melodee_fm6.h"],
+            [tools / "gen_samples.py", GEN / "melodee_samples.h"]]
     procs = [subprocess.Popen([sys.executable, *map(str, c)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True) for c in cmds]
     failed = []
@@ -178,32 +178,32 @@ def build_loader():
 
 def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
-    for flag in ("FELUCCA_FLASH", "FELUCCA_OTA", "FELUCCA_OTA_DRYRUN", "FELUCCA_OTA_RAMONLY", "FELUCCA_CDC",
-                 "FELUCCA_UART", "FELUCCA_UAC", "FELUCCA_UAC_TONE", "FELUCCA_ICONS", "FELUCCA_SLICE", "FELUCCA_FM4"):
-        v = os.environ.get(flag)    # unset: the default in firmware/src/felucca.c
+    for flag in ("MELODEE_FLASH", "MELODEE_OTA", "MELODEE_OTA_DRYRUN", "MELODEE_OTA_RAMONLY", "MELODEE_CDC",
+                 "MELODEE_UART", "MELODEE_UAC", "MELODEE_UAC_TONE", "MELODEE_ICONS", "MELODEE_SLICE", "MELODEE_FM4"):
+        v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
-    flags.append(f'-DFELUCCA_ID="{PRODUCT}"')
+    flags.append(f'-DMELODEE_ID="{PRODUCT}"')
     if VERSION:
-        flags.append(f'-DFELUCCA_VERSION="{VERSION}"')
-    # felucca.c goes to LLVM IR without the optimizer, the main-loop functions (UI, stores, editor) are
-    # marked minsize (tools/size_fns.py), then the IR is compiled at -Os. FELUCCA_SIZE=0: -Os everywhere
-    size = os.environ.get("FELUCCA_SIZE") != "0"
+        flags.append(f'-DMELODEE_VERSION="{VERSION}"')
+    # melodee.c goes to LLVM IR without the optimizer, the main-loop functions (UI, stores, editor) are
+    # marked minsize (tools/size_fns.py), then the IR is compiled at -Os. MELODEE_SIZE=0: -Os everywhere
+    size = os.environ.get("MELODEE_SIZE") != "0"
     cmain = (("cc", *flags, "-S", "-emit-llvm", "-Xclang", "-disable-llvm-optzns", "-c",
-              FW / "src" / "felucca.c", "-o", OUT / "felucca.ll") if size else
-             ("cc", *flags, "-c", FW / "src" / "felucca.c", "-o", OUT / "felucca.o"))
+              FW / "src" / "melodee.c", "-o", OUT / "melodee.ll") if size else
+             ("cc", *flags, "-c", FW / "src" / "melodee.c", "-o", OUT / "melodee.o"))
     tc_all(("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
            ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
            ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
            cmain)
     if size:
-        subprocess.run([sys.executable, SRC / "tools" / "size_fns.py", OUT / "felucca.ll", OUT / "felucca_size.ll"],
+        subprocess.run([sys.executable, SRC / "tools" / "size_fns.py", OUT / "melodee.ll", OUT / "melodee_size.ll"],
                        check=True)
         tc("cc", *[f for f in flags if not f.startswith(("-I", "-D", "-W"))], "-c",
-           OUT / "felucca_size.ll", "-o", OUT / "felucca.o")
-    elf = OUT / "felucca.elf"
+           OUT / "melodee_size.ll", "-o", OUT / "melodee.o")
+    elf = OUT / "melodee.elf"
     tc("pi32v2/bin/ld", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o", OUT / "fm1_isr.o",
-       OUT / "felucca.o", "-o", elf)
+       OUT / "melodee.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin"):
         (OUT / sect).unlink(missing_ok=True)
     *_, syms, dis, rt = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, OUT / "text.bin"),
@@ -212,7 +212,7 @@ def build_app():
                                ("common/bin/objdump", "-t", elf),
                                ("common/bin/objdump", "-d", elf),
                                ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
-    (OUT / "felucca.dis").write_text(dis)
+    (OUT / "melodee.dis").write_text(dis)
 
     def symv(name):
         return int(re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M).group(1), 16)
@@ -229,7 +229,7 @@ def build_app():
             img += b"\xff" * (load - APP_XIP - len(img))
             img += blob
     img += b"\xff" * (-len(img) % 4)
-    (OUT / "felucca.bin").write_bytes(img)
+    (OUT / "melodee.bin").write_bytes(img)
     return bytes(img), syms, dis, rt
 
 
@@ -319,14 +319,14 @@ def main():
     ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_9XY, version string vX.Y")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
-    name = "felucca.fwsc"
+    name = "melodee.fwsc"
     if a.release:                   # one digit each: the identity has room for two
         m = re.fullmatch(r"(\d)\.(\d)(-[A-Za-z0-9]+)?", a.release)
         if not m:
             raise SystemExit(f"--release {a.release}: use X.Y or X.Y-suffix, one digit each")
         PRODUCT = "FM-1_9" + m[1] + m[2]
         VERSION = "v" + a.release.lower()      # e.g. v1.0, v1.1-rc1
-        name = f"felucca-{a.release}.fwsc"
+        name = f"melodee-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk
     for rel, sha in SDK_SHA256.items():          # fail early without the SDK
         if hashlib.sha256(fm1pkg_make.sdk_file(rel)).hexdigest() != sha:
@@ -353,14 +353,14 @@ def main():
     att = SRC / "assets" / "samples-cc0" / "ATTRIBUTION.txt"
     if att.exists():
         shutil.copy(att, OUT / "ATTRIBUTION.txt")
-    print(f"app      {OUT / 'felucca.bin'}  {len(img)} B")
+    print(f"app      {OUT / 'melodee.bin'}  {len(img)} B")
     print(f"loader   {LDR / 'ota.bin'}  {len(ota)} B")
     print(f"package  {OUT / name}  {len(pkg)} B, identity {PRODUCT}")
     if a.release:                   # what a release carries: the package, the app and every licence they need
         rel = OUT / f"release-{a.release}"
         shutil.rmtree(rel, ignore_errors=True)
         (rel / "LICENSES").mkdir(parents=True)
-        app = f"felucca-{a.release}-app.bin"
+        app = f"melodee-{a.release}-app.bin"
         (rel / name).write_bytes(pkg)
         (rel / app).write_bytes(img)
         (rel / "SHA256SUMS").write_text("".join(f"{hashlib.sha256(b).hexdigest()}  {n}\n"

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FELUCCA boot and main loop. Boot order: WDT first, boot-loop guard, fatal vectors,
+/* MELODEE boot and main loop. Boot order: WDT first, boot-loop guard, fatal vectors,
  * guards; then LCD, input (TIMER5 IRQ, 10 kHz), audio (ALNK0 IRQ). */
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
@@ -20,7 +20,7 @@ void fm1_timer5_irq(void)
     static uint32_t sub, owed;
     uint32_t t0 = fm1_ticks(), usb_due = sub % 5u == 0u;
     fm1_timer5_ack();
-    felucca_dbg.timer_irqs++;
+    melodee_dbg.timer_irqs++;
     fm1_input_tick();
     {   /* milliseconds from the 24 MHz TIMER4 (robust to a late tick) */
         static uint32_t last, acc;
@@ -33,15 +33,15 @@ void fm1_timer5_irq(void)
     }
     if (usb_due)
         owed |= 1u;                             /* 2 kHz: all USB SIE traffic lives here */
-#if FELUCCA_UART
+#if MELODEE_UART
     if (sub % 5u == 2u)
         owed |= 2u;                             /* 2 kHz: <= ~7 bytes per call at 31250 baud */
 #endif
     if (++sub == 10u)
         sub = 0;
-    if (felucca_dbg.in_audio) {
-        felucca_dbg.nested++;
-#if FELUCCA_UAC
+    if (melodee_dbg.in_audio) {
+        melodee_dbg.nested++;
+#if MELODEE_UAC
         if (usb_due)
             uac_service();
 #endif
@@ -50,7 +50,7 @@ void fm1_timer5_irq(void)
     }
     if (owed & 1u)
         usb_poll();
-#if FELUCCA_UART
+#if MELODEE_UART
     if (owed & 2u)
         uart_midi_poll();
 #endif
@@ -77,7 +77,7 @@ static void fm1_fault(const fm1_crash_t *c)
     uint32_t t0;
     fm1_audio_stop();
     lcd_fill(0, 0, 240, 240, UI_CRASH_BG);            /* fixed, outside the palettes */
-    draw_text_line(0, 8, 240, &AF_M, "FELUCCA CRASH", UI_CRASH_INK, UI_CRASH_BG, 1);
+    draw_text_line(0, 8, 240, &AF_M, "MELODEE CRASH", UI_CRASH_INK, UI_CRASH_BG, 1);
     hexs(b, c->vec);
     draw_text_line(10, 40, 220, &AF_M, b, UI_CRASH_INK, UI_CRASH_BG, 0);
     hexs(b, c->pc);
@@ -95,7 +95,7 @@ static void fm1_fault(const fm1_crash_t *c)
 }
 
 /* power-on: the parts with their default sounds (TRK_DEF); the sequencers empty */
-static void felucca_init(void)
+static void melodee_init(void)
 {
     uint32_t i;
     chain_defaults(&chain_config);
@@ -126,35 +126,35 @@ static void fm1_main(void)
 {
     int32_t knob = 512 * 16;
     persist_boot();
-#if FELUCCA_OTA
+#if MELODEE_OTA
     if (flash_ok)
         ota_boot_cleanup();                             /* staging area left by an update */
 #endif
     settings_init();
     lcd_init();
     lcd_fill(0, 0, 240, 240, T_BG);
-    draw_text_box(0, 94, 240, &AF_L, "FELUCCA", T_THEME, 1);
+    draw_text_box(0, 94, 240, &AF_L, "MELODEE", T_THEME, 1);
     draw_text_box(0, 134, 240, &AF_S, "MULTI-ENGINE SYNTH", T_MID, 1);
-    if (felucca_dbg.magic != DBG_MAGIC) {
-        memset(&felucca_dbg, 0, sizeof felucca_dbg);
-        felucca_dbg.magic = DBG_MAGIC;
+    if (melodee_dbg.magic != DBG_MAGIC) {
+        memset(&melodee_dbg, 0, sizeof melodee_dbg);
+        melodee_dbg.magic = DBG_MAGIC;
     }
-    felucca_dbg.boots++;
-    felucca_dbg.max_us = 0;
-    felucca_dbg.in_audio = 0;                       /* .noinit: a reset inside the audio ISR left it set, and
+    melodee_dbg.boots++;
+    melodee_dbg.max_us = 0;
+    melodee_dbg.in_audio = 0;                       /* .noinit: a reset inside the audio ISR left it set, and
                                                        TIMER5 would treat every tick as nested (no USB poll) */
-    felucca_dbg.prev_stage = felucca_dbg.stage;     /* a WDT reset leaves the last breadcrumb here */
-    felucca_dbg.prev_page = felucca_dbg.page;
-    felucca_dbg.prev_home = felucca_dbg.home;
-    felucca_dbg.prev_frames = felucca_dbg.ui_frames;
-    felucca_dbg.prev_rst = fm1_boot.p3_rst;
+    melodee_dbg.prev_stage = melodee_dbg.stage;     /* a WDT reset leaves the last breadcrumb here */
+    melodee_dbg.prev_page = melodee_dbg.page;
+    melodee_dbg.prev_home = melodee_dbg.home;
+    melodee_dbg.prev_frames = melodee_dbg.ui_frames;
+    melodee_dbg.prev_rst = fm1_boot.p3_rst;
     fm1_input_init();
     fm1_adc_init();
     panel_init();
-    felucca_init();
+    melodee_init();
     audio_init();
     usb_start();
-#if FELUCCA_UART
+#if MELODEE_UART
     uart_midi_init();
 #endif
     timer5_start();
@@ -218,7 +218,7 @@ static void fm1_main(void)
                 fm1_enter_uboot();
             }
         }
-#if FELUCCA_OTA
+#if MELODEE_OTA
         ed_service();                                   /* web editor SysEx */
         ota_service();                                  /* M-UPGRADE handshake */
         if (usb.ota_req) {                              /* M-UPGRADE upgrade command */
@@ -240,22 +240,22 @@ static void fm1_main(void)
             bootguard.pending = 0;
             fm1_enter_uboot();
         }
-#if FELUCCA_CDC
+#if MELODEE_CDC
         cdc_task();
 #endif
-        felucca_dbg.ui_frames++;
-        felucca_dbg.page = ui.page;
-        felucca_dbg.home = ui.home;
-        felucca_dbg.stage = 1;
+        melodee_dbg.ui_frames++;
+        melodee_dbg.page = ui.page;
+        melodee_dbg.home = ui.home;
+        melodee_dbg.stage = 1;
         ui_input();
         settings_poll();                              /* queued settings save: only while stopped */
-        felucca_dbg.stage = 2;
+        melodee_dbg.stage = 2;
         ui_leds();
         ui_draw();
-        felucca_dbg.stage = 9;
+        melodee_dbg.stage = 9;
         while (fm1_ms - m < 15u) {                               /* ~60 UI frames/s at most */
             ui_input();
-#if FELUCCA_OTA
+#if MELODEE_OTA
             ed_service();                       /* editor replies without waiting for the next frame */
 #endif
         }

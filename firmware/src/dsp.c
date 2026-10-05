@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Shared DSP building blocks for the Felucca engines (all fixed point).
+/* Shared DSP building blocks for the Melodee engines (all fixed point).
  * Voice output convention: add sample * amp to out[], where a full-scale
  * oscillator at amp = 1.0 (Q15 32767) contributes VOICE_FS. */
 #define VOICE_FS 24000           /* per-voice level: one voice peaks near -6 dBFS before the master */

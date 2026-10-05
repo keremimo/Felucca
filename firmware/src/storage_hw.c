@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* The firmware side of storage.c (FELUCCA_FLASH): flash reads in short IRQ-off windows so the
+/* The firmware side of storage.c (MELODEE_FLASH): flash reads in short IRQ-off windows so the
  * audio keeps up, erases and writes only inside the storage areas, the audio buffer silenced
  * first. The host tests (storage_test.c) provide their own st_* on a simulated NOR. */
 static uint8_t flash_ok;                 /* JEDEC id matched at boot (persist_boot) */

@@ -61,7 +61,7 @@ export function readBackup(file) {
   if (typeof file === "string") file = JSON.parse(file);
   const ids = file && Array.isArray(file.objects) ? idsOf(file.objects.length) : null;
   if (!file || file.format !== "felucca-backup" || file.version !== 1 || !ids)
-    throw new Error("Not a complete Felucca backup");
+    throw new Error("Not a complete Melodee backup");
   const objects = file.objects.map((o, i) => {
     if (!o || o.id !== ids[i] || !Number.isInteger(o.size) || o.size < 0 || o.size > (o.id >= 32 ? 81920 : 3840) ||
         !Number.isInteger(o.crc) || o.crc < 0 || o.crc > 0xffffffff || typeof o.data !== "string" ||

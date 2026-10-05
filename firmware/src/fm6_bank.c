@@ -50,7 +50,7 @@ static void fm6_bank_check(int n)
 
 static void fm6_bank_boot(void)                  /* persist_boot */
 {
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     fm6_bank_check(flash_ok ? st_load(OBJ_FM6BANK, &fm6_bank, sizeof fm6_bank) : -1);
 #else
     fm6_bank_check(-1);
@@ -86,7 +86,7 @@ static int fm6_bank_put(uint32_t k, const uint8_t *pk)
         fm6_bank.used &= ~(1u << k);
     }
     fm6_bank_read = fm6_bank_get;
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     if (flash_ok && st_save(OBJ_FM6BANK, &fm6_bank, sizeof fm6_bank)) {
         memcpy(fm6_bank.v[k], old, FM6_PACKED);
         fm6_bank.used = used;

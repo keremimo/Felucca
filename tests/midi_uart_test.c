@@ -7,8 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
-#define FELUCCA_OTA 1
-#define FELUCCA_CDC 0
+#define MELODEE_OTA 1
+#define MELODEE_CDC 0
 static void fm1_delay_ms(uint32_t ms) { (void)ms; }
 #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"   /* SIE register macros (never touched here) */
 #include "../firmware/src/usb.c"

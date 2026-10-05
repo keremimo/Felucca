@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* SLICE: a sample slicer, played from the keys and the sequencer. Felucca's own design.
+/* SLICE: a sample slicer, played from the keys and the sequencer. Melodee's own design.
  *
  * Material (SRC): the built-in BREAK (tools/gen_samples.py: one bar of 16ths at 120 BPM arranged
- * from Felucca's generated drums, stored after the SAMPLE sets) or a user slot USR1..3 (the same
+ * from Melodee's generated drums, stored after the SAMPLE sets) or a user slot USR1..3 (the same
  * slots as SAMPLE's, eng_sample.c), whose zones are played one after the other as one recording
  * (a zone that shares its data with an earlier one is skipped). An empty slot plays BREAK.
  *

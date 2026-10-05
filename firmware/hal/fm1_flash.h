@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* FM-1 SPI NOR at runtime: erase / program / read. Used only when
- * FELUCCA_FLASH is 1.
+ * MELODEE_FLASH is 1.
  *
  * Everything that executes while the SFC (XIP) is switched off lives in
  * .ram_text and touches only SFRs, the stack and RAM buffers: no .rodata, no
@@ -35,9 +35,9 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 #define T4_CNT          REG32(0x10804u)            /* TIMER4, 24 MHz free-running */
 
 #define FL_XIP(off)     FM1_XIP(off)              /* fm1_xip.h */
-#define FL_DATA_LO      0x00097000u                /* Felucca main store */
+#define FL_DATA_LO      0x00097000u                /* Melodee main store */
 #define FL_DATA_HI      0x000E0000u
-#define FL_GLOB_LO      0x000FC000u                /* Felucca superblock / globals */
+#define FL_GLOB_LO      0x000FC000u                /* Melodee superblock / globals */
 #define FL_GLOB_HI      0x000FF000u
 #define FL_OTA_LO       0x000E0000u                /* M-UPGRADE loader staging, ota.c */
 #define FL_OTA_HI       0x000E5000u
@@ -45,7 +45,7 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
  * the 1 MiB part ignores the high address bits, so a wrapped range lands low. */
 #define FL_IN(off, n, lo, hi) ((uint32_t)(off) >= (lo) && (uint32_t)(off) <= (hi) && \
                                (uint32_t)(n) <= (hi) - (uint32_t)(off))
-/* Felucca's own store (projects, user samples; settings) */
+/* Melodee's own store (projects, user samples; settings) */
 #define FL_STORE_OK(off, n) (FL_IN(off, n, FL_DATA_LO, FL_DATA_HI) || FL_IN(off, n, FL_GLOB_LO, FL_GLOB_HI))
 /* Where the RAM driver may erase / program. The app build allows only its own
  * data regions; the update loader (firmware/loader) defines its own window. */

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca UI input: LEDs, knobs and buttons, SEQ step entry, panel setup. */
+/* Melodee UI input: LEDs, knobs and buttons, SEQ step entry, panel setup. */
 #include "ui_name.c"                                    /* NAME: naming user presets and projects */
 /* ----------------------------------------------------------- LEDs --- */
 /* The LED picture is built off-line and copied one byte per column: clearing
@@ -101,7 +101,7 @@ static void ui_leds(void)
     led_put(nl, panel.btn[B_OCTUP], (int)(k >> 1));
     c = name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds() : grid_on() ? grid_leds() :
         fm1_in.notes & ~kb_layer;                       /* NAME's keys, the map, the grid, the keys held */
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
         c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
 #endif
@@ -334,7 +334,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         }
         return;
     }
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     if (pg->graph == GR_SLICES && slot < 2u) {           /* SLICES: KNOB 1 the marker, 2 moves it (ui_slice.c) */
         if (slice_page_ok())                              /* (the engine changed before ui_draw left the page) */
             slice_knob(slot, steps);
@@ -403,7 +403,7 @@ static void act_do(void)
             pat_load_ui(TSEL, pat_pick());
         return;
     }
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     if (cur_page()->graph == GR_SLICES) {                 /* SPLIT / JOIN: stays picked (split again, join again) */
         if (slice_page_ok())
             slice_act(c);
@@ -602,7 +602,7 @@ static void ui_input(void)
     uint32_t lay, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
-#if !FELUCCA_FM4
+#if !MELODEE_FM4
     for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */
         if (trk[k].eng_req == ENGI_DIGITAL)             /* already): FM6 (fm4_convert.c) */
             fm4_track(&trk[k]);
@@ -810,7 +810,7 @@ static void ui_input(void)
             go_home();
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     if (notes && slice_page_on())                       /* SLICES: a key picks the slice it plays */
         slice_keys_pick(notes);
 #endif

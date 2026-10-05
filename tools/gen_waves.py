@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Synthesize Felucca's own sample library (no third-party material).
+"""Synthesize Melodee's own sample library (no third-party material).
 
 Writes 16-bit mono WAVs with 'smpl' loop chunks to the output directory:
   single-cycle waves  additive synthesis, one 256-sample cycle, looped
   drum one-shots      kick / snare / hats / clap / toms / rim / cowbell
   pluck               Karplus-Strong strings at three pitches (one-shots)
-Everything here is generated from code in this file and is part of Felucca.
+Everything here is generated from code in this file and is part of Melodee.
 """
 import math
 import random

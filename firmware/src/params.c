@@ -29,9 +29,9 @@ static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"}
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR"};
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"};
-static const char *const N_ENGNAME[] = {"ANALOG", FELUCCA_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
+static const char *const N_ENGNAME[] = {"ANALOG", MELODEE_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
                                              "DRUM", "NOISE", "FM6",
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
                                              "SLICE",
 #endif
 };
@@ -93,7 +93,7 @@ static const param_desc_t TP[P_COUNT] = {
                  [P_M##k##AMT] = PD("AMT" #k, F_BIPCT, -64, 63, 0)
     MSLOT(1), MSLOT(2), MSLOT(3), MSLOT(4),
 #undef MSLOT
-/* the OP ENV / OP LEVEL values of DIGITAL (ids 61..80): with FELUCCA_FM4 its operator envelopes; without it
+/* the OP ENV / OP LEVEL values of DIGITAL (ids 61..80): with MELODEE_FM4 its operator envelopes; without it
  * inert, on no page and in no editor layout, read only when a DIGITAL sound converts (fm4_convert.c). Their labels
  * stay: the editor's library files key parameters by label ("ATK#2" ..), so an old file's values still find them */
 #define FMOP(k) [P_FM##k##_ATK] = PD("ATK", F_TIME, 0, 127, 0), \

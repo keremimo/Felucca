@@ -222,13 +222,13 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
 
 static void up_boot(void)                      /* persist_boot: the banks from flash */
 {
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     uint32_t b;
     for (b = 0; b < UP_SLOTS / UP_PER_BANK; b++)
         up_bank_check(b, flash_ok ? st_load(OBJ_UPRESET0 + b, &up_bank[b], sizeof up_bank[b]) : -1);
 #endif
     fm6_bank_boot();
-#ifdef FELUCCA_FAVORITES
+#ifdef MELODEE_FAVORITES
     for (uint32_t k = 0; k < UP_SLOTS; k++)
         if (!up_used(k)) favorite_set(NENGINES, k, 0);
 #endif
@@ -239,7 +239,7 @@ static void up_boot(void)                      /* persist_boot: the banks from f
 static int up_put(uint32_t k, const up_rec_t *r)
 {
     up_bank_t *bk;
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     up_rec_t old;
     uint32_t magic;
     uint16_t rsize, nslot;
@@ -251,7 +251,7 @@ static int up_put(uint32_t k, const up_rec_t *r)
         return 2;
     }
     bk = &up_bank[k / UP_PER_BANK];
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     old = *up_rec(k);
     magic = bk->magic;
     rsize = bk->rsize;
@@ -264,7 +264,7 @@ static int up_put(uint32_t k, const up_rec_t *r)
         *up_rec(k) = *r;
     else
         memset(up_rec(k), 0, sizeof(up_rec_t));
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     if (flash_ok && st_save(OBJ_UPRESET0 + k / UP_PER_BANK, bk, sizeof *bk)) {
         *up_rec(k) = old;
         bk->magic = magic;
@@ -274,7 +274,7 @@ static int up_put(uint32_t k, const up_rec_t *r)
     }
 #endif
     if (!r) {
-#ifdef FELUCCA_FAVORITES
+#ifdef MELODEE_FAVORITES
         if (favorite_set(NENGINES, k, 0)) settings_save();
 #endif
         uint32_t i;
@@ -283,7 +283,7 @@ static int up_put(uint32_t k, const up_rec_t *r)
                 trk[i].user = 0;
     }
     up_gen++;
-#if FELUCCA_FLASH
+#if MELODEE_FLASH
     if (flash_ok)
         return 0;
 #endif
@@ -379,7 +379,7 @@ static int up_load(uint32_t k)
     up_values(r, v);
     load_begin(t, UNDO_SOUND);                          /* (ui.c: the copy for SAVE held = undo) */
     panic_req |= (uint8_t)(1u << song.sel);
-#if !FELUCCA_FM4
+#if !MELODEE_FM4
     if (r->engine == ENGI_DIGITAL) {                    /* a DIGITAL sound (kept as it was stored): FM6 */
         int16_t p[P_COUNT];
         for (i = 0; i < P_COUNT; i++)
@@ -452,7 +452,7 @@ static void up_pat_load(track_t *t, uint32_t k)
     t->p[P_SLEN] = (int16_t)clamp(v[P_SLEN], 1, 16);   /* (the pattern has 16 steps) */
 }
 
-/* the engine a used slot's sound plays on (a DIGITAL record: FM6, without FELUCCA_FM4) */
+/* the engine a used slot's sound plays on (a DIGITAL record: FM6, without MELODEE_FM4) */
 static uint32_t up_engine(uint32_t k) { return eng_ok(up_rec(k)->engine) ? up_rec(k)->engine : ENGI_FM6; }
 
 static uint32_t up_count(void)                 /* used slots */

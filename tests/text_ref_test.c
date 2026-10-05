@@ -25,7 +25,7 @@ static const char *const STR[] = {
     "124", "1234.5", "-12", "+3", "0.87", "100 %", "/32", "C#4", "ANALOG", "DIGITAL", "OFF", "ON",
     "OVERWRITE PROJECT A?", "SONG PATTERN CHANGES", "OCT-   NO", "OCT+   YES", "PRESETS", "MOVE", "BACK",
     "AV AW LT TA YO To Vo", "KEYS = STEPS", "PAGE 1/2", "HARDWARE CALIBRATION", "Multi-engine synthesizer",
-    "H\xFCgelton Instruments", "FELUCCA", "MENU", "HOME", "ENV DEST 2/2", "ANLG", "SUPER SAW", "WIRE",
+    "H\xFCgelton Instruments", "MELODEE", "MENU", "HOME", "ENV DEST 2/2", "ANLG", "SUPER SAW", "WIRE",
     "oeo coco eco nono", "minimum hello level", "decay release sound", "Pitch Cutoff", "bdpq doob", "-1 +2.5",
 };
 #define NSTR (sizeof STR / sizeof STR[0])

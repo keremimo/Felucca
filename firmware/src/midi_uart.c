@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MIDI IN on the TRS jack: PH8 -> input channel 1 -> UART1 RX, 31250 baud,
  * RX DMA into a 128-byte ring, polled from the TIMER5 ISR (no UART IRQ).
- * FELUCCA_UART=0 disables this input. Channel
+ * MELODEE_UART=0 disables this input. Channel
  * messages go into midi_in_q next to USB, as
  * USB-MIDI packets (cable 0, CIN = status >> 4), so seq.c routes them by channel
  * exactly as USB (CH1-4 or SEL;

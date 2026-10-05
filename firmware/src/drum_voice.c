@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Drum voices: lean fixed-point drums for a kit of 8 lanes. Felucca's own design, voiced by ear.
+/* Drum voices: lean fixed-point drums for a kit of 8 lanes. Melodee's own design, voiced by ear.
  *
  * Every tuned part is a damped sine (a phase accumulator, the SINE table, a decaying envelope): exact
  * pitch, always stable, no high-Q resonator. Noise is xorshift through dsp.c's trapezoidal SVF or a

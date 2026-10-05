@@ -3,7 +3,7 @@
 //
 // The FM-1 USB-MIDI update protocol over WebMIDI (after tools/fm1_install.py).
 // Step 1: the running firmware (official
-// or Felucca) reads parts of the package and stages the update loader. Step 2:
+// or Melodee) reads parts of the package and stages the update loader. Step 2:
 // the loader reads the whole image and writes it. Both steps are "the device
 // asks, we answer": cmd 0x30 read requests on the logical image.
 
@@ -119,7 +119,7 @@ export class Updater {
     const outs = [...this.access.outputs.values()];
     for (const input of this.access.inputs.values()) {
       if (input.state === "disconnected") continue;
-      if (!/fm-1|felucca|ota|composite|sinco|usb-midi/i.test(input.name || "")) continue;   // never probe other gear
+      if (!/fm-1|melodee|felucca|ota|composite|sinco|usb-midi/i.test(input.name || "")) continue;   // never probe other gear
       const output = outs.find((o) => o.name === input.name && o.state !== "disconnected");
       if (!output) continue;
       try { await input.open(); await output.open(); } catch (_) { continue; }

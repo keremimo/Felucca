@@ -16,7 +16,7 @@ typedef struct {
     const char *name;
     uint16_t z0, nz;
 } smp_set_t;
-#include "felucca_samples.h"
+#include "melodee_samples.h"
 
 static const int16_t IMA_STEP[89] = {
     7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97,
@@ -34,7 +34,7 @@ static uint32_t pow2_q16(int32_t d16)
 }
 
 /* ---- user sample slots (loaded from the web editor into flash, see web/EDITOR_PROTOCOL.md)
- * 3 slots of 80 KiB at flash 0xA0000.. (Felucca data region), read through the plain XIP
+ * 3 slots of 80 KiB at flash 0xA0000.. (Melodee data region), read through the plain XIP
  * window. Slot = header (magic, count, name, data length, CRC32) + up to 16 zones in the
  * smp_zone_t layout (off relative to the slot's data at +512) + IMA ADPCM data. */
 #include "../hal/fm1_xip.h"   /* relative: hostsim includes this file too */
@@ -60,7 +60,7 @@ static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1", 
 #define SMP_USER_XIP(k) fm1_xip_ptr(SMP_USER_BASE + (k) * SMP_USER_SIZE)
 #endif
 static const uint8_t *smp_user_xip(uint32_t k) { return SMP_USER_XIP(k); }
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
 static void slc_user_scan(uint32_t k, int valid);   /* eng_slice.c: SLICE's slice table of the slot */
 #else
 #define slc_user_scan(k, valid) ((void)0)

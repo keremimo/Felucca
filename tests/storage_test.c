@@ -100,7 +100,7 @@ int main(void)
     nor[st_sector(OBJ_PROJECT0 + 2, 0) + 8] ^= 0x01;    /* both headers broken */
     nor[st_sector(OBJ_PROJECT0 + 2, 1) + 8] ^= 0x01;
     bad += check("both headers broken -> nothing", st_load(OBJ_PROJECT0 + 2, got, sizeof got) < 0);
-    bad += check("data stays in the Felucca regions",
+    bad += check("data stays in the Melodee regions",
                  st_sector(OBJ_SETTINGS, 1) + 4096 <= 0xFF000 && st_sector(OBJ_PROJECT0 + 3, 1) + 4096 <= 0xE0000 &&
                      st_sector(OBJ_UPRESET0, 0) >= 0xDC000 && st_sector(OBJ_UPRESET0 + 1, 1) + 4096 <= 0xE0000);
     /* the FM6 patch bank: the two free sectors, 0x9F000 (after the projects) and 0xFE000 (after the settings) */

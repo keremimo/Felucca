@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FELUCCA core types: tracks, voices, engines, parameters.
+/* MELODEE core types: tracks, voices, engines, parameters.
  * Four tracks, each a synth part: its own engine, preset, parameters, voices and 64-step
  * pattern. The parts share one budget of NVOICE sounding voices (voice.c). Drums are the DRUM
  * engine or the SAMPLE engine's PERC set (General MIDI map) on any part.
@@ -13,16 +13,16 @@
 #define NTRK NPART               /* tracks (the formats and the protocol count these): every track is a part */
 #define NSTEP 64
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
-#ifndef FELUCCA_SLICE
-#define FELUCCA_SLICE 1          /* the SLICE engine (eng_slice.c), engine 13; FELUCCA_SLICE=0 builds without it */
+#ifndef MELODEE_SLICE
+#define MELODEE_SLICE 1          /* the SLICE engine (eng_slice.c), engine 13; MELODEE_SLICE=0 builds without it */
 #endif
-#ifndef FELUCCA_FM4
-#define FELUCCA_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
+#ifndef MELODEE_FM4
+#define MELODEE_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
-#define NENGINES (13 + FELUCCA_SLICE)   /* SLICE (13) comes last: the other engines keep their numbers */
-#define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENGINES - !FELUCCA_FM4)   /* the engines one can pick: PRESETS, the EDIT layer, the editor,
+#define NENGINES (13 + MELODEE_SLICE)   /* SLICE (13) comes last: the other engines keep their numbers */
+#define ENGI_DIGITAL 1u          /* reserved without MELODEE_FM4: never selectable (eng_ok), its sounds load as FM6 */
+#define NENG_SHOWN (NENGINES - !MELODEE_FM4)   /* the engines one can pick: PRESETS, the EDIT layer, the editor,
                                                 * in the display order of engines.c ENGINE_ORDER */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))

@@ -1,11 +1,15 @@
-# Felucca licensing
+# Melodee licensing
 
-Felucca is free software, licensed under the GNU General Public License, version 3 only
+Melodee is a modified version of Felucca by Leo Kuroshita (@kurogedelic), Hügelton Instruments
+(<https://github.com/hugelton/Felucca>), and keeps Felucca's licensing.
+
+Melodee is free software, licensed under the GNU General Public License, version 3 only
 (`GPL-3.0-only`, full text in `LICENSE`). That covers the code and its own assets. A few
 bundled or ported parts keep their own licences; they are listed below, and their licence
 texts are in `LICENSES/`.
 
-Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments\
+Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
 
 ## What is GPL-3.0-only
 
@@ -21,9 +25,9 @@ Three source files are ports and keep the licence of their originals:
 `firmware/src/fm6_core.c` (msfa, Apache-2.0). The firmware built with them is GPL-3.0-only as
 a whole.
 
-You may use, study, change and share Felucca under the GPL. If you distribute Felucca, or
+You may use, study, change and share Melodee under the GPL. If you distribute Melodee, or
 firmware derived from it, you must also give your recipients its complete corresponding
-source under the same licence. That includes devices that ship with modified Felucca inside.
+source under the same licence. That includes devices that ship with modified Melodee inside.
 
 ## Hügelton Instruments' own work
 
@@ -68,7 +72,7 @@ checkout at build time (see BUILDING.md); no SDK files are in this tree.
 
 They are licensed under the Apache License, Version 2.0 (`LICENSES/Apache-2.0.txt`), not under
 the GPL, and their copyright stays with JieLi Technology. The SDK has no NOTICE file. Apache-2.0
-files may be distributed together with GPL-3.0 code; Felucca itself stays GPL-3.0-only.
+files may be distributed together with GPL-3.0 code; Melodee itself stays GPL-3.0-only.
 
 Every distribution of a package carries the licence texts with it: the release folder
 (`tools/build.py --release`) and the site (`web/make_site.py`, next to the package in
@@ -76,8 +80,8 @@ Every distribution of a package carries the licence texts with it: the release f
 
 ## No vendor material
 
-No M-VAVE material is part of Felucca. The firmware links no vendor code and contains no vendor
-data, and the packages hold only Felucca and the three SDK files above. The installer's
+No M-VAVE material is part of Melodee. The firmware links no vendor code and contains no vendor
+data, and the packages hold only Melodee and the three SDK files above. The installer's
 "Return to official V15" holds only the official file's size and SHA-256: you select the
 official firmware file you downloaded yourself, and it is checked and installed in your browser,
 never uploaded or redistributed.
@@ -90,10 +94,10 @@ Contributions are welcome under GPL-3.0-only.
 
 "Felucca" and "Hügelton Instruments" are names of Hügelton Instruments.
 
-"M-VAVE" and "FM-1" are trademarks of their respective owners. Felucca is independent
+"M-VAVE" and "FM-1" are trademarks of their respective owners. Melodee is independent
 firmware that runs on FM-1 hardware. It is not affiliated with, endorsed by or supported
-by those owners.
+by those owners, nor by Hügelton Instruments.
 
 ## Radio
 
-Felucca never enables the Bluetooth / Wi-Fi radio of the hardware.
+Melodee never enables the Bluetooth / Wi-Fi radio of the hardware.

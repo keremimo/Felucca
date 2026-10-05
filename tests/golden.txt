@@ -1,4 +1,4 @@
-# FELUCCA golden renders (tests/regress.c): name, FNV-1a 64 of the output samples.
+# MELODEE golden renders (tests/regress.c): name, FNV-1a 64 of the output samples.
 # Rewritten by GOLDEN_UPDATE=1 tests/run_tests.sh -- only for an intended change of the sound.
 preset/ANALOG/00_SAW_LEAD f39bc76f863e3204
 preset/ANALOG/01_SOFT_PAD 3149cfb5c1046530

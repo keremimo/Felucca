@@ -1,4 +1,4 @@
-# FELUCCA host CPU baseline (tests/regress.c): instructions per 44.1 kHz sample, cc -O2 on
+# MELODEE host CPU baseline (tests/regress.c): instructions per 44.1 kHz sample, cc -O2 on
 # the Mac (kernel-counted, ~1 % run to run). The check allows +25 %. Rewritten by BUDGET_UPDATE=1.
 cpu/ANALOG/00_SAW_LEAD 1202
 cpu/ANALOG/01_SOFT_PAD 1106

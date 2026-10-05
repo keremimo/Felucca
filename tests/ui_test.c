@@ -69,10 +69,10 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
     for (j = 0; j < h && y + j < 240u; j++)
         for (i = 0; i < w && x + i < 240u; i++) host_screen[(y + j) * 240u + x + i] = p[j * w + i];
 }
-static struct { uint32_t stage; } felucca_dbg;
-#define FELUCCA_FLASH 0
-#ifndef FELUCCA_VERSION
-#define FELUCCA_VERSION "TEST"
+static struct { uint32_t stage; } melodee_dbg;
+#define MELODEE_FLASH 0
+#ifndef MELODEE_VERSION
+#define MELODEE_VERSION "TEST"
 #endif
 #include "../firmware/src/gfx.c"
 #include "../firmware/src/panel.c"
@@ -92,7 +92,7 @@ static int check(const char *what, int ok)
     return ok ? 0 : 1;
 }
 
-/* main.c felucca_init */
+/* main.c melodee_init */
 static void ui_power_on(void)
 {
     uint32_t i;
@@ -1270,7 +1270,7 @@ static int test_mono_screens(void)
     uint32_t e, i, n = 0;
     for (e = 0; e < NENGINES; e++) {
         if (!eng_ok(e))
-            continue;                               /* (DIGITAL without FELUCCA_FM4: never a track's) */
+            continue;                               /* (DIGITAL without MELODEE_FM4: never a track's) */
         for (i = 0; i < NPAGES; i++) {
             ui_power_on(); set_engine_of(TSEL, e); song.playing = 1; song.rec = 1;
             ui.home = 0; ui.page = (uint8_t)i; page_entered();
@@ -1654,7 +1654,7 @@ static int test_product_ux(void)
     int bad = 0, ok = 1;
     uint32_t i, p, b;
     for (i = 0; i < NPAGES; i++) {
-        ui_power_on(); set_engine_of(TSEL, 1);         /* (DIGITAL; without FELUCCA_FM4 FM6: no OP pages) */
+        ui_power_on(); set_engine_of(TSEL, 1);         /* (DIGITAL; without MELODEE_FM4 FM6: no OP pages) */
         ui.home = 0; ui.page = (uint8_t)i; page_entered();
         if (!page_visible(i))
             continue;
@@ -1687,7 +1687,7 @@ static int test_product_ux(void)
     ok = 1;
     for (i = 0; i < 8u; i++) { open_family(FAM_EDIT); ok &= page_visible(ui.page) && !(cur_page()->id[0] >= P_FM1_ATK && cur_page()->id[0] <= P_FM4_LEVEL); }
     bad += check("operator envelope pages are hidden on non-DIGITAL instruments", ok);
-#if FELUCCA_FM4
+#if MELODEE_FM4
     set_engine_of(TSEL, 1); open_family(FAM_EDIT); ok = 0;
     for (i = 0; i < 12u; i++) { if (cur_page()->id[0] == P_FM1_ATK) ok = 1; open_family(FAM_EDIT); }
     bad += check("DIGITAL exposes four envelopes and independent operator levels", ok);
@@ -2255,7 +2255,7 @@ static int test_edit_cycle(void)
     bad += check("no ENGINE page (engines are the EDIT layer's)", ok);
     set_engine_of(TSEL, 0);
     bad += check("EDIT cycle (ANALOG): EDIT 1 EDIT 2 VOICE VOICE 2 EDIT 1", engine_cycle(CYC_A, NELEM(CYC_A)));
-#if FELUCCA_FM4
+#if MELODEE_FM4
     set_engine_of(TSEL, 1);
     bad += check("EDIT cycle (DIGITAL): EDIT 1 EDIT 2 OP1..OP4 ENV OP LEVEL VOICE VOICE 2 EDIT 1",
                  engine_cycle(CYC_D, NELEM(CYC_D)));
@@ -2274,7 +2274,7 @@ static int test_edit_cycle(void)
     return bad;
 }
 
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
 /* SLICES (EDIT family, a SLICE track: ui_slice.c; the MAN slices of eng_slice.c, ported from hugelton/Felucca#27 by
  * andreahaku): in the EDIT cycle after EDIT 2 on SLICE only; BREAK shows its slices, edits need a user slot; the first
  * edit takes the slices shown (8 equal) as MAN and sets DIV MAN; KNOB 1 the marker (then END), KNOB 2 moves it,
@@ -3165,7 +3165,7 @@ static int test_bughunt_ui2(void)
 /* L is a sparse face (tools/gen_aa_font.py L_CHARS): every string drawn in it has all its glyphs */
 static int test_large_face(void)
 {
-    static const char *const FIXED[] = {"FELUCCA", "0123456789"};   /* main.c, ui_menu.c; ui_draw.c draw_uboot */
+    static const char *const FIXED[] = {"MELODEE", "0123456789"};   /* main.c, ui_menu.c; ui_draw.c draw_uboot */
     uint32_t i, missing = 0;
     const char *s;
     for (i = 0; i < NB + NE + 2u; i++)                              /* ui_input.c setup_show: the control names */
@@ -3174,7 +3174,7 @@ static int test_large_face(void)
     return check("the L face holds every glyph of the strings drawn in it", !missing);
 }
 
-#if FELUCCA_FM4
+#if MELODEE_FM4
 /* The DIGITAL algorithm charts (ui_graph.c FM_CELL / FM_MOD) against the DSP: src/eng_digital.c's switch (alg)
  * in digital_render_legacy and digital_render_custom, written out here as "source>destination" routes and the
  * operators mixed to the output. Op 4's feedback is on every algorithm (drawn always). Also: the carriers sit
@@ -3272,7 +3272,7 @@ static int test_fm6_charts(void)
            check("FM6 charts: carriers on the bottom row, modulators a row up, one per cell, at most 4 rows", layout);
 }
 
-#if !FELUCCA_FM4
+#if !MELODEE_FM4
 /* DIGITAL retired (src/fm4_convert.c): engine 1 is on no track and in no list; its sounds arrive as FM6 with a patch
  * of their own: a user preset of it, its preset numbers (set_engine_of / apply_preset_to), a track that got engine 1
  * any other way (the main loop's net); the favourites of its presets move to FM6's; the power-on pad is FM6 PAD */
@@ -3406,7 +3406,7 @@ int main(void)
     bad += test_layer();
     bad += test_name();
     bad += test_edit_cycle();
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     bad += test_slices();
 #endif
     bad += test_quick_layers();
@@ -3415,8 +3415,8 @@ int main(void)
     bad += test_bughunt_ui2();
     bad += test_piano_roll();
     bad += test_fm6_charts();
-#if FELUCCA_FM4
-    bad += test_fm_charts();                        /* (DIGITAL's charts: built with FELUCCA_FM4=1 only) */
+#if MELODEE_FM4
+    bad += test_fm_charts();                        /* (DIGITAL's charts: built with MELODEE_FM4=1 only) */
 #else
     bad += test_fm4_retired();
 #endif

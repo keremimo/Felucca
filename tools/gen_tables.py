@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Fixed-point lookup tables for FELUCCA (no float on the target).
+"""Fixed-point lookup tables for MELODEE (no float on the target).
 
 FS = 44100 Hz, control rate = every CTL (32) samples. All curves map a
 0..127 parameter value to the unit the DSP needs, plus a display table.

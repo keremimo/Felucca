@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca UI drawing: the header, the four knob cards, the footer (steps + engine / preset / page)
+/* Melodee UI drawing: the header, the four knob cards, the footer (steps + engine / preset / page)
  * and the frame; the panel between the cards and the footer is ui_graph.c. The layout:
  * flat SURF cards and panels on BG,
  * rounded corners, no rules, colours from the theme tokens only (gfx.c T_*). Type: S (12 px) labels,
@@ -65,7 +65,7 @@ static void draw_battery(int32_t bx)
 #define ROLL_BPM 4u                                     /* ui.roll[]: the four cards, then the header BPM */
 #define ROLL_Y 18                                       /* a card's value strip: rows 18..36 */
 #define ROLL_H 19
-#define BPM_X (FELUCCA_ICONS ? 72 : 56)
+#define BPM_X (MELODEE_ICONS ? 72 : 56)
 #define BPM_W 30                                        /* the header's BPM strip: 30 columns, every row */
 static const uint8_t ROLL_EASE[17] = {0, 45, 84, 118, 147, 172, 193, 210, 223, 234, 242, 247, 251, 253, 254, 255, 255};
 
@@ -179,7 +179,7 @@ static void draw_head(void)
     else
         cv_icon_mid(8, H_HEAD / 2, 16, ICON_X_STOP, T_MID, T_BG);
     draw_rec_mark(28, T_BG);
-    if (FELUCCA_ICONS) cv_icon_mid(54, H_HEAD / 2, 16, ICON_TEMPO, T_MID, T_BG);
+    if (MELODEE_ICONS) cv_icon_mid(54, H_HEAD / 2, 16, ICON_TEMPO, T_MID, T_BG);
     roll_text(ROLL_BPM, BPM_X, 3, b, ui.bpm_t ? T_ACCENT : T_THEME);
     if (ui.msg_t || ui.layer) {                     /* a message, or the layer's name */
         cv_free_hint(106, 6, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - 106);   /* (may start with a keycap) */
@@ -282,7 +282,7 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         cv_rrect(0, 0, COL_W, COL_H, 4, T_SURF, T_BG);
     }
     if (label[0] || val[0]) {
-        if (!strip && FELUCCA_ICONS && icon != ICON_NONE && label[0] && text_w(&AF_S, label) <= COL_W - 2 - 19)
+        if (!strip && MELODEE_ICONS && icon != ICON_NONE && label[0] && text_w(&AF_S, label) <= COL_W - 2 - 19)
             lx = 5 + cv_icon_on(5, 5, 12, icon, lc, T_SURF) + 2;      /* icon rows 5..16, the label from x 19 */
         if (!strip && label[0])
             cv_text_fit(lx, 3, &AF_S, label, lc, T_SURF, COL_W - 2 - lx);
@@ -443,7 +443,7 @@ static void draw_foot(void)
         }
     }
     x = 8;
-    if (FELUCCA_ICONS)                                /* row 2: engine icon + name, sound, page */
+    if (MELODEE_ICONS)                                /* row 2: engine icon + name, sound, page */
         x += cv_icon_on(x, 20, 12, engine_icon(ename), T_MID, T_BG) + 5;
     x = cv_text_fit(x, 19, &AF_S, ename, T_THEME, T_BG, 80);
     {   /* the page title at the right, its icon before it (MIXER, PHRASES, SONG, CHANCE, MOTION) */
@@ -564,7 +564,7 @@ static void draw_columns(void)
         draw_act_column(3, "SAVE", T_THEME, ICON_AUTO);
         return;
     }
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     if (cur_page()->graph == GR_SLICES) {                /* SLICE POS, then SPLIT JOIN (ui_slice.c) */
         uint32_t n = slice_count(), j = slice_sel(), src, div, ok = slice_src(&src, &div) && src;
         char u[8];
@@ -826,18 +826,18 @@ static void ui_draw(void)
         return;
     }
     if (!ui.home && !page_visible(ui.page)) {          /* an OP page of a track that is not DIGITAL (without
-                                                         * FELUCCA_FM4: any track): EDIT 1 */
+                                                         * MELODEE_FM4: any track): EDIT 1 */
         ui.page = (uint8_t)page_first(FAM_EDIT);
         page_entered();
     }
     cursor_fix();
     if (ui.force)
         draw_frame();
-    felucca_dbg.stage = 3;
+    melodee_dbg.stage = 3;
     draw_head();
-    felucca_dbg.stage = 4;
+    melodee_dbg.stage = 4;
     draw_columns();
-    felucca_dbg.stage = 5;
+    melodee_dbg.stage = 5;
     draw_graph();
     if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {     /* the second message (ui_notices) */
         str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
@@ -848,7 +848,7 @@ static void ui_draw(void)
         ui.bpm_t--;
     if (ui.hot_t)
         ui.hot_t--;
-    felucca_dbg.stage = 6;
+    melodee_dbg.stage = 6;
     draw_foot();
     ui.force = 0;
 }

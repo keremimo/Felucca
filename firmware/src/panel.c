@@ -3,8 +3,8 @@
 /* Physical panel: which matrix button / encoder carries which printed label.
  * The matrix ids are known, the printed labels are not, so
  * the mapping is a table with a best guess, overridable by HARDWARE CALIBRATION
- * (hold OCT- and OCT+ while powering on): FELUCCA asks for each label in turn.
- * The learned table lives in .noinit and, with FELUCCA_FLASH, in flash with
+ * (hold OCT- and OCT+ while powering on): MELODEE asks for each label in turn.
+ * The learned table lives in .noinit and, with MELODEE_FLASH, in flash with
  * the settings (project.c); read it back with `fm1t memr` to bake it in. */
 enum { B_FX, B_SCL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC,
        B_OCTDN, B_OCTUP, NB };
@@ -67,7 +67,7 @@ static int32_t panel_enc(uint32_t role)
 #define SETTINGS_MAGIC_OLD 0x53455433u          /* "SET3" */
 struct { uint32_t magic, palette, lowcut, zoom; } settings __attribute__((section(".noinit")));
 
-static void settings_save(void);              /* project.c: flash copy (FELUCCA_FLASH) */
+static void settings_save(void);              /* project.c: flash copy (MELODEE_FLASH) */
 
 /* HOLD (menu): how long a button is held before its layer opens (ui_input.c). Saved in the settings record's
  * retired bold field as HOLD_TAG | index; any other value there (0 or 1 from older firmware) is the default */

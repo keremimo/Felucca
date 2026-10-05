@@ -356,7 +356,7 @@ static void state(void)                          /* a playing song with steps on
     my_steps(&trk[1]);
     trk[0].step[2].flags |= SF_ACCENT;
     trk[0].step[6].flags |= SF_SLIDE;
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     if (usr_nz[0]) {                              /* (slices_usr filled USR1: empty again) */
         memset(host_slots, 0, sizeof host_slots);
         smp_user_scan(0);
@@ -388,9 +388,9 @@ static void drum(uint32_t kit)
     trk[3].p[P_SLEN] = 32;
 }
 static void eng(uint32_t e) { set_engine_of(TSEL, e); }
-/* the FM engine of the FM screens: DIGITAL with FELUCCA_FM4, else FM6 (DIGITAL retired: its own screens, the OP ENV /
+/* the FM engine of the FM screens: DIGITAL with MELODEE_FM4, else FM6 (DIGITAL retired: its own screens, the OP ENV /
  * OP LEVEL pages and the algorithm charts, exist only there: fm4_screen) */
-#define E_FM (FELUCCA_FM4 ? ENGI_DIGITAL : ENGI_FM6)
+#define E_FM (MELODEE_FM4 ? ENGI_DIGITAL : ENGI_FM6)
 
 enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_USER, S_PHRASES, S_PROJECT, S_TOOLS,
        S_SONG_EMPTY, S_SONG, S_STEP, S_PATTERN, S_CHANCE, S_MOTION, S_DRUM, S_DRUM_HAND, S_DRUM_CYM, S_MIXER, S_MIXER_PAN,
@@ -410,7 +410,7 @@ enum { S_HOME, S_HOME_IDLE, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "message", "message_key", "presets", "presets_nofav", "user",
     "phrases", "project", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "drum_hand", "drum_cym", "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
-    "voice", "global", "system", "edit_analog", FELUCCA_FM4 ? "edit_digital" : "edit_fm6", "op_env", "edit_wheel", "edit_sample",
+    "voice", "global", "system", "edit_analog", MELODEE_FM4 ? "edit_digital" : "edit_fm6", "op_env", "edit_wheel", "edit_sample",
     "edit_grain", "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "confirm_seq", "confirm_project", "confirm_user", "confirm_pattern",
     "confirm_motion", "confirm_erase", "menu", "menu_speaker", "about", "about_rec", "about_credits", "about_end", "uboot", "calibration",
     "batt_0", "batt_1", "batt_2", "batt_3", "batt_usb", "motion_rec", "motion_off", "song_home",
@@ -757,7 +757,7 @@ static void setup(int s)
     case S_ROLL_EMPTY: case S_ROLL_ACID: case S_ROLL_CHORDS: case S_ROLL_TIES: case S_ROLL_LEN32: case S_ROLL_HIGH:
     case S_ROLL_LOW: case S_ROLL_WIDE: case S_ROLL_PLAYING: roll_scene(s); break;
     case S_USER_FOOT: song.playing = 0; up_store(3, "MY BASS"); ui.uslot = 3; go_page(GR_USER); break;   /* EDIT NAME lit */
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     /* EDIT > SLICES: BREAK's 16 slices (slice 6 selected); a user sample's slices set by hand: DIV 8 taken as MAN,
      * slice 3's start moved (KNOB 2 hot), SPLIT picked (OCT+ lit) */
     case S_SLICES_BREAK: eng(13u); go_page(GR_SLICES); sp.sel = 5; break;
@@ -794,7 +794,7 @@ static void sweep_columns(void)
     char name[64];
     for (e = 0; e < NENGINES; e++) {
         if (!eng_ok(e))
-            continue;                                    /* (DIGITAL without FELUCCA_FM4: no track has it) */
+            continue;                                    /* (DIGITAL without MELODEE_FM4: no track has it) */
         for (i = 0; i < NPAGES; i++) {
             state();
             pal(UI_MONO_INDEX);
@@ -996,8 +996,8 @@ int main(int argc, char **argv)
         for (s = 0; s < S_COUNT; s++) {
             char name[64];
             uint32_t k;
-            if (!FELUCCA_FM4 && (s == S_OP_ENV || (s >= S_ALG1 && s <= S_OP_LEVEL)))
-                continue;                           /* (DIGITAL's own screens: FELUCCA_FM4=1 only) */
+            if (!MELODEE_FM4 && (s == S_OP_ENV || (s >= S_ALG1 && s <= S_OP_LEVEL)))
+                continue;                           /* (DIGITAL's own screens: MELODEE_FM4=1 only) */
             snprintf(name, sizeof name, "%s/%s", UI_PALETTES[p].name, S_NAME[s]);
             cur_name = name;
             setup((int)s);
@@ -1076,6 +1076,6 @@ int main(int argc, char **argv)
             "%u FM6 charts linted\n", nfind, nfree, mono_bad, nsweep, fmp_charts);
     fclose(rep);
     printf("ui_render: %u screens x %u palettes + the page/value sweep; %u lint findings, %u ellipsised free texts (%u distinct), "
-           "%u MONO pixels off gray; report %s\n", (unsigned)(S_COUNT - (FELUCCA_FM4 ? 0 : 1 + S_OP_LEVEL - S_ALG1 + 1)), (unsigned)NPALETTES, nfind, nfree, nfree_seen, mono_bad, path);
+           "%u MONO pixels off gray; report %s\n", (unsigned)(S_COUNT - (MELODEE_FM4 ? 0 : 1 + S_OP_LEVEL - S_ALG1 + 1)), (unsigned)NPALETTES, nfind, nfree, nfree_seen, mono_bad, path);
     return nfind || mono_bad ? 1 : 0;
 }

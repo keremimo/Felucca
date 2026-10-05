@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca UI: the panel (Y_GRAPH .. Y_GRAPH + H_GRAPH) between the cards and the footer: a SURF area
+/* Melodee UI: the panel (Y_GRAPH .. Y_GRAPH + H_GRAPH) between the cards and the footer: a SURF area
  * (rounded, on BG) holding the page graphs (ADSR, LFO, steps, piano roll, drum grid, scale, FX, SLICER,
  * MOD, lists: presets, user presets, patterns, project slots, song), the HOME oscilloscope, the
  * instrument diagrams; the MIXER page draws four SURF columns instead. Each graph is redrawn only when
@@ -495,7 +495,7 @@ static void graph_sample(uint16_t c)
     }
 }
 
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
 /* SLICES (ui_slice.c): the waveform from the marker before the selected one to the one after it (the selected
  * slice tinted, its marker the accent, outside the slices DIM), under it the whole material with every marker and
  * the view; then the selected slice's length and the source */
@@ -712,7 +712,7 @@ static void graph_fm6(const track_t *t, uint16_t c)
     FM6_CHART_HOOK(FMH_END, alg, 0);
 }
 
-#if FELUCCA_FM4
+#if MELODEE_FM4
 /* DIGITAL's eight algorithms as FM charts, read from src/eng_digital.c's switch (alg) (ui_test.c checks
  * these tables against it). FM_CELL: per operator 1..4 its grid cell, the column in 24 px steps (bits 0..2)
  * and the row above the output bus (bits 4..5; row 0 = the carriers). FM_MOD: per destination operator d a
@@ -825,12 +825,12 @@ static uint32_t graph_signature(void)
         h += graph_pname_sig;
     }
     if (pg->graph == GR_MOTION) h ^= motion_count(t) * 131u + motion_enabled(t);
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
     if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
 #endif
     if (pg->graph == GR_CHANCE) h ^= ui.cursor * 40503u + step_chance(&t->step[ui.cursor]);
     if (pg->scope == SC_ENGINE && (ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL || t->eng_req % NENGINES == ENGI_FM6 ||
-                                   (FELUCCA_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
+                                   (MELODEE_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
     if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm, levels, FB) */
         h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u;
@@ -852,7 +852,7 @@ static uint32_t graph_signature(void)
 static const char *eng_abbr(const char *name)
 {
     static const char *const A[][2] = {{"ANALOG", "ANLG"},
-#if FELUCCA_FM4
+#if MELODEE_FM4
                                        {"DIGITAL", "DGTL"},
 #endif
                                        {"PHASE", "PHAS"}, {"LOFI", "LOFI"},
@@ -1293,7 +1293,7 @@ static void draw_graph(void)
             cv_oy = 0;
             panel_note("TURN TO PICK", "[OCT+] CONFIRM", 0);
             break;
-#if FELUCCA_SLICE
+#if MELODEE_SLICE
         case GR_SLICES:
             cv_oy = 0;
             graph_slices();
@@ -1303,7 +1303,7 @@ static void draw_graph(void)
             if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_WHEEL) graph_wheel(t, c);
             else if (pg->scope == SC_ENGINE && ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && sample_wave.ready) graph_sample(c);
             else if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6) graph_fm6(t, c);   /* EDIT 1 and 2 */
-#if FELUCCA_FM4
+#if MELODEE_FM4
             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
 #endif

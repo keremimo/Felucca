@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """The FM-1 controls diagram of the README (1200 px wide, the style of the 1.0 feature sheet: dark
 rounded cards, white Inter Tight text, Fukiai line icons): a photo of the panel with every control
-labelled by its Felucca function in small cards, leader lines ending in a dot on the control, and
+labelled by its Melodee function in small cards, leader lines ending in a dot on the control, and
 cards for the hold actions.
 
   gen_panel_diagram.py PHOTO.jpg OUT.svg [--png OUT.png] [--jpg OUT.jpg]
@@ -229,7 +229,7 @@ def draw_dots():
 
 def build(photo_path):
     out.append(f'<rect width="{W}" height="{H}" fill="{BG}"/>')
-    title = "FM-1 controls in Felucca 1.0"
+    title = "FM-1 controls in Melodee 1.0"
     tw = TEXT[600].width(title, 21)
     left = W / 2 - (tw + 31) / 2
     icon("ui_knob", left, 13, 22)
@@ -409,7 +409,7 @@ def main():
         sys.exit(1)
     d = " / ".join(desc).replace("&", "&amp;").replace("<", "&lt;")
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" fill="#fff">'
-           f'<title>FM-1 controls in Felucca 1.0</title><desc>{d}</desc>\n'
+           f'<title>FM-1 controls in Melodee 1.0</title><desc>{d}</desc>\n'
            f'<defs>{"".join(defs)}</defs>\n' + "\n".join(out) + "\n</svg>\n")
     Path(a.svg).write_text(svg, encoding="utf-8")
     print(f"{a.svg}: {W} x {H}, {len(dots)} dots, {len(boxes)} texts, {len(solids)} cards, "

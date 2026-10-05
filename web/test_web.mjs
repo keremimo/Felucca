@@ -7,7 +7,7 @@
 //   the user preset bank / librarian, library files, live pushes, older-firmware fallback, the v3 tracks
 //   and the mixer, the v5 drum grid in steps and user presets), its tab layout and ja/en strings,
 //   and the user-sample pipeline byte for byte against tools/sampleio.py
-// - fm1pkg.js: productOf and logicalImage on build/felucca.fwsc (skipped without a build)
+// - fm1pkg.js: productOf and logicalImage on build/melodee.fwsc (skipped without a build)
 // - fm1ota.js: a full install and an unplug during the write against a simulated FM-1
 
 import { execFileSync } from "node:child_process";
@@ -1081,7 +1081,7 @@ function wav(sr, ch, bits, float, frames, f) {
 }
 
 function samplesMatch() {
-  const dir = mkdtempSync(join(tmpdir(), "felucca-web-"));
+  const dir = mkdtempSync(join(tmpdir(), "melodee-web-"));
   const files = [
     ["tone_A4.wav", wav(44100, 1, 16, false, 9000, (i) => Math.sin(i * 0.0627) * Math.exp(-i / 4000))],
     ["pad C3.wav", wav(48000, 2, 24, false, 7000, (i, c) => Math.sin(i * (c ? 0.031 : 0.0313)) * 0.7)],
@@ -1132,7 +1132,7 @@ function samplesMatch() {
 
 /* ------------------------------------------------------- packages: JS == Python --- */
 async function packages() {
-  const pkg = join(HERE, "../build/felucca.fwsc");
+  const pkg = join(HERE, "../build/melodee.fwsc");
   if (!existsSync(pkg)) {
     console.log("packages: skipped (run ./build.sh first)");
     return;
@@ -1187,8 +1187,8 @@ class FakeFM1 {
       this.waiting = null;
       this.served++;
       if (this.served >= this.unplugAfter) { this.input.state = this.output.state = "disconnected"; return; }
-      if (addr === 0xE0000000) setTimeout(() => this.boot("ota-FM-1_900", "Felucca Update"), 300);
-      else if (addr === 0xF0000000) setTimeout(() => this.boot("FM-1_900", "Felucca"), 300);
+      if (addr === 0xE0000000) setTimeout(() => this.boot("ota-FM-1_900", "Melodee Update"), 300);
+      else if (addr === 0xF0000000) setTimeout(() => this.boot("FM-1_900", "Melodee"), 300);
       else this.next();
     }
   }
@@ -1211,10 +1211,10 @@ async function updater() {
   const steps = [];
   const got = await new Updater(dev.access).install(image, "FM-1_900", (k) => steps.push(k));
   ok(got === "FM-1_900" && dev.bad === 0 && steps.includes("write") && steps.at(-1) === "done",
-    `fm1ota.js: install: running firmware -> loader -> Felucca (${dev.served} reads)`);
+    `fm1ota.js: install: running firmware -> loader -> Melodee (${dev.served} reads)`);
 
   const dev2 = new FakeFM1(image, { unplugAfter: 3 });
-  dev2.boot("ota-FM-1_900", "Felucca Update");
+  dev2.boot("ota-FM-1_900", "Melodee Update");
   const t0 = Date.now();
   const done = await new Updater(dev2.access).resume(image);
   ok(done === false && Date.now() - t0 < 6000, "fm1ota.js: unplugged during the write -> stops at once");

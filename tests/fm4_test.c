@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* DIGITAL -> FM6 (src/fm4_convert.c) on the Mac: the retired four-operator engine against its conversion.
- * Built with -DFELUCCA_FM4=1 (run_tests.sh), so DIGITAL itself renders here (src/eng_digital.c) through hostsim.c.
+ * Built with -DMELODEE_FM4=1 (run_tests.sh), so DIGITAL itself renders here (src/eng_digital.c) through hostsim.c.
  *   build/host/fm4_test [DEMODIR]          (run_tests.sh: build/fm4_demo)
  * 1. the routing: for each of DIGITAL's 8 algorithms the FM6 algorithm it becomes has DIGITAL's carriers and
  *    modulation routes between the operators it maps to, op 4 lands on the operator with the feedback, the other
@@ -22,8 +22,8 @@
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
-#if !FELUCCA_FM4
-#error "fm4_test renders DIGITAL itself: build it with -DFELUCCA_FM4=1"
+#if !MELODEE_FM4
+#error "fm4_test renders DIGITAL itself: build it with -DMELODEE_FM4=1"
 #endif
 
 #define FM4_CENTS 5.0             /* the fundamental */

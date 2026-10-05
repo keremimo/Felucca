@@ -4,9 +4,9 @@
 """Build the main-loop code for size (build.py): the functions defined in SIZE_FILES get LLVM's
 minsize (about -Oz) while everything else (the sound, render and ISR code, the flash and OTA code,
 the main loop) keeps -Os. The JieLi clang 4 has no '#pragma clang attribute' and its minsize
-attribute is an error on variables, so build.py compiles felucca.c to LLVM IR without the
+attribute is an error on variables, so build.py compiles melodee.c to LLVM IR without the
 optimizer, this script adds 'minsize' to those definitions, and the IR is then compiled at -Os
-(without the edit, that round trip is byte-identical to compiling felucca.c directly).
+(without the edit, that round trip is byte-identical to compiling melodee.c directly).
   size_fns.py IN.ll OUT.ll"""
 import re
 import sys

@@ -1,18 +1,18 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Felucca update loader (device side). Runs from RAM, started by the SPL from
+/* Melodee update loader (device side). Runs from RAM, started by the SPL from
  * an update record, with interrupts off: USB is polled from the main loop.
- * It is a USB-MIDI device "Felucca Update" (1209:0002) that answers the
+ * It is a USB-MIDI device "Melodee Update" (1209:0002) that answers the
  * M-UPGRADE update protocol as "ota-FM-1_900" (hosts look for "ota-"), and
  * writes the app area only (ldr_core.c). The UBOOT soft key works here too.
  * Single compilation unit. */
 #include <stdint.h>
-#define FELUCCA_LOADER 1
-#define FELUCCA_CDC 0
-#define FELUCCA_OTA 1
-#define FELUCCA_OTA_DRYRUN 0
-#define FELUCCA_USB_PID 0x0002
-#define FELUCCA_ID "ota-FM-1_900"
+#define MELODEE_LOADER 1
+#define MELODEE_CDC 0
+#define MELODEE_OTA 1
+#define MELODEE_OTA_DRYRUN 0
+#define MELODEE_USB_PID 0x0002
+#define MELODEE_ID "ota-FM-1_900"
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
 #include "fm1_time.h"
 #include "fm1_sys.h"
@@ -84,7 +84,7 @@ void ldr_main(void)
     for (;;) {
         ldr_poll();
         usb_retry(ldr_ms());
-        if (usb.uboot_req) {                        /* soft key: mask-ROM UBOOT, as in Felucca */
+        if (usb.uboot_req) {                        /* soft key: mask-ROM UBOOT, as in Melodee */
             usb_detach();
             fm1_delay_ms(30);
             fm1_enter_uboot();
