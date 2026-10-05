@@ -640,13 +640,20 @@ static void sysex_byte(uint8_t b)
     }
 }
 
-static void midi_in_event(uint32_t pkt)                 /* one USB-MIDI event packet */
+/* one USB-MIDI event packet. SysEx comes as CIN 4..7, but a host may also send a byte of it as CIN 0xF (single
+ * byte): macOS does so inside a long dump, where its packet lists split, and a DX7 bank then lost that byte.
+ * Real-time bytes stay with the parser below. */
+static void midi_in_event(uint32_t pkt)
 {
     uint32_t cin = pkt & 15u, st = (pkt >> 8) & 0xFFu;
     if (cin >= 4u && cin <= 7u) {
         uint32_t k, nb = cin == 4u || cin == 7u ? 3u : cin == 6u ? 2u : 1u;
         for (k = 0; k < nb; k++)
             sysex_byte((uint8_t)(pkt >> (8u * (k + 1u))));
+        return;
+    }
+    if (cin == 0xFu && st < 0xF8u && (usb.sx_on || st == 0xF0u)) {
+        sysex_byte((uint8_t)st);
         return;
     }
     if (st >= 0x80u && st < 0xF8u) {

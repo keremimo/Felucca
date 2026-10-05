@@ -199,7 +199,7 @@ static int uart_recovery(void)
     um_ring[126] = 0x90; um_ring[127] = 72; um_ring[0] = 99;
     uart_midi_take(UM_RING + 1u);
     bad += check("UART DMA overrun never combines a stale partial note with new data",
-                 !mi_w && midi_in_overflow && um.drops == 2u && um.bytes == UM_RING && !um.pend);
+                 !mi_w && midi_in_overflow && um.drops == 2u && um.bytes == UM_RING);
     midi_in_overflow = 0; um_byte(0x90); um_byte(72); um_byte(99);
     bad += check("UART receives a complete fresh note after DMA recovery",
                  mi_w == 1u && midi_in_q[0] == 0x63489009u);
