@@ -70,6 +70,7 @@ static uint64_t now_ns(void)
 
 static void host_tracks_init(void)                /* as melodee_init: defaults, empty patterns */
 {
+    pattern_init();
     uint32_t i, k;
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
@@ -253,9 +254,10 @@ static int tracks_demo(const char *dir, const char *name, uint32_t solo)
             song.rec = 0x0Eu;                      /* bars 5..6: tracks 2, 3, 4 armed */
         if (barn == 6u)
             song.rec = 0;
-        /* (a) a clap into the drums, late in step 3: lands on step 4, sounds now, step 4 does not repeat it */
+        /* (a) a clap into the drums, late in step 3: lands on step 3, sounds now, step 4 keeps its own hits */
         if (song.rec && !clap_done && td->seq_idx == 3u && td->seq_pos > period * 3u / 4u) {
             input_on(td, 39, 110);
+            input_off(td, 39);                     /* a drum hit, not a held SAMPLE note tied over the next step */
             clap_done = 1;
             clap_age = vage;
             clap_pass = 1;
@@ -295,12 +297,13 @@ static int tracks_demo(const char *dir, const char *name, uint32_t solo)
     if (solo)
         return bmax > NVOICE;
     {
-        const step_t *s4 = &td->step[4], *l1 = &t3->step[1], *p14 = &t2->step[14];
-        int ok_clap = s4->n == 4u && s4->note[3] == 39u && clap_hits == 3u;
+        const step_t *s3 = &td->step[3], *s4 = &td->step[4], *l1 = &t3->step[1], *p14 = &t2->step[14];
+        int ok_clap = s3->time == ST_NOTE && s3->n == 1u && s3->note[0] == 39u &&
+                      s4->n == 3u && s4->note[0] == 36 && s4->note[1] == 38 && s4->note[2] == 42 && clap_hits == 3u;
         int ok_lead = l1->n == 1u && l1->note[0] == 84u && l1->time == ST_NOTE;
         int ok_keys = p14->n == 2u && p14->time == ST_NOTE && p14->note[0] == 60u && p14->note[1] == 64u;
-        printf("tracks: recording: drums step 4 = %u notes (kick snare hat + clap 39: %s), hits when step 4 played right "
-               "after: %u (want 3: the clap is not triggered twice) %s\n", s4->n, s4->note[3] == 39u ? "yes" : "no", clap_hits,
+        printf("tracks: recording: late clap 39 on step 3 = %u; step 4 keeps %u notes, triggers %u hits "
+               "(want 3: no repeated clap) %s\n", s3->note[0], s4->n, clap_hits,
                ok_clap ? "ok" : "FAIL");
         printf("tracks: recording: MIDI ch 3 -> lead step 1 = %u (want 84) %s; keys -> pad step 14 = %u notes %u %u %s\n",
                l1->note[0], ok_lead ? "ok" : "FAIL", p14->n, p14->note[0], p14->note[1], ok_keys ? "ok" : "FAIL");
@@ -617,16 +620,15 @@ static int rec_test(void)
     input_off(t2, 55);
     ok_cap = rec_step_is(t2, 1, ST_NOTE, 1, 55) && rec_step_is(t2, 2, ST_TIE, 0, 0) && rec_step_is(t2, 3, ST_TIE, 0, 0) &&
              rec_step_is(t2, 0, ST_TIE, 0, 0);
-    /* (f) SWING 50 %: 0.55 into an even (long) step is before its middle (stays); 0.42 period into an odd
-     * (short, 0.8) step is past its middle (the next one) */
+    /* (f) SWING 50 %: early or late in a swung step, record the playing step. */
     rec_run_to(t3, 4, 46);                         /* 0.46 x 1.2 = 0.55 period */
     input_on(t3, 72, 100);
     input_off(t3, 72);
     rec_run_to(t3, 7, 53);                         /* 0.53 x 0.8 = 0.42 period */
     input_on(t3, 74, 100);
     input_off(t3, 74);
-    ok_swing = rec_step_is(t3, 4, ST_NOTE, 1, 72) && t3->step[5].n == 0u && rec_step_is(t3, 8, ST_NOTE, 1, 74) &&
-               t3->step[7].n == 0u;
+    ok_swing = rec_step_is(t3, 4, ST_NOTE, 1, 72) && t3->step[5].n == 0u && rec_step_is(t3, 7, ST_NOTE, 1, 74) &&
+               t3->step[8].n == 0u;
     /* (g) MONO, legato: A held from step 10, B pressed in step 12 while A is still down, A up, B up late in
      * 13: 10 A, 11 TIE, 12 B (one note), 13 TIE */
     rec_run_to(t3, 10, 10);
@@ -645,8 +647,8 @@ static int rec_test(void)
            ok_half ? "ok" : "FAIL");
     printf("tracks: recording lengths: a chord ties until its last key %s; capped at LEN 4 %s; MONO legato A..B -> "
            "A TIE B TIE %s\n", ok_chord ? "ok" : "FAIL", ok_cap ? "ok" : "FAIL", ok_mono ? "ok" : "FAIL");
-    printf("tracks: recording with SWING 50 %%: nearest swung step (0.55 into a long step stays, 0.42 into a short "
-           "one moves on) %s\n", ok_swing ? "ok" : "FAIL");
+    printf("tracks: recording with SWING 50 %%: both early and late notes stay on the playing step %s\n",
+           ok_swing ? "ok" : "FAIL");
     fail = !ok_len + !ok_short + !ok_half + !ok_chord + !ok_cap + !ok_mono + !ok_swing;
     return fail;
 }

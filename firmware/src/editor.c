@@ -19,7 +19,7 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_TRACK_PARAM, ED_TRACK_CHANGED, ED_SONG,
        ED_UI_STATE, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET,
        ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT,                               /* v6: song chain */
-       ED_AUDIO_STATS = 72 };                                       /* USB audio diagnostics (68..71: FM6, editor_fm6.c) */
+       ED_AUDIO_STATS = 72, ED_PATTERN, ED_BANK_SONG };                                       /* USB audio diagnostics (68..71: FM6, editor_fm6.c) */
 
 static uint8_t ed_out[600];
 static uint32_t ed_n;
@@ -142,7 +142,7 @@ static struct {
     uint32_t st[NSTEP];                                  /* step signatures */
     int16_t tv[ED_NT];                                   /* v4: trk[k].p[ED_TIDS[j]] at k * 3 + j */
     uint16_t tt[ED_NT];
-    uint32_t tpos;
+    uint32_t tpos, pattern_gen;
 } ed_w;
 
 static int16_t *ed_val(uint32_t i) { return i < P_COUNT ? &TSEL->p[i] : &song.g[i - P_COUNT]; }
@@ -163,7 +163,7 @@ static void ed_shadow(void)                              /* the editor is in syn
         ed_w.tv[i] = trk[i / 3u].p[ED_TIDS[i % 3u]];
     ed_w.eng = (uint8_t)ed_eng(TSEL);
     ed_w.preset = TSEL->preset;
-    ed_w.sel = song.sel;
+    ed_w.sel = song.sel; ed_w.pattern_gen = TSEL->pattern_gen;
     sync_reload = 0;
 }
 static int ed_room(void) { return so_w - so_r + 8u <= SXQ / 2u; }
@@ -189,7 +189,7 @@ static void ed_sync(void)                                /* main loop */
         ed_w.on = 0;                                     /* no host, USB reset, or 3 s without a request */
         return;
     }
-    if (sync_reload || ed_eng(TSEL) != ed_w.eng || TSEL->preset != ed_w.preset || song.sel != ed_w.sel) {
+    if (sync_reload || TSEL->pattern_gen != ed_w.pattern_gen || ed_eng(TSEL) != ed_w.eng || TSEL->preset != ed_w.preset || song.sel != ed_w.sel) {
         if (!ed_room())
             return;
         ed_shadow();
@@ -323,7 +323,7 @@ static void ed_motion_reply(uint32_t k, uint32_t rc)
     ed_b(k); ed_b(rc); ed_b(motion_enabled(t)); ed_b(motion_count(t)); ed_b(MOTION_MAX);
     for (uint32_t i = 0; i < motion.count; i++) {
         const motion_event_t *e = &motion.event[i];
-        if ((e->place >> 6) != k) continue;
+        if ((e->place >> 6) != k || motion_pattern[i] != t->pattern) continue;
         ed_b(e->place & 63u); ed_b(e->param); ed_v(e->value);
     }
 }
@@ -352,7 +352,7 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
     case ED_MOTION:
         return (n == 1u || (n == 2u && a[1] == 2u) || (n == 3u && a[1] == 1u && a[2] <= 1u) ||
                 (n == 6u && a[1] == 3u) || (n == 4u && a[1] == 4u)) && a[0] < NTRK;
-    case ED_SONG:
+    case ED_BANK_SONG: case ED_SONG:
         return n && (a[0] == 1u || n == 1u);
     default:
         return 1;                                  /* variable payloads validate in their handler */
@@ -433,10 +433,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         for (i = 0; i < NENGINES; i++)
             ed_str(ENGINES[i]->name, 8);
         ed_b(NTRK);                                       /* v3 */
-        ed_b(CHAIN_ROWS);                                  /* v6 */
+        ed_b(0);                                          /* project-based SONG retired: tagged bank SONG below */
         ed_b(0x55); ed_b(1); ed_b(ed_ui_caps());             /* tagged preferences v1: commands 34..38 */
         ed_b(0x4d); ed_b(1); ed_b(MOTION_MAX); ed_b(1); /* motion + chance v1 */
         ed_b(0x42); ed_b(1); ed_b(3); /* bounded full-backup read + restore */
+        ed_b(0x50); ed_b(1); ed_b(NPAT); ed_b(CHAIN_ROWS);     /* bank controls: 73/74 */
         ed_b(0x46); ed_b(1); ed_b(FM6_NFAC); ed_b(FM6_BANK_N);   /* FM6 patches: cmds 68..71 */
         break;
     case ED_GET:
@@ -790,6 +791,45 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_v(t->p[a[1]]);
         break;
     }
+    case ED_PATTERN: {
+        if (na < 2u || a[0] >= NTRK || a[1] > 2u || na != (a[1] == 0u ? 2u : a[1] == 1u ? 3u : 4u)) return;
+        track_t *t = &trk[a[0]]; uint32_t rc = 0;
+        if (a[1] == 1u) rc = pattern_request(t, a[2]);
+        if (a[1] == 2u) rc = pattern_copy(t, a[2], a[3]);
+        ed_b(a[0]); ed_b(a[1]); ed_b(rc); ed_b(t->pattern); ed_b(t->pattern_next < NPAT ? t->pattern_next : 127u); ed_b(NPAT);
+        ui.force = 1;
+        break;
+    }
+    case ED_BANK_SONG: {
+        if (!na || a[0] > 3u) return;
+        uint32_t rc = 0;
+        if (a[0] == 1u) {
+            if (na < 2u || a[1] > CHAIN_ROWS || na != 2u + a[1] * 5u) rc = 1;
+            else if (chain_busy()) rc = 2;
+            else {
+                for (uint32_t row = 0; row < a[1]; row++) {
+                    for (uint32_t k = 0; k < NTRK; k++) if (a[2u + row * 5u + k] >= NPAT) rc = 1;
+                    if (!a[6u + row * 5u] || a[6u + row * 5u] > 16u) rc = 1;
+                }
+                if (!rc) {
+                    chain_defaults(&chain_config); memset(chain_patterns, 0, sizeof chain_patterns);
+                    chain_config.count = a[1];
+                    for (uint32_t row = 0; row < a[1]; row++) {
+                        memcpy(chain_patterns[row], a + 2u + row * 5u, NTRK);
+                        chain_config.row[row] = (chain_row_t){chain_patterns[row][0], a[6u + row * 5u]};
+                    }
+                    ui.song_row = 0; ui.force = 1;
+                }
+            }
+        } else if (a[0] == 2u) rc = chain_prepare();
+        else if (a[0] == 3u) transport_req = 2;
+        ed_b(a[0]); ed_b(rc); ed_b(chain_config.count); ed_b(chain.running); ed_b(chain.row); ed_b(chain.remaining);
+        for (uint32_t row = 0; row < chain_config.count; row++) {
+            for (uint32_t k = 0; k < NTRK; k++) ed_b(chain_patterns[row][k]);
+            ed_b(chain_config.row[row].repeat);
+        }
+        break;
+    }
     case ED_SONG: {
         uint32_t rc = 0, op;
         chain_config_t c;
@@ -806,7 +846,11 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 }
                 if (!chain_valid(&c)) rc = 1;
                 else if (chain_busy()) rc = 2;
-                else { chain_config = c; ui.song_row = 0; ui.force = 1; }
+                else {
+                    chain_config = c;
+                    for (uint32_t row = 0; row < c.count; row++) memset(chain_patterns[row], c.row[row].slot, NTRK);
+                    ui.song_row = 0; ui.force = 1;
+                }
             }
         } else if (op == 2u) rc = chain_prepare();
         else if (op == 3u) transport_req = 2;

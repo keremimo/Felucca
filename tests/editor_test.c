@@ -71,6 +71,7 @@ static void reset(void)
     uint32_t t, i;
     memset(&song, 0, sizeof song); memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain); chain_defaults(&chain_config);
+    pattern_init();
     memset(&ed_w, 0, sizeof ed_w); memset(&ui, 0, sizeof ui);
     memset(&favorites, 0, sizeof favorites); memset(&settings, 0, sizeof settings); settings_init();
     memset(proj_slot, 0, sizeof proj_slot); memset(up_bank, 0, sizeof up_bank);
@@ -112,11 +113,12 @@ static int preferences(void)
     uint32_t n = request(ED_INFO, a, 0);
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
-        host_wire[n - 16] == CHAIN_ROWS && host_wire[n - 15] == 0x55 &&
-        host_wire[n - 14] == 1 && host_wire[n - 13] == 9 &&
-        host_wire[n - 12] == 0x4d && host_wire[n - 11] == 1 &&
-        host_wire[n - 10] == MOTION_MAX && host_wire[n - 9] == 1 &&
-        host_wire[n - 8] == 0x42 && host_wire[n - 7] == 1 && host_wire[n - 6] == 3 &&
+        host_wire[n - 20] == 0 && host_wire[n - 19] == 0x55 &&
+        host_wire[n - 18] == 1 && host_wire[n - 17] == 9 &&
+        host_wire[n - 16] == 0x4d && host_wire[n - 15] == 1 &&
+        host_wire[n - 14] == MOTION_MAX && host_wire[n - 13] == 1 &&
+        host_wire[n - 12] == 0x42 && host_wire[n - 11] == 1 && host_wire[n - 10] == 3 &&
+        host_wire[n - 9] == 0x50 && host_wire[n - 8] == 1 && host_wire[n - 7] == NPAT && host_wire[n - 6] == CHAIN_ROWS &&
         host_wire[n - 5] == 0x46 && host_wire[n - 4] == 1 && host_wire[n - 3] == FM6_NFAC &&
         host_wire[n - 2] == FM6_BANK_N);
     request(ED_UI_SET, a, 2);
@@ -439,9 +441,25 @@ static int user_preset_roundtrip(void)
     return bad;
 }
 
+static int bank_protocol(void)
+{
+    int bad=0; reset(); uint8_t a[12] = {2,1,7};
+    bad += check("PATTERN selects a track's bank without changing track selection", request(ED_PATTERN,a,3)==12 && !host_wire[7] && trk[2].pattern==7 && !song.sel);
+    a[2]=8;
+    bad += check("PATTERN rejects out-of-range bank IDs", request(ED_PATTERN,a,3)==12 && host_wire[7] && trk[2].pattern==7);
+    uint8_t row[] = {1,1,0,2,4,7,3};
+    bad += check("bank SONG independently assigns four track banks", request(ED_BANK_SONG,row,sizeof row)==17 && !host_wire[6] && chain_patterns[0][3]==7 && chain_config.row[0].repeat==3);
+    row[4]=8;
+    bad += check("malformed bank SONG leaves the arrangement unchanged", request(ED_BANK_SONG,row,sizeof row)==17 && host_wire[6]==1 && chain_patterns[0][2]==4);
+    a[0]=0; uint32_t writes=host_writes;
+    bad += check("sample upload and erase commands cannot write into pattern storage", request(ED_SMP_BEGIN,a,1)==0 && request(ED_SMP_ERASE,a,1)==0 && host_writes==writes && !host_erases);
+    request(ED_SMP_INFO,a,0);
+    bad += check("sample inventory advertises zero user slots", host_wire[5]==0);
+    return bad;
+}
 int main(void)
 {
-    int bad = preferences() + framing() + uart_recovery() + steps() + samples() + song_protocol() + malformed_saves() +
+    int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() +
               fm6_patches() + user_preset_roundtrip();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

@@ -205,9 +205,9 @@ async function editorSamplePresets() {
   await rq(E.req.preset(4, 0));
   const set = E.parse[C.DESC](await rq(E.req.desc(0, info.pe0)));
   ok(eq(names.names, ["PIANO", "PIANO", "FLUTE", "SAX"]) && eq(set.names.slice(0, 4), ["PIANO", "PIANO", "FLUTE", "SAX"])
-    && set.names[4] === "PERC" && eq(set.names.slice(5), ["USR1", "USR2", "USR3"]),
+    && set.names[4] === "PERC" && set.names.length === 5 && set.max === 4,
     "SAMPLE: TRANH removed, its preset and SET 1 kept as PIANO aliases, indices unchanged");
-  ok(E.aliasOf(names.names, 1) === 0 && E.aliasOf(names.names, 2) === 2 && E.aliasOf(set.names, 5) === 5,
+  ok(E.aliasOf(names.names, 1) === 0 && E.aliasOf(names.names, 2) === 2 && E.aliasOf(set.names, 4) === 4,
     "SAMPLE: an entry named like an earlier one is an alias of it");
   const alias = E.parse[C.PRESET](await rq(E.req.preset(4, 1)));
   const setAlias = E.parse[C.SET](await rq(E.req.set(0, info.pe0, 1)));
@@ -1237,6 +1237,23 @@ async function updater() {
   ok(e2 && e2.code === "notfound", "fm1ota.js: no device -> error code 'notfound'");
 }
 
+async function patternProtocol() {
+  const base = [65,0,14,92,27,64,84,...Array(14).fill(0),4];
+  const info = E.parse[E.CMD.INFO]([...base,0,0x55,1,9,0x4d,1,64,1,0x42,1,3,0x50,1,8,16,0x46,1,8,32]);
+  ok(info.patterns === 8 && info.chainRows === 16 && info.backupCaps === 3 && info.fm6.bank === 32,"patterns: tagged INFO preserves preferences, motion, backup and FM6");
+  ok(eq(E.req.pattern(2,1,7)[1],[2,1,7]) && E.parse[E.CMD.PATTERN]([2,1,0,7,127,8]).active===7,"patterns: bank selection uses its track and zero-based bank");
+  const rows=[{banks:[0,2,4,7],repeat:3},{banks:[7,6,5,4],repeat:1}];
+  const request=E.req.bankSong(1,rows);
+  const reply=E.parse[E.CMD.BANK_SONG]([1,0,2,0,0,0,...request[1].slice(2)]);
+  ok(JSON.stringify(reply.rows)===JSON.stringify(rows),"patterns: SONG carries independent banks for every track");
+  let invalid=false; try { E.req.bankSong(1,[{banks:[0,1,2,8],repeat:1}]); } catch { invalid=true; }
+  ok(invalid,"patterns: invalid bank-song values rejected before transport");
+  const B=await import("./fm1backup.js");
+  const ids=[0,1,2,3,4,5,6,7,8], manifest=[1,0,9];
+  ids.forEach(id=>manifest.push(id,...B.bkU32(id===0?20224:id===1?604:0),...B.bkU32(0)));
+  ok(B.bkManifest(manifest)[0].size===20224,"patterns: nine-object archives accept complete 32-bank projects");
+}
+await patternProtocol();
 await editorMock();
 await editorSamplePresets();
 mockTables();

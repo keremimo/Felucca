@@ -18,10 +18,12 @@ ok(throws(() => bkUnpack([...bkPack(b.subarray(0, 14)), 0], 14)), "backup: trail
 /* a device: objects by id, sample slots, the order of writes */
 function device(objs, opt = {}) {
   const d = { objs: new Map(objs), log: [], staged: null };
+  const ids = opt.ids || BACKUP_IDS;
+  if (!d.objs.has(0)) d.objs.set(0, rnd(opt.runtimeSize || 20224, 9));
   d.request = async ([cmd, a]) => {
     if (cmd === BACKUP_CMD.LIST) {
-      const out = [1, 0, BACKUP_IDS.length];
-      for (const id of BACKUP_IDS) { const v = d.objs.get(id) || new Uint8Array(0); out.push(id, ...bkU32(v.length), ...bkU32(v.length ? bkCrc(v) : 0)); }
+      const out = [1, 0, ids.length];
+      for (const id of ids) { const v = d.objs.get(id) || new Uint8Array(0); out.push(id, ...bkU32(v.length), ...bkU32(v.length ? bkCrc(v) : 0)); }
       return out;
     }
     if (cmd === BACKUP_CMD.GET) {
@@ -74,6 +76,31 @@ ok([0, 1, 2, 6].every((id) => target.objs.get(id).every((v, i) => v === objs.fin
 }
 const failing = device([], { failChunk: 2 });
 ok(await athrows(() => restoreBackup(failing.request, file)) && failing.log.includes("abort 2") && !failing.log.includes(0), "backup: a refused chunk aborts that object and stops before the live music");
+
+const bankIds = BACKUP_IDS.filter(id => id < 32);
+const bankObjects = [[0, rnd(20224, 10)], [1, rnd(1200, 11)], [2, rnd(20224, 12)]];
+const bankFile = await captureBackup(device(bankObjects, { ids: bankIds }).request, "BANKS");
+ok(readBackup(bankFile).objects.length === 9 && bankFile.objects[2].size === 20224,
+  "backup: captures all nine bank-era objects, including full saved banks");
+const bankTarget = device([], { ids: bankIds });
+await restoreBackup(bankTarget.request, bankFile);
+ok(bankTarget.log.at(-1) === 0 && bankTarget.objs.get(2).every((v, i) => v === bankObjects[2][1][i]),
+  "backup: full bank archive restores with current music last");
+const legacyTarget = device([], { runtimeSize: 3584 });
+ok(await athrows(() => restoreBackup(legacyTarget.request, bankFile)) && !legacyTarget.log.length,
+  "backup: bank archive is refused by older firmware before any write");
+const migratedTarget = device([], { ids: bankIds });
+await restoreBackup(migratedTarget.request, file);
+ok(!migratedTarget.log.some(id => id >= 32) && migratedTarget.objs.get(0).length === 3388,
+  "backup: legacy archive without samples migrates, skipping retired empty slots");
+const sample = new Uint8Array(514), sampleView = new DataView(sample.buffer);
+sampleView.setUint32(0, 0x504d5346, true); sampleView.setUint16(4, 1, true); sample[6] = 1;
+sampleView.setUint32(16, 2, true); sampleView.setUint32(20, bkCrc(sample.subarray(512)), true);
+sampleView.setUint32(36, 4, true); sampleView.setUint32(44, 3, true); sampleView.setUint32(48, 22050, true);
+const sampleFile = await captureBackup(device([...objs, [32, sample]]).request, "LEGACY");
+const noSampleTarget = device([], { ids: bankIds });
+ok(await athrows(() => restoreBackup(noSampleTarget.request, sampleFile)) && !noSampleTarget.log.length,
+  "backup: nonempty retired sample slots are refused before any write");
 
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
 process.exit(fails ? 1 : 0);

@@ -60,6 +60,20 @@ int main(void)
     int16_t v[P_COUNT], def[P_COUNT];
     memset(nor, 0xFF, sizeof nor);
 
+    {   /* The fork used the same bank/version, but its parameter and engine ids diverged. */
+        up_rec_t old;
+        memset(&old, 0, sizeof old);
+        old.used = UP_USED; old.ver = 1; old.engine = 9; old.name[0] = 'M';
+        old.np = 58;
+        bad += check("pre-1.0 Melodee 58-param record rejected", !up_valid(&old));
+        old.np = 62;
+        bad += check("pre-1.0 Melodee 62-param record rejected", !up_valid(&old));
+        up_bank[0].magic = UP_BANK_MAGIC; up_bank[0].rsize = sizeof old; up_bank[0].nslot = UP_PER_BANK;
+        up_bank[0].r[0] = old;
+        up_bank_check(0, sizeof up_bank[0]);
+        bad += check("fork record hidden without changing its saved bytes", !up_used(0) && !memcmp(up_rec(0), &old, sizeof old));
+    }
+
     n = put_frame(a, 5, 2, "Bass One", -40);
     bad += check("UP_PUT frame < 640 bytes", 5u + n + 1u < 640u);
     bad += check("UP_PUT parses", up_parse(a, n, &r, &slot) == 0 && slot == 5u && r.engine == 2u &&

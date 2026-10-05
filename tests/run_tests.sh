@@ -131,6 +131,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "project formats (FUN1..FUN5 -> FUN6, the grid and song chain; DIGITAL tracks -> FM6)" "$OUT/project_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/motion_test" tests/motion_test.c -lm
     run "motion, whole-step chance, FUN7 migration, song restore and ARP repeat" "$OUT/motion_test"
+    $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/pattern_test" tests/pattern_test.c -lm
+    run "32 pattern banks: chords, ties, independent loop switching, copy and persistence" "$OUT/pattern_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_control_test" tests/midi_control_test.c -lm
     run "USB/TRS clock, bend, sustain, ownership and panic recovery" "$OUT/midi_control_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_scale_test" tests/midi_scale_test.c -lm
@@ -153,6 +155,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "settings: PER1..PER5 migration, palette ids and preference preservation" "$OUT/settings_test"
     $CC -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test" tests/ui_test.c -lm
     run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" "$OUT/ui_test"
+    $CC -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/seq_edit_test" tests/seq_edit_test.c -lm
+    run "Sequencer: tied length/move/delete, eight-level undo/redo, MIDI step entry and playing-step recording" "$OUT/seq_edit_test"
     $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render" tests/ui_render.c -lm
     mkdir -p build/ui_new/ppm build/ui_slot
     run "UI renders: layout lint (every screen and palette, every page, engine and column value), MONO gray, draw cost" \

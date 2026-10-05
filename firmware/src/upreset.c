@@ -59,6 +59,9 @@ static int up_valid(const up_rec_t *r)
 {
     if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < NENGINES &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
+    /* Pre-1.0 Melodee reused UPB1/version 1, but its MPC/chord ids and engine 9 mean different things.
+     * Fresh-start policy: preserve the bytes while treating these fork layouts as empty. */
+    if (r->ver == 1u && (r->np == 58u || r->np == 62u)) return 0;
     if (r->ver >= 4u) for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
     return 1;
 }

@@ -842,6 +842,7 @@ static uint32_t graph_signature(void)
     }
     if (pg->graph == GR_SONG) {
         h ^= ui.song_row * 40503u + chain_config.count * 7919u;
+        for (i = 0; i < CHAIN_ROWS * NTRK; i++) h = (h ^ ((uint8_t *)chain_patterns)[i]) * 16777619u;
         for (i = 0; i < CHAIN_ROWS; i++)
             h = (h ^ (chain_config.row[i].slot + 4u * chain_config.row[i].repeat)) * 16777619u;
         h ^= chain.running ? (chain.row + 1u) * 104729u + chain.remaining * 1299709u : 0u;
@@ -1213,12 +1214,122 @@ static void draw_tracks(void)
         cv_blit((uint32_t)CARD_X(c), Y_GRAPH);
     }
 }
+/* HOME note/chord names: the same recognizer as next, with the 1.0 fonts and palette. */
+static const struct {
+    uint16_t iv;                                     /* bit i: i semitones over the root */
+    char q[8];
+} CHORDS[] = {                                       /* simplest first: a chord off its bass takes the first that fits */
+    {0x091, ""}, {0x089, "m"}, {0x049, "dim"}, {0x111, "aug"}, {0x0A1, "sus4"}, {0x085, "sus2"},
+    {0x491, "7"}, {0x891, "maj7"}, {0x489, "m7"}, {0x449, "m7b5"}, {0x249, "dim7"}, {0x4A1, "7sus4"},
+    {0x291, "6"}, {0x289, "m6"}, {0x095, "add9"}, {0x08D, "madd9"}, {0x0B1, "add11"}, {0x0A9, "madd11"},
+    {0x889, "mM7"}, {0x511, "7#5"}, {0x451, "7b5"}, {0x911, "maj7#5"}, {0x849, "dimM7"},
+    {0x495, "9"}, {0x895, "maj9"}, {0x48D, "m9"}, {0x4A5, "9sus4"}, {0x295, "6/9"}, {0x28D, "m6/9"},
+    {0x493, "7b9"}, {0x499, "7#9"}, {0x4D1, "7#11"}, {0x591, "7b13"}, {0x8D1, "maj7#11"},
+    /* 11ths and 13ths, also without the 5th or the 9th */
+    {0x4B5, "11"}, {0x4AD, "m11"}, {0x4A9, "m11"}, {0x42D, "m11"},
+    {0x695, "13"}, {0x691, "13"}, {0x615, "13"}, {0x611, "13"},
+    {0x6AD, "m13"}, {0x68D, "m13"}, {0x689, "m13"}, {0x60D, "m13"},
+    {0xA95, "maj13"}, {0xA91, "maj13"}, {0xA15, "maj13"},
+    /* 7ths and 9ths without the 5th */
+    {0x411, "7"}, {0x811, "maj7"}, {0x409, "m7"}, {0x415, "9"}, {0x815, "maj9"}, {0x40D, "m9"},
+    {0x413, "7b9"}, {0x419, "7#9"}, {0x851, "maj7#11"},
+};
+#define NCHORDS (sizeof CHORDS / sizeof CHORDS[0])
+
+/* the chord of pitch classes pcs, *root its root: on the bass when it makes one,
+ * else the simplest on another root (shown "/bass") */
+static const char *chord_of(uint32_t pcs, uint32_t bass, uint32_t *root)
+{
+    uint32_t i, k, best = NCHORDS;
+    for (i = 0; i < 12u; i++) {
+        uint32_t r = (bass + i) % 12u, iv = ((pcs >> r) | (pcs << (12u - r))) & 0xFFFu;
+        if (!((pcs >> r) & 1u))
+            continue;
+        for (k = 0; k < best; k++)
+            if (CHORDS[k].iv == iv) {
+                best = k;
+                *root = r;
+                break;
+            }
+        if (!i && best < NCHORDS)
+            break;                                   /* on the bass: no slash */
+    }
+    return best < NCHORDS ? CHORDS[best].q : 0;
+}
+
+/* the lowest of n notes (note[] holds the first 8) that fit in w px of font f, "C4 E4 G4",
+ * " .." when some are left out; returns how many are shown */
+static uint32_t notes_fit(char *b, const uint8_t *note, uint32_t n, const aafont_t *f, int32_t w)
+{
+    uint32_t m, i;
+    for (m = n < 8u ? n : 8u; m > 1u; m--) {
+        b[0] = 0;
+        for (i = 0; i < m; i++) {
+            if (i)
+                str_cpy(b + str_len(b), " ", 2);
+            note_name(b + str_len(b), note[i]);
+        }
+        if (m < n)
+            str_cpy(b + str_len(b), " ..", 4);
+        if (text_w(f, b) <= w)
+            return m;
+    }
+    note_name(b, note[0]);
+    return 1;
+}
+
+static int graph_notes(void)
+{
+    uint32_t bits[4], i, n = 0, pcs = 0, root = 0, bass, held = 0;
+    uint8_t note[8];
+    char b[48];
+    const char *q;
+    const aafont_t *f;
+    uint16_t c;
+    /* One coherent ISR snapshot; no drawing or chord recognition with IRQs masked. */
+    fm1_irq_off();
+    for (i = 0; i < 4u; i++) {
+        uint32_t p;
+        bits[i] = live_last[i];
+        for (p = 0; p < NTRK; p++) held |= live_held[p][i];
+    }
+    fm1_irq_on();
+    for (i = 0; i < 128u; i++)
+        if ((bits[i >> 5] >> (i & 31u)) & 1u) {
+            pcs |= 1u << (i % 12u);
+            if (n < sizeof note) note[n] = (uint8_t)i;
+            n++;
+        }
+    if (!n) return 0;
+    c = held ? T_TEXT : T_THEME;
+    bass = note[0] % 12u;
+    q = chord_of(pcs, bass, &root);
+    if (q) {
+        int32_t x = cv_text(12, 7, &AF_L, N_NOTE[root], c);
+        x = cv_text(x + 2, 19, &AF_M, q, c);
+        if (root != bass) {
+            x = cv_text(x + 3, 7, &AF_L, "/", c);
+            cv_text(x, 7, &AF_L, N_NOTE[bass], c);
+        }
+        notes_fit(b, note, n, &AF_S, 208);
+        cv_text(12, 38, &AF_S, b, held ? T_THEME : T_MID);
+    } else {
+        f = &AF_L;
+        if (notes_fit(b, note, n, f, 208) != n) {
+            f = &AF_S;
+            notes_fit(b, note, n, f, 208);
+        }
+        cv_text(12, 7, f, b, c);
+    }
+    return 1;
+}
+
 /* oscilloscope of the output, triggered on a rising zero crossing: a RAISE centre line, the trace 2 px */
-static void graph_scope(uint16_t c)
+static void graph_scope(uint16_t c, int32_t top, int32_t h)
 {
     static int16_t snap[SCOPE_N];
     uint32_t w = scope_w, i, trig = 0;
-    int32_t cy = H_GRAPH / 2, py = cy, x, peak = 1500;
+    int32_t cy = top + h / 2, py = cy, x, peak = 1500;
     for (i = 0; i < SCOPE_N; i++) {
         snap[i] = scope_buf[(w + i) & (SCOPE_N - 1u)];
         if (snap[i] > peak)
@@ -1233,44 +1344,33 @@ static void graph_scope(uint16_t c)
         }
     cv_rect(PANEL_X0, cy, PANEL_W, 1, T_RAISE);
     for (x = 0; x < PANEL_W; x++) {
-        int32_t y = cy - snap[trig + (uint32_t)x] * 46 / peak;   /* auto-scaled */
+        int32_t y = cy - snap[trig + (uint32_t)x] * (h / 2 - 10) / peak;   /* auto-scaled */
         if (x)
             cv_line_t(PANEL_X0 - 1 + x, py, PANEL_X0 + x, y, c, 2);
         py = y;
     }
 }
 
-/* SONG is a playing order of the four stored project patterns. Letters match
- * PROJECT A..D; loading a project still restores its sound, SONG borrows steps. */
+/* Each arrangement row selects one bank per track. */
 static void graph_song(void)
 {
-    uint32_t first = ui.song_row > 2u ? ui.song_row - 2u : 0u, i;
-    if (!chain_config.count) {
-        panel_note("PAT A x4 > B x1", "[K2] ADD PATTERN", "[SAVE] PROJECT A-D");
-        return;
-    }
-    for (i = first; i < CHAIN_ROWS && i < first + 7u; i++) {
-        char b[16];
-        int32_t y = LIST_Y(i - first);
-        int sel = i == ui.song_row;
+    uint32_t first = ui.song_row > 2u ? ui.song_row - 2u : 0u;
+    for (uint32_t k = 0; k < NTRK; k++) { char label[3] = {'T', (char)('1' + k), 0}; cv_text_on(54 + (int32_t)k * 30, 0, &AF_S, label, k == song.sel ? T_THEME : T_DIM, T_SURF); }
+    cv_text_on(182, 0, &AF_S, "REPS", T_DIM, T_SURF);
+    if (!chain_config.count) { panel_note("T1   T2   T3   T4", "[K2] ADD ROW", "[ALGO] TRACK  [K2] PATTERN"); return; }
+    for (uint32_t i = first; i < CHAIN_ROWS && i < first + 6u && i <= chain_config.count; i++) {
+        char b[16]; int32_t y = LIST_Y(i - first) + 16; int sel = i == ui.song_row;
         uint16_t bg = sel ? T_THEME : T_SURF, col = sel ? T_INK : T_TEXT, dim = sel ? T_INK : T_DIM;
-        if (i > chain_config.count) break;
         if (sel) cv_rrect(6, y, 228, 16, 4, T_THEME, T_SURF);
         if (chain.running && i == chain.row) cv_icon_on(9, y + 2, 12, ICON_X_RIGHT, sel ? T_INK : T_ACCENT, bg);
-        fmt_int(b, (int32_t)i + 1); cv_text_on(24, y + 1, &AF_S, b, sel ? T_INK : T_MID, bg);
-        if (i == chain_config.count) { cv_text_on(54, y + 1, &AF_S, "+ ADD PATTERN", dim, bg); break; }
-        b[0] = (char)('A' + chain_config.row[i].slot); b[1] = 0;
-        cv_text_on(54, y + 1, &AF_S, b, col, bg);
-        b[0] = 'x'; fmt_int(b + 1, chain_config.row[i].repeat);
-        cv_text_on(82, y + 1, &AF_S, b, col, bg);
-        if (i + 1u < chain_config.count) cv_text_on(122, y + 1, &AF_S, ">", dim, bg);
-        if (!graph_project_used(chain_config.row[i].slot)) cv_text_on(142, y + 1, &AF_S, "NOT SAVED", dim, bg);
-        else if (chain.running && i == chain.row) {
-            fmt_int(b, chain.remaining); str_cpy(b + str_len(b), " LEFT", 8);
-            cv_text_on(142, y + 1, &AF_S, b, sel ? T_INK : T_THEME, bg);
-        } else if (graph_project_name(chain_config.row[i].slot)[0]) {   /* the project's name, cut to fit */
-            cv_free_text(142, y + 1, &AF_S, graph_project_name(chain_config.row[i].slot), sel ? T_INK : T_MID, bg, 232 - 142);
+        fmt_int(b, (int32_t)i + 1); cv_text_on(24, y + 1, &AF_S, b, dim, bg);
+        if (i == chain_config.count) { cv_text_on(54, y + 1, &AF_S, "+ ADD ROW", dim, bg); break; }
+        for (uint32_t k = 0; k < NTRK; k++) {
+            fmt_int(b, (int32_t)chain_patterns[i][k] + 1);
+            cv_text_on(54 + (int32_t)k * 30, y + 1, &AF_S, b, k == song.sel ? col : dim, bg);
         }
+        b[0] = 'x'; fmt_int(b + 1, chain_config.row[i].repeat);
+        cv_text_on(182, y + 1, &AF_S, b, col, bg);
     }
 }
 static void draw_graph(void)
@@ -1294,7 +1394,8 @@ static void draw_graph(void)
     cv_oy = GOY;                                     /* graphs on a 100 px scale */
     if (ui.home) {
         cv_oy = 0;
-        graph_scope(c);
+        int32_t top = graph_notes() ? 54 : 0;
+        graph_scope(c, top, H_GRAPH - top);
     } else {
         switch (pg->graph) {
         case GR_ADSR:
@@ -1382,7 +1483,7 @@ static void draw_graph(void)
             else if ((pg->scope == SC_ENGINE || pg->id[0] == P_FM1_LEVEL) && t->eng_req % NENGINES == ENGI_DIGITAL)
                 graph_fm(t, c);                      /* (OP LEVEL too: the levels on the chart) */
 #endif
-            else { cv_oy = 0; graph_scope(c); }
+            else { cv_oy = 0; graph_scope(c, 0, H_GRAPH); }
             break;
         }
     }

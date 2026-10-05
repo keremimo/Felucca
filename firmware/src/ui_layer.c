@@ -62,6 +62,8 @@ static uint32_t layer_bits(void)
     uint32_t l, m = 0;
     for (l = LAYER_FX; l < LAYER_N; l++)
         m |= ly_bit(l);
+    if (step_modifier_context())
+        m &= ~step_modifier_mask();                      /* synth STEP: FX/SCL are editing modifiers */
     return m;
 }
 static uint32_t layer_btn(void) { return LAYERS[ui.layer % LAYER_N].btn; }
@@ -78,7 +80,7 @@ static void layer_masks(void)
 {
     uint32_t m = !layer_allowed() || (ui.ly && (ui.ly_t0 & LY_DEAD)) ? 0u
                : ui.ly ? ly_bit(ui.ly) : layer_bits() & ~fm1_in.buttons;
-    kb_mask = m;
+    kb_mask = m | (layer_allowed() && !ui.ly ? 1u << panel.btn[B_SEQ] : 0u);
     perf_mask = m & ly_bit(LAYER_FX);
 }
 
@@ -89,7 +91,7 @@ static void layer_arm(uint32_t pressed, uint32_t now)
     if (ui.ly)
         return;
     for (l = LAYER_FX; l < LAYER_N; l++)
-        if (pressed & ly_bit(l)) {
+        if (pressed & ly_bit(l) & layer_bits()) {
             ui.ly = (uint8_t)l;
             ui.ly_t0 = (now & ~15u) | 1u | (layer_allowed() ? 0u : LY_DEAD);
             return;

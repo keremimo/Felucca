@@ -98,7 +98,8 @@ int main(void)
     int bad = 0, ok;
     uint32_t before;
     persist_t p;
-    project_store_t old, got;
+    project_store_t old;
+    static uint8_t got[BANK_STORE_SIZE];
     project_v5_t v5;
     up_bank_t bank;
     up_rec_t r;
@@ -183,8 +184,8 @@ int main(void)
     project_save(0);
     fail_after = -1;
     bad += check("failed project save keeps RAM and old flash", !strcmp(ui.msg, "SAVE ERROR") &&
-                  !memcmp(&proj_slot[0], &old, sizeof old) && st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got &&
-                  !memcmp(&got, &old, sizeof got));
+                  !memcmp(&proj_slot[0], &old, sizeof old) && st_load(OBJ_BANK0, got, sizeof got) == (int)sizeof got &&
+                  !memcmp(got + 8u, &old, sizeof old));
     project_save(0);
     bad += check("successful project save publishes new RAM", !strcmp(ui.msg, "SAVED") &&
                   proj_import(&proj_scratch, &proj_slot[0], sizeof proj_slot[0]) &&
@@ -212,7 +213,7 @@ int main(void)
         fail_after = 1;
         bad += check("failed project rename: SAVE ERROR, the slot and flash as they were",
                       project_rename(0, "DUB") == 2 && !strcmp(ui.msg, "SAVE ERROR") && !memcmp(&proj_slot[0], &keep, sizeof keep) &&
-                      st_load(OBJ_PROJECT0, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &keep, sizeof got));
+                      st_load(OBJ_BANK0, got, sizeof got) == (int)sizeof got && !memcmp(got + 8u, &keep, sizeof keep));
         fail_after = -1;
         before = erases;
         transport_req = 1;
@@ -223,19 +224,14 @@ int main(void)
                       !strcmp(ui.msg, "RENAMED") && (memset(proj_slot[0].raw, 0, 8), proj_fetch(0), project_name(0, n)) &&
                       !strcmp(n, "DUB") && proj_scratch.t[0].step[0].note[0] == st0.note[0]);
     }
-    {   /* FUN7 itself refuses a step outside its fields: a damaged slot is empty, the tracks stay */
+    {   /* All inactive banks are validated before replacing the runtime. */
         step_t keep = trk[0].step[0];
-        old = proj_slot[0];
-        proj_slot[0].raw[68 + P_COUNT + 2 + 4] = 7;               /* track 1 step 1: n = 7 */
-        bad += check("damaged FUN7 slot (hash ok, n > 4) is refused", (memcpy(proj_slot[0].raw + PROJ_STORE_SIZE - 4,
-                      &(uint32_t){proj_hash(proj_slot[0].raw, PROJ_STORE_SIZE - 4)}, 4), !project_used(0)));
-        st_save(OBJ_PROJECT0, &proj_slot[0], sizeof proj_slot[0]);
-        ui.msg[0] = 0;
+        project_capture(&proj_scratch); bank_pack(got, &proj_scratch, 1);
+        got[BANK_EXTRA_OFF + 4u] = 7; bank_checksum(got);
+        st_save(OBJ_BANK0, got, sizeof got);
         project_load(0);
-        bad += check("loading it says EMPTY SLOT and keeps the steps", !strcmp(ui.msg, "EMPTY SLOT") &&
-                      !memcmp(&trk[0].step[0], &keep, sizeof keep));
-        proj_slot[0] = old;
-        st_save(OBJ_PROJECT0, &proj_slot[0], sizeof proj_slot[0]);
+        bad += check("damaged inactive-bank chord is refused with runtime unchanged", !strcmp(ui.msg,"EMPTY SLOT") &&
+            !memcmp(&trk[0].step[0],&keep,sizeof keep));
     }
     {   /* an older format (FUN5) with values FUN7 cannot pack still loads, bounded */
         uint32_t i;
@@ -271,7 +267,7 @@ int main(void)
     chain_config.count = 1;
     chain_config.row[0] = (chain_row_t){3, 1};
     bad += check("SONG sources use the same step bounds", chain_prepare() == 0 &&
-                  !memcmp(&chain.source[3].step[0][0], &trk[0].step[0], sizeof(step_t)));
+                  !memcmp(&pattern_at(0, 0)->step[0], &trk[0].step[0], sizeof(step_t)));
     seq_stop();
     transport_req = 0;
     memset(&r, 0, sizeof r);

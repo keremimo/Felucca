@@ -78,6 +78,44 @@ static uint32_t arp_led(void)
     return !on ? 2u : beat_pos < (beat_n ? b / 6u : b / 2u);
 }
 
+static const uint8_t PAT_KEY[NPAT] = {0, 2, 4, 6, 7, 9, 11, 12};
+static int pattern_keys_on(void)
+{
+    return !ui.menu && !ui.confirm && !name_on() && !ui.ly && !ui.uboot &&
+        (fm1_in.buttons & (1u << panel.btn[B_SEQ]));
+}
+static uint32_t pattern_leds(void)
+{
+    uint32_t m = 1u << PAT_KEY[TSEL->pattern];
+    if (TSEL->pattern_next < NPAT && !(fm1_ms / 180u & 1u)) m |= 1u << PAT_KEY[TSEL->pattern_next];
+    if (ui.pat_key) m |= 1u << PAT_KEY[ui.pat_key - 1u];
+    return m;
+}
+static void pattern_keys(uint32_t notes)
+{
+    if (ui.pat_key && ui.pat_track != song.sel) ui.pat_key = ui.pat_copy = 0;
+    if (pattern_keys_on()) {
+        for (uint32_t b = 0; b < NPAT; b++) if (notes & (1u << PAT_KEY[b])) {
+            ui.seq_t0 |= 2u;
+            if (!ui.pat_key) { ui.pat_key = (uint8_t)(b + 1u); ui.pat_track = song.sel; ui.pat_copy = 0; }
+            else if (ui.pat_key != b + 1u) {
+                int rc = pattern_copy(TSEL, ui.pat_key - 1u, b);
+                ui.pat_copy = 1;
+                ui_message(rc == 2 ? "MOTION FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
+                ui.force = 1;
+            }
+        }
+    }
+    if (ui.pat_key && (!pattern_keys_on() || !(fm1_in.notes & (1u << PAT_KEY[ui.pat_key - 1u])))) {
+        if (!ui.pat_copy) {
+            uint32_t bank = ui.pat_key - 1u;
+            if (pattern_request(TSEL, bank)) ui_message("STOP SONG TO SWITCH");
+            else { char b[12] = "PATTERN "; b[8] = (char)('1' + bank); b[9] = 0; ui_message(b); }
+            ui.entry_open = 0; cursor_set(0); ui.force = 1;
+        }
+        ui.pat_key = ui.pat_copy = 0;
+    }
+}
 static void ui_leds(void)
 {
     uint8_t nl[FM1_NCOL] = {0};
@@ -99,7 +137,7 @@ static void ui_leds(void)
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)(k >> 1));
-    c = name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds() : grid_on() ? grid_leds() :
+    c = pattern_keys_on() ? pattern_leds() : name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds() : grid_on() ? grid_leds() :
         fm1_in.notes & ~kb_layer;                       /* NAME's keys, the map, the grid, the keys held */
 #if MELODEE_SLICE
     if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
@@ -239,8 +277,9 @@ static void step_edit(uint32_t slot, int32_t steps)
         return;
     }
     switch (slot) {
-    case 0:                                               /* STEP: the cursor */
-        cursor_set(ui.cursor + steps);
+    case 0:                                               /* STEP cursor; SELECT shapes a held note */
+        if (!ui.entry_open)
+            cursor_set(ui.cursor + steps);
         break;
     case 1:                                               /* NOTE: transpose the step */
         if (!st->n) {
@@ -254,7 +293,7 @@ static void step_edit(uint32_t slot, int32_t steps)
         st->time = ST_NOTE;
         last_note = st->note[0];
         break;
-    case 2:
+    case 2:                                               /* TIME: NOTE / TIE / REST (length: PRESETS) */
         st->time = (uint8_t)clamp((int32_t)st->time + (steps > 0 ? 1 : -1), ST_NOTE, ST_REST);
         break;
     default: {                                            /* FLAG: - / ACC / SLD / A+S */
@@ -297,13 +336,16 @@ static void edit_param(uint32_t slot, int32_t steps)
         if (slot == 3u) return;               /* PLAY is a button; no duplicate row-count knob */
         if (ui.song_row >= chain_config.count) {
             chain_row_t *r = &chain_config.row[ui.song_row];
-            r->slot = ui.song_row ? chain_config.row[ui.song_row - 1u].slot : 0u;
+            r->slot = 0;
+            if (ui.song_row) memcpy(chain_patterns[ui.song_row], chain_patterns[ui.song_row - 1u], NTRK);
+            else for (uint32_t k = 0; k < NTRK; k++) chain_patterns[ui.song_row][k] = trk[k].pattern;
             r->repeat = 1;
             chain_config.count = ui.song_row + 1u;
             if (slot == 1u) return;
         }
         if (slot == 1u)
-            chain_config.row[ui.song_row].slot = (uint8_t)clamp((int32_t)chain_config.row[ui.song_row].slot + steps, 0, 3);
+            chain_patterns[ui.song_row][song.sel] = (uint8_t)clamp((int32_t)chain_patterns[ui.song_row][song.sel] + steps, 0, NPAT - 1u);
+        chain_config.row[ui.song_row].slot = chain_patterns[ui.song_row][0];
         if (slot == 2u)
             chain_config.row[ui.song_row].repeat = (uint8_t)clamp((int32_t)chain_config.row[ui.song_row].repeat + steps, 1, 16);
         return;
@@ -503,42 +545,170 @@ static uint32_t oct_taps(uint32_t pressed, int here)
 /* SEQ step entry, acid style: the keys pressed together (POLY: up to 4 notes, MONO:
  * the last one) become the cursor step; releasing all keys moves on. With CHRD on a key
  * writes what it sounds, as live recording does: POLY its chord, MONO the chord's root */
-static void seq_entry(uint32_t pressed)
+static int step_page(void) { return !ui.home && cur_page()->scope == SC_STEP; }   /* SEQ > STEP, CHANCE */
+static int step_modifier_context(void)
+{
+    return step_page() && !drum_track(TSEL) && !ui.menu && !ui.confirm && !ui.ly && !name_on() && !live_rec_sel();
+}
+static uint32_t step_modifier_mask(void)
+{
+    return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) | (1u << panel.btn[B_FX]);
+}
+
+static void step_length_edit(int32_t delta)
+{
+    uint32_t at, n = 0;
+    fm1_irq_off();
+    at = step_note_start(TSEL, ui.cursor);
+    if (at < NSTEP)
+        n = step_note_resize(TSEL, at, (int32_t)step_note_length(TSEL, at) + delta);
+    fm1_irq_on();
+    if (n) {
+        char b[8];
+        fmt_int(b, (int32_t)n);
+        ui_say("LEN ", b);
+    } else {
+        ui_message("SELECT A NOTE");
+    }
+    ui.force = 1;
+}
+
+static void step_move_edit(int32_t delta)
+{
+    uint32_t at, to;
+    fm1_irq_off();
+    at = step_note_start(TSEL, ui.cursor);
+    to = step_note_move(TSEL, at, delta);
+    fm1_irq_on();
+    if (to < NSTEP) {
+        uint8_t entry = ui.entry_open;
+        cursor_set((int32_t)to);
+        ui.entry_open = entry;
+        ui_message(to == at ? "NEXT NOTE" : "NOTE MOVED");
+    } else {
+        ui_message("SELECT A NOTE");
+    }
+    ui.force = 1;
+}
+
+static void step_delete_edit(void)
+{
+    uint32_t at;
+    step_history_end();                              /* deletion is separate from a held entry */
+    step_history_finish();
+    fm1_irq_off();
+    at = step_note_start(TSEL, ui.cursor);
+    step_delete(TSEL, ui.cursor);
+    fm1_irq_on();
+    cursor_set((int32_t)(at < NSTEP ? at : ui.cursor) + 1);
+    ui_message(at < NSTEP ? "NOTE CLEARED" : "STEP CLEARED");
+}
+
+/* the cursor step takes notes n[0..cnt) (a key's chord, or what a MIDI note played): the first of an entry starts
+ * the step afresh. MONO / LEGATO / UNISON (not a kit): one note, the first */
+static void seq_entry_notes(const uint8_t *n, uint32_t cnt)
 {
     track_t *t = TSEL;
     step_t *st = &t->step[ui.cursor];
+    uint32_t i, j;
+    if (!cnt)
+        return;
+    if (!ui.entry_open) {
+        step_history.cursor_before = ui.cursor;
+        ui.entry_open = 1;
+        st->n = 0;
+        st->time = ST_NOTE;
+    }
+    if (t->p[P_VOICE] && !ENGINES[t->engine]->oneshot) {   /* (drums: hits stack as a chord) */
+        st->note[0] = n[0];
+        st->n = 1;
+    } else {
+        for (i = 0; i < cnt && st->n < 4u; i++) {
+            for (j = 0; j < st->n && st->note[j] != n[i]; j++)
+                ;
+            if (j == st->n)
+                st->note[st->n++] = n[i];
+        }
+    }
+}
+
+/* Complete entry after knobs, so the final SELECT detent still edits the note being released. */
+static void seq_entry_finish(void)
+{
+    uint32_t held = fm1_in.notes & ~kb_layer, k;
+    for (k = 0; k < 27u; k++)
+        if ((held >> k) & 1u && kb_map(TSEL, k) == KB_SILENT)
+            held &= ~(1u << k);
+    if (ui.entry_open && !held && !step_midi_held) {
+        uint32_t n = step_note_length(TSEL, ui.cursor);
+        cursor_set(ui.cursor + (n ? n : 1u));
+        step_history_end();                          /* two MIDI taps in one UI frame remain separate edits */
+    }
+}
+
+static void seq_midi_events(int accept)
+{
+    if (!accept) {
+        seq_midi_reset();
+        return;
+    }
+    if (step_midi_overflow) {
+        seq_midi_reset();
+        if (accept && ui.entry_open) {
+            ui.entry_open = 0;
+            ui_message("MIDI INPUT BUSY");
+        }
+        return;
+    }
+    while (step_midi_r != step_midi_w) {
+        uint32_t e;
+        RING_PUBLISH();
+        e = step_midi_q[step_midi_r % STEP_MIDI_Q];
+        step_midi_r++;
+        if (!accept || ((e >> 8) & 3u) != song.sel)
+            continue;
+        uint32_t ch = (e >> 12) & 15u, src = (e >> 16) & 127u, bit = 1u << (src % 32u);
+        uint32_t *keys = &step_midi_keys[ch][src / 32u];
+        if (e & (1u << 11)) {                            /* all off */
+            step_midi_held = 0;
+            memset(step_midi_keys, 0, sizeof step_midi_keys);
+            seq_entry_finish();
+        } else if (e & (1u << 10)) {
+            if (!step_midi_held)
+                seq_entry_finish();                  /* another tap starts a separate entry, even in one frame */
+            uint8_t note = (uint8_t)(e & 127u);
+            if (!(*keys & bit))
+                step_midi_held++;
+            *keys |= bit;
+            seq_entry_notes(&note, 1);
+            last_note = note;
+        } else if (*keys & bit) {
+            *keys &= ~bit;
+            step_midi_held--;
+        }
+    }
+}
+
+/* the keys pressed together (POLY: up to 4, MONO: the first) and the MIDI notes held become the cursor step; SELECT
+ * sets its length while they are held; when the last is let go the cursor moves past the note */
+static void seq_entry(uint32_t pressed)
+{
+    track_t *t = TSEL;
     uint32_t k;
     for (k = 0; k < 27u; k++) {
         uint8_t ch[CHORD_MAX];
         int32_t r;
         uint16_t mask;
-        uint32_t note, n, i, j;
+        uint32_t note;
         if (!((pressed >> k) & 1u))
             continue;
         note = kb_map(t, k);
         if (note == KB_SILENT)
             continue;
-        if (!ui.entry_open) {
-            ui.entry_open = 1;
-            st->n = 0;
-            st->time = ST_NOTE;
-        }
-        n = chord_make(t, note, ch, &r, &mask);        /* (CHRD OFF, a kit: the note alone; MONO: the root) */
-        if (t->p[P_VOICE] && !ENGINES[t->engine]->oneshot) {   /* (drums: hits stack as a chord) */
-            st->note[0] = ch[0];
-            st->n = 1;
-        } else {
-            for (i = 0; i < n && st->n < 4u; i++) {
-                for (j = 0; j < st->n && st->note[j] != ch[i]; j++)
-                    ;
-                if (j == st->n)
-                    st->note[st->n++] = ch[i];
-            }
-        }
+        seq_entry_notes(ch, chord_make(t, note, ch, &r, &mask));   /* (CHRD OFF, a kit: the note alone) */
         last_note = (uint8_t)note;
     }
-    if (ui.entry_open && !(fm1_in.notes & ~kb_layer))
-        cursor_set(ui.cursor + 1);
+    seq_midi_events(1);
 }
 
 /* HOME / REC / SAVE: tap on release, hold 0.7 s fires once. t0 = press time | 1,
@@ -586,7 +756,12 @@ static void page_tap(uint32_t b)
     }
     if (b == B_EDIT && song.seq_mode && !ui.home && cur_page()->graph == GR_ROLL) {   /* STEP: EDIT clears the step */
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        step_clear(&TSEL->step[ui.cursor]);
+        fm1_irq_off();
+        if (drum_track(TSEL))
+            step_clear(&TSEL->step[ui.cursor]);
+        else
+            step_delete(TSEL, ui.cursor);
+        fm1_irq_on();
         cursor_set(ui.cursor + 1);
         ui_message("STEP CLEARED");
         return;
@@ -622,13 +797,19 @@ static void ui_notices(void)
 static void ui_input(void)
 {
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
+    uint32_t bank_notes = notes;
     uint32_t home = btn_hold(&ui.home_t0, B_HOME, now, 1);
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, 0);
     uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm);
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
-    uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open());
+    uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || step_modifier_context());
     uint32_t lay, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
+    if (step_modifier_context()) {
+        ui.step_mods |= (uint16_t)(pressed & step_modifier_mask());
+    } else {
+        ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
+    }
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
 #if !MELODEE_FM4
     for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */
@@ -677,6 +858,13 @@ static void ui_input(void)
             ui.hot_t = 40;
         }
     song.grid = (uint8_t)keys_mode();                 /* (the menu, a dialog: the keys play again; NAME: silent) */
+    if (!step_page() || drum_track(TSEL) || ui.menu || ui.confirm || name_on() || lay || live_rec_sel() || chain_busy())
+        seq_midi_events(0);                         /* discard events during modal/layer input too */
+    if (ui.seen_pattern_gen != TSEL->pattern_gen) {
+        if (ui.seen_pattern_gen) { seq_midi_reset(); ui.entry_open = ui.step_move = 0; cursor_set(0); ui.force = 1; }
+        ui.seen_pattern_gen = TSEL->pattern_gen;
+    }
+    step_history_sync();                                /* (seq_undo.c: a change from elsewhere: a fresh history) */
     if (home == BT_HOLD) {                              /* HOME held: open the menu, or leave it */
         if (ui.menu) {
             menu_close();
@@ -716,8 +904,8 @@ static void ui_input(void)
     }
     if (save == BT_HOLD && chain_busy())
         ui_message("STOP TO UNDO");
-    else if (save == BT_HOLD)                                /* SAVE held: undo the last sound load */
-        undo_swap();
+    else if (save == BT_HOLD && !(step_page() && step_history_apply(0)))   /* SEQ > STEP: its last edit first, */
+        undo_swap();                                                       /* else the last sound / pattern load */
     else if (save == BT_TAP && !ui.confirm)             /* SAVE acts on release (a hold is the undo) */
         open_family(FAM_SAVE);
     if (ui.confirm) {                                   /* OCT- cancels, OCT+ does it; nothing else reacts */
@@ -740,13 +928,16 @@ static void ui_input(void)
             } else if (kind == CF_DEL_ROW) {
                 uint32_t r = ui.confirm_trk;
                 if (!chain_busy() && r < chain_config.count) {
-                    for (; r + 1u < chain_config.count; r++) chain_config.row[r] = chain_config.row[r + 1u];
+                    for (; r + 1u < chain_config.count; r++) {
+                        chain_config.row[r] = chain_config.row[r + 1u];
+                        memcpy(chain_patterns[r], chain_patterns[r + 1u], NTRK);
+                    }
                     chain_config.count--;
                     if (ui.song_row > chain_config.count) ui.song_row = chain_config.count;
                     ui_message("ROW DELETED");
                 }
             } else if (kind == CF_CLEAR_SONG) {
-                if (!chain_busy()) { chain_defaults(&chain_config); ui.song_row = 0; ui_message("SONG CLEARED"); }
+                if (!chain_busy()) { chain_defaults(&chain_config); memset(chain_patterns, 0, sizeof chain_patterns); ui.song_row = 0; ui_message("SONG CLEARED"); }
             } else if (kind == CF_INIT_SOUND) {
                 if (!chain_busy()) { set_engine(TSEL->eng_req); ui_message("SOUND INIT"); }
             } else {
@@ -783,8 +974,15 @@ static void ui_input(void)
     if (home == BT_TAP)                                 /* HOME acts on release: a hold opens the menu */
         go_home();
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
+    if (step_page() && live_rec_sel()) {                /* armed and playing: the cursor on the step recording */
+        uint32_t idx = TSEL->seq_pos == 0x7FFFFFFFu ? 0u : TSEL->seq_idx;
+        if (ui.cursor != idx)
+            cursor_set((int32_t)idx);
+    }
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))
+            continue;
+        if ((ui.step_mods >> id) & 1u)
             continue;
         b = panel_btn_of(id);
         switch (b) {
@@ -811,6 +1009,17 @@ static void ui_input(void)
         case B_OCTUP: {
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
             if (act_cols() || layer_set_open())         /* action pages: enter / back (below); SET layers: OCT- */
+                break;
+            if (step_page() && ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u)) {   /* SAVE held: undo further / redo */
+                ui.save_t0 |= 2u;                       /* (no page, no other undo when SAVE is let go) */
+                ui.step_oct_used |= b == B_OCTUP ? 2u : 1u;
+                if (chain_busy())
+                    ui_message("STOP TO UNDO");
+                else if (!step_history_apply(b == B_OCTUP))
+                    ui_message(b == B_OCTUP ? "NOTHING TO REDO" : "NOTHING TO UNDO");
+                break;
+            }
+            if (step_modifier_context())               /* STEP OCT taps: cursor; FX consumes them below */
                 break;
             if ((fm1_in.buttons & both) == both)
                 song.octave = 0;
@@ -842,15 +1051,24 @@ static void ui_input(void)
     if (notes && slice_page_on())                       /* SLICES: a key picks the slice it plays */
         slice_keys_pick(notes);
 #endif
-    if (song.grid) {
+    pattern_keys(bank_notes);
+    if (pattern_keys_on() || ui.pat_key) {
+        seq_midi_events(0);
+    } else if (song.grid) {
         grid_keys(notes);
     } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* STEP (not CHANCE: its knobs only) */
-        if (live_rec_sel())                             /* armed and playing: the keys record live, */
+        if (live_rec_sel()) {                           /* armed and playing: the keys and MIDI record live, */
             ui.entry_open = 0;                          /* not into the cursor step too */
-        else if (!chain_busy())
+            seq_midi_events(0);
+        } else if (!chain_busy()) {
             seq_entry(notes);
-        else if (notes)
-            ui_message("STOP TO EDIT");
+        } else {
+            seq_midi_events(0);
+            if (notes)
+                ui_message("STOP TO EDIT");
+        }
+    } else {
+        seq_midi_events(0);                             /* (MIDI enters steps on SEQ > STEP only) */
     }
 
     if ((s = panel_enc(EN_PRESET)) != 0 && (ui.home || cur_page()->graph == GR_BROWSE)) {
@@ -865,8 +1083,29 @@ static void ui_input(void)
     if ((s = panel_enc(EN_ALGO)) != 0)             /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
     if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT knob = global tempo */
-        song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
-        ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */
+        uint32_t env = 1u << panel.btn[B_ENV], scl = 1u << panel.btn[B_SCL];
+        if (pattern_keys_on()) {
+            ui.seq_t0 |= 2u;
+            uint32_t from = TSEL->pattern_next < NPAT ? TSEL->pattern_next : TSEL->pattern;
+            if (pattern_request(TSEL, (uint32_t)clamp((int32_t)from + s, 0, NPAT - 1u))) ui_message("STOP SONG TO SWITCH");
+            ui.force = 1;
+        } else if (step_modifier_context() && (ui.step_mods & (env | scl) || ui.entry_open)) {
+            ui.step_used |= (uint16_t)(ui.step_mods & (env | scl));
+            if (chain_busy()) {
+                ui_message("STOP TO EDIT");
+            } else if (ui.step_mods & env) {
+                ui.step_move = 1;
+                step_length_edit(s);
+            } else if (ui.step_mods & scl) {
+                ui.step_move = 1;
+                step_move_edit(s);
+            } else {
+                step_length_edit(s);
+            }
+        } else {
+            song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
+            ui.bpm_t = 40;
+        }
     }
     for (k = 0; k < 4u; k++) {
         const page_t *pg = cur_page();
@@ -888,6 +1127,43 @@ static void ui_input(void)
             edit_param(k, s);
         }
     }
+    if (step_modifier_context()) {
+        uint32_t fx = 1u << panel.btn[B_FX], octmask = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
+        uint32_t combo_oct = (ui.step_mods & fx) ? fm1_in.buttons & octmask : 0;
+        if (combo_oct && ((pressed & octmask) || (pressed & fx))) {
+            uint32_t dir = ((combo_oct >> panel.btn[B_OCTDN]) & 1u) | (((combo_oct >> panel.btn[B_OCTUP]) & 1u) << 1);
+            ui.step_used |= (uint16_t)fx;
+            ui.step_oct_used |= (uint8_t)dir;
+            if (chain_busy()) ui_message("STOP TO UNDO");
+            else if (dir == 3u) ui_message("USE ONE OCT BUTTON");
+            else {
+                step_history_end();                    /* include an edit received in this same frame */
+                if (!step_history_apply(dir == 2u)) ui_message(dir == 2u ? "NOTHING TO REDO" : "NOTHING TO UNDO");
+            }
+        }
+        seq_entry_finish();                             /* final SELECT detent precedes key release */
+        uint32_t released = ui.step_mods & ~fm1_in.buttons;
+        for (k = 0; k < 14u; k++) if ((released >> k) & 1u) {
+            uint32_t bit = 1u << k;
+            ui.step_mods &= (uint16_t)~bit;
+            if (!(ui.step_used & bit)) {
+                b = panel_btn_of(k);
+                if (b == B_FX) {
+                    if (chain_busy()) ui_message("STOP TO EDIT"); else step_delete_edit();
+                } else {
+                    open_family(b == B_ENV ? FAM_ENV : FAM_SCL);
+                }
+            }
+            ui.step_used &= (uint16_t)~bit;
+        }
+        if (step_modifier_context()) {
+            if (oct & ~ui.step_oct_used) cursor_set(ui.cursor + ((oct & 2u) ? 1 : -1));
+            ui.step_oct_used &= (uint8_t)(((fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u) |
+                                         (((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) << 1));
+        }
+        ui.step_move = (ui.step_mods & ui.step_used) != 0u;
+    }
+    step_history_end();                                 /* (seq_undo.c: this frame's STEP edit) */
     ui_notices();
 }
 

@@ -248,6 +248,8 @@ slot count; a mismatch reads as an empty bank). A record keeps its layout versio
 and the P_COUNT it was stored with; another count is mapped by count (last 8 values = P_E0..P_E7, the
 first ones = P_LEVEL.. in order, missing ones = defaults). Versions 4 (a note pattern) and 5 (a drum grid)
 store each value as one byte, value + 64, so P_COUNT can reach 127; versions 1..3 stored 16-bit values.
+Version-1 records with 58 or 62 parameters belong to pre-1.0 Melodee's incompatible MPC/chord/engine
+layout. They are treated as empty without changing their bytes; they are not mapped as upstream presets.
 The wire format is unchanged: `UP_GET` / `UP_PUT` still carry v14 values, and `UP_PUT` now answers rc 1
 for a value outside −64..127. P_COUNT was 53 (P_E0 45) until the SLICER
 parameters (SLCR, PAT, RATE, DEPTH: ids 45..48) went in just before P_E0: P_COUNT 57, P_E0 49; then
@@ -391,7 +393,49 @@ grid lives in the steps themselves, so every engine has it:
   Melodee's own storage; never the app or the update area.
 
 
-## v6: song chain
+## Pattern banks (commands 73–74)
+
+INFO sends 0 in the former untagged CHAIN_ROWS byte, then retains the tagged UI, motion and backup
+capabilities. `50 01 08 10` announces eight patterns per track and 16 bank-song rows; FM6's tag follows.
+Editors must use the tag, not infer support from a version string. Older firmware retains command 33's
+project-based SONG behavior; its historical format is documented below.
+
+| cmd | Request | Reply |
+| --- | --- | --- |
+| 73 PATTERN | track 0..3, op 0 query; op 1 select, bank 0..7; op 2 copy, source 0..7, destination 0..7 | track, op, rc, active bank, queued bank (127 none), bank count 8 |
+| 74 BANK_SONG | op 0 query; op 1 set, count 0..16, count × (T1 bank, T2 bank, T3 bank, T4 bank, repeat 1..16); op 2 start; op 3 stop | op, rc, count, running, row, remaining, count × (four banks, repeat) |
+
+rc 0 succeeds, 1 rejects invalid values or a blocked action, 2 means busy or motion capacity exceeded.
+Bank-song rows validate completely before replacing the arrangement. Pattern selection queues at that
+track's loop end while playing; selecting the active bank cancels its pending change. STOP applies queued
+choices. Copy retains four-note chords, ties, drum data, chance, timing and motion. Copying into the active
+bank requires STOP; SONG blocks bank changes/copies. All pattern IDs on the wire are zero-based.
+
+BANK_SONG switches all four tracks at track 1's loop boundary, preserves the current sounds and mix,
+pauses recording and sequence edits, and restores the original bank selections on STOP or the song's end.
+Each bank has LEN/DIV/SWING/GATE. Automation has a project-wide limit of 64 events; events belong to a
+track and bank, while the ON switch remains track-wide. WATCH sends RELOAD when a bank changes.
+
+Projects and runtime backups are FBK9 (`46 42 4B 39` in byte order, size 20224). Header words are magic
+0x394B4246 and size; a complete 3584-byte FUN8 record follows at byte 8. Byte 3592 holds four active bank
+IDs. Seven other banks per track follow, with the same nine-byte packed steps as FUN8. Then come 32 sets
+of four int16 timing values, 16 × four SONG bank assignments, and 64 motion bank tags. Remaining bytes are
+reserved; the final uint32 is FNV-1a over every preceding byte. The inner motion record's reserved byte 0
+is 1 when bank tags accompany it. Duplicate (place,param) events are valid on different banks only.
+
+Flash objects 8..11 have two five-sector copies each at 0xA0000..0xC7FFF; CRC-verified payload precedes
+its header-last commit. The old single-sector project objects remain readable for migration. Old FUN8,
+FUN7 and older supported single-pattern projects become bank 1, with other banks empty and the old
+project-based SONG cleared. USR1–3 are removed; sample commands refuse uploads/erases and SMP_INFO
+reports zero slots. Built-in samples and BREAK stay available. Writable SLICES pages are hidden.
+
+Current BACKUP_LIST has nine objects: 0 runtime (FBK9), 1 settings/template, 2..5 saved projects (FBK9 or
+an older format before first save), 6..7 user presets and 8 FM6 bank. PUT accepts 20224-byte FBK9, 3584-byte
+FUN8 and 3388-byte FUN7/FUN6 project records; saved legacy restores become FBK9. Full validation precedes
+publication. The web restore checks the target inventory before writes; nonempty samples cannot restore
+onto this firmware. Empty sample objects in an older archive are skipped.
+
+## Historical v6: project-based song chain
 
 INFO appends CHAIN_ROWS (16) after NTRK. Earlier INFO bytes and command numbers
 stay where they were. No trailing byte means no SONG command: hide its controls.
@@ -477,7 +521,7 @@ when the track's engine is not the saved one).
 - Pitch bend, sustain (CC64), RPN 0 (bend range, ±0..24 semitones), CC120 / 121 / 123 are MIDI only and
   have no parameters, protocol or saved state.
 
-## v7: full backup (65-67)
+## Historical v7: full backup (65-67)
 
 INFO advertises `42 01 caps`: bit 0 = `BACKUP_LIST` / `BACKUP_GET` (read), bit 1 = `BACKUP_PUT` (restore);
 this firmware sends 3. Requests name objects, never flash addresses.

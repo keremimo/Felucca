@@ -1,11 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Complete musical archive: no raw addresses are accepted. Small objects are staged
+/* Complete musical archive: no raw addresses are accepted. Objects are staged
  * in main-loop RAM and fully validated before the existing A/B commit path writes.
- * Sample restore uses SMP_BEGIN/WRITE/END and its existing CRC/header-last commit.
- * A disconnected sample restore can lose that sample; the exported file is retained.
+ * Runtime and saved projects include all 32 pattern banks. Retired user sample
+ * slots are absent from the inventory and cannot be restored over project data.
  */
-static const uint8_t ED_BK_IDS[12] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34};
+#ifndef ED_BK_FLASH_PTR
+#define ED_BK_FLASH_PTR(off) fm1_xip_ptr(off)
+#endif
+static const uint8_t ED_BK_IDS[9] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
 #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
 #define ED_BK_MAX ((uint32_t)sizeof proj_wire_u)
 #define ED_BK_RAW ((uint8_t *)&proj_wire_u)  /* reuse the existing serialized main-loop scratch */
@@ -32,11 +35,25 @@ static void ed_bk_pack(const uint8_t *p, uint32_t n)
 static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
 {
     *len = 0;
-    if (id == 0u) { *len = sizeof(project_store_t); return ED_BK_RAW; }
+    if (id == 0u) { *len = BANK_STORE_SIZE; return ED_BK_RAW; }
     if (id == 1u) { *len = ed_bk_set_len; return (const uint8_t *)&ed_bk_set; }
     if (id >= 2u && id <= 5u) {
-        if (project_used(id - 2u)) *len = sizeof proj_slot[0];
-        return (const uint8_t *)&proj_slot[id - 2u];
+        uint32_t slot = id - 2u;
+#if MELODEE_FLASH
+        st_hdr_t h;
+        int copy = st_current(OBJ_BANK0 + slot, &h);
+        if (copy >= 0) { *len = h.len; return ED_BK_FLASH_PTR(st_sector(OBJ_BANK0 + slot, (uint32_t)copy) + ST_PAYLOAD_OFF); }
+        copy = st_current(OBJ_PROJECT0 + slot, &h);
+        if (copy >= 0) { *len = h.len; return ED_BK_FLASH_PTR(st_sector(OBJ_PROJECT0 + slot, (uint32_t)copy) + ST_PAYLOAD_OFF); }
+        return ED_BK_RAW;                   /* empty: a valid pointer, zero length */
+#else
+        if (bank_valid(proj_bank_slot[slot], BANK_STORE_SIZE) &&
+            !memcmp(proj_bank_slot[slot] + 8u, &proj_slot[slot], sizeof proj_slot[slot])) {
+            *len = BANK_STORE_SIZE; return proj_bank_slot[slot];
+        }
+        if (project_used(slot)) *len = sizeof proj_slot[slot];
+        return (const uint8_t *)&proj_slot[slot];
+#endif
     }
     if (id == 6u || id == 7u) {
         if (up_bank[id - 6u].magic == UP_BANK_MAGIC) *len = sizeof up_bank[0];
@@ -59,7 +76,7 @@ static uint32_t ed_bk_capture(void)
 {
     if (ed_flash_stop()) return 3;
     project_capture(&proj_scratch);
-    if (!proj_pack((project_store_t *)ED_BK_RAW, &proj_scratch)) return 2;
+    if (!bank_pack(ED_BK_RAW, &proj_scratch, 1)) return 2;
     ed_bk_gen = ++proj_wire_gen;
 #if MELODEE_FLASH
     ed_bk_set.p = persist_saved;                    /* fields absent from this build survive */
@@ -92,17 +109,23 @@ static uint32_t ed_bk_commit(void)
     uint32_t obj;
     if (ed_bk_pos != ed_bk_len || st_crc32(raw, ed_bk_len) != ed_bk_crc) return 2;
     if (ed_bk_id == 0u || (ed_bk_id >= 2u && ed_bk_id <= 5u)) {
-        if (ed_bk_len && !proj_import(&proj_scratch, raw, (int)ed_bk_len)) return 2;
-        if (ed_bk_len) {                            /* an older format becomes FUN8 inside its ranges */
-            proj_bound(&proj_scratch);
-            if (!proj_pack((project_store_t *)raw, &proj_scratch)) return 2;
-            ed_bk_len = sizeof(project_store_t);
-        }
+        int full = ed_bk_len == BANK_STORE_SIZE;
+        if (ed_bk_len && !(full ? bank_valid(raw, ed_bk_len) : proj_import(&proj_scratch, raw, (int)ed_bk_len))) return 2;
         if (ed_bk_id == 0u) {
             if (!ed_bk_len) return 2;
-            return project_restore_runtime(&proj_scratch) ? 2u : 0u;
+            if (project_restore_runtime(&proj_scratch)) return 2;
+            if (full) bank_restore(raw);
+            return 0;
         }
-        obj = OBJ_PROJECT0 + ed_bk_id - 2u;
+        if (ed_bk_len && !full) {
+            proj_bound(&proj_scratch); chain_defaults(&proj_scratch.chain);
+            if (!bank_pack(raw, &proj_scratch, 0)) return 2;
+            ed_bk_len = BANK_STORE_SIZE;
+        }
+        if (proj_write_slot(ed_bk_id - 2u, raw, ed_bk_len)) return 4;
+        if (proj_cur == ed_bk_id - 2u) proj_cur = PROJ_NO_SLOT;
+        sync_reload = 1; ui.force = 1;
+        return 0;
     } else if (ed_bk_id == 1u) {
         const persist_t *p = (const persist_t *)raw;         /* (PER4: Felucca 1.0's, without ext) */
         const tmpl_t *t = (const tmpl_t *)(raw + sizeof *p);  /* a template after the settings */
@@ -127,12 +150,7 @@ static uint32_t ed_bk_commit(void)
 #else
     (void)obj;
 #endif
-    if (ed_bk_id >= 2u && ed_bk_id <= 5u) {
-        memset(&proj_slot[ed_bk_id - 2u], 0, sizeof proj_slot[0]);
-        if (proj_cur == ed_bk_id - 2u)
-            proj_cur = PROJ_NO_SLOT;                     /* (another project there now: the music keeps its name) */
-        if (ed_bk_len) memcpy(&proj_slot[ed_bk_id - 2u], raw, ed_bk_len);
-    } else if (ed_bk_id == 1u) {
+    if (ed_bk_id == 1u) {
         uint32_t ns = ed_bk_len == sizeof ed_bk_set ? sizeof ed_bk_set.p : ed_bk_len;
         memset(&ed_bk_set, 0, sizeof ed_bk_set);
         memcpy(&ed_bk_set, raw, ed_bk_len);
@@ -165,9 +183,9 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
-        if (len > ED_BK_MAX || (a[1] == 0u && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+        if (len > ED_BK_MAX || (a[1] == 0u && len != BANK_STORE_SIZE && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set) ||
-            (a[1] >= 2u && a[1] <= 5u && len && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+            (a[1] >= 2u && a[1] <= 5u && len && len != BANK_STORE_SIZE && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t)) ||
             (a[1] == 8u && len && len != sizeof(fm6_bank_t))) return 1;
         ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;

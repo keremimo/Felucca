@@ -66,13 +66,18 @@ static struct {
     uint8_t page;                /* index into PAGES */
     uint8_t fam_last[FAM_COUNT]; /* last page used per family */
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
+    uint8_t pat_key, pat_copy, pat_track;          /* SEQ + white-key bank gesture */
     uint8_t cursor;              /* SEQ: step being edited (STEP page KNOB 1 moves it) */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
+    uint8_t step_move;           /* a held SELECT modifier gesture: one edit until the modifier is released */
+    uint8_t step_oct_used;       /* OCT buttons consumed by FX/SAVE undo or redo */
+    uint16_t step_mods, step_used; /* STEP's ENV/SCL/FX buttons awaiting release, and the gestures consumed */
     uint8_t lane;                /* SEQ > STEP on a DRUM track (the grid): the lane the keys and KNOB 3 / 4 edit */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
     uint8_t menu;                /* 0 off, 1 list, 2 about + credits (HOME held) */
     uint8_t menu_sel;
     uint16_t menu_scroll;        /* continuous ABOUT + CREDITS position, pixels */
+    uint32_t seen_pattern_gen;
     uint32_t menu_sig, home_t0;  /* HOME press time (btn_hold) */
     uint8_t force;               /* full redraw pending */
     uint8_t msg_t;               /* transient message frames */
@@ -133,7 +138,7 @@ static int page_visible(uint32_t i)
         return TSEL->eng_req == ENGI_FM6;              /* FM6's patch, operators and functions */
 #if MELODEE_SLICE
     if (PAGES[i].graph == GR_SLICES)
-        return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SLICE;
+        return SMP_USER_SLOTS && ENGINES[TSEL->eng_req % NENGINES] == &ENG_SLICE;
 #else
     if (PAGES[i].graph == GR_SLICES)
         return 0;
@@ -190,11 +195,23 @@ static void chain_play_ui(void)
 }
 
 
+static uint16_t step_midi_held;                      /* physical MIDI keys held in this entry */
+static uint32_t step_midi_keys[16][4];               /* channel/source ownership, before scale and chord */
+static void seq_midi_reset(void)                    /* a new page/track ends MIDI step entry */
+{
+    fm1_irq_off();
+    step_midi_r = step_midi_w;
+    step_midi_overflow = 0;
+    fm1_irq_on();
+    step_midi_held = 0;
+    memset(step_midi_keys, 0, sizeof step_midi_keys);
+}
 static void page_entered(void)
 {
     const page_t *pg = cur_page();
     song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
     ui.entry_open = 0;
+    seq_midi_reset();
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */
     ui.force = 1;
@@ -389,6 +406,7 @@ static struct {
     int16_t p[P_COUNT];
     step_t step[NSTEP];
     motion_store_t motion_backup; /* one track only, swaps with the shared event pool on undo */
+    uint32_t pattern_gen;
     uint32_t after;              /* track_sig right after the last load */
     uint32_t pat;                /* pat_sig[] of the copy */
     uint32_t t_ms;               /* time of the last load (the editor's SETs after it belong to it) */
@@ -423,12 +441,13 @@ static void load_begin(track_t *t, uint32_t what)
     if (undo_depth++)
         return;
     motion_restore(t);
-    if (undo.keep && undo.trk == i + 1u && track_sig(t) == undo.after) {
+    if (undo.keep && undo.pattern_gen == t->pattern_gen && undo.trk == i + 1u && track_sig(t) == undo.after) {
         undo.what |= (uint8_t)what;               /* browsing on: the copy from before the first load stays */
         motion_reset(t);
         return;
     }
     undo.trk = (uint8_t)(i + 1u);
+    undo.pattern_gen = t->pattern_gen;
     undo.what = (uint8_t)what;
     undo.eng = t->eng_req;
     undo.preset = t->preset;
@@ -478,6 +497,7 @@ static void undo_swap(void)
         return;
     }
     t = &trk[(undo.trk - 1u) % NTRK];
+    if (undo.pattern_gen != t->pattern_gen) { undo.trk = 0; ui_message("NOTHING TO UNDO"); return; }
     motion_restore(t);
     motion_store_t current_motion;
     motion_snapshot_track(t, &current_motion);
@@ -993,6 +1013,7 @@ static void track_select(uint32_t i)
         return;
     song.sel = (uint8_t)i;
     ui.entry_open = 0;
+    seq_midi_reset();                            /* (MIDI notes held for the other track enter nothing here) */
     ui.hot_t = 0;
     ui.cursor = 0;
     ui.bank = 0;
@@ -1096,3 +1117,6 @@ static int act_ready(void)
         return !seq_is_empty(TSEL);
     return 1;
 }
+
+#include "seq_edit.c"                             /* SEQ > STEP: a note's length, its move, its deletion */
+#include "seq_undo.c"                             /* .. and the eight edits SAVE held undoes */

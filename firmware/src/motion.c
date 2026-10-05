@@ -36,11 +36,11 @@ static int motion_param(uint32_t id)
 static int motion_valid(const motion_store_t *m)
 {
     uint32_t i, j;
-    if (m->count > MOTION_MAX || (m->on & ~((1u << NTRK) - 1u))) return 0;
+    if (m->rsv[0] > 1u || m->count > MOTION_MAX || (m->on & ~((1u << NTRK) - 1u))) return 0;
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->event[i];
         if (!motion_param(e->param) || e->value < -64 || e->value > 127) return 0;
-        for (j = 0; j < i; j++)
+        if (!m->rsv[0]) for (j = 0; j < i; j++)
             if (m->event[j].place == e->place && m->event[j].param == e->param) return 0;
     }
     return 1;
@@ -49,7 +49,7 @@ static int motion_enabled(const track_t *t) { return (motion.on >> trk_index(t))
 static uint32_t motion_count(const track_t *t)
 {
     uint32_t i, n = 0, k = trk_index(t);
-    for (i = 0; i < motion.count; i++) n += (motion.event[i].place >> 6) == k;
+    for (i = 0; i < motion.count; i++) n += (motion.event[i].place >> 6) == k && motion_pattern[i] == t->pattern;
     return n;
 }
 static int16_t motion_base_value(const track_t *t, uint32_t id)
@@ -99,10 +99,14 @@ static void motion_clear(track_t *t)
     uint32_t f = motion_guard(), k = trk_index(t), i, n = 0;
     motion_restore(t);
     for (i = 0; i < motion.count; i++)
-        if ((motion.event[i].place >> 6) != k) motion.event[n++] = motion.event[i];
+        if ((motion.event[i].place >> 6) != k || motion_pattern[i] != t->pattern) {
+            motion_pattern[n] = motion_pattern[i]; motion.event[n++] = motion.event[i];
+        }
     memset(motion.event + n, 0, (MOTION_MAX - n) * sizeof motion.event[0]);
     motion.count = (uint8_t)n;
-    motion.on &= (uint8_t)~(1u << k);
+    uint32_t remaining = 0;
+    for (i = 0; i < n; i++) remaining |= (motion.event[i].place >> 6) == k;
+    if (!remaining) motion.on &= (uint8_t)~(1u << k);
     motion_rebase(t);
     motion_full = 0;
     motion_unguard(f);
@@ -117,8 +121,10 @@ static int motion_set_event(track_t *t, uint32_t step, uint32_t id, int16_t valu
     if (value < d->min || value > d->max || value < -64 || value > 127) return 1;
     f = motion_guard();
     for (i = 0; i < motion.count; i++)
-        if (motion.event[i].place == (k << 6 | step) && motion.event[i].param == id) break;
+        if (motion_pattern[i] == t->pattern && motion.event[i].place == (k << 6 | step) && motion.event[i].param == id) break;
     if (i == MOTION_MAX) { motion_full = 1; motion_unguard(f); return 2; }
+    if (t->pattern) motion.rsv[0] = 1;
+    motion_pattern[i] = t->pattern;
     motion.event[i].place = (uint8_t)(k << 6 | step);
     motion.event[i].param = (uint8_t)id;
     motion.event[i].value = value;
@@ -133,7 +139,9 @@ static void motion_delete_event(track_t *t, uint32_t step, uint32_t id)
     uint32_t f = motion_guard(), place = trk_index(t) << 6 | step, i, n = 0;
     motion_restore(t);
     for (i = 0; i < motion.count; i++)
-        if (motion.event[i].place != place || motion.event[i].param != id) motion.event[n++] = motion.event[i];
+        if (motion_pattern[i] != t->pattern || motion.event[i].place != place || motion.event[i].param != id) {
+            motion_pattern[n] = motion_pattern[i]; motion.event[n++] = motion.event[i];
+        }
     memset(motion.event + n, 0, (MOTION_MAX - n) * sizeof motion.event[0]);
     motion.count = (uint8_t)n;
     motion_unguard(f);
@@ -172,7 +180,7 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
     if (!step) motion_restore(t);
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->event[i];
-        if (e->place != (k << 6 | step)) continue;
+        if (motion_pattern[i] != t->pattern || e->place != (k << 6 | step)) continue;
         const param_desc_t *d = param_desc_of(eng_idx(t->eng_req), e->param);
         t->p[e->param] = (int16_t)clamp(e->value, d->min, d->max);
         motion_active[k][e->param / 32u] |= 1u << (e->param % 32u);
@@ -184,7 +192,7 @@ static void motion_snapshot_track(track_t *t, motion_store_t *out)
     memset(out, 0, sizeof *out);
     out->on = motion.on & (uint8_t)(1u << k);
     for (i = 0; i < motion.count; i++)
-        if ((motion.event[i].place >> 6) == k) out->event[out->count++] = motion.event[i];
+        if ((motion.event[i].place >> 6) == k && motion_pattern[i] == t->pattern) out->event[out->count++] = motion.event[i];
     motion_unguard(f);
 }
 static int motion_replace_track(track_t *t, const motion_store_t *in)
@@ -195,8 +203,48 @@ static int motion_replace_track(track_t *t, const motion_store_t *in)
     f = motion_guard();
     motion_clear(t);
     memcpy(motion.event + motion.count, in->event, in->count * sizeof in->event[0]);
+    memset(motion_pattern + motion.count, t->pattern, in->count);
     motion.count += in->count;
+    if (t->pattern && in->count) motion.rsv[0] = 1;
     motion.on |= in->on & (uint8_t)(1u << k);
+    motion_unguard(f);
+    return 0;
+}
+
+static int pattern_request(track_t *t, uint32_t bank)
+{
+    if (bank >= NPAT) return 1;
+    uint32_t f = motion_guard();
+    if (chain.running || chain.armed) { motion_unguard(f); return 1; }
+    if (song.playing) t->pattern_next = bank == t->pattern ? 0xff : (uint8_t)bank;
+    else if (bank != t->pattern) pattern_switch(t, bank);
+    motion_unguard(f);
+    return 0;
+}
+static int pattern_copy(track_t *t, uint32_t source, uint32_t dest)
+{
+    uint32_t k = trk_index(t), i, n = 0, f, extra = 0;
+    if (source >= NPAT || dest >= NPAT) return 1;
+    if (source == dest) return 0;
+    f = motion_guard();
+    if (chain.running || chain.armed || (song.playing && dest == t->pattern)) { motion_unguard(f); return 1; }
+    for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) == k) {
+        if (motion_pattern[i] == source) extra++;
+        if (motion_pattern[i] == dest) n++;
+    }
+    if (motion.count - n + extra > MOTION_MAX) { motion_unguard(f); return 2; }
+    pattern_commit(t);
+    *pattern_at(k, dest) = *pattern_at(k, source);
+    n = 0;
+    for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) != k || motion_pattern[i] != dest) {
+        motion_pattern[n] = motion_pattern[i]; motion.event[n++] = motion.event[i];
+    }
+    motion.count = (uint8_t)n;
+    motion.rsv[0] = 1;
+    for (i = 0; i < n; i++) if ((motion.event[i].place >> 6) == k && motion_pattern[i] == source) {
+        motion.event[motion.count] = motion.event[i]; motion_pattern[motion.count++] = (uint8_t)dest;
+    }
+    if (dest == t->pattern) pattern_apply(t, dest);
     motion_unguard(f);
     return 0;
 }

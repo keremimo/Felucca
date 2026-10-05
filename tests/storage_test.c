@@ -105,7 +105,7 @@ int main(void)
                      st_sector(OBJ_UPRESET0, 0) >= 0xDC000 && st_sector(OBJ_UPRESET0 + 1, 1) + 4096 <= 0xE0000);
     /* the FM6 patch bank: the two free sectors, 0x9F000 (after the projects) and 0xFE000 (after the settings) */
     bad += check("FM6 bank in the free sectors 0x9F000 / 0xFE000",
-                 OBJ_FM6BANK == OBJ_COUNT - 1 && st_sector(OBJ_FM6BANK, 0) == 0x9F000u &&
+                 OBJ_FM6BANK + 1 == OBJ_BANK0 && st_sector(OBJ_FM6BANK, 0) == 0x9F000u &&
                      st_sector(OBJ_PROJECT0 + 3, 1) + 4096 == 0x9F000u && st_sector(OBJ_FM6BANK, 1) == 0xFE000u &&
                      st_sector(OBJ_SETTINGS, 1) + 4096 == 0xFE000u);
     {
@@ -174,6 +174,27 @@ int main(void)
         memset(got, 'X', sizeof got);
         bad += check("small destination rejects whole object", st_load(OBJ_PROJECT0, got, sizeof got - 1u) < 0 && got[0] == 'X');
         bad += check("oversized save rejected", st_save(OBJ_PROJECT0, a, ST_PAYLOAD_MAX + 1u) < 0);
+    }
+    {
+        static uint8_t first[20224], second[20224], back[20224], copies[10u * ST_SECTOR];
+        uint32_t base = st_sector(OBJ_BANK0,0), ok=1;
+        memset(first,0x35,sizeof first); memset(second,0x79,sizeof second);
+        ok &= st_sector(OBJ_BANK0+3,1)+5u*ST_SECTOR <= 0xC8000u;
+        ok &= st_save(OBJ_BANK0,first,sizeof first)==0 && st_save(OBJ_BANK0,second,sizeof second)==0;
+        memcpy(copies,nor+base,sizeof copies);
+        for (uint32_t cut=0; cut<=sizeof first/256u; cut++) {
+            memcpy(nor+base,copies,sizeof copies); fail_after=(int)cut;
+            ok &= st_save(OBJ_BANK0,first,sizeof first)!=0; fail_after=-1;
+            ok &= st_load(OBJ_BANK0,back,sizeof back)==sizeof back && !memcmp(back,second,sizeof back);
+        }
+        for (uint32_t cut=0; cut<sizeof(st_hdr_t); cut++) {
+            memcpy(nor+base,copies,sizeof copies); fail_bytes=(int)(sizeof first+cut);
+            ok &= st_save(OBJ_BANK0,first,sizeof first)!=0; fail_bytes=-1;
+            ok &= st_load(OBJ_BANK0,back,sizeof back)==sizeof back && !memcmp(back,second,sizeof back);
+        }
+        bad += check("five-sector project: every page/header cut keeps all banks in the old copy",ok);
+        memcpy(nor+base,copies,sizeof copies); nor[st_sector(OBJ_BANK0,1)+ST_PAYLOAD_OFF+sizeof second-1]^=1;
+        bad += check("bank project CRC fallback covers its final sector",st_load(OBJ_BANK0,back,sizeof back)==sizeof back && !memcmp(back,first,sizeof back));
     }
     printf("%s\n", bad ? "STORAGE TEST FAILED" : "storage test passed");
     return bad != 0;

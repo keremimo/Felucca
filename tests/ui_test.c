@@ -101,7 +101,10 @@ static void ui_power_on(void)
     memset(&song, 0, sizeof song);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
+    pattern_init();
     memset(&ui, 0, sizeof ui);
+    memset(&step_history, 0, sizeof step_history);
+    seq_midi_reset();
     memset(&nm, 0, sizeof nm);                    /* NAME closed, no project name */
     proj_name[0] = 0;
     proj_cur = PROJ_NO_SLOT;
@@ -138,6 +141,10 @@ static void ui_power_on(void)
     memset(midi_sel_on, 0, sizeof midi_sel_on);
     memset(midi_ch, 0, sizeof midi_ch);
     memset(midi_owners, 0, sizeof midi_owners);
+    memset(midi_notes, 0, sizeof midi_notes);
+    kb_prev = 0;
+    memset(live_held, 0, sizeof live_held);
+    memset(live_last, 0, sizeof live_last);
     memset(midi_bend_q8, 0, sizeof midi_bend_q8);
     memset(midi_bend_target, 0, sizeof midi_bend_target);
     memset(kb_chn, 0, sizeof kb_chn);                   /* chord.c: no key, MIDI chord or last chord */
@@ -1001,15 +1008,15 @@ static int test_grid(void)
     fm1_in.notes = 0;
     keyboard_block();
     ok = t->step[5].hit == 1u << DV_HATO && !t->step[5].n && t->rskip_n == 0u;
-    t->seq_pos = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), 5) - 10u;   /* late in step 6: into step 7 */
+    t->seq_pos = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), 5) - 10u;   /* late in step 6: still step 6 */
     fm1_in.notes = 1u << key_at(1, 0);
     keyboard_block();
-    ok &= t->step[6].hit == 1u << DV_KICK && t->rskip_n == 1u && t->rskip[0] == 36u;
+    ok &= t->step[5].hit == ((1u << DV_HATO) | (1u << DV_KICK)) && !t->step[6].hit && t->rskip_n == 0u;
     rec_hold(t, 7, 16);
     fm1_in.notes = 0;
     keyboard_block();
     ok &= t->step[7].time == ST_REST && !t->rh_n;
-    bad += check("REC on the grid: lane keys record hits, quantised (the next step late), no TIE holds", ok);
+    bad += check("REC on the grid: lane keys record hits on the step playing (late too), no TIE holds", ok);
     /* live recording elsewhere (HOME): the GM keys; a lane's note a hit, another GM drum a note */
     go_home();
     frame();
@@ -1541,35 +1548,35 @@ static int test_chain(void)
     bad += check("SONG empty: PLAY does not start", chain_prepare() == 1 && !transport_req);
     for (k = 0; k < 2u; k++) {
         for (i = 0; i < NTRK; i++) {
+            pattern_request(&trk[i], k);
             track_defaults_steps(&trk[i]);
             trk[i].p[P_SLEN] = (int16_t)(2u + k);
-            trk[i].step[0] = (step_t){{(uint8_t)(60u + 5u * k), 0, 0, 0}, 1, ST_NOTE, 0, 96, 0, 0};
+            trk[i].step[0] = (step_t){{(uint8_t)(60u + 5u * k), (uint8_t)(64u + 5u * k), (uint8_t)(67u + 5u * k)}, 3, ST_NOTE, 0, 96};
         }
         project_save(k);
     }
     for (i = 0; i < NTRK; i++) {
-        my_steps(&trk[i]);
-        trk[i].p[P_SLEN] = 9;
+        pattern_request(&trk[i], 2);
+        my_steps(&trk[i]); trk[i].p[P_SLEN] = 9;
         memcpy(before[i], trk[i].step, sizeof before[i]);
         memcpy(timing[i], &trk[i].p[P_SLEN], sizeof timing[i]);
         memcpy(sounds[i], trk[i].p, sizeof sounds[i]);
     }
     chain_config.count = 2;
-    chain_config.row[0] = (chain_row_t){0, 2};
-    chain_config.row[1] = (chain_row_t){3, 1};
-    bad += check("SONG missing source: refuses before changing any track", chain_prepare() == 6 && !chain.armed &&
+    chain_config.row[0] = (chain_row_t){0, 2}; chain_config.row[1] = (chain_row_t){1, 1};
+    memset(chain_patterns[0], 0, NTRK); memset(chain_patterns[1], 1, NTRK);
+    chain_patterns[1][3] = NPAT;
+    bad += check("SONG invalid bank refuses before changing any track", chain_prepare() == 1 && !chain.armed &&
         !memcmp(trk[0].step, before[0], sizeof before[0]));
-    chain_config.row[1].slot = 1;
-    project_save(2);
-    chain_defaults(&chain_config);
-    project_load(2);
-    bad += check("SONG rows saved and loaded with their project", chain_config.count == 2 &&
-        chain_config.row[0].repeat == 2 && chain_config.row[1].slot == 1);
+    chain_patterns[1][3] = 1;
+    project_save(2); chain_defaults(&chain_config); pattern_init(); project_load(2);
+    bad += check("SONG bank assignments saved and loaded with all patterns", chain_config.count == 2 &&
+        chain_config.row[0].repeat == 2 && chain_patterns[1][3] == 1);
     song.rec = 3;
     bad += check("SONG prepares while stopped, no starts over a pending start", chain_prepare() == 0 && chain_prepare() == 2);
     events_block(n);
     bad += check("SONG starts all tracks at source step 0, recording paused", chain.running && song.playing &&
-        !song.rec && trk[0].seq_idx == 0 && seq_steps(&trk[0])[0].note[0] == 60 && trk[0].seq_notes[0] == 60);
+        !song.rec && trk[0].seq_idx == 0 && seq_steps(&trk[0])[0].n == 3 && trk[0].seq_n == 3 && trk[0].seq_notes[0] == 60);
     period = div_samples((uint32_t)trk[0].p[P_SDIV]);
     events_block(period);
     events_block(period);
@@ -1586,7 +1593,7 @@ static int test_chain(void)
     open_family(FAM_SEQ);
     for (k = 0; k < NPAGES && cur_page()->scope != SC_STEP; k++) open_family(FAM_SEQ);
     turn(EN_K2, 1); press(B_EDIT); hold(B_REC); hold(B_SAVE);
-    bad += check("SONG playing: step edits, clears, recording and undo are blocked", !memcmp(trk[0].step, before[0], sizeof before[0]) && !ui.confirm);
+    bad += check("SONG playing: step edits, clears, recording and undo are blocked", trk[0].step[0].note[0] == 65 && trk[0].step[0].n == 3 && !ui.confirm);
     events_block(period);
     events_block(period);
     events_block(period);
@@ -1594,7 +1601,7 @@ static int test_chain(void)
     for (i = 0; i < NTRK; i++) ok &= !trk[i].seq_n && !memcmp(trk[i].step, before[i], sizeof before[i]) &&
         !memcmp(&trk[i].p[P_SLEN], timing[i], sizeof timing[i]);
     bad += check("SONG end: stops and restores editable patterns, timing and record arms", ok);
-    bad += check("SONG source projects stay unchanged", project_used(0) && project_used(1) && stored_note(0, 0, 0) == 60);
+    bad += check("SONG source banks stay unchanged", pattern_at(0, 0)->step[0].note[0] == 60 && pattern_at(0, 1)->step[0].n == 3);
     chain_config.row[0].repeat = 1;
     chain_prepare(); events_block(n);
     trk[0].seq_idx = 1;
@@ -2969,7 +2976,8 @@ static int test_bughunt_ui(void)
     /* 6: TOOLS: each column its own ready check; nothing to do says so (not STOP TO EDIT) */
     ui_power_on();
     go_title("TOOLS"); frame();
-    chain_defaults(&chain_config);                      /* no song rows */
+    chain_defaults(&chain_config);
+    pattern_init();                      /* no song rows */
     turn(EN_K1 + 2, 1);                                 /* DELETE ROW */
     press(B_OCTUP);
     ok = !ui.confirm && msg_is("NOTHING TO DELETE") && text_w(&AF_S, ui.msg) <= 236 - 106;   /* (fits the header) */
@@ -3334,10 +3342,10 @@ static int test_bughunt_ui2(void)
 /* L is a sparse face (tools/gen_aa_font.py L_CHARS): every string drawn in it has all its glyphs */
 static int test_large_face(void)
 {
-    static const char *const FIXED[] = {"MELODEE", "0123456789"};   /* main.c, ui_menu.c; ui_draw.c draw_uboot */
+    static const char *const FIXED[] = {"MELODEE", "0123456789", "C#4 / .."};   /* main.c, ui_menu.c; ui_draw.c draw_uboot */
     uint32_t i, missing = 0;
     const char *s;
-    for (i = 0; i < NB + NE + 2u; i++)                              /* ui_input.c setup_show: the control names */
+    for (i = 0; i < NB + NE + sizeof FIXED / sizeof FIXED[0]; i++)                              /* ui_input.c setup_show: the control names */
         for (s = i < NB ? B_NAME[i] : i < NB + NE ? E_NAME[i - NB] : FIXED[i - NB - NE]; *s; s++)
             missing += glyph_at(&AF_L, (uint8_t)*s) < 0;
     return check("the L face holds every glyph of the strings drawn in it", !missing);
@@ -3550,11 +3558,66 @@ static int test_fm4_retired(void)
 }
 #endif
 
+static int test_home_notes(void)
+{
+    uint32_t saved[4], root = 99, i, held = 0;
+    int bad = 0;
+    const char *q;
+    ui_power_on();
+    bad += check("HOME has no invented notes before the first key", !graph_notes());
+    key_down(7); /* C4 */
+    bad += check("panel C4 enters HOME after mapping", live_last[1] == (1u << 28));
+    key_up(7);
+    frame();
+    bad += check("a panel tap between frames remains visible after release", graph_notes() &&
+                 live_last[1] == (1u << 28) && !live_held[0][1]);
+    ui_power_on();
+    TSEL->p[P_QUANT] = Q_MPC;
+    midi_event(0x90, 0, 21, 100);
+    bad += check("MPC's mapped C4 is displayed, not source MIDI note 21", live_last[1] == (1u << 28) && !live_last[0]);
+    midi_event(0x80, 0, 21, 0);
+    ui_power_on();
+    midi_event(0x90, 0, 60, 100);
+    midi_event(0x90, 1, 60, 100);
+    midi_event(0x80, 0, 60, 0);
+    bad += check("same pitch on another track remains held in HOME", !live_held[0][1] && live_held[1][1] == (1u << 28));
+    midi_event(0xB0, 1, 120, 0);
+    bad += check("CC120 clears held HOME notes only on its track", !live_held[1][1] && live_last[1] == (1u << 28));
+    ui_power_on();
+    midi_event(0x90, 0, 60, 100);
+    midi_event(0x90, 9, 60, 100);
+    midi_event(0x80, 0, 60, 0);
+    bad += check("overlapping MIDI owners retain the HOME pitch until last release", live_held[0][1] == (1u << 28));
+    midi_event(0xB0, 9, 64, 127); midi_event(0x80, 9, 60, 0);
+    bad += check("sustain keeps the displayed pitch held", live_held[0][1] == (1u << 28));
+    midi_event(0xB0, 9, 64, 0);
+    bad += check("pedal-up releases emphasis but retains the last note", !live_held[0][1] && live_last[1] == (1u << 28));
+    ui_power_on(); set_engine_of(TSEL, ENGI_FM6); events_block(32);
+    midi_event(0x90, 0, 60, 100); midi_event(0x90, 0, 64, 100); midi_event(0x90, 0, 67, 100);
+    q = chord_of((1u << 0) | (1u << 4) | (1u << 7), 0, &root);
+    bad += check("FM6 notes are visible and a major triad is recognized", live_last[1] == (1u << 28) &&
+                 live_last[2] == ((1u << 0) | (1u << 3)) && q && !q[0] && root == 0);
+    /* C4 is bit 28 of word 1; E4/G4 are bits 0/3 of word 2. */
+    for (i = 0; i < 4u; i++) saved[i] = live_last[i];
+    input_on(&trk[3], 36, 100); input_off(&trk[3], 36);
+    bad += check("drum hits do not replace HOME's last synth chord", !memcmp(saved, live_last, sizeof saved));
+    q = chord_of((1u << 0) | (1u << 4) | (1u << 7), 4, &root);
+    bad += check("an inverted major triad resolves its root for slash bass", q && !q[0] && root == 0);
+    q = chord_of((1u << 9) | (1u << 0) | (1u << 4) | (1u << 7), 9, &root);
+    bad += check("minor seventh chord name retained from next", q && !strcmp(q, "m7") && root == 9);
+    for (i = 0; i < 4u; i++) midi_forget_track(i);
+    for (i = 0; i < NTRK * 4u; i++) held |= ((uint32_t *)live_held)[i];
+    bad += check("panic clears every held bit without erasing the readout", !held && !memcmp(saved, live_last, sizeof saved));
+    ui_power_on();
+    return bad;
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     int bad = 0;
     bad += test_large_face();
+    bad += test_home_notes();
     bad += test_sound_loads();
     bad += test_patterns();
     bad += test_rec();
@@ -3578,7 +3641,11 @@ int main(void)
     bad += test_fm6_pages();
     bad += test_boot_template();
 #if MELODEE_SLICE
+#if SMP_USER_SLOTS
     bad += test_slices();
+#else
+    bad += check("user sample slots removed; built-in BREAK remains the only SLICE source", SMP_USER_SLOTS == 0 && ENG_SLICE.edit[0].max == 0 && slc_get(0));
+#endif
 #endif
     bad += test_quick_layers();
     bad += test_chord_page();

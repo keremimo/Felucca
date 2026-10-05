@@ -36,6 +36,7 @@ static void fl_plain_window_init(void) {}
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
 
+#define ED_BK_FLASH_PTR(off) (nor + (off))
 enum { ED_BACKUP_LIST = 65, ED_BACKUP_GET, ED_BACKUP_PUT };
 static uint8_t rep[4096];
 static uint32_t rep_n;
@@ -72,6 +73,7 @@ static void reset(void)
     memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
+    pattern_init();
     memset(proj_slot, 0, sizeof proj_slot);
     memset(up_bank, 0, sizeof up_bank);
     memset(&persist_saved, 0, sizeof persist_saved);
@@ -165,6 +167,39 @@ static uint32_t get(uint32_t id, uint32_t off, uint32_t count)
     return rep[1];
 }
 
+static int full_pattern_archive(void)
+{
+    int bad=0, ok=1; reset(); static uint8_t archive[BANK_STORE_SIZE], saved[BANK_STORE_SIZE];
+    for (uint32_t k=0; k<NTRK; k++) for (uint32_t b=0; b<NPAT; b++) {
+        track_t *t=&trk[k]; pattern_request(t,b); t->p[P_SLEN]=(int16_t)(16+b);
+        t->step[3]=(step_t){{(uint8_t)(40+k*8+b),60,64,67},4,ST_NOTE,SF_ACCENT,100,0x81,0x80,(uint8_t)(20+b)};
+        t->step[4]=(step_t){{0},0,ST_TIE}; motion_set_event(t,3,P_REV,(int16_t)(k*8+b));
+    }
+    chain_config.count=1; chain_config.row[0]=(chain_row_t){0,2};
+    for (uint32_t k=0; k<NTRK; k++) chain_patterns[0][k]=(uint8_t)(k+1);
+    project_save_as(0,"CHORD BANKS");
+    uint32_t len,crc; list(0,&len,&crc); memcpy(archive,ED_BK_RAW,sizeof archive);
+    bad+=check("full bank archive contains all runtime banks with its verified CRC",len==sizeof archive && crc==st_crc32(archive,sizeof archive));
+    for (uint32_t off=0; off<sizeof saved; off+=256u) {
+        uint32_t n=sizeof saved-off>256u?256u:sizeof saved-off;
+        ok &= get(2,off,n)==0;
+        ok &= ed_unpack7(rep+9u,rep_n-9u,saved+off,n)==n;
+    }
+    /* GET emits pack7; the XIP payload itself remains byte-identical after other object reads. */
+    ok &= !memcmp(saved,archive,sizeof saved) && !memcmp(nor+st_sector(OBJ_BANK0,0)+ST_PAYLOAD_OFF,archive,sizeof archive) && get(0,0,64)==0;
+    bad+=check("saved-bank GET uses flash without overwriting the frozen runtime snapshot",ok);
+    bad+=check("full archive restores a saved slot through the A/B path",put_all(3,archive,sizeof archive,st_crc32(archive,sizeof archive))==0);
+    pattern_init(); memset(&motion,0,sizeof motion); memset(proj_meta,0,sizeof proj_meta); memset(proj_slot,0,sizeof proj_slot);
+    proj_fetch(1); project_load(1); ok=1;
+    for (uint32_t k=0; k<NTRK; k++) for (uint32_t b=0; b<NPAT; b++) {
+        track_t *t=&trk[k]; pattern_request(t,b);
+        ok &= t->step[3].n==4 && t->step[3].note[0]==40+k*8+b && t->step[3].note[3]==67 &&
+            t->step[4].time==ST_TIE && t->p[P_SLEN]==16+(int16_t)b && step_chance(&t->step[3])==20+b && motion_count(t)==1;
+    }
+    bad+=check("cold flash load restores all 32 chords, ties, timing, chance and motion banks",ok && chain_patterns[0][3]==4);
+    bad+=check("full archive restores the runtime with its original active banks",put_all(0,archive,sizeof archive,st_crc32(archive,sizeof archive))==0 && trk[0].pattern==7 && trk[3].pattern==7);
+    return bad;
+}
 int main(void)
 {
     int bad = 0;
@@ -176,7 +211,7 @@ int main(void)
     reset();
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
     bad += check("LIST captures the runtime: 12 objects (the FM6 bank: id 8), runtime 3584 B (FUN8) with its CRC",
-                 list(0, &len, &crc) == 0 && rep[2] == 12u && len == sizeof(project_store_t) && len == 3584u &&
+                 list(0, &len, &crc) == 0 && rep[2] == 9u && len == BANK_STORE_SIZE &&
                  crc == st_crc32(ED_BK_RAW, len));
     bad += check("an empty project slot lists as length 0", list(2, &len, &crc) == 0 && len == 0);
     bad += check("GET of the runtime copy", get(0, 0, 64) == 0);
@@ -278,7 +313,7 @@ int main(void)
     proj_pack(&st, &proj_scratch);
     bad += check("a FUN7 project restores into slot 3 (flash and RAM)",
                  put_all(4, &st, sizeof st, st_crc32(&st, sizeof st)) == 0 && project_used(2) &&
-                 !memcmp(&proj_slot[2], &st, sizeof st) && st_load(OBJ_PROJECT0 + 2, &proj_wire, sizeof proj_wire) == (int)sizeof st);
+                 !memcmp(&proj_slot[2], &st, sizeof st) && st_load(OBJ_BANK0 + 2, proj_wire_u.raw, sizeof proj_wire_u.raw) == BANK_STORE_SIZE);
     memset(&v6, 0, sizeof v6);                           /* FUN6: 69 parameters, steps out of range */
     v6.magic = PROJ_MAGIC_V6;
     v6.size = sizeof v6;
@@ -358,6 +393,7 @@ int main(void)
         b.nslot = 3;
         bad += check("a bank with the wrong slot count is refused", put_all(7, &b, sizeof b, st_crc32(&b, sizeof b)) == 2u);
     }
+    bad += full_pattern_archive();
     printf("backup test %s\n", bad ? "FAILED" : "passed");
     return bad != 0;
 }

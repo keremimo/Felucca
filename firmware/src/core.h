@@ -15,6 +15,7 @@
 #define NPART 4                  /* synth parts: tracks 1..4 */
 #define NTRK NPART               /* tracks (the formats and the protocol count these): every track is a part */
 #define NSTEP 64
+#define NPAT 8u
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
 #ifndef MELODEE_SLICE
 #define MELODEE_SLICE 1          /* the SLICE engine (eng_slice.c), engine 13; MELODEE_SLICE=0 builds without it */
@@ -264,6 +265,8 @@ typedef struct track {
     uint32_t arp_off;            /* q8 sample time of its note-off */
     /* sequencer */
     step_t step[NSTEP];
+    volatile uint8_t pattern, pattern_next;             /* active bank, queued bank (0xff: none) */
+    volatile uint32_t pattern_gen;                      /* invalidates editor history even for identical banks */
     uint32_t seq_pos;            /* q8 samples into the current step */
     uint16_t seq_idx;
     uint8_t seq_notes[4 + NLANE];   /* sounding seq notes (the step's notes, then its hits) */

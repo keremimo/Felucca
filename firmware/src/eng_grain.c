@@ -100,14 +100,32 @@ typedef struct {
 static gr_part_t *gr_part_of(const track_t *t);  /* engines.c eng_state: the part's grains and index */
 
 static uint32_t gr_part(const track_t *t) { return (uint32_t)(t - trk) % NPART; }
-static uint32_t gr_nz(uint32_t src) { return src < SMP_NSETS ? SMP_SETS[src].nz : usr_nz[(src - SMP_NSETS) % SMP_USER_SLOTS]; }
+static uint32_t gr_nz(uint32_t src)
+{
+    if (src < SMP_NSETS) return SMP_SETS[src].nz;
+#if SMP_USER_SLOTS
+    return usr_nz[(src - SMP_NSETS) % SMP_USER_SLOTS];
+#else
+    return 0;
+#endif
+}
 static const smp_zone_t *gr_zone(uint32_t src, uint32_t zl)
 {
-    return src < SMP_NSETS ? &SMP_ZONES[SMP_SETS[src].z0 + zl] : &usr_zone[(src - SMP_NSETS) % SMP_USER_SLOTS][zl & 15u];
+    if (src < SMP_NSETS) return &SMP_ZONES[SMP_SETS[src].z0 + zl];
+#if SMP_USER_SLOTS
+    return &usr_zone[(src - SMP_NSETS) % SMP_USER_SLOTS][zl & 15u];
+#else
+    return &SMP_ZONES[0];            /* gr_nz() prevents starting an invalid source */
+#endif
 }
 static uint32_t gr_stamp(uint32_t src)
 {
-    return src < SMP_NSETS ? 0u : usr_nz[(src - SMP_NSETS) % SMP_USER_SLOTS] ? smp_user_gen : 0xFFFFFFFFu;
+    if (src < SMP_NSETS) return 0u;
+#if SMP_USER_SLOTS
+    return usr_nz[(src - SMP_NSETS) % SMP_USER_SLOTS] ? smp_user_gen : 0xFFFFFFFFu;
+#else
+    return 0xFFFFFFFFu;
+#endif
 }
 static inline uint32_t gr_rnd(gr_part_t *P) { return noise32(&P->rng); }
 static inline uint32_t gr_scale(uint32_t n, uint32_t f16) { return (n >> 16) * f16 + (((n & 0xFFFFu) * f16) >> 16); }

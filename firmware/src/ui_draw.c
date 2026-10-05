@@ -151,7 +151,7 @@ static void draw_head(void)
     uint32_t rec = (song.rec >> song.sel) & 1u ? 2u : song.rec != 0u;   /* 2 the selected track armed, 1 another */
     uint32_t sig = (uint32_t)song.playing * 3u + rec * 5u + (uint32_t)(song.octave + 8) * 11u + song.sel * 13131u +
                    (ui.msg_t ? str_hash(7u, ui.msg) : ui.layer * 7919u) + (uint32_t)song.g[G_BPM] * 101u + (ui.bpm_t != 0) * 31u +
-                   (uint32_t)batt_shown() * 7777u + (usb.config && !usb.suspended) * 99991u + (chain.running ? (chain.row + 1u) * 104729u : 0u);
+                   TSEL->pattern_gen * 7919u + TSEL->pattern_next * 40503u + (uint32_t)batt_shown() * 7777u + (usb.config && !usb.suspended) * 99991u + (chain.running ? (chain.row + 1u) * 104729u : 0u);
     if (song.g[G_BPM] != ui.roll_bpm) {
         char a[8];
         fmt_int(a, ui.roll_bpm);
@@ -184,11 +184,13 @@ static void draw_head(void)
     if (ui.msg_t || ui.layer) {                     /* a message, or the layer's name */
         cv_free_hint(106, 6, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - 106);   /* (may start with a keycap) */
     } else {
-        if (chain.running || song.octave) {         /* the song row playing, else the octave */
+        {                                             /* song row, octave or active pattern */         /* the song row playing, else the octave */
             int32_t x = chain.running ? 116 + cv_icon_mid(116, H_HEAD / 2, 16, ICON_X_SONG, T_MID, T_BG)   /* SONG: the disc */
-                                      : cv_text(116, 6, &AF_S, "OCT", T_MID);
+                                      : cv_text(116, 6, &AF_S, song.octave ? "OCT" : "PAT", T_MID);
             if (chain.running) {
                 fmt_int(b, (int32_t)chain.row + 1);
+            } else if (!song.octave) {
+                fmt_int(b, (int32_t)TSEL->pattern + 1);
             } else {
                 str_cpy(b, song.octave > 0 ? "+" : "", sizeof b);
                 fmt_int(b + str_len(b), song.octave);
@@ -492,7 +494,7 @@ static void draw_columns(void)
         int used = row < chain_config.count;
         fmt_int(val, (int32_t)row + 1);
         draw_column(0, "ROW", val, "", VAL(0u), -1, ICON_X_SONG);
-        if (used) { val[0] = (char)('A' + chain_config.row[row].slot); val[1] = 0; }
+        if (used) fmt_int(val, (int32_t)chain_patterns[row][song.sel] + 1);
         else str_cpy(val, "--", sizeof val);
         draw_column(1, "PAT", val, "", used ? VAL(1u) : T_DIM, -1, ICON_X_PATTERN);
         if (used) fmt_int(val, chain_config.row[row].repeat);

@@ -84,6 +84,7 @@ static void midi_release(uint32_t ch, uint32_t note)
             midi_ch[ch].targets &= (uint8_t)~(1u << (id - 1u));
     }
     if (id) {
+        step_midi_edge(id - 1u, 0, 0, ch, note);
         mchord_t *m = mchord_of(ch, note, id);
         uint8_t nn[CHORD_MAX];
         uint32_t n = 1, i;
@@ -94,9 +95,10 @@ static void midi_release(uint32_t ch, uint32_t note)
                 nn[i] = m->note[i];
             m->id = 0;
         }
-        for (i = 0; i < n; i++)
+        for (i = 0; i < n; i++) {
             if (!midi_local_held(&trk[id - 1u], nn[i]))
                 input_off(&trk[id - 1u], nn[i]);  /* input_off also checks other MIDI owners */
+        }
     }
 }
 
@@ -119,9 +121,11 @@ static int midi_play(track_t *t, uint32_t ch, uint32_t note, uint32_t vel)
         n = 1;
         nn[0] = (uint8_t)note;
     }
-    for (i = 0; i < n; i++)
+    for (i = 0; i < n; i++) {
+        step_midi_edge(trk_index(t), nn[i], 1, ch, note);   /* (SEQ > STEP: the cursor step) */
         if (!midi_note_held(t, nn[i]) && !midi_local_held(t, nn[i]))
             input_on(t, nn[i], vel);
+    }
     if (n > 1u || nn[0] != note) {
         mchord_t *m = &mchord[f];
         m->ch = (uint8_t)ch;
@@ -153,9 +157,10 @@ static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
         midi_owners[trk_index(t)]++;
         c->owned[trk_index(t)]++;
     } else if (id) {
-        if (c->pedal && !drum_track(&trk[id - 1u]))
+        if (c->pedal && !drum_track(&trk[id - 1u])) {
+            step_midi_edge(id - 1u, 0, 0, ch, note);   /* physical release ends step entry, even under sustain */
             midi_notes[ch][note] |= MIDI_PEDAL_NOTE;
-        else
+        } else
             midi_release(ch, note);
     }
 }
@@ -174,6 +179,8 @@ static void midi_pedal_up(uint32_t ch)
 static void __attribute__((noinline)) midi_forget_track(uint32_t track)
 {
     uint32_t ch, note;
+    memset(live_held[track], 0, sizeof live_held[track]);
+    step_midi_edge(track, 0, 2, 0, 0);          /* one UI release for the whole track */
     for (ch = 0; ch < 16u; ch++) {
         if (!(midi_ch[ch].targets & (1u << track)))
             continue;

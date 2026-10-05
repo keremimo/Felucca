@@ -38,7 +38,12 @@ static uint32_t pow2_q16(int32_t d16)
  * window. Slot = header (magic, count, name, data length, CRC32) + up to 16 zones in the
  * smp_zone_t layout (off relative to the slot's data at +512) + IMA ADPCM data. */
 #include "../hal/fm1_xip.h"   /* relative: hostsim includes this file too */
-#define SMP_USER_SLOTS 3
+#ifndef SMP_USER_SLOTS
+#define SMP_USER_SLOTS 0
+#endif
+#if SMP_USER_SLOTS && defined(FM1_IRQ_TARGET)
+#error "User sample slots overlap bank projects; legacy slot fixtures are host-only"
+#endif
 #define SMP_USER_BASE 0xA0000u
 #define SMP_USER_SIZE 0x14000u
 #define SMP_USER_DATA 512u
@@ -54,7 +59,11 @@ typedef struct {
 } smp_user_hdr_t;                                   /* 32 + 16 x 28 = 480 B, data at +512 */
 static smp_zone_t usr_zone[SMP_USER_SLOTS][16];     /* RAM copy, off rebased onto SMP_DATA */
 static uint8_t usr_nz[SMP_USER_SLOTS];
-static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3"};
+static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT
+#if SMP_USER_SLOTS
+    , "USR1", "USR2", "USR3"
+#endif
+};
 
 #ifndef SMP_USER_XIP                                /* host tests: a RAM image of the slots */
 #define SMP_USER_XIP(k) fm1_xip_ptr(SMP_USER_BASE + (k) * SMP_USER_SIZE)
@@ -71,6 +80,7 @@ static uint32_t smp_user_gen;                       /* + 1 per slot scan (GRAIN:
  * (main loop: SLICE scans the slot's audio here) */
 static void smp_user_scan(uint32_t k)
 {
+    if (k >= SMP_USER_SLOTS) return;
     const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip(k);
     uint32_t i, base;
     smp_user_gen++;
@@ -95,7 +105,11 @@ static void smp_user_scan(uint32_t k)
 /* zone index in a voice: < 0x8000 built-in, else 0x8000 | slot << 5 | zone */
 static inline const smp_zone_t *smp_zone(uint32_t zi)
 {
+#if SMP_USER_SLOTS
     return zi < 0x8000u ? &SMP_ZONES[zi] : &usr_zone[(zi >> 5) & 3u][zi & 31u];
+#else
+    return &SMP_ZONES[zi < 0x8000u ? zi : 0u];
+#endif
 }
 
 /* voice: ph[0] position (samples), ph[1] fraction Q16, s[0] predictor, s[1] step

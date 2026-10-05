@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Projects: four slots. The slots live in .noinit RAM: they
- * survive resets and UBOOT entry. With MELODEE_FLASH (default) every save
- * also goes to flash through storage.c, and an
- * empty RAM slot is filled from flash on load.
+/* Projects: four slots in NOR, each holding 32 independent pattern banks.
+ * FBK9 (pattern_store.c) contains the FUN8 sound/current-pattern record below.
+ * Hardware retains only slot names/occupancy in RAM; full records use one
+ * main-loop staging buffer. Host fixtures also provide a RAM storage backend.
  *
  * Format 7 ("FUN7", written) stores P_COUNT (byte 66) and maps an older count as user presets do: FUN7 of
  * 89 parameters (before the chord keys P_CHRD / P_VOIC) loads its engine values at today's P_E0..P_E7,
@@ -35,9 +35,9 @@
  *
  * Format 8 ("FUN8", written since 1.0) = FUN7 with each track's FM6 patch (eng_fm6.c, the 128-byte packed
  * record, 4 x 128 bytes just before the name): a project is self-contained, whatever the patch bank holds.
- * It is 3584 bytes (FUN7: 3388); FUN7 is read (its tracks get the init patch). The retained cache (proj_slot,
- * .noinit) grew with it: after an update its slot 1 still starts with a FUN7 record, which is read; the other
- * slots fail their hash and come back from flash (persist_boot).
+ * It is 3584 bytes (FUN7: 3388); FUN7 is read (its tracks get the init patch).
+ * Legacy single-pattern flash records load into bank 1; their old project-based
+ * arrangement is cleared rather than interpreted as bank assignments.
  *
  * DIGITAL (engine 1) was retired in 1.0 (fm4_convert.c): a track of it, in any format, loads as FM6 with the
  * patch converted from its values as the track's own (proj_fm4, on every import; the stored record keeps what it
@@ -152,7 +152,11 @@ typedef struct {                               /* format 1 (until 0.5 beta), rea
 } project_v1_t;
 _Static_assert(sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u && sizeof(project_v3_t) == 2584u &&
                sizeof(project_v4_t) == 2680u, "formats 1 / 2 / 3 / 4 as they were stored");
-project_store_t proj_slot[4] __attribute__((section(".noinit")));
+#if !defined(FM1_IRQ_TARGET)
+project_store_t proj_slot[4];                 /* host-only cache; hardware reads complete projects from NOR */
+static uint8_t proj_bank_slot[4][20224];
+#endif
+static struct { uint8_t used; char name[PROJ_NAME_LEN + 1u]; } proj_meta[4];
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
 {
@@ -590,15 +594,15 @@ static void proj_legacy_perc(track_t *t)
         t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
 }
 
-static project_t proj_scratch;              /* decoded main-loop work, never audio ISR */
+static project_t proj_scratch __attribute__((section(".pool")));              /* decoded main-loop work, never audio ISR */
 static char proj_name[PROJ_NAME_LEN + 1u]    /* the name of the music as it is now (loaded, saved, the editor's */
     __attribute__((section(".pool")));       /* runtime restore); "" = none. A save takes it unless one is given */
 #define PROJ_NO_SLOT 0xFFu
 static uint8_t proj_cur = PROJ_NO_SLOT;      /* the slot the music was loaded from or last saved to (a rename of it
                                               * renames the music too); PROJ_NO_SLOT none (the editor's restore) */
-static union {                               /* serialized main-loop work; no retained expansion. A backup object */
-    project_store_t p;                       /* is staged here too (editor_backup.c): up to 3840 bytes (the FM6 bank */
-    uint8_t raw[3840];                       /* is 3612) */
+static union {                               /* serialized main-loop work, also used for archive transfers */
+    project_store_t p;                       /* standalone legacy record view */
+    uint8_t raw[20224];                       /* one complete FBK9 project */
 } proj_wire_u;
 #define proj_wire proj_wire_u.p
 static uint8_t proj_wire_gen;                /* +1 whenever proj_wire is rewritten (a backup's runtime copy lives there) */
@@ -634,23 +638,53 @@ static void proj_bound(project_t *q)
     q->sum = proj_sum(q);
 }
 
-#if MELODEE_FLASH
-/* slot from flash into RAM (format 7, or format 6 / 5 / 4 / 3 / 2 / 1 converted) */
-static void proj_fetch(uint32_t slot)
+#include "pattern_store.c"
+
+static int proj_read_slot(uint32_t slot)
 {
-    project_store_t *q = &proj_slot[slot & 3u];
-    int n;
+    int n = -1;
+    slot &= 3u;
     proj_wire_gen++;
-    n = st_load(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire);
-    if (!proj_import(&proj_scratch, &proj_wire, n))
-        memset(q->raw, 0, 4);
-    else {
-        proj_bound(&proj_scratch);
-        if (!proj_pack(q, &proj_scratch))
-            memset(q->raw, 0, 4);
+#if MELODEE_FLASH
+    if (flash_ok) {
+        n = st_load(OBJ_BANK0 + slot, proj_wire_u.raw, sizeof proj_wire_u.raw);
+        if (n < 0) n = st_load(OBJ_PROJECT0 + slot, proj_wire_u.raw, sizeof proj_wire_u.raw);
     }
-}
+#else
+    if (bank_valid(proj_bank_slot[slot], BANK_STORE_SIZE) &&
+        !memcmp(proj_bank_slot[slot] + 8u, &proj_slot[slot], sizeof proj_slot[slot])) {
+        n = BANK_STORE_SIZE; memcpy(proj_wire_u.raw, proj_bank_slot[slot], BANK_STORE_SIZE);
+    } else { n = sizeof proj_slot[slot]; memcpy(proj_wire_u.raw, &proj_slot[slot], sizeof proj_slot[slot]); }
 #endif
+    int valid = n == BANK_STORE_SIZE ? bank_valid(proj_wire_u.raw, n) : proj_import(&proj_scratch, proj_wire_u.raw, n);
+#if MELODEE_FLASH && !defined(FM1_IRQ_TARGET)
+    if (valid) {
+        if (n == BANK_STORE_SIZE) { memcpy(proj_bank_slot[slot], proj_wire_u.raw, BANK_STORE_SIZE); memcpy(&proj_slot[slot], proj_wire_u.raw + 8u, sizeof proj_slot[slot]); }
+        else { memset(proj_bank_slot[slot], 0, sizeof proj_bank_slot[slot]); proj_bound(&proj_scratch); proj_pack(&proj_slot[slot], &proj_scratch); }
+    }
+#endif
+    proj_meta[slot].used = (uint8_t)valid;
+    if (valid) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
+    else proj_meta[slot].name[0] = 0;
+    return valid ? n : 0;
+}
+static void proj_fetch(uint32_t slot) { (void)proj_read_slot(slot); }
+static int proj_write_slot(uint32_t slot, const uint8_t *raw, uint32_t len)
+{
+    slot &= 3u;
+#if MELODEE_FLASH
+    if (!flash_ok || st_save(OBJ_BANK0 + slot, raw, len)) return 2;
+#endif
+#if !defined(FM1_IRQ_TARGET)
+    memset(proj_bank_slot[slot], 0, sizeof proj_bank_slot[slot]);
+    memset(&proj_slot[slot], 0, sizeof proj_slot[slot]);
+    if (len) { memcpy(proj_bank_slot[slot], raw, len); memcpy(&proj_slot[slot], raw + 8u, sizeof proj_slot[slot]); }
+#endif
+    proj_meta[slot].used = len != 0;
+    if (len) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
+    else proj_meta[slot].name[0] = 0;
+    return 0;
+}
 
 static void project_capture(project_t *p)
 {
@@ -673,6 +707,7 @@ static void project_capture(project_t *p)
         fm6_pack(fm6_patch[i], p->fm6[i]);
     }
     p->motion = motion;
+    p->motion.rsv[0] = 1;                     /* full container supplies the bank tags */
     motion_unguard(f);
     memcpy(p->name, proj_name, str_len(proj_name));
     p->sum = proj_sum(p);
@@ -693,25 +728,12 @@ static int project_save_as(uint32_t slot, const char *name)
         memcpy(p->name, name, str_len(name) < PROJ_NAME_LEN ? str_len(name) : PROJ_NAME_LEN);
     }
     proj_wire_gen++;
-    if (!proj_pack(&proj_wire, p)) { ui_message("SAVE FORMAT ERROR"); return 2; }
+    if (!bank_pack(proj_wire_u.raw, p, 1)) { ui_message("SAVE FORMAT ERROR"); return 2; }
 
-#if MELODEE_FLASH
-    if (flash_ok) {
-        if (st_save(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire)) {
-            ui_message("SAVE ERROR");
-            return 2;
-        }
-        memcpy(&proj_slot[slot & 3u], &proj_wire, sizeof proj_wire);
-        proj_name_get(proj_name, (const uint8_t *)p->name);
-        proj_cur = (uint8_t)(slot & 3u);
-        ui_message("SAVED");
-        return 0;
-    }
-#endif
-    memcpy(&proj_slot[slot & 3u], &proj_wire, sizeof proj_wire);
+    if (proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE)) { ui_message("SAVE ERROR"); return 2; }
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = (uint8_t)(slot & 3u);
-    ui_message("SAVED (RAM)");
+    ui_message(MELODEE_FLASH ? "SAVED" : "SAVED (RAM)");
     return 0;
 }
 static int project_save(uint32_t slot) { return project_save_as(slot, 0); }
@@ -721,9 +743,8 @@ static void project_cur_name(char *b) { str_cpy(b, proj_name, PROJ_NAME_LEN + 1u
 static int project_name(uint32_t slot, char *b)
 {
     b[0] = 0;
-    if (!proj_import(&proj_scratch, &proj_slot[slot & 3u], sizeof(project_store_t)))
-        return 0;
-    proj_name_get(b, (const uint8_t *)proj_scratch.name);
+    if (!project_used(slot)) return 0;
+    str_cpy(b, proj_meta[slot & 3u].name, PROJ_NAME_LEN + 1u);
     return 1;
 }
 
@@ -737,21 +758,20 @@ static int project_rename(uint32_t slot, const char *name)
         ui_message("STOP TO SAVE");
         return 1;
     }
-    if (!proj_import(p, &proj_slot[slot & 3u], sizeof(project_store_t))) {
-        ui_message("EMPTY SLOT");
-        return 1;
-    }
+    int n = proj_read_slot(slot);
+    if (!n) { ui_message("EMPTY SLOT"); return 1; }
     memset(p->name, 0, sizeof p->name);
     memcpy(p->name, name, str_len(name) < PROJ_NAME_LEN ? str_len(name) : PROJ_NAME_LEN);
-    proj_wire_gen++;
-    if (!proj_pack(&proj_wire, p)) { ui_message("SAVE FORMAT ERROR"); return 2; }
-#if MELODEE_FLASH
-    if (flash_ok && st_save(OBJ_PROJECT0 + (slot & 3u), &proj_wire, sizeof proj_wire)) {
-        ui_message("SAVE ERROR");
-        return 2;
+    p->sum = proj_sum(p);
+    if (n == BANK_STORE_SIZE) {
+        memcpy(proj_wire_u.raw + BANK_MOTION_OFF, bank_import_tags, sizeof bank_import_tags);
+        if (!proj_pack((project_store_t *)(proj_wire_u.raw + 8u), p)) return 2;
+        bank_checksum(proj_wire_u.raw);
+    } else {
+        proj_bound(p); chain_defaults(&p->chain);
+        if (!bank_pack(proj_wire_u.raw, p, 0)) return 2;
     }
-#endif
-    memcpy(&proj_slot[slot & 3u], &proj_wire, sizeof proj_wire);
+    if (proj_write_slot(slot, proj_wire_u.raw, BANK_STORE_SIZE)) { ui_message("SAVE ERROR"); return 2; }
     if (proj_cur == (slot & 3u))
         proj_name_get(proj_name, (const uint8_t *)p->name);
 #if MELODEE_FLASH
@@ -775,7 +795,8 @@ static int project_restore_runtime(const project_t *input)
     fm1_irq_off();                                      /* the audio ISR must not see half a project */
     seq_stop();
     transport_req = 0;
-    chain_config = p->chain;
+    pattern_init();
+    chain_defaults(&chain_config);
     motion = p->motion;
     memset(motion_active, 0, sizeof motion_active);
     motion_base_valid = 0;
@@ -796,6 +817,7 @@ static int project_restore_runtime(const project_t *input)
         t->preset = (uint8_t)(ENGINES[e]->npresets ? (s->preset >= PROJ_DEF_KEEP ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
         memcpy(t->step, s->step, sizeof t->step);
         proj_steps(t->step);
+        pattern_commit(t);
         {   /* the project's own FM6 patch; PTCH as it was saved, without loading its slot (fm6_poll) */
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(p->fm6[k], v);
@@ -835,12 +857,12 @@ static int project_restore_runtime(const project_t *input)
 }
 static void project_load(uint32_t slot)
 {
-#if MELODEE_FLASH
-    if (flash_ok && !proj_import(&proj_scratch, &proj_slot[slot & 3u], sizeof(project_store_t))) proj_fetch(slot);
-#endif
-    if (!proj_import(&proj_scratch, &proj_slot[slot & 3u], sizeof(project_store_t))) { ui_message("EMPTY SLOT"); return; }
-    if (!project_restore_runtime(&proj_scratch))
+    int n = proj_read_slot(slot);
+    if (!n) { ui_message("EMPTY SLOT"); return; }
+    if (!project_restore_runtime(&proj_scratch)) {
+        if (n == BANK_STORE_SIZE) bank_restore(proj_wire_u.raw);
         proj_cur = (uint8_t)(slot & 3u);
+    }
 }
 
 /* settings + learned panel table: one flash object. The flash copy wins at
@@ -932,7 +954,7 @@ static uint32_t project_free_slot(void)
 {
     uint32_t i;
     for (i = 0; i < 4u; i++)
-        if (!proj_import(&proj_scratch, &proj_slot[i], sizeof(project_store_t)))
+        if (!project_used(i))
             return i;
     return 0;
 }
@@ -1042,57 +1064,39 @@ static void persist_boot(void)                    /* before settings_init / pane
     {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */
         uint32_t i;
         for (i = 0; i < 4u; i++)
-            if (!proj_import(&proj_scratch, &proj_slot[i], sizeof(project_store_t)))
+            if (!project_used(i))
                 proj_fetch(i);
     }
     up_boot();                                     /* user presets */
 #endif
 }
 
-static int project_used(uint32_t slot) { return proj_import(&proj_scratch, &proj_slot[slot & 3u], sizeof(project_store_t)); }
+static int project_used(uint32_t slot)
+{
+#if !MELODEE_FLASH
+    slot &= 3u;
+    int valid = bank_valid(proj_bank_slot[slot], BANK_STORE_SIZE) &&
+        !memcmp(proj_bank_slot[slot] + 8u, &proj_slot[slot], sizeof proj_slot[slot]);
+    if (!valid) valid = proj_import(&proj_scratch, &proj_slot[slot], sizeof proj_slot[slot]);
+    proj_meta[slot].used = (uint8_t)valid;
+    if (valid) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
+#endif
+    return proj_meta[slot & 3u].used;
+}
 
 /* Main loop only: no flash access or copies when the ISR changes rows. */
 static uint32_t chain_prepare(void)
 {
-    uint32_t i, k, j, used = 0;
-    if (transport_busy())
-        return 2;
-    if (!chain_valid(&chain_config) || !chain_config.count)
-        return 1;
-    for (i = 0; i < chain_config.count; i++) {
-        uint32_t s = chain_config.row[i].slot;
-        if (!project_used(s))
-            return 3u + s;
-        used |= 1u << s;
-    }
+    if (transport_busy()) return 2;
+    if (!chain_valid(&chain_config) || !chain_config.count) return 1;
+    for (uint32_t i = 0; i < chain_config.count; i++)
+        for (uint32_t k = 0; k < NTRK; k++) if (chain_patterns[i][k] >= NPAT) return 1;
+    uint32_t f = motion_guard();
+    if (transport_busy()) { motion_unguard(f); return 2; }
+    for (uint32_t k = 0; k < NTRK; k++) { pattern_commit(&trk[k]); trk[k].pattern_next = 0xff; }
     chain.config = chain_config;
-    for (i = 0; i < 4u; i++)
-        if ((used >> i) & 1u) {
-            project_t *p = &proj_scratch;
-            if (!proj_import(p, &proj_slot[i], sizeof(project_store_t))) return 3u + i;
-            chain.source[i].motion = p->motion;
-            /* A song keeps its current instruments. Engine-specific motion from
-             * another instrument would change a kit/wave/algorithm unexpectedly. */
-            {
-                motion_store_t *m = &chain.source[i].motion; uint32_t n = 0;
-                for (uint32_t e = 0; e < m->count; e++) {
-                    const motion_event_t *v = &m->event[e]; uint32_t owner = v->place >> 6;
-                    if (v->param >= P_FM1_ATK && p->t[owner].engine != trk[owner].eng_req) continue;
-                    m->event[n++] = *v;
-                }
-                m->count = (uint8_t)n;
-            }
-            for (k = 0; k < NTRK; k++) {
-                memcpy(chain.source[i].step[k], p->t[k].step, sizeof p->t[k].step);
-                proj_steps(chain.source[i].step[k]);
-                for (j = 0; j < 4u; j++)
-                    chain.source[i].timing[k][j] = (int16_t)clamp(p->t[k].p[P_SLEN + j],
-                        TP[P_SLEN + j].min, TP[P_SLEN + j].max);
-            }
-        }
-    RING_PUBLISH();
-    chain.armed = 1;
-    transport_req = 1;
+    RING_PUBLISH(); chain.armed = 1; transport_req = 1;
+    motion_unguard(f);
     return 0;
 }
 

@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Persistent storage on the SPI NOR.
  *
- * Every object has an A/B sector pair. A save goes to the copy that is not
+ * Every object has an A/B pair (five sectors per bank project; one otherwise). A save goes to the copy that is not
  * the current one: erase the sector, program the payload pages (from offset
  * 256), then the 32-byte header at offset 0 LAST. The header is the commit
  * record (magic, seq, length, payload CRC, header CRC); on load the valid
@@ -17,10 +17,13 @@
 #define ST_PAYLOAD_OFF 256u
 #define ST_PAYLOAD_MAX (ST_SECTOR - ST_PAYLOAD_OFF)
 
-/* flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..): settings 0xFC000, projects 0x97000..0x9EFFF,
+/* Legacy single-pattern projects remain at 0x97000..0x9EFFF for read-only migration.
+ * Bank projects occupy 0xA0000..0xC7FFF, two five-sector copies per slot.
+ * User samples are disabled: this area must never accept sample uploads.
+ * Existing flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..): settings 0xFC000, projects 0x97000..0x9EFFF,
  * user sample slots 0xA0000..0xDBFFF (eng_sample.c), user preset banks 0xDC000..0xDFFFF (upreset.c), the FM6
  * patch bank (fm6_bank.c): copy A 0x9F000, copy B 0xFE000 (the two free sectors) */
-enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_COUNT };
+enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_BANK0, OBJ_COUNT = OBJ_BANK0 + 4 };
 
 typedef struct {
     uint32_t magic;
@@ -51,6 +54,8 @@ static uint32_t st_crc32(const void *p, uint32_t n)   /* zlib CRC-32, 4 bits per
 
 static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy A (0) / B (1) */
 {
+    if (obj >= OBJ_BANK0)
+        return 0xA0000u + (obj - OBJ_BANK0) * 10u * ST_SECTOR + copy * 5u * ST_SECTOR;
     if (obj == OBJ_SETTINGS)
         return 0xFC000u + copy * ST_SECTOR;
     if (obj == OBJ_FM6BANK)
@@ -60,7 +65,9 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
     return 0x97000u + (obj - OBJ_PROJECT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
 }
 
-static uint8_t st_buf[ST_PAYLOAD_MAX] __attribute__((aligned(4)));
+static uint32_t st_capacity(uint32_t obj) { return obj >= OBJ_BANK0 ? 5u * ST_SECTOR - ST_PAYLOAD_OFF : ST_PAYLOAD_MAX; }
+
+static uint8_t st_buf[256] __attribute__((aligned(4)));
 
 static int st_head(uint32_t obj, uint32_t copy, st_hdr_t *h)   /* commit record valid: 0 */
 {
@@ -68,22 +75,30 @@ static int st_head(uint32_t obj, uint32_t copy, st_hdr_t *h)   /* commit record 
         return -1;
     if (st_read(st_sector(obj, copy), h, sizeof *h))
         return -1;
-    if (h->magic != ST_MAGIC || h->type != obj || h->slot != copy || h->len > ST_PAYLOAD_MAX ||
+    if (h->magic != ST_MAGIC || h->type != obj || h->slot != copy || h->len > st_capacity(obj) ||
         h->hcrc != st_crc32(h, sizeof *h - 4u))
         return -1;
     return 0;
 }
 
-static int st_body(uint32_t obj, uint32_t copy, const st_hdr_t *h)   /* payload -> st_buf, CRC ok: 0 */
+static int st_body(uint32_t obj, uint32_t copy, const st_hdr_t *h)   /* streaming CRC, bounded 256-byte scratch, valid: 0 */
 {
-    if (st_read(st_sector(obj, copy) + ST_PAYLOAD_OFF, st_buf, h->len) || st_crc32(st_buf, h->len) != h->crc)
-        return -1;
-    return 0;
+    uint32_t crc = 0xFFFFFFFFu;
+    for (uint32_t off = 0; off < h->len; off += sizeof st_buf) {
+        uint32_t n = h->len - off > sizeof st_buf ? sizeof st_buf : h->len - off;
+        if (st_read(st_sector(obj, copy) + ST_PAYLOAD_OFF + off, st_buf, n)) return -1;
+        for (uint32_t i = 0; i < n; i++) {
+            crc ^= st_buf[i];
+            for (uint32_t j = 0; j < 8u; j++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+    }
+    return ~crc == h->crc ? 0 : -1;
+
 }
 
 /* the current copy: the newest valid sequence (A on a tie), -1 when
  * neither is valid. Headers first, so only the winner's payload is read (it
- * is left in st_buf); *h gets its header. */
+ * is verified); *h gets its header. */
 static int st_current(uint32_t obj, st_hdr_t *h)
 {
     st_hdr_t a, b;
@@ -109,12 +124,10 @@ static int st_current(uint32_t obj, st_hdr_t *h)
 /* load the whole object into dst; returns its length, or -1 if it does not fit */
 static int st_load(uint32_t obj, void *dst, uint32_t max)
 {
-    uint32_t i;
     st_hdr_t h;
-    if (obj >= OBJ_COUNT || st_current(obj, &h) < 0 || h.len > max)
-        return -1;
-    for (i = 0; i < h.len; i++)
-        ((uint8_t *)dst)[i] = st_buf[i];
+    int cur;
+    if (obj >= OBJ_COUNT || (cur = st_current(obj, &h)) < 0 || h.len > max) return -1;
+    if (st_read(st_sector(obj, (uint32_t)cur) + ST_PAYLOAD_OFF, dst, h.len)) return -1;
     return (int)h.len;
 }
 
@@ -123,26 +136,26 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     uint32_t seq, base, off;
     int cur, rc;
     st_hdr_t h;
-    if (obj >= OBJ_COUNT || len > ST_PAYLOAD_MAX)
+    if (obj >= OBJ_COUNT || len > st_capacity(obj))
         return -1;
     cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;
     base = st_sector(obj, cur == 0 ? 1u : 0u);       /* write the other copy */
-    for (off = 0; off < len; off++)
-        st_buf[off] = ((const uint8_t *)src)[off];    /* the driver wants RAM sources */
-    if ((rc = st_erase(base)) != 0)
-        return rc;
-    for (off = 0; off < len; off += 256u) {
-        uint32_t n = len - off > 256u ? 256u : len - off;
-        if ((rc = st_prog(base + ST_PAYLOAD_OFF + off, st_buf + off, n)) != 0)
-            return rc;
+    uint32_t crc = st_crc32(src, len);
+    uint32_t extent = obj >= OBJ_BANK0 ? 5u * ST_SECTOR : ST_SECTOR;
+    for (off = 0; off < extent; off += ST_SECTOR)
+        if ((rc = st_erase(base + off)) != 0) return rc;
+    for (off = 0; off < len; off += sizeof st_buf) {
+        uint32_t n = len - off > sizeof st_buf ? sizeof st_buf : len - off;
+        memcpy(st_buf, (const uint8_t *)src + off, n);
+        if ((rc = st_prog(base + ST_PAYLOAD_OFF + off, st_buf, n)) != 0) return rc;
     }
     h.magic = ST_MAGIC;
     h.type = (uint16_t)obj;
     h.slot = (uint16_t)(cur == 0 ? 1 : 0);
     h.seq = seq + 1u;
     h.len = len;
-    h.crc = st_crc32(st_buf, len);
+    h.crc = crc;
     h.rsv[0] = h.rsv[1] = 0xFFFFFFFFu;
     h.hcrc = st_crc32(&h, sizeof h - 4u);
     if ((rc = st_prog(base, &h, sizeof h)) != 0)       /* the commit record, last */

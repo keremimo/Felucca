@@ -23,6 +23,9 @@
  *    selected track changes, the keys while the selected track changes, with ARP and the voice modes).
  * env: GOLDEN_UPDATE=1 rewrites GOLDEN_FILE, BUDGET_UPDATE=1 rewrites CPU_FILE (on purpose: review the
  * diff), VERBOSE=1 prints every render's numbers, JOBS=n children at once (default 8). */
+/* The one-shot terminal interpolation fixture supplies one synthetic user zone.
+ * Shipping firmware has no user slots; eng_sample.c forbids this on the target. */
+#define SMP_USER_SLOTS 3
 #define main hostsim_main
 #include "hostsim.c"
 #undef main

@@ -1,16 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* A song uses the sequences of four saved projects, with the current sounds.
- * Sources are copied in the main loop before PLAY. The ISR changes only their
- * index and four timing parameters; the editable steps stay untouched. */
-typedef struct {
-    step_t step[NTRK][NSTEP];
-    int16_t timing[NTRK][4];
-    motion_store_t motion;
-} chain_pattern_t;
+/* SONG arranges the current project's banks, one per track per row.
+ * Main-loop preparation commits the original selections. The ISR switches
+ * bounded in-RAM patterns and timing; STOP restores the original selections. */
+#include "pattern.c"
 static chain_config_t chain_config;
 static struct {
-    chain_pattern_t source[4];
+    uint8_t original[NTRK];
     chain_config_t config;
     int16_t timing[NTRK][4];
     volatile uint8_t armed, running, row, remaining;
@@ -36,13 +32,13 @@ static int chain_valid(const chain_config_t *c)
     if (c->count > CHAIN_ROWS)
         return 0;
     for (i = 0; i < c->count; i++)
-        if (c->row[i].slot >= 4u || !c->row[i].repeat || c->row[i].repeat > 16u)
+        if (c->row[i].slot >= NPAT || !c->row[i].repeat || c->row[i].repeat > 16u)
             return 0;
     return 1;
 }
 static const step_t *seq_steps(const track_t *t)
 {
-    return chain.running ? chain.source[chain.slot].step[t - trk] : t->step;
+    return t->step;
 }
 static void motion_restore(track_t *t);
 static void chain_apply(void)
@@ -53,7 +49,7 @@ static void chain_apply(void)
         track_t *t = &trk[i];
         seq_release(t);
         motion_restore(t);
-        memcpy(&t->p[P_SLEN], chain.source[chain.slot].timing[i], sizeof chain.timing[i]);
+        pattern_apply(t, chain_patterns[chain.row][i]);
         t->seq_idx = (uint16_t)(t->p[P_SLEN] - 1);
         t->seq_pos = 0x7FFFFFFFu;
         t->rh_n = t->rskip_n = 0;
@@ -66,8 +62,10 @@ static void chain_start(void)
         return;
     chain.rec = song.rec;
     song.rec = 0;
-    for (i = 0; i < NTRK; i++)
+    for (i = 0; i < NTRK; i++) {
+        chain.original[i] = trk[i].pattern;
         memcpy(chain.timing[i], &trk[i].p[P_SLEN], sizeof chain.timing[i]);
+    }
     chain.row = 0;
     chain.remaining = chain.config.row[0].repeat;
     chain.carry = 0;
@@ -81,8 +79,10 @@ static void chain_stop(void)
     chain.armed = 0;
     if (!chain.running)
         return;
-    for (i = 0; i < NTRK; i++)
+    for (i = 0; i < NTRK; i++) {
+        pattern_apply(&trk[i], chain.original[i]);
         memcpy(&trk[i].p[P_SLEN], chain.timing[i], sizeof chain.timing[i]);
+    }
     song.rec = chain.rec;
     chain.running = 0;
 }

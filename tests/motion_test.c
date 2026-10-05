@@ -158,13 +158,10 @@ static int fun7_89(void)
         after.motion.event[1].value == 40 && after.motion.event[2].param == P_FM1_ATK);
     bad += check("  written again as FUN7 of 91: the same project", proj_pack(&old, &after) && old.raw[66] == P_COUNT &&
         proj_import(&before, &old, sizeof old) && !memcmp(&before, &after, sizeof before));
-    pack_fun7_89(&old, &before, &m);                                /* SONG: a slot of the old firmware */
-    memcpy(&proj_slot[2], &old, sizeof old);
-    chain_config.count = 1; chain_config.row[0] = (chain_row_t){2, 1};
-    ok = chain_prepare() == 0;
-    bad += check("  SONG: an 89-parameter slot's motion plays at today's ids (E0 at 83)", ok &&
-        chain.source[2].motion.count == 3u && chain.source[2].motion.event[1].param == P_E0);
-    seq_stop(); chain_config.count = 0; chain.armed = 0;
+    pack_fun7_89(&old, &before, &m); memcpy(&proj_slot[2], &old, sizeof old);
+    project_load(2);
+    bad += check("legacy project's motion migrates into bank 1 at today's parameter ids", motion.count == 3u &&
+        motion.event[1].param == P_E0 && trk[0].pattern == 0u);
     m.event[1].param = 82;                                          /* (any id P_E0 .. P_E7 of then moves by 2) */
     pack_fun7_89(&old, &before, &m);
     bad += check("  E1 (82) -> 84", proj_import(&after, &old, sizeof old) && after.motion.event[1].param == P_E1);
@@ -178,11 +175,11 @@ static int loads_and_song(void)
     bad += check("sound load clears incompatible motion and keeps pattern", !motion_count(t) && t->step[0].note[0] == 60);
     undo_swap(); bad += check("sound undo restores the original motion pool and base", motion_count(t) == 1u && t->p[P_REV] == 21);
     undo_swap(); bad += check("sound redo restores the loaded motion state", !motion_count(t));
-    undo_swap(); project_save(0);
+    undo_swap(); pattern_commit(t); pattern_request(t, 1);
     t->p[P_REV] = 43; t->step[0].note[0] = 72; chain_config.count = 1; chain_config.row[0] = (chain_row_t){0, 1};
-    bad += check("song preparation imports saved motion alongside steps", chain_prepare() == 0 && chain.source[0].motion.count == 1u);
+    bad += check("song preparation imports saved motion alongside steps", chain_prepare() == 0 && motion_count(t) == 0u);
     seq_start(); seq_tick(t, CTL);
-    bad += check("song plays saved automation with current instruments", chain.running && t->p[P_REV] == 100 && t->step[0].note[0] == 72);
+    bad += check("song plays saved automation with current instruments", chain.running && t->p[P_REV] == 100 && t->step[0].note[0] == 60);
     seq_stop(); bad += check("song stop restores current base and editable pattern", t->p[P_REV] == 43 && t->step[0].note[0] == 72);
     return bad;
 }

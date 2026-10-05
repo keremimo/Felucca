@@ -3,7 +3,9 @@
 // Local, complete musical archives. Requests name whitelisted objects, never flash addresses.
 export const BACKUP_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34];   // 8: the FM6 patch bank (firmware with FM6)
 const BACKUP_IDS_V1 = BACKUP_IDS.filter((id) => id !== 8);              // firmware before FM6, and its archives
-const idsOf = (n) => (n === BACKUP_IDS.length ? BACKUP_IDS : n === BACKUP_IDS_V1.length ? BACKUP_IDS_V1 : null);
+const BACKUP_IDS_BANKS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+const maxSize = id => id >= 32 ? 81920 : (id === 0 || (id >= 2 && id <= 5)) ? 20224 : 3840;
+const idsOf = (n) => (n === BACKUP_IDS.length ? BACKUP_IDS : n === BACKUP_IDS_V1.length ? BACKUP_IDS_V1 : n === 9 ? BACKUP_IDS_BANKS : null);
 export const BACKUP_CMD = { LIST: 65, GET: 66, PUT: 67 };
 const BACKUP_CHUNK = 256;
 export const bkU32 = (n) => Array.from({ length: 5 }, (_, i) => (n >>> (i * 7)) & (i === 4 ? 15 : 127));
@@ -52,7 +54,7 @@ export function bkManifest(a) {
     const p = 3 + i * 11;
     if (a[p] !== id) throw new Error("Unexpected archive object");
     const size = bkR32(a, p + 1), crc = bkR32(a, p + 6);
-    if (size > (id >= 32 ? 81920 : 3840) || (!size && crc)) throw new Error("Archive object too large");
+    if (size > maxSize(id) || (!size && crc)) throw new Error("Archive object too large");
     return { id, size, crc };
   });
 }
@@ -63,7 +65,7 @@ export function readBackup(file) {
   if (!file || file.format !== "felucca-backup" || file.version !== 1 || !ids)
     throw new Error("Not a complete Melodee backup");
   const objects = file.objects.map((o, i) => {
-    if (!o || o.id !== ids[i] || !Number.isInteger(o.size) || o.size < 0 || o.size > (o.id >= 32 ? 81920 : 3840) ||
+    if (!o || o.id !== ids[i] || !Number.isInteger(o.size) || o.size < 0 || o.size > maxSize(o.id) ||
         !Number.isInteger(o.crc) || o.crc < 0 || o.crc > 0xffffffff || typeof o.data !== "string" ||
         o.data.length !== 4 * Math.ceil(o.size / 3) || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(o.data))
       throw new Error("Invalid backup object");
@@ -109,9 +111,14 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
   const archive = readBackup(file); // Validate every byte before the first destructive request.
   const total = archive.objects.reduce((n, o) => n + o.size, 0); let done = 0;
   const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
+  const supported = bkManifest(await ask([BACKUP_CMD.LIST, []]));
+  const liveSize = supported.find(o => o.id === 0)?.size || 0;
+  if (archive.objects[0].size > liveSize) throw new Error("This backup needs firmware with eight pattern banks");
+  for (const o of archive.objects) if (!supported.some(x => x.id === o.id) && o.size) throw new Error("This firmware has no user sample slots; this backup contains sample data");
   const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
   // Restore live music last. Other objects commit individually; a disconnect can leave a partial restore.
   for (const o of [...archive.objects.slice(2), archive.objects[1], archive.objects[0]]) {
+    if (!supported.some(x => x.id === o.id)) continue;
     if (o.id >= 32) {
       const slot = o.id - 32;
       const check = (a) => { if (a[0] !== slot) throw new Error("Unexpected sample reply"); bkCheck(a.at(-1)); };

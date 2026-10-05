@@ -23,12 +23,17 @@ runs Felucca.
 
 - **Thirteen engines** (below), each with its own factory presets
 - **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM engine or
-  the SAMPLE engine's GM kit); 8 voices shared between them. ALGORITHM selects the track on every page
+  the SAMPLE engine's GM kit); up to 16 FM6 voices or 8 voices from the other engines shared between
+  them (an FM6 voice uses one budget unit, another engine's voice two; 16 units total).
+  ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide and per-step chance; a piano
   roll of the steps; a drum grid (white keys = steps, black keys = lanes); motion recording of knob
-  moves; live loop recording with overdub; divisions from 1/32 to 4 bars; loading a sound never
-  touches your patterns
-- **Songs:** chain patterns A–D
+  moves; live loop recording onto the playing step with overdub; MIDI step entry; tied-note length,
+  movement and deletion; eight-level manual step undo/redo; divisions from 1/32 to 4 bars;
+  loading a sound never touches your patterns
+- **Patterns:** eight independent 64-step banks per track, with up to four notes per step, ties,
+  chance, drum hits and bank-specific motion (64 automation events shared across the project)
+- **Songs:** up to 16 rows, each choosing a bank for every track and repeating 1–16 times
 - **Chord keys:** one finger plays an in-key chord (triads or sevenths of the scale, or fixed chord
   shapes), with voicings; on the keys, MIDI in, recording and the arpeggiator
 - **Arpeggiator** with REPEAT and a beat LED, 16 scales with a white-key mode, glide,
@@ -41,10 +46,13 @@ runs Felucca.
 - **Quick layers:** hold FX, GLO, SCL or EDIT for shortcuts on the keys and knobs; one-step undo
   (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
 - **Presets:** factory presets, 32 user preset slots and 4 projects, named on the device;
-  projects from every earlier version load
-- **Screen:** flat UI with Inter Tight and Fukiai icons, 8 palettes including grayscale and high contrast
-- **USB:** class-compliant MIDI in and out, and a 44.1 kHz stereo audio input ("Melodee") that
-  records the master output on the computer, no driver needed
+  a startup project and a template for new projects; compatible upstream projects from earlier versions load
+- **Screen:** flat UI with Inter Tight and Fukiai icons, 8 palettes including grayscale and high contrast;
+  HOME shows the played notes and recognized chords above the live waveform, retaining the last voicing after release
+- **USB:** class-compliant MIDI in and out; **Melodee Out** plays the computer through the FM-1,
+  **Melodee In** records four mono tracks (one channel per track, after level and before pan, sends
+  and master effects). Both support 16/24-bit audio at 44.1 kHz; each can be disabled in the
+  HOME-held menu's USB AUDIO setting. No driver needed
 - **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4 (other channels the selected track),
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS
 - **Web:** editor for every parameter (with a 6-operator FM patch editor), step grid, mixer,
@@ -59,11 +67,62 @@ runs Felucca.
   **PRESETS** its sound. **KNOB 1–4** edit the four columns of the page
 - FX, SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
   HOME returns home
-- **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the song
+- **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the song.
+  When editing synth steps, FX and SCL use the editing controls below
 - PLAY starts and stops all four tracks; REC arms the selected track, on every page
 - OCT− / OCT+ shift the octave (both: reset). On action pages, in dialogs and the menu, OCT+ does it
-  and OCT− goes back
+  and OCT− goes back. During synth step editing, OCT− / OCT+ move the step cursor
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
+
+### Patterns and songs
+
+Hold **SEQ** and press one of the first eight white keys to pick pattern 1–8. Hold a pattern key
+and press a second one to copy its notes, ties, timing, chance, drum hits and automation. **SEQ + SELECT**
+also chooses a pattern. While playing, each track changes at its own loop end; the queued key blinks.
+Selecting the active pattern cancels a queued change. STOP applies pending choices.
+
+On **SEQ > SONG**, KNOB 1 chooses the row, **ALGORITHM** chooses the track, KNOB 2 chooses that
+track's pattern, and KNOB 3 sets repeats. PLAY runs the arrangement; rows change all four tracks
+at track 1's loop boundary and the last row stops. STOP returns to the patterns selected before
+SONG. Project saves and complete backups include all 32 banks and the arrangement.
+
+### Step editing
+
+On **SEQ > STEP**, KNOB 1 picks the step, KNOB 2 changes its note, KNOB 3 **TIME** picks
+NOTE / TIE / REST, and KNOB 4 sets accent and slide. On a synth track:
+
+- Hold a key or MIDI chord, turn **SELECT** to set its length, then release to advance past the whole note.
+- Hold **ENV** and turn **SELECT** to resize an existing note, from its onset or any of its ties.
+- Hold **SCL** and turn **SELECT** to move the whole note, with its ties. Movement and lengthening
+  stop before another note; both work across the pattern's loop.
+- Tap **FX** or **EDIT** to delete the selected note and its ties. A DRUM grid EDIT clears just that step.
+- Hold **SAVE** to undo the last manual edit. With **FX** or **SAVE** down, **OCT−** undoes and **OCT+**
+  redoes, up to eight edits. A held entry or move counts as one edit. A new edit clears redo;
+  recording, loading another pattern, changing track or pattern length, or external step edits start
+  a fresh history. With no manual edit to undo, held SAVE retains the sound/pattern-load undo.
+
+Using SELECT consumes the ENV/SCL page tap; a tap without an edit still opens that page. A final
+SELECT turn arriving with the key or modifier release is included. SELECT keeps its tempo role
+when no note or editing modifier is held. PRESETS continues to browse sounds on HOME and PRESETS,
+and selects FM6 operators on their pages.
+
+Armed live recording writes the step currently playing, and the STEP cursor follows it. The DRUM
+grid keeps its white-key step and black-key lane controls.
+
+### Startup and compatibility
+
+On **SAVE > PROJECT**, KNOB 2 **BOOT** selects OFF or project A–D to load at power-on.
+KNOB 1 **SLOT** also offers **TMPL**: save your sounds and settings there as the template for new
+projects, with empty patterns. BOOT OFF uses the template when one is saved. CLK, TUNE, MIDI SYNC
+and ROUT persist between starts; loading a project or template applies its own settings.
+
+Projects use the FBK9 format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
+projects load into pattern 1; their old project-based SONG rows are cleared. Pre-1.0 Melodee's
+multi-pattern projects/settings/templates and incompatible 58/62-parameter user presets are not imported.
+User sample slots USR1–3 and sample uploads are removed; their flash space now stores projects.
+Built-in samples, drum kits and BREAK remain available. Earlier sample data is overwritten as projects
+are saved. Complete backups with nonempty user samples require firmware that supports those slots.
+The FM6 bank has explicit conversion for earlier Melodee and Felucca banks.
 
 ## Engines
 
@@ -71,14 +130,16 @@ In the order the device lists them:
 
 - **ANALOG**: virtual analog; two oscillators, noise, drive, resonant low-pass filter
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track edited in the
-  web editor, macros on the device, an algorithm chart on screen
+  web editor or on the device; operator frequency, levels, envelopes and scaling, pitch envelope,
+  LFO, STORE and DX7 SysEx; an algorithm chart on screen. PRESETS selects the operator on operator
+  pages. MODERN / MARK I / OPL and the FM6 function/controller settings are global; patches are per track
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
 - **SAMPLE**: multisampled instruments, a GM percussion set and 3 user sample slots
 - **VOICE**: formant oscillator, sung vowels
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
-- **GRAIN**: granular textures from the built-in samples or a user slot
+- **GRAIN**: granular textures from the built-in samples
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
 - **SLICE**: a drum break or your own sample cut into slices, one per key; set the slices by hand
@@ -107,7 +168,7 @@ the white keys without repeating notes; their roots need not fall on every C key
 
 QNT **ALL** plays the next scale note on every key, black keys included. QNT **MPC** maps an
 MPC's Bank H pads (MIDI 20–35, H01–H16 of MPC Sample's default map) to successive scale notes;
-the MPC page (SCL, then SCL again) sets **DEG**, the degree pad H02 plays. Incoming MIDI follows
+the **MPC** page in the SCL family sets **DEG**, the degree pad H02 plays. Incoming MIDI follows
 WHITE, ALL and MPC the way the keys do (without the octave buttons). SCL, QNT and DEG are shared by
 all four tracks; ROOT and TRN stay per track. Drum kits and slices keep their own note mapping.
 

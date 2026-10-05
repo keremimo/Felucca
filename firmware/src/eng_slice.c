@@ -58,7 +58,11 @@ static const slc_src_t SLC_BREAK = SLC_BREAK_INIT;
 static slc_src_t slc_usr[SMP_USER_SLOTS];
 typedef int16_t slc_rb_t[NPOLY][SLC_RB];            /* reverse windows, one per part voice (engines.c eng_state) */
 static int16_t (*slc_rbuf(uint32_t part))[SLC_RB];
-static const char *const N_SLC_SRC[] = {"BREAK", "USR1", "USR2", "USR3"};
+static const char *const N_SLC_SRC[] = {"BREAK"
+#if SMP_USER_SLOTS
+    , "USR1", "USR2", "USR3"
+#endif
+};
 static const char *const N_SLC_DIV[] = {"4", "8", "16", "32", "AUTO", "MAN"};
 static const char *const N_SLC_MODE[] = {"ONE", "GATE", "LOOP"};
 static const char *const N_SLC_REV[] = {"OFF", "ON"};
@@ -604,7 +608,7 @@ static const engine_t ENG_SLICE = {
     .name = "SLICE",
     .page_title = {"SLCE", "PLAY"},
     .edit = {
-        {"SRC", F_ENUM, 0, 3, 0, N_SLC_SRC, 0},
+        {"SRC", F_ENUM, 0, SMP_USER_SLOTS, 0, N_SLC_SRC, 0},
         {"DIV", F_ENUM, 0, 5, 2, N_SLC_DIV, 0},
         {"START", F_INT, 0, 31, 0, 0, 0},
         {"PTCH", F_SEMI, -24, 24, 0, 0, 0},
