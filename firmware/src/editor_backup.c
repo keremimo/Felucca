@@ -9,7 +9,9 @@ static const uint8_t ED_BK_IDS[12] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34};
 #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
 #define ED_BK_MAX ((uint32_t)sizeof proj_wire_u)
 #define ED_BK_RAW ((uint8_t *)&proj_wire_u)  /* reuse the existing serialized main-loop scratch */
-static persist_t ed_bk_settings;
+static struct { persist_t p; tmpl_t t; } ed_bk_set __attribute__((section(".pool")));   /* id 1: the settings
+                                                                                          * record (+ the template) */
+static uint32_t ed_bk_set_len;
 static uint8_t ed_bk_valid, ed_bk_put, ed_bk_id, ed_bk_gen;
 static uint32_t ed_bk_len, ed_bk_crc, ed_bk_pos, ed_bk_ms, ed_bk_usb;
 static void ed_bk_u32(uint32_t n) { for (uint32_t i = 0; i < 5u; i++) ed_b((n >> (i * 7u)) & 127u); }
@@ -31,7 +33,7 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
 {
     *len = 0;
     if (id == 0u) { *len = sizeof(project_store_t); return ED_BK_RAW; }
-    if (id == 1u) { *len = sizeof ed_bk_settings; return (const uint8_t *)&ed_bk_settings; }
+    if (id == 1u) { *len = ed_bk_set_len; return (const uint8_t *)&ed_bk_set; }
     if (id >= 2u && id <= 5u) {
         if (project_used(id - 2u)) *len = sizeof proj_slot[0];
         return (const uint8_t *)&proj_slot[id - 2u];
@@ -60,11 +62,13 @@ static uint32_t ed_bk_capture(void)
     if (!proj_pack((project_store_t *)ED_BK_RAW, &proj_scratch)) return 2;
     ed_bk_gen = ++proj_wire_gen;
 #if MELODEE_FLASH
-    ed_bk_settings = persist_saved;                 /* fields absent from this build survive */
+    ed_bk_set.p = persist_saved;                    /* fields absent from this build survive */
 #else
-    memset(&ed_bk_settings, 0, sizeof ed_bk_settings);
+    memset(&ed_bk_set.p, 0, sizeof ed_bk_set.p);
 #endif
-    settings_export(&ed_bk_settings);
+    settings_export(&ed_bk_set.p);
+    ed_bk_set.t = tmpl;                             /* the record as it is stored: the template after the settings */
+    ed_bk_set_len = sizeof ed_bk_set.p + (template_used() ? sizeof ed_bk_set.t : 0u);
     ed_bk_put = 0; ed_bk_valid = 1; ed_bk_usb = usb.resets;
     return 0;
 }
@@ -101,7 +105,10 @@ static uint32_t ed_bk_commit(void)
         obj = OBJ_PROJECT0 + ed_bk_id - 2u;
     } else if (ed_bk_id == 1u) {
         const persist_t *p = (const persist_t *)raw;         /* (PER4: Felucca 1.0's, without ext) */
-        if (!(ed_bk_len == sizeof *p ? p->magic == PERSIST_MAGIC && p->ext.usb_off <= 3u :
+        const tmpl_t *t = (const tmpl_t *)(raw + sizeof *p);  /* a template after the settings */
+        if (!(ed_bk_len == sizeof *p || ed_bk_len == sizeof *p + sizeof *t ?
+              p->magic == PERSIST_MAGIC && p->ext.usb_off <= 3u && p->ext.boot <= 4u &&
+              (ed_bk_len == sizeof *p || (t->magic == TMPL_MAGIC && t->size == sizeof *t)) :
               ed_bk_len == PERSIST_LEN4 && p->magic == PERSIST_MAGIC4) || !palette_stored_ok(p->palette) ||
             p->lowcut > 2u || p->zoom > 1u || !hold_stored_ok(p->bold) || p->favorites.filter > 1u || !ed_bk_panel_valid(&p->panel)) return 2;
         obj = OBJ_SETTINGS;
@@ -126,12 +133,15 @@ static uint32_t ed_bk_commit(void)
             proj_cur = PROJ_NO_SLOT;                     /* (another project there now: the music keeps its name) */
         if (ed_bk_len) memcpy(&proj_slot[ed_bk_id - 2u], raw, ed_bk_len);
     } else if (ed_bk_id == 1u) {
-        memset(&ed_bk_settings, 0, sizeof ed_bk_settings);
-        memcpy(&ed_bk_settings, raw, ed_bk_len);
-        settings_import(&ed_bk_settings, (int)ed_bk_len);   /* (a PER4 one becomes PER5) */
+        uint32_t ns = ed_bk_len == sizeof ed_bk_set ? sizeof ed_bk_set.p : ed_bk_len;
+        memset(&ed_bk_set, 0, sizeof ed_bk_set);
+        memcpy(&ed_bk_set, raw, ed_bk_len);
+        settings_import(&ed_bk_set.p, (int)ns);         /* (a PER4 one becomes PER5) */
+        tmpl = ed_bk_set.t;                             /* (none in the backup: none now) */
+        tmpl_dirty = 0;
         panel_init(); settings_init(); palette_set(settings.palette);
 #if MELODEE_FLASH
-        persist_saved = ed_bk_settings; persist_pending = 0;
+        persist_saved = ed_bk_set.p; persist_pending = 0;
 #endif
     } else if (ed_bk_id == 8u) {
         memset(&fm6_bank, 0, sizeof fm6_bank);
@@ -156,7 +166,7 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
         if (len > ED_BK_MAX || (a[1] == 0u && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
-            (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4) ||
+            (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set) ||
             (a[1] >= 2u && a[1] <= 5u && len && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t)) ||
             (a[1] == 8u && len && len != sizeof(fm6_bank_t))) return 1;

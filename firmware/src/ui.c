@@ -11,6 +11,9 @@ static void fm6_init_voice(void);
 static void panel_setup(void);
 static void project_load(uint32_t slot);
 static int project_used(uint32_t slot);
+static int template_used(void);                 /* SLOT TMPL (PROJ_TMPL): project.c */
+static void template_save(void);
+static void template_load(void);
 static uint32_t chain_prepare(void);
 static int up_used(uint32_t k);              /* user presets: upreset.c */
 static int up_load(uint32_t k);
@@ -1083,6 +1086,8 @@ static int act_ready(void)
     if (cur_page()->graph == GR_FMSTORE)
         return c != 1u || !song.playing;             /* STORE writes flash: stopped */
     id = cur_page()->id[c & 3u];
+    if (id == G_LOAD && song.g[G_SLOT] == PROJ_TMPL)
+        return template_used();
     if (id == G_LOAD)
         return project_used((uint32_t)song.g[G_SLOT] - 1u);
     if (id == G_SAVE)

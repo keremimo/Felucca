@@ -217,6 +217,26 @@ int main(void)
     ps.bold = 0;
     bad += check("a wrong CRC is refused before any write",
                  put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps) ^ 1u) == 2u && erases == before);
+    {   /* the settings record with the template after it (SLOT TMPL): both back; without one: no template */
+        static struct { persist_t p; tmpl_t t; } rec;
+        rec.p = ps;
+        rec.p.ext.boot = 2;
+        memset(&tmpl, 0, sizeof tmpl);
+        trk[1].p[P_LEVEL] = 66;
+        template_save();
+        rec.t = tmpl;
+        memset(&tmpl, 0, sizeof tmpl);
+        settings_boot = 0;
+        bad += check("settings + template restore: BOOT B, the template back",
+                     put_all(1, &rec, sizeof rec, st_crc32(&rec, sizeof rec)) == 0 && settings_boot == 2u &&
+                     template_used() && tmpl.t[1].p[P_LEVEL] == 66);
+        bad += check("  settings without one: no template", put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 &&
+                     !template_used() && settings_boot == 0u);
+        rec.t.magic ^= 1u;
+        before = erases;
+        bad += check("  a broken template is refused, nothing written",
+                     put_all(1, &rec, sizeof rec, st_crc32(&rec, sizeof rec)) == 2u && erases == before);
+    }
 
     /* malformed requests */
     bad += check("an unknown object id is refused", put_begin(8, sizeof ps, 0) == 1u);

@@ -178,6 +178,8 @@ static void fm1_main(void)
         panel_setup();                        /* OCT- + OCT+ held at power-on */
         settings_save();
     }
+    glo_restore();                            /* CLK TUNE MIDI ROUT as last used, */
+    project_boot();                           /* then the BOOT project or the template (theirs win) */
     fm1_delay_ms(400);
     lcd_fill(0, 0, 240, 240, T_BG);
 
@@ -268,6 +270,7 @@ static void fm1_main(void)
         melodee_dbg.home = ui.home;
         melodee_dbg.stage = 1;
         ui_input();
+        glo_poll();                                     /* a kept GLO value changed: the settings, later */
         settings_poll();                              /* queued settings save: only while stopped */
         melodee_dbg.stage = 2;
         ui_leds();

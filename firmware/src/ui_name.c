@@ -107,6 +107,8 @@ static void name_rename(void)
 {
     int user = cur_page()->graph == GR_USER;
     uint32_t k = user ? ui.uslot : (uint32_t)song.g[G_SLOT] - 1u;
+    if (!user && song.g[G_SLOT] == PROJ_TMPL)
+        return;                                       /* (the template has no name) */
     if (!(user ? up_used(k) : project_used(k)))
         ui_message("EMPTY SLOT");
     else if (transport_busy())

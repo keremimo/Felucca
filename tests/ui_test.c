@@ -2300,6 +2300,84 @@ static int test_edit_cycle(void)
     return bad;
 }
 
+/* SAVE > PROJECT: KNOB 2 BOOT (OFF, A..D: the device's, kept with the settings), SLOT T the template (SAVE keeps the
+ * sounds without the patterns, LOAD makes a new project of them on a free slot, no name); power-on (project_boot)
+ * loads the BOOT project, else the template; CLK TUNE MIDI ROUT kept as last used (glo_poll, glo_restore) */
+static int test_boot_template(void)
+{
+    int bad = 0, ok;
+    uint32_t i;
+    char v[16];
+    const char *u;
+    ui_power_on();
+    stop_transport();
+    memset(proj_slot, 0, sizeof proj_slot);
+    memset(&tmpl, 0, sizeof tmpl);
+    settings_boot = 0;
+    go_title("PROJECT");
+    turn(EN_K2, 2);
+    bad += check("PROJECT KNOB 2: BOOT B, the device's (song.g untouched), saved", settings_boot == 2u &&
+                 song.g[G_BOOT] == 0);
+    turn(EN_K1, 9);
+    param_format(&GP[G_SLOT], song.g[G_SLOT], v, &u);
+    bad += check("KNOB 1 past D: SLOT TMPL", song.g[G_SLOT] == PROJ_TMPL && str_eq(v, "TMPL"));
+    trk[1].p[P_LEVEL] = 77;
+    set_engine_of(&trk[2], ENGI_DRUM);
+    trk[2].p[P_E0] = 4;                                  /* (KIT 808) */
+    turn(EN_K4, 1);
+    press(B_OCTUP);
+    bad += check("SAVE on TMPL: the template, at once (no NAME, no dialog)", template_used() && !name_on() &&
+                 ui.confirm == CF_NONE && (msg_is("TEMPLATE SAVED (RAM)") || msg_is("TEMPLATE SAVED")));
+    press(B_EDIT);
+    bad += check("  EDIT there: no NAME (the template has no name)", !name_on());
+    trk[1].p[P_LEVEL] = 20;
+    set_engine_of(&trk[2], 0);
+    trk[0].step[3].time = ST_NOTE; trk[0].step[3].n = 1; trk[0].step[3].note[0] = 60;
+    project_save(0);                                     /* (A used: the template's project goes to B) */
+    turn(EN_K3, 1);
+    press(B_OCTUP);
+    ok = trk[1].p[P_LEVEL] == 77 && trk[2].eng_req == ENGI_DRUM && trk[2].p[P_E0] == 4;
+    for (i = 0; i < NTRK; i++)
+        ok &= seq_is_empty(&trk[i]);
+    bad += check("LOAD on TMPL: its sounds, every pattern empty, SLOT on a free slot (B)", ok &&
+                 msg_is("TEMPLATE LOADED") && song.g[G_SLOT] == 2 && proj_cur == PROJ_NO_SLOT);
+    trk[1].p[P_LEVEL] = 30;
+    project_save(1);                                     /* B: LEVEL 30 */
+    trk[1].p[P_LEVEL] = 99;
+    settings_boot = 2;
+    bootguard.failed = 0;
+    project_boot();
+    bad += check("power-on, BOOT B: project B, SLOT B", trk[1].p[P_LEVEL] == 30 && song.g[G_SLOT] == 2 && proj_cur == 1u);
+    settings_boot = 3;                                   /* C: empty */
+    project_boot();
+    bad += check("  BOOT C empty: the template, SLOT on a free slot (C)", trk[1].p[P_LEVEL] == 77 && song.g[G_SLOT] == 3);
+    trk[1].p[P_LEVEL] = 99;
+    bootguard.failed = 1;
+    settings_boot = 2;
+    project_boot();
+    bad += check("  a boot that crashed before: the project skipped (BOOT PROJECT SKIPPED)", trk[1].p[P_LEVEL] == 99 &&
+                 msg_is("BOOT PROJECT SKIPPED"));
+    bootguard.failed = 0;
+    {   /* the settings keep BOOT and the kept GLO values; the template follows them in the record */
+        persist_t p = {0};
+        p.magic = PERSIST_MAGIC; p.panel = panel;
+        song.g[G_TUNE] = 7; song.g[G_ROUTE] = 1;
+        song.playing = 0;
+        glo_poll();
+        ok = settings_glo[1] == 7 && settings_glo[3] == 1;
+        settings_export(&p);
+        settings_boot = 0; memset(settings_glo, 0, sizeof settings_glo); song.g[G_TUNE] = 0; song.g[G_ROUTE] = 0;
+        ok &= settings_import(&p, sizeof p) == 1 && settings_boot == 2u && settings_glo[1] == 7;
+        glo_restore();
+        bad += check("BOOT and CLK TUNE MIDI ROUT kept with the settings, restored at power-on", ok &&
+                     song.g[G_TUNE] == 7 && song.g[G_ROUTE] == 1);
+    }
+    settings_boot = 0;
+    memset(&tmpl, 0, sizeof tmpl);
+    memset(proj_slot, 0, sizeof proj_slot);
+    return bad;
+}
+
 /* FM6's pages (params.c fm6_page_desc / fm6_page_put): the PRESETS knob picks the operator of the operator pages, a
  * knob edits that operator in the track's patch, ON switches it (fm6_on), the function settings are global and saved
  * later (fm6_fn_dirty); STORE writes the patch into bank slot KNOB 1 and PTCH follows it, not while playing; INIT */
@@ -3498,6 +3576,7 @@ int main(void)
     bad += test_name();
     bad += test_edit_cycle();
     bad += test_fm6_pages();
+    bad += test_boot_template();
 #if MELODEE_SLICE
     bad += test_slices();
 #endif

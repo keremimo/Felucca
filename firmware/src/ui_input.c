@@ -369,6 +369,11 @@ static void edit_param(uint32_t slot, int32_t steps)
         fm6_page_put(pg, slot, v);
         return;
     }
+    if (pg->scope == SC_GLOBAL && pg->id[slot] == G_BOOT) {   /* BOOT: the device's (settings), saved */
+        settings_boot = (uint8_t)v;
+        settings_save();
+        return;
+    }
     if (pg->scope != SC_GLOBAL) motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
     if (pg->scope == SC_TRACK && scale_shared((uint32_t)(vp - TSEL->p)))
         scale_share(TSEL);
@@ -444,6 +449,13 @@ static void act_do(void)
     id = cur_page()->id[c & 3u];
     if (id != G_LOAD)
         ui.act = 0;
+    if (song.g[G_SLOT] == PROJ_TMPL && (id == G_LOAD || id == G_SAVE)) {   /* the template: no name, no dialog */
+        if (id == G_LOAD)
+            template_load();
+        else
+            template_save();
+        return;
+    }
     switch (id) {
     case G_LOAD:
         project_load(k);

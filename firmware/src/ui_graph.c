@@ -858,10 +858,10 @@ static uint32_t graph_signature(void)
     }
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
-    if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
+    if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot), BOOT, the template */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)graph_project_used(i) << (20u + i);
-        h += graph_pname_sig;
+        h += graph_pname_sig + settings_boot * 977u + (uint32_t)template_used() * 40503u;
     }
     if (pg->graph == GR_MOTION) h ^= motion_count(t) * 131u + motion_enabled(t);
 #if MELODEE_SLICE
@@ -1041,18 +1041,23 @@ static void graph_pats(void)
         list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232);
     }
 }
-/* project slots: the name (none: USED) / EMPTY, the selected one filled */
+/* project slots A..D and the template (T): the name (none: USED, TEMPLATE) / --, the selected one filled; BOOT at
+ * the right of what power-on loads (BOOT's slot; BOOT OFF or an empty slot: the template, when there is one) */
 static void graph_slots(void)
 {
-    uint32_t i;
-    for (i = 0; i < 4u; i++) {
-        int32_t y = 12 + (int32_t)i * 26;
+    uint32_t i, boot = settings_boot && graph_project_used(settings_boot - 1u) ? settings_boot
+                     : template_used() ? (uint32_t)PROJ_TMPL : 0u;
+    for (i = 0; i < (uint32_t)PROJ_TMPL; i++) {
+        int32_t y = 6 + (int32_t)i * 23;
         char b[4];
-        int sel = (int32_t)i + 1 == song.g[G_SLOT], used = graph_project_used(i);
-        const char *n = graph_project_name(i);
-        b[0] = (char)('A' + i);
+        int sel = (int32_t)i + 1 == song.g[G_SLOT], tm = i + 1u == (uint32_t)PROJ_TMPL;
+        int used = tm ? template_used() : graph_project_used(i);
+        const char *n = tm ? "TEMPLATE" : graph_project_name(i);
+        b[0] = (char)(tm ? 'T' : 'A' + i);
         b[1] = 0;
-        list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, 232);
+        list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, boot == i + 1u ? 186 : 232);
+        if (boot == i + 1u)
+            cv_text_r(226, y + 1, &AF_S, "BOOT", sel ? T_INK : T_ACCENT, sel ? T_THEME : T_SURF);
     }
 }
 /* MIXER page: four SURF columns, one under each card: the circled numeral (filled and in the accent:

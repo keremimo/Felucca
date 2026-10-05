@@ -1,8 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Shared PER5 layout: each feature updates only its own fields, preserving
  * the other feature's saved preferences when either is built independently.
- * PER1/PER2 are upstream; PER3 added bold; PER4 added favorites (Felucca 1.0); PER5 added Melodee's ext block
- * (usb_off: the USB audio devices left out, USB AUDIO in the menu; spare words read 0 = the default).
+ * PER1/PER2 are upstream; PER3 added bold; PER4 added favorites (Felucca 1.0); PER5 added Melodee's ext block:
+ * usb_off (the USB audio devices left out, USB AUDIO in the menu), boot (BOOT: 0 OFF, 1..4 the project power-on
+ * loads), glo (CLK TUNE MIDI ROUT as last used, GLO_KEPT: restored at power-on, a project's own win); every field
+ * 0 = the default, so spare words can take new ones. A saved template (project.c tmpl_t) follows the record.
  * palette: UI_PAL_TAG + index; an old id (below 20, earlier firmware) is migrated on import.
  * bold: no longer used (one font weight); kept as it was saved, unless it holds the HOLD setting (panel.c). */
 typedef struct {
@@ -10,11 +12,14 @@ typedef struct {
     panel_t panel;
     uint32_t bold;
     struct { uint8_t factory[16][32]; uint32_t user, filter; } favorites;
-    struct { uint32_t usb_off, spare[7]; } ext;
+    struct { uint32_t usb_off, boot; int16_t glo[4]; uint32_t spare[4]; } ext;
 } persist_t;
 #define PERSIST_MAGIC 0x50455235u
 #define PERSIST_MAGIC4 0x50455234u                  /* Felucca 1.0: no ext */
 #define PERSIST_LEN4 (sizeof(persist_t) - sizeof(((persist_t *)0)->ext))
+_Static_assert(sizeof(((persist_t *)0)->ext) == 32u, "ext: 8 words, new fields take spare ones");
+
+static int16_t settings_glo[4];                     /* ext.glo: project.c GLO_KEPT (glo_restore, glo_poll) */
 
 /* Normalize in place; 1 = current, 2 = migrated, 0 = invalid. */
 static int settings_import(persist_t *p, int n)
@@ -35,6 +40,10 @@ static int settings_import(persist_t *p, int n)
     if (!current && !old4) memset(&p->favorites, 0, sizeof p->favorites);
     if (!current) memset(&p->ext, 0, sizeof p->ext);
     p->ext.usb_off &= 3u;
+    if (p->ext.boot > 4u)
+        p->ext.boot = 0;
+    settings_boot = (uint8_t)p->ext.boot;
+    memcpy(settings_glo, p->ext.glo, sizeof settings_glo);
 #if MELODEE_USB_AUDIO
     ua_off = ua_off_want = (uint8_t)p->ext.usb_off;    /* (usb_start, after this, builds the configuration) */
 #endif
@@ -78,4 +87,6 @@ static void settings_export(persist_t *p)
 #if MELODEE_USB_AUDIO
     p->ext.usb_off = ua_off;
 #endif
+    p->ext.boot = settings_boot;
+    memcpy(p->ext.glo, settings_glo, sizeof settings_glo);
 }

@@ -326,8 +326,8 @@ static uint32_t foot_rename(void)
     uint32_t g = ui.home ? GR_NONE : cur_page()->graph;
     if (g == GR_USER)
         return 1u + (uint32_t)up_used(ui.uslot);
-    if (g == GR_SLOTS)
-        return 1u + (uint32_t)graph_project_used((uint32_t)song.g[G_SLOT] - 1u);
+    if (g == GR_SLOTS)                                 /* (the template has no name) */
+        return song.g[G_SLOT] == PROJ_TMPL ? 0u : 1u + (uint32_t)graph_project_used((uint32_t)song.g[G_SLOT] - 1u);
     return 0;
 }
 

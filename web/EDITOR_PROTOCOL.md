@@ -485,7 +485,7 @@ this firmware sends 3. Requests name objects, never flash addresses.
 | id | object | size |
 | --- | --- | --- |
 | 0 | runtime: the music being played now, as a FUN8 project (firmware before FM6: FUN7, 3388) | 3584 |
-| 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, ...) | the settings record's size |
+| 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, USB audio devices, BOOT, CLK TUNE MIDI ROUT, ...), then the template (SAVE > PROJECT, SLOT TMPL) when one is saved; Felucca 1.0's record (PER4, no ext) restores too | the settings record's size: 604, or 1924 with the template |
 | 2..5 | PROJECT slots 1..4 (FUN8) | 3584, or 0 if empty |
 | 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size, or 0 if empty |
 | 8 | the FM6 patch bank (B1..B32) and the FM6 function settings (firmware with FM6 only; Felucca 1.0: B1..B27, 3472) | 3612, or 0 if empty |

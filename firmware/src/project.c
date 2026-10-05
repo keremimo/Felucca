@@ -846,6 +846,159 @@ static void project_load(uint32_t slot)
 /* settings + learned panel table: one flash object. The flash copy wins at
  * boot (the .noinit copies are garbage after a power-off). */
 #include "settings_persist.c"
+
+/* The template (SAVE > PROJECT, SLOT TMPL): the music without its patterns: the globals, each track's sound
+ * (engine, preset, parameters, FM6 patch) and the selected track. SAVE there keeps it, LOAD makes a new project
+ * from it (every pattern empty, LEN / DIV / SWG / GATE their defaults, no name, SLOT on a free slot), and power-on
+ * loads it when BOOT is OFF or its slot empty. No flash sector is free: it follows the settings in their record
+ * (set_rec, its size and magic last). P_COUNT, G_COUNT or FM6_PACKED changing changes it (the assert): convert. */
+#define TMPL_MAGIC 0x354C5054u                    /* "TPL5" (Melodee's before 1.0 had "TMP1" / "TMP2": not read) */
+typedef struct {
+    int16_t g[G_COUNT];
+    uint8_t sel, rsv;                             /* (G_COUNT odd: the tracks start on a word) */
+    struct { uint8_t engine, preset; int16_t p[P_COUNT]; } t[NTRK];
+    uint8_t fm6[NTRK][FM6_PACKED];
+    uint32_t size, magic;                         /* last: the record's end */
+} tmpl_t;
+_Static_assert(sizeof(tmpl_t) == 2u * G_COUNT + 2u + NTRK * (2u + 2u * P_COUNT) + NTRK * FM6_PACKED + 8u &&
+               sizeof(tmpl_t) == 1320u, "template layout (P_COUNT, G_COUNT, FM6_PACKED: a conversion)");
+static tmpl_t tmpl __attribute__((section(".pool")));
+static struct { persist_t p; tmpl_t t; } set_rec __attribute__((section(".pool")));   /* the settings record */
+_Static_assert(sizeof set_rec == sizeof(persist_t) + sizeof(tmpl_t), "the template follows the settings");
+static uint8_t tmpl_dirty;                        /* saved in RAM, not yet in flash (settings_poll) */
+
+static int template_used(void) { return tmpl.magic == TMPL_MAGIC && tmpl.size == sizeof tmpl; }
+
+/* CLK TUNE MIDI ROUT: the device keeps them as last used (settings ext.glo), not only the projects */
+static const uint8_t GLO_KEPT[4] = {G_CLOCK, G_TUNE, G_MIDI, G_ROUTE};
+static void glo_restore(void)                     /* power-on, before the BOOT project or the template (theirs win) */
+{
+    uint32_t k;
+    for (k = 0; k < 4u; k++)
+        song.g[GLO_KEPT[k]] = (int16_t)clamp(settings_glo[k], GP[GLO_KEPT[k]].min, GP[GLO_KEPT[k]].max);
+}
+/* main loop: a kept value changed (a knob, the editor, a project load): saved 1.5 s after the last change, stopped */
+static void glo_poll(void)
+{
+    static uint32_t t;
+    static uint8_t dirty;
+    uint32_t k;
+    for (k = 0; k < 4u; k++)
+        if (song.g[GLO_KEPT[k]] != settings_glo[k]) {
+            settings_glo[k] = song.g[GLO_KEPT[k]];
+            dirty = 1;
+            t = fm1_ms;
+        }
+    if (dirty && fm1_ms - t > 1500u && !song.playing) {
+        dirty = 0;
+        settings_save();
+    }
+}
+
+/* the music without its patterns -> the template, saved with the settings */
+static void template_save(void)
+{
+    uint32_t i, k;
+    if (transport_busy()) {
+        ui_message("STOP TO SAVE");
+        return;
+    }
+    memset(&tmpl, 0, sizeof tmpl);
+    for (i = 0; i < G_COUNT; i++)
+        tmpl.g[i] = song.g[i];
+    tmpl.sel = song.sel;
+    for (k = 0; k < NTRK; k++) {
+        tmpl.t[k].engine = trk[k].eng_req;
+        tmpl.t[k].preset = trk[k].preset;
+        for (i = 0; i < P_COUNT; i++)
+            tmpl.t[k].p[i] = motion_base_value(&trk[k], i);
+        fm6_pack(fm6_patch[k], tmpl.fm6[k]);
+    }
+    tmpl.size = sizeof tmpl;
+    tmpl.magic = TMPL_MAGIC;
+    tmpl_dirty = 1;
+#if MELODEE_FLASH
+    if (flash_ok) {
+        settings_save();                              /* (stopped: written now) */
+        ui_message(tmpl_dirty ? "SAVE ERROR" : "TEMPLATE SAVED");
+        return;
+    }
+#endif
+    ui_message("TEMPLATE SAVED (RAM)");
+}
+
+/* the first empty project slot (0..3), else 0 */
+static uint32_t project_free_slot(void)
+{
+    uint32_t i;
+    for (i = 0; i < 4u; i++)
+        if (!proj_import(&proj_scratch, &proj_slot[i], sizeof(project_store_t)))
+            return i;
+    return 0;
+}
+
+/* a new project from the template: its sounds and globals, every pattern empty; SLOT on a free slot */
+static void template_load(void)
+{
+    project_t *p = &proj_scratch;
+    uint32_t i, k;
+    if (!template_used()) {
+        ui_message("NO TEMPLATE");
+        return;
+    }
+    memset(p, 0, sizeof *p);
+    p->magic = PROJ_MAGIC;
+    p->size = sizeof *p;
+    for (i = 0; i < G_COUNT; i++)
+        p->g[i] = tmpl.g[i];
+    p->sel = tmpl.sel;
+    p->parts = NPART;
+    p->phys = PROJ_PHYS;
+    chain_defaults(&p->chain);
+    for (k = 0; k < NTRK; k++) {
+        p->t[k].engine = tmpl.t[k].engine;
+        p->t[k].preset = tmpl.t[k].preset;
+        for (i = 0; i < P_COUNT; i++)
+            p->t[k].p[i] = tmpl.t[k].p[i];
+        for (i = 0; i < 4u; i++)                      /* LEN DIV SWG GATE: as a new track's */
+            p->t[k].p[P_SLEN + i] = TP[P_SLEN + i].def;
+        memcpy(p->fm6[k], tmpl.fm6[k], FM6_PACKED);
+    }
+    p->sum = proj_sum(p);
+    if (project_restore_runtime(p))
+        return;
+    for (k = 0; k < NTRK; k++) {
+        track_defaults_steps(&trk[k]);                /* every pattern empty */
+        pat_last[k] = 0;
+        pat_sig[k] = steps_sig(&trk[k]);
+    }
+    proj_cur = PROJ_NO_SLOT;
+    song.g[G_SLOT] = (int16_t)(project_free_slot() + 1u);
+    ui_message("TEMPLATE LOADED");
+}
+
+/* power-on, after melodee_init: the BOOT project (SAVE > PROJECT KNOB 2) in place of the default sounds, SLOT on it
+ * so SAVE writes back there. BOOT OFF or an empty BOOT slot: a new project, from the template if one is saved, SLOT
+ * on a free slot. A boot that crashed or hung within 30 s (bootguard) skips the project or the template: one that
+ * cannot load does not lock the FM-1 out */
+static void project_boot(void)
+{
+    if (settings_boot && project_used(settings_boot - 1u)) {
+        song.g[G_SLOT] = (int16_t)settings_boot;
+        if (bootguard.failed)
+            ui_message("BOOT PROJECT SKIPPED");
+        else
+            project_load(settings_boot - 1u);
+        return;
+    }
+    if (template_used()) {
+        if (bootguard.failed)
+            ui_message("TEMPLATE SKIPPED");
+        else
+            template_load();
+    }
+    song.g[G_SLOT] = (int16_t)(project_free_slot() + 1u);
+}
 #if MELODEE_FLASH && MELODEE_SLICE
 #include "slice_store.c"                          /* SLICE's MAN slices, kept in the user slots */
 #endif
@@ -874,9 +1027,16 @@ static void persist_boot(void)                    /* before settings_init / pane
         for (k = 0; k < SMP_USER_SLOTS; k++)
             smp_user_scan(k);
     }
-    {
-        int n = st_load(OBJ_SETTINGS, &p, sizeof p);
-        if (settings_import(&p, n))
+    {   /* the settings, then a template if one follows them */
+        int n = st_load(OBJ_SETTINGS, &set_rec, sizeof set_rec), ns = n;
+        if (n == (int)sizeof set_rec && set_rec.t.magic == TMPL_MAGIC && set_rec.t.size == sizeof set_rec.t) {
+            tmpl = set_rec.t;
+            ns = (int)sizeof set_rec.p;
+        }
+        memset(&p, 0, sizeof p);
+        if (ns > 0)
+            memcpy(&p, &set_rec.p, (uint32_t)ns < sizeof p ? (uint32_t)ns : sizeof p);
+        if (settings_import(&p, ns))
             persist_saved = p;
     }
     {   /* projects: fill empty RAM slots from flash, so the slot list is right after power-on */
@@ -948,13 +1108,16 @@ static void settings_poll(void)
         return;
     p = persist_saved;
     settings_export(&p);
-    if (!memcmp(&p, &persist_saved, sizeof p)) {
+    if (!memcmp(&p, &persist_saved, sizeof p) && !tmpl_dirty) {
         persist_pending = 0;
         return;                                    /* unchanged: no erase cycle */
     }
-    if (st_save(OBJ_SETTINGS, &p, sizeof p) == 0) {
+    set_rec.p = p;                                 /* the record: the settings, the template after them */
+    set_rec.t = tmpl;
+    if (st_save(OBJ_SETTINGS, &set_rec, sizeof set_rec.p + (template_used() ? sizeof set_rec.t : 0u)) == 0) {
         persist_saved = p;
         persist_pending = 0;
+        tmpl_dirty = 0;
     } else {
         persist_pending = 2;
         persist_retry_ms = fm1_ms;
