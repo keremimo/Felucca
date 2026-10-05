@@ -1178,6 +1178,11 @@ static void panel_lights_test(void)
     ui_leds();
     for (k = 0; k < 27u; k++)
         assert(!led_lit(fm1_led, 14u + k) && !led_lit(fm1_led_dim[0], 14u + k));
+    edit_frame(1, 1u << 26);                   /* a key pressed there lights (G5: no shortcut) */
+    ui_leds();
+    for (k = 0; k < 27u; k++)
+        assert(led_lit(fm1_led, 14u + k) == (k == 26u));
+    edit_frame(1, 0);
     settings.keys = KEYS_MID;                  /* (they show with the keys on) */
     ui_leds();
     assert(TSEL->preset != 1u && led_lit(fm1_led, 14u + SOUND_KEY[1]));   /* (steady: not the current sound) */

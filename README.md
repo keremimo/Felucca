@@ -228,7 +228,8 @@ how bright the rest of the layout is: OFF, LOW, MID (default), HIGH or FULL (as
 bright as a played key). Holding EDIT or SEQ shows their shortcut lights instead.
 **GLO > LIGHTS** knob 1 turns the idle lights off (saved): no layout, no EDIT and
 SEQ shortcut lights and no idle button glow. Keys still light while they play (held
-or from MIDI), and engaged and held buttons still light. Turning it back ON, or
+or from MIDI) or are pressed with EDIT or SEQ held, and engaged and held buttons
+still light. Turning it back ON, or
 setting **KEYS**, brings the rest back.
 
 Incoming MIDI uses the receiving track's **WHITE** or **ALL** layout: MIDI note 60
