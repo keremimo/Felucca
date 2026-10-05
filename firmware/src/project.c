@@ -476,6 +476,7 @@ typedef struct {
     panel_t panel;
     uint32_t usb_off;
     uint32_t keys;
+    uint32_t boot;                                 /* settings.boot */
 } persist_t;
 #define PERSIST_MAGIC 0x50455232u                  /* "PER2" */
 #if MELODEE_FLASH
@@ -500,16 +501,19 @@ static void persist_boot(void)                    /* before settings_init / pane
     }
     {
         int n;
+        uint32_t tail;
         memset(&p, 0, sizeof p);
         n = st_load(OBJ_SETTINGS, &p, sizeof p);
-        if ((n == (int)sizeof p || n == (int)(sizeof p - sizeof p.keys) ||
-             n == (int)(sizeof p - sizeof p.keys - sizeof p.usb_off)) && p.magic == PERSIST_MAGIC) {
+        tail = (uint32_t)((int)sizeof p - n);              /* the fields a shorter record does not have */
+        if ((tail == 0u || tail == sizeof p.boot || tail == sizeof p.boot + sizeof p.keys ||
+             tail == sizeof p.boot + sizeof p.keys + sizeof p.usb_off) && p.magic == PERSIST_MAGIC) {
             settings.magic = SETTINGS_MAGIC;
             settings.palette = p.palette;
             settings.lowcut = p.lowcut;
             settings.zoom = p.zoom;
             settings.usb_off = p.usb_off;
-            settings.keys = n == (int)sizeof p ? p.keys : KEYS_MID;
+            settings.keys = tail <= sizeof p.boot ? p.keys : KEYS_MID;
+            settings.boot = p.boot;
             if (p.panel.magic == PANEL_MAGIC)
                 panel = p.panel;
             persist_saved = p;
@@ -523,6 +527,7 @@ static void persist_boot(void)                    /* before settings_init / pane
             settings.zoom = 0;
             settings.usb_off = 0;
             settings.keys = KEYS_MID;
+            settings.boot = 0;
             if (old.magic == PANEL_MAGIC)
                 panel = old;
         }
@@ -539,6 +544,26 @@ static void persist_boot(void)                    /* before settings_init / pane
 
 static int project_used(uint32_t slot) { return (proj_have >> (slot & 3u)) & 1u; }
 
+/* power-on, after melodee_init: the BOOT project (SAVE > PROJECT KNOB 2) in place of the default
+ * sounds, and SLOT on it so SAVE writes back there. A boot that crashed or hung within 30 s
+ * (bootguard) skips it: a project that cannot load does not lock the FM-1 out. */
+static void project_boot(void)
+{
+    char b[2] = {0, 0};
+    if (!settings.boot)
+        return;
+    song.g[G_SLOT] = (int16_t)settings.boot;
+    if (bootguard.failed) {
+        ui_message("BOOT PROJECT SKIPPED");
+        return;
+    }
+    if (!project_used(settings.boot - 1u))
+        return;                                    /* (an empty slot: the default sounds) */
+    project_load(settings.boot - 1u);
+    b[0] = (char)('0' + settings.boot);
+    ui_say("PROJECT ", b);
+}
+
 static void settings_save(void)
 {
 #if MELODEE_FLASH
@@ -553,6 +578,7 @@ static void settings_save(void)
     p.panel = panel;
     p.usb_off = settings.usb_off;
     p.keys = settings.keys;
+    p.boot = settings.boot;
     if (!memcmp(&p, &persist_saved, sizeof p))
         return;                                    /* unchanged: no erase cycle */
     if (st_save(OBJ_SETTINGS, &p, sizeof p) == 0)

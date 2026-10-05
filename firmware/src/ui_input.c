@@ -353,6 +353,16 @@ static void step_length_edit(int32_t steps)
         ui_message("NEXT NOTE");
 }
 
+/* SAVE > PROJECT BOOT: kept in flash once the knob rests (boot_save), not on every detent */
+static uint32_t boot_t;                                   /* fm1_ms of the last BOOT detent | 1, 0 = saved */
+static void boot_save(void)
+{
+    if (boot_t && fm1_ms - boot_t > 1500u) {
+        boot_t = 0;
+        settings_save();                                  /* (nothing to write if it is back where it was) */
+    }
+}
+
 static void edit_param(uint32_t slot, int32_t steps)
 {
     int16_t *vp;
@@ -366,6 +376,13 @@ static void edit_param(uint32_t slot, int32_t steps)
         if (steps)
             ui.midi_view = steps > 0 ? 1u : 0u;
         return;                                           /* display selection, not an input filter */
+    }
+    if (pg->scope == SC_GLOBAL && id == G_BOOT) {        /* OFF, 1..4: the project power-on loads */
+        if (steps) {
+            settings.boot = (uint32_t)clamp((int32_t)settings.boot + (steps > 0 ? 1 : -1), 0, 4);
+            boot_t = fm1_ms | 1u;
+        }
+        return;
     }
 #if MELODEE_USB_AUDIO
     if (pg->scope == SC_GLOBAL && (id == G_USBOUT || id == G_USBIN)) {
@@ -576,6 +593,7 @@ static void ui_input(void)
     uint32_t home = btn_hold(&ui.home_t0, B_HOME, now, 1);
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu);
     int32_t s;
+    boot_save();
     if (home == BT_HOLD) {                              /* HOME held: open the menu, or leave it */
         if (ui.menu) {
             menu_close();

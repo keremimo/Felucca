@@ -1119,6 +1119,65 @@ static void playing_key_lights_test(void)
 }
 
 #ifndef MELODEE_UI_PREVIEW
+/* SAVE > PROJECT BOOT: KNOB 2 picks OFF / 1..4 (the column shows it) and is kept once it rests;
+ * power-on loads that project and points SLOT at it, a failed boot or an empty slot leaves the
+ * default sounds. Factory presets never touch the steps. */
+static void boot_project_test(void)
+{
+    track_t *t;
+    uint32_t i;
+    reset(16);
+    t = TSEL;
+    settings.boot = 0;
+    ui.page = (uint8_t)page_named("PROJECT");
+    page_entered();
+    for (i = 0; i < 6u; i++) {                      /* right: 1, 2, 3, 4, then it stays */
+        encoders[panel.enc[EN_K1 + 1u]] = 1;
+        fm1_ms += 20;
+        ui_input();
+    }
+    assert(settings.boot == 4 && boot_t && ui.hot_col == 1u);
+    ui.force = 1;
+    ui_draw();
+    assert(!strcmp(ui.focus_l, "BOOT") && !strcmp(ui.focus_v, "4"));
+    for (i = 0; i < 9u; i++) {                      /* left: down to OFF */
+        encoders[panel.enc[EN_K1 + 1u]] = -1;
+        fm1_ms += 20;
+        ui_input();
+    }
+    ui.force = 1;
+    ui_draw();
+    assert(settings.boot == 0 && !strcmp(ui.focus_v, "OFF"));
+    fm1_ms += 1600;                                 /* the knob rests: settings_save, once */
+    ui_input();
+    assert(!boot_t);
+
+    note(0);                                        /* project 3 holds a note; it boots */
+    project_save(2);
+    assert(project_used(2));
+    settings.boot = 3;
+    track_defaults_steps(t);                        /* power-on: the default state, SLOT 1 */
+    song.g[G_SLOT] = 1;
+    bootguard.failed = 1;                           /* the start before crashed: not loaded */
+    project_boot();
+    assert(song.g[G_SLOT] == 3 && !t->step[0].n && !strcmp(ui.msg, "BOOT PROJECT SKIPPED"));
+    bootguard.failed = 0;
+    project_boot();
+    assert(song.g[G_SLOT] == 3 && t->step[0].n && !strcmp(ui.msg, "PROJECT 3"));
+    settings.boot = 4;                              /* an empty slot: nothing loads */
+    track_defaults_steps(t);
+    project_boot();
+    assert(song.g[G_SLOT] == 4 && !t->step[0].n);
+    settings.boot = 0;
+
+    set_engine(0);
+    for (i = 0; i < ENG_ANALOG.npresets; i++) {      /* (ACID, SAW LEAD .. had patterns once) */
+        apply_preset(i);
+        assert(seq_is_empty(t));
+    }
+    puts("boot project: BOOT knob, power-on load, failed boot skips it; factory presets leave the steps");
+}
+
 int main(int argc, char **argv)
 {
     lengths_test();
@@ -1136,6 +1195,7 @@ int main(int argc, char **argv)
     home_render_navigation_test();
     loop_redraw_test();
     playing_key_lights_test();
+    boot_project_test();
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;
 }

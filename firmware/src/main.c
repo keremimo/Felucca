@@ -93,7 +93,8 @@ static void fm1_fault(const fm1_crash_t *c)
     fm1_reboot();
 }
 
-/* power-on: three parts with their default sounds (TRK_DEF), the drum track, empty patterns */
+/* power-on: three parts with their default sounds (TRK_DEF), the drum track, empty patterns
+ * (a BOOT project replaces them: project_boot) */
 static void melodee_init(void)
 {
     uint32_t i;
@@ -157,6 +158,7 @@ static void fm1_main(void)
         panel_setup();                        /* OCT- + OCT+ held at power-on */
         settings_save();
     }
+    project_boot();                           /* SAVE > PROJECT BOOT: that project instead of TRK_DEF */
     fm1_delay_ms(400);
     lcd_fill(0, 0, 240, 240, C_BLACK);
 

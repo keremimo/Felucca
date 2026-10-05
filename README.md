@@ -28,7 +28,8 @@ to Felucca. The installer also finds an FM-1 that still runs Felucca.
   patterns at the end of its loop
 - **Arpeggiator**, scales and quantize, glide, MONO / LEGATO / UNISON voice modes
 - **Effects:** distortion and the SLICER per track; chorus, delay and reverb sends; master limiter
-- **Presets:** factory presets with their own patterns, 32 user preset slots, 4 project slots
+- **Presets:** factory presets (sound only: they never touch the sequencer), 32 user preset slots, 4 project slots,
+  one of which can load at power-on
 - **Web editor:** every parameter of every track, step grid, track mixer, preset library, sample upload
 - **USB:** class-compliant MIDI in and out (channels 1–3 for the parts, 10 for drums);
   updates over the same USB cable
@@ -66,6 +67,11 @@ any musical workspace to arm that track and start playback if stopped, or press 
 to begin recording in one gesture. **PLAY** stops or starts the transport. Hold REC to open
 TRACKS for length, pan and the full pattern mixer. Hold HOME for Settings. **SAVE** opens the
 sound and project library; its next pages are USER, PROJECT and TOOLS.
+
+On **PROJECT**, knob 1 picks the slot, knob 3 loads and knob 4 saves (one detent arms, a second
+within ~1.5 s acts). Knob 2, **BOOT**, picks the project the FM-1 loads at power-on instead of the
+default sounds (OFF: the default sounds with empty patterns); the slot list marks it BOOT, and SLOT
+starts on it so a save goes back there. A start that crashed or hung skips the boot project once.
 
 The center drawing is the focus of each workspace, with four knob values below it. The STUDIO
 look gives knobs 1–4 the same blue, coral, yellow and green cues on every page. The instrument

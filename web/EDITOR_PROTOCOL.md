@@ -60,7 +60,7 @@ covers only the time in between; nothing else changes audio settings.
 | 5 DESC | scope, id | scope, id, fmt, min v14, max v14, def v14, label string, unit string, then for an enum (fmt 8) one name string per value (at most 16) |
 | 6 STEP_GET | index 0..NSTEP−1 | index, n (0..4 notes), note0..note3, time (0 NOTE, 1 TIE, 2 REST), flags (1 accent, 2 slide), vel |
 | 7 STEP_SET | index, n, note0..3, time, flags, vel | same as STEP_GET (after the write) |
-| 8 PRESET | engine, preset | engine, preset (applies the preset: sound, sends, arp, and its pattern if the sequencer is empty or still holds an untouched preset pattern) |
+| 8 PRESET | engine, preset | engine, preset (applies the preset: sound, sends, arp; the steps are left alone) |
 | 9 PROJECT | op (0 load, 1 save, 2 query), slot 0..3 | op, slot, used (1/0). Save writes flash: allow ~2 s |
 | 10 NAMES | engine | engine, count, count preset-name strings, then the two edit-page titles |
 | 11 SMP_BEGIN | slot 0..2 | slot, rc (0 ok). Erases the slot's header sector: the slot is empty from now on |
@@ -127,7 +127,7 @@ is not required.
 A user preset = engine (0..NENGINES−1), name (1..12 chars, ASCII 32..126; the device shows it upper
 case), all P_COUNT instrument parameters (v14 each, the same order as `DUMP`), and a 16-step pattern:
 16 × (note 0..127 (0 = rest), flags: 1 accent, 2 slide, 4 tie). Loading one applies the engine and
-all parameters; the pattern is loaded only if the sequencer is empty or still holds an untouched preset pattern (as factory presets), and then
+all parameters; the pattern is loaded only if the sequencer is empty or still holds the untouched pattern of a user preset, and then
 LEN becomes the stored LEN, at most 16. The slots are numbered 0..31 (the device shows U01..U32).
 
 - `UP_LIST`: count is cut at 16 and at the last slot (start ≥ 32: count 0, no entries).

@@ -586,9 +586,11 @@ static uint32_t graph_signature(void)
     }
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
-    if (pg->graph == GR_SLOTS)                       /* (a checksum over each slot) */
+    if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)project_used(i) << (20u + i);
+        h ^= settings.boot * 2654435761u;
+    }
     if (pg->graph == GR_STEPS) {
         for (i = 0; i < NTRK; i++)
             h ^= steps_hash(&trk[i]) + trk[i].seq_idx * (i + 31u) + trk[i].pat * (i + 101u) +
@@ -649,7 +651,7 @@ static void graph_user(void)
     }
 }
 
-/* project slots: used / empty, the selected one in white */
+/* project slots: used / empty, the selected one in white, BOOT by the one power-on loads */
 static void graph_slots(void)
 {
     uint32_t i;
@@ -663,6 +665,8 @@ static void graph_slots(void)
             cv_rect(4, y + 6, 3, 3, C_WHITE);
         cv_text(14, y, &FONT_S, b, sel ? C_WHITE : C_GRAY);
         cv_text(40, y, &FONT_S, project_used(i) ? "USED" : "EMPTY", project_used(i) ? (sel ? C_WHITE : C_HI) : C_DIM);
+        if (i + 1u == settings.boot)
+            cv_text(110, y, &FONT_S, "BOOT", control_color(1));
     }
 }
 
@@ -1579,6 +1583,11 @@ static void draw_columns(void)
             continue;
         }
 #endif
+        if (cur_page()->id[c] == G_BOOT && cur_page()->scope == SC_GLOBAL) {
+            char b[2] = {(char)('0' + settings.boot), 0};
+            draw_column(c, "BOOT", settings.boot ? b : "OFF", "", VAL(c), -1, ICON_AUTO);
+            continue;
+        }
         if (cur_page()->id[c] == G_INFO && cur_page()->scope == SC_GLOBAL) {
             fmt_int(val, (int32_t)(song.cpu_q8 * 100u / 256u));
             unit = "%";

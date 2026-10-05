@@ -235,7 +235,8 @@ static int up_store(uint32_t k, const char *name)
 
 /* slot k -> the selected part's sound: engine and every parameter except its mix (LEVEL,
  * PAN, MUTE: the TRACKS faders), shared scale/quantization and pattern parameters (param_kept); the pattern, with
- * the record's LEN / DIV / SWING / GATE, only into an empty sequencer (as factory presets).
+ * the record's LEN / DIV / SWING / GATE, only into an empty sequencer (or one still holding the untouched
+ * pattern of the user preset before: seq_replaceable).
  * 0 ok, 1 empty (or the drum track is selected) */
 static int up_load(uint32_t k)
 {
@@ -250,7 +251,7 @@ static int up_load(uint32_t k)
     for (i = P_SLEN; i <= P_SGATE; i++)
         pat[i - P_SLEN] = v[i];
     for (i = 0; i < P_COUNT; i++)                       /* (LEN etc. of a kept pattern changed too, and */
-        if (param_kept(i))                              /* a preset pattern then counted as edited) */
+        if (param_kept(i))                              /* a user preset's pattern then counted as edited) */
             v[i] = t->p[i];
     panic_req |= (uint8_t)(1u << song.sel);
     fm1_irq_off();                                      /* the audio ISR must not see half a sound */

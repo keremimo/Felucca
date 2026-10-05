@@ -65,6 +65,7 @@ struct {
     uint32_t magic, palette, lowcut, zoom;
     uint32_t usb_off;                          /* USB audio devices switched off: UA_OFF_OUT | UA_OFF_IN */
     uint32_t keys;                             /* KEYS_*: playable keys not sounding */
+    uint32_t boot;                             /* project slot + 1 loaded at power-on, 0 = none (SAVE > PROJECT) */
 } settings __attribute__((section(".noinit")));
 
 static void settings_save(void);              /* project.c: flash copy (MELODEE_FLASH) */
@@ -78,9 +79,12 @@ static void settings_init(void)
         settings.zoom = 1;                     /* show the touched value on new installations */
         settings.usb_off = 0;                  /* both USB audio devices on */
         settings.keys = KEYS_MID;
+        settings.boot = 0;
     }
     if (settings.keys >= KEYS_N)               /* a .noinit copy from before KEYS */
         settings.keys = KEYS_MID;
+    if (settings.boot > 4u)                    /* ... or from before BOOT */
+        settings.boot = 0;
     palette_set(settings.palette);
     fx_lowcut = (uint8_t)(settings.lowcut != 0);
 #if MELODEE_USB_AUDIO

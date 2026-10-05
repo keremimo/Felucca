@@ -241,39 +241,6 @@ static void home_tap(void)
 }
 
 /* ------------------------------------------------------- track setup --- */
-/* factory sequence patterns (presets refer to them with PAT(n)): absolute notes,
- * 0 = rest; flags 1 = accent, 2 = slide, 4 = tie (holds the previous note) */
-#define T_ 4
-static const struct {
-    uint8_t note[16], flags[16];
-} PATTERNS[] = {
-    {{45, 45, 57, 45, 0, 48, 45, 55, 45, 0, 57, 52, 45, 48, 0, 50},          /* 1 ACID */
-     {1, 0, 2, 0, 0, 0, 1, 2, 0, 0, 1, 0, 0, 2, 0, 1}},
-    {{0, 36, 0, 36, 0, 36, 0, 48, 0, 36, 0, 36, 0, 39, 0, 43},               /* 2 OFFBEAT bass */
-     {0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0}},
-    {{60, 0, 67, 0, 72, 67, 0, 64, 62, 0, 69, 0, 74, 69, 0, 67},             /* 3 MELODY pluck */
-     {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0}},
-    {{72, 0, 0, 74, 0, 0, 76, 0, 79, 0, 76, 0, 74, 0, 0, 0},                  /* 4 LEAD */
-     {1, T_, 0, 2, T_, 0, 0, 0, 1, 0, 2, 0, 0, T_, T_, 0}},
-    {{60, 0, 0, 0, 0, 0, 0, 0, 57, 0, 0, 0, 55, 0, 0, 0},                    /* 5 PAD: long notes */
-     {0, T_, T_, T_, T_, T_, T_, 0, 0, T_, T_, 0, 0, T_, T_, 0}},
-    {{0, 0, 60, 0, 0, 63, 0, 0, 0, 0, 60, 0, 0, 65, 0, 63},                  /* 6 KEYS: offbeat stabs */
-     {0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0}},
-    {{72, 0, 0, 79, 0, 0, 84, 0, 0, 0, 76, 0, 0, 0, 0, 0},                   /* 7 BELL: sparse */
-     {1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
-    {{36, 0, 0, 0, 0, 0, 0, 36, 0, 0, 34, 0, 0, 0, 0, 0},                    /* 8 SUB: low, held */
-     {1, T_, T_, T_, 0, 0, 0, 0, 0, 0, 0, T_, T_, T_, 0, 0}},
-    /* SLICE (eng_slice.c): note = C4 + slice */
-    {{60, 61, 62, 67, 64, 65, 60, 69, 68, 70, 62, 67, 72, 72, 74, 64},       /* 9 CHOP: 16 slices re-ordered */
-     {1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0}},
-    {{60, 60, 61, 61, 62, 0, 63, 63, 64, 65, 65, 0, 66, 66, 66, 67},         /* 10 STUTTER: 8 slices, repeats */
-     {1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0}},
-    {{60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75},       /* 11 SLICES: in order */
-     {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0}},
-};
-#undef T_
-#define NPATTERNS (sizeof PATTERNS / sizeof PATTERNS[0])
-
 /* the parts' sounds at power-on (engine, preset): bass, pad, lead */
 static const uint8_t TRK_DEF[NPART][2] = {{0, 4}, {1, 5}, {3, 0}};   /* ANALOG ACID, DIGITAL PAD, LOFI PULSE LD */
 static uint32_t trk_def_engine(uint32_t i) { return i < NPART ? TRK_DEF[i][0] : 0u; }
@@ -287,9 +254,10 @@ static int seq_is_empty(const track_t *t)
     return 1;
 }
 
-/* A sequence that came from a preset and was not touched since is replaced by the next
- * preset's pattern; one the user recorded, edited or loaded from a project is kept. */
-static uint32_t pat_sig[NTRK];               /* seq_sig() right after a preset pattern was loaded */
+/* A sequence that came from a user preset and was not touched since is replaced by the next
+ * user preset's pattern; one the user recorded, edited or loaded from a project is kept.
+ * (Factory presets bring no pattern: they never touch the steps.) */
+static uint32_t pat_sig[NTRK];               /* seq_sig() right after a user preset's pattern was loaded */
 static uint32_t seq_sig(const track_t *t)    /* FNV-1a over the steps and LEN */
 {
     const uint8_t *b = (const uint8_t *)t->step;
@@ -300,7 +268,8 @@ static uint32_t seq_sig(const track_t *t)    /* FNV-1a over the steps and LEN */
 }
 static int seq_replaceable(const track_t *t) { return seq_is_empty(t) || seq_sig(t) == pat_sig[trk_index(t)]; }
 
-static void load_pat16(track_t *t, const uint8_t *note, const uint8_t *flags)   /* PATTERNS[] format (user presets too) */
+/* a user preset's 16 steps: absolute notes, 0 = rest; flags 1 = accent, 2 = slide, 4 = tie (holds the previous note) */
+static void load_pat16(track_t *t, const uint8_t *note, const uint8_t *flags)
 {
     uint32_t i;
     for (i = 0; i < NSTEP; i++) {
@@ -381,15 +350,13 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     t->p[P_REL] = e->presets[pi].env[3];
     t->p[P_ED_FLT] = e->presets[pi].fenv;
     t->p[P_VOICE] = e->presets[pi].mono ? V_LEGATO : V_POLY;   /* mono presets keep the legato feel */
-    {   /* the rest of the patch: sends, arpeggiator, a pattern for an empty sequencer */
+    {   /* the rest of the patch: sends, arpeggiator */
         static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
         const preset_t *pr = &e->presets[pi];
         for (i = 0; i < 4u; i++) {
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
             t->p[P_AMODE + i] = (int16_t)(pr->arp[i] ? pr->arp[i] - 1 : TP[P_AMODE + i].def);
         }
-        if (pr->pat && pr->pat <= NPATTERNS && seq_replaceable(t))
-            load_pat16(t, PATTERNS[pr->pat - 1u].note, PATTERNS[pr->pat - 1u].flags);
     }
 }
 
