@@ -210,20 +210,20 @@ static uint32_t play_key_led(const track_t *t, uint32_t k)
 static const uint8_t KEYS_DIM_MASK[KEYS_N] = {0, 7, 3, 1, 0};   /* frames lit: -, 1/8, 1/4, 1/2, all */
 #define BTN_DIM_MASK 3u                                           /* idle buttons: 1/4 of the frames */
 
-/* the keys: EDIT / SEQ held their shortcuts, else the playing layout (play_key_led): nl bright, nd dim.
- * GLO > LIGHTS KEYS OFF (keys & KEYS_DARK): only the keys sounding, held or from MIDI in, and with
- * EDIT / SEQ held the keys pressed */
-static void key_leds(uint8_t *nl, uint8_t *nd, uint32_t keys)
+/* the keys: EDIT / SEQ held their shortcuts, else the playing layout (play_key_led): nl bright, nd dim
+ * (the KEYS level). GLO > LIGHTS KEYS OFF (keys & KEYS_DARK): no layout, only the keys sounding (held or
+ * from MIDI in); EDIT / SEQ held, the shortcuts glow (ng, the idle buttons' level) and pressed keys light */
+static void key_leds(uint8_t *nl, uint8_t *nd, uint8_t *ng, uint32_t keys)
 {
     uint32_t k, dark = keys & KEYS_DARK, lvl = keys & ~KEYS_DARK;
-    if (dark && nav_held())                             /* KEYS OFF, EDIT / SEQ + keys: the keys held */
-        for (k = 0; k < 27u; k++)
+    if (nav_held()) {
+        if (cur_fam() == FAM_SEQ)                       /* SEQ + keys: the patterns */
+            pat_leds(dark ? ng : nl);
+        else                                            /* EDIT + keys: the key map */
+            nav_leds(dark ? ng : nl);
+        for (k = 0; dark && k < 27u; k++)
             led_put(nl, 14u + k, (int)((fm1_in.notes >> k) & 1u));
-    else if (nav_held() && cur_fam() == FAM_SEQ)        /* SEQ + keys: the patterns */
-        pat_leds(nl);
-    else if (nav_held())                                /* EDIT + keys: the key map */
-        nav_leds(nl);
-    else
+    } else
         for (k = 0; k < 27u; k++) {
             uint32_t lv = play_key_led(TSEL, k);
             led_put(nl, 14u + k, lv == KL_ON);
@@ -249,11 +249,11 @@ static void button_leds(uint8_t *nl, uint8_t *nb)
     led_put(nl, panel.btn[B_OCTUP], song.octave > 0);
 }
 
-/* GLO > LIGHTS KEYS OFF: nothing idle lit (layout, shortcuts, button glow); the keys sounding and the
- * engaged buttons still light */
+/* GLO > LIGHTS KEYS OFF: no layout and no idle button glow; the keys sounding or pressed, the EDIT / SEQ
+ * shortcuts (dim) and the engaged buttons still light */
 static void ui_leds(void)
 {
-    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0};
+    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, ng[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0};
     uint32_t c, lvl = settings.keys & ~KEYS_DARK;
     static uint8_t ready;
     if (!ready) {
@@ -261,12 +261,12 @@ static void ui_leds(void)
         ready = 1;
     }
     button_leds(nl, nb);
-    key_leds(nl, nd, settings.keys);
+    key_leds(nl, nd, ng, settings.keys);
     fm1_led_dim_mask[0] = KEYS_DIM_MASK[lvl];
     fm1_led_dim_mask[1] = BTN_DIM_MASK;
     for (c = 0; c < FM1_NCOL; c++) {
         fm1_led_dim[0][c] = (uint8_t)(nd[c] | nl[c]);   /* first: a key going dim <-> bright never goes dark */
-        fm1_led_dim[1][c] = settings.keys & KEYS_DARK ? 0u : nb[c];
+        fm1_led_dim[1][c] = (uint8_t)(ng[c] | (settings.keys & KEYS_DARK ? 0u : nb[c]));
         fm1_led[c] = nl[c];
     }
 }

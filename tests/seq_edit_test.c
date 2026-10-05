@@ -1172,12 +1172,13 @@ static void panel_lights_test(void)
     ui_leds();
     assert(led_lit(fm1_led, 14u + 9) && !led_lit(fm1_led, 14u + 7));
     midi_frame(0x80, 62, 0, 0);
-    page_go(page_named("EDIT 1"));             /* nor the EDIT + keys shortcuts */
+    page_go(page_named("EDIT 1"));             /* EDIT + keys: the shortcuts glow (the buttons' level) */
     edit_frame(1, 0);
     assert(nav_held());
     ui_leds();
     for (k = 0; k < 27u; k++)
         assert(!led_lit(fm1_led, 14u + k) && !led_lit(fm1_led_dim[0], 14u + k));
+    assert(TSEL->preset != 1u && led_lit(fm1_led_dim[1], 14u + SOUND_KEY[1]) && !led_lit(fm1_led_dim[1], 14u + 26));
     edit_frame(1, 1u << 26);                   /* a key pressed there lights (G5: no shortcut) */
     ui_leds();
     for (k = 0; k < 27u; k++)
