@@ -78,6 +78,14 @@ static int compact_project(void)
     project_t before, after; project_store_t packed, corrupt;
     project_capture(&before);
     bad += check("FUN8 fits the retained and flash extent", sizeof(proj_slot) == 4u * 3584u && proj_pack(&packed, &before));
+    fm6_fn[0][FN_PTIME] = 33;                            /* (FM6 functions: in the FBK9 around FUN8, not in FUN8) */
+    project_capture(&before);
+    {
+        static uint8_t fbk[BANK_STORE_SIZE];
+        bad += check("FBK9 keeps the tracks' FM6 function settings", bank_pack(fbk, &before, 1) &&
+                     bank_valid(fbk, sizeof fbk) && proj_scratch.fm6_fn_ok && proj_scratch.fm6_fn[0][FN_PTIME] == 33u);
+    }
+    proj_fn_none(&before);
     bad += check("FUN8 round trip preserves signed values/FM params/probability/motion", proj_import(&after, &packed, sizeof packed) &&
         !memcmp(&before, &after, sizeof before));
     corrupt = packed; corrupt.raw[112] ^= 1u;

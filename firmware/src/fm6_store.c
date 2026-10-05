@@ -11,13 +11,12 @@
  *                                                  switches, OP1 = bit 5) -> the track
  *   F0 43 1n 08 pp dd F7                           a function parameter (64 mono, 65 bend range, 66 step,
  *                                                  68 glissando, 69 portamento time, 70..77 wheel / foot /
- *                                                  breath / aftertouch range and target) -> every FM6 track
+ *                                                  breath / aftertouch range and target) -> the track's
+ *                                                  function settings (saved with the project)
  *   F0 43 2n 00 F7 / F0 43 2n 09 F7                dump requests: the track's voice / the bank
  * The FM6 track: the selected track when it plays FM6, else track n + 1, else the first FM6 track.
  * Dexed or any DX7 librarian can so edit a track live and keep the banks. */
 static uint8_t fm6_buf[FM6_RX] __attribute__((section(".pool")));   /* main loop: dumps out */
-static uint8_t fm6_fn_dirty;                             /* the function settings changed: saved once at rest */
-static uint32_t fm6_fn_t;
 
 static int fm6_is(uint32_t k) { return k < NPART && trk[k].eng_req == ENGI_FM6; }
 
@@ -40,13 +39,6 @@ static uint8_t fm6_chk(const uint8_t *p, uint32_t n)    /* DX7 checksum: data + 
     while (n--)
         s += *p++;
     return (uint8_t)(-s & 0x7Fu);
-}
-
-/* a function setting changed (SysEx, the FM6 pages): saved with the bank once the transport rests */
-static void fm6_fn_changed(void)
-{
-    fm6_fn_dirty = 1;
-    fm6_fn_t = fm1_ms;
 }
 
 /* ------------------------------------------------------------- out --- */
@@ -126,30 +118,26 @@ static void fm6_sysex(const uint8_t *b, uint32_t n)
             fm6_on[tr] = b[5] & FM6_ON_ALL;              /* bit 0 OP6 .. bit 5 OP1, as fm6_on */
         }
         ui.force = 1;
-    } else if (n == 7u && st == 0x10u && b[3] == 0x08u) {   /* a function parameter */
-        uint32_t v = b[5];
+    } else if (n == 7u && st == 0x10u && b[3] == 0x08u && tr >= 0) {   /* a function parameter: the track's */
+        uint32_t v = b[5], f = (uint32_t)tr;
         switch (b[4]) {
         case 64:                                         /* MONO: Dexed's (legato, the highest key) */
-            if (tr >= 0) {
-                trk[tr].p[P_VOICE] = v ? V_LEGATO : V_POLY;
-                if (v)
-                    trk[tr].p[P_PRIO] = 2;
-            }
+            trk[tr].p[P_VOICE] = v ? V_LEGATO : V_POLY;
+            if (v)
+                trk[tr].p[P_PRIO] = 2;
             break;
         case 65:
-            fm6_fn_set(FN_PBUP, (int32_t)v);
-            fm6_fn_set(FN_PBDN, (int32_t)v);
+            fm6_fn_set(f, FN_PBUP, (int32_t)v);
+            fm6_fn_set(f, FN_PBDN, (int32_t)v);
             break;
-        case 66: fm6_fn_set(FN_PBSTEP, (int32_t)v); break;
-        case 68: fm6_fn_set(FN_GLISS, (int32_t)v); break;
-        case 69: fm6_fn_set(FN_PTIME, (int32_t)(v > 99u ? 99u : v) * 127 / 99); break;   /* 0..99 -> CC 5 */
+        case 66: fm6_fn_set(f, FN_PBSTEP, (int32_t)v); break;
+        case 68: fm6_fn_set(f, FN_GLISS, (int32_t)v); break;
+        case 69: fm6_fn_set(f, FN_PTIME, (int32_t)(v > 99u ? 99u : v) * 127 / 99); break;   /* 0..99 -> CC 5 */
         default:
             if (b[4] >= 70u && b[4] <= 77u)              /* range, target: wheel, foot, breath, aftertouch */
-                fm6_fn_set(FN_MWR + (uint32_t)(b[4] - 70u), (int32_t)v);
+                fm6_fn_set(f, FN_MWR + (uint32_t)(b[4] - 70u), (int32_t)v);
             break;
         }
-        if (b[4] != 64u)
-            fm6_fn_changed();
         ui.force = 1;
     } else if (n == 5u && st == 0x20u) {                 /* dump requests */
 #if MELODEE_OTA
@@ -161,17 +149,13 @@ static void fm6_sysex(const uint8_t *b, uint32_t n)
     }
 }
 
-static void fm6_service(void)                            /* main loop: a DX7 frame from USB-MIDI; a pending save */
+static void fm6_service(void)                            /* main loop: a DX7 frame from USB-MIDI */
 {
     if (fm6_rx_ready) {
         RING_PUBLISH();                                  /* read the frame only after the flag */
         fm6_sysex(fm6_rx, fm6_rx_n);
         RING_PUBLISH();
         fm6_rx_ready = 0;
-    }
-    if (fm6_fn_dirty && !transport_busy() && fm1_ms - fm6_fn_t > 2000u) {
-        fm6_fn_dirty = 0;
-        (void)fm6_bank_save();
     }
 }
 

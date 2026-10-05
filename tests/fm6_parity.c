@@ -42,7 +42,7 @@ static void event(track_t *t, const sc_event_t *e)
         else if (e->a == 4)
             t->foot = (uint8_t)e->b;
         else if (e->a == 5)
-            fm6_fn_set(FN_PTIME, e->b);
+            fm6_fn_set(0, FN_PTIME, e->b);
         else if (e->a == 65)
             t->porta = e->b >= 64;
         break;
@@ -79,17 +79,17 @@ int main(int argc, char **argv)
     for (i = 0; i < 6u; i++)                             /* ops[i]: OP i + 1, fm6_on bit 6 - n for OP n */
         fm6_on[0] |= (uint8_t)((s.ops[i] == '1') << (5u - i));
     fm6_fn_reset();
-    fm6_fn_set(FN_ENGINE, s.engine);
-    fm6_fn_set(FN_PBUP, s.pb_up);
-    fm6_fn_set(FN_PBDN, s.pb_down);
-    fm6_fn_set(FN_PBSTEP, s.pb_step);
-    fm6_fn_set(FN_PTIME, s.porta_time);
-    fm6_fn_set(FN_GLISS, s.porta_gliss);
+    fm6_fn_set(0, FN_ENGINE, s.engine);
+    fm6_fn_set(0, FN_PBUP, s.pb_up);
+    fm6_fn_set(0, FN_PBDN, s.pb_down);
+    fm6_fn_set(0, FN_PBSTEP, s.pb_step);
+    fm6_fn_set(0, FN_PTIME, s.porta_time);
+    fm6_fn_set(0, FN_GLISS, s.porta_gliss);
     {
         const sc_mod_t *m[4] = {&s.wheel, &s.foot, &s.breath, &s.at};
         for (k = 0; k < 4u; k++) {
-            fm6_fn_set(FN_MWR + 2u * k, m[k]->range);
-            fm6_fn_set(FN_MWA + 2u * k, (m[k]->pitch ? 1 : 0) | (m[k]->amp ? 2 : 0) | (m[k]->eg ? 4 : 0));
+            fm6_fn_set(0, FN_MWR + 2u * k, m[k]->range);
+            fm6_fn_set(0, FN_MWA + 2u * k, (m[k]->pitch ? 1 : 0) | (m[k]->amp ? 2 : 0) | (m[k]->eg ? 4 : 0));
         }
     }
     t->p[P_VOICE] = s.mono ? V_LEGATO : V_POLY;          /* Dexed's mono: legato, the highest key */

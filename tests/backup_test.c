@@ -340,9 +340,10 @@ int main(void)
         fm6_factory(5, pk);
         fm6_pack7(bk.pk[2], pk, FM6_PACKED);
         fm6_slot[0] = 3; fm6_slot[1] = FM6_NFAC + 2u; fm6_slot[2] = 0xFFu; fm6_slot[3] = FM6_NFAC + 9u;
-        bad += check("the FM6 bank (id 8) restores into flash and RAM, its function settings in effect",
+        fm6_fn_reset();
+        bad += check("the FM6 bank (id 8) restores into flash and RAM (its function settings inert: the tracks' stay)",
                      put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 0 && fm6_bank_used(2) && !fm6_bank_used(3) &&
-                     !fm6_bank_get(2, rec) && !memcmp(rec, pk, FM6_PACKED) && fm6_fn[FN_PBUP] == 7u &&
+                     !fm6_bank_get(2, rec) && !memcmp(rec, pk, FM6_PACKED) && fm6_fn[0][FN_PBUP] == FM6_FNDEF[FN_PBUP] &&
                      st_load(OBJ_FM6BANK, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &bk, sizeof bk));
         bad += check("an FM6 bank restore reloads only the tracks on a bank slot (a factory patch stays)",
                      fm6_slot[0] == 3u && fm6_slot[1] == 0xFFu && fm6_slot[2] == 0xFFu && fm6_slot[3] == 0xFFu);

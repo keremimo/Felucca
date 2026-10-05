@@ -9,7 +9,8 @@
  * detune; 32 algorithms, feedback, LFO, pitch envelope, transpose). It is edited on the device (the FM6 pages),
  * in the web editor (EDITOR_PROTOCOL.md FM6_*) and over USB-MIDI as DX7 SysEx (fm6_store.c), loaded from the
  * PATCH slots and saved inside projects. The FM6 function settings (bend, portamento, the controllers, ENGINE:
- * fm6_core.c fm6_fn) are one set for every FM6 track, a DX7's function mode. On the device the eight EDIT
+ * fm6_core.c fm6_fn) are the track's, as each Dexed instance has its own, saved with the project and the
+ * template (project.c), edited on the FM pages and by DX7 function SysEx. On the device the eight EDIT
  * values are macros on top of the patch, neutral at 0 (then the track renders as Dexed does):
  *   ALG   PAT = the patch's algorithm, 1..32 another one
  *   FB    added to the patch's feedback (0..7)
@@ -254,7 +255,7 @@ static void fm6_track_loaded(const track_t *t)
 }
 
 /* power-on: every track the init voice (what a project stores for the tracks that never played FM6), the
- * function settings Dexed's (fm6_bank.c then brings the saved ones) */
+ * function settings Dexed's (a project or the template loaded then brings its own) */
 static void fm6_init(void)
 {
     uint8_t v[FP_SIZE + 1u];
@@ -361,6 +362,7 @@ typedef struct {                                         /* a part's (engines.c 
 } fm6_part_t;
 static fm6_part_t *fm6_part(uint32_t part);             /* engines.c */
 #define FM6P(t) fm6_part((uint32_t)((t) - trk))
+#define FM6F(t) fm6_fn[(uint32_t)((t) - trk) % NTRK]   /* the track's function settings */
 
 static void fm6_lfo_step(fm6_lfo_t *l, const uint8_t *ed)   /* one block of the LFO: Lfo::getsample, getdelay */
 {
@@ -427,8 +429,8 @@ static void fm6_ctl_block(track_t *t, const uint8_t *ed)
     cc[3] = t->at;
     c->pmod = c->amod = c->emod = 0;
     for (k = 0; k < 4u; k++) {                           /* wheel, foot, breath, aftertouch */
-        uint32_t tg = fm6_fn[FN_MWA + 2u * k];
-        m = fm6_ctl(cc[k], fm6_fn[FN_MWR + 2u * k]);
+        uint32_t tg = FM6F(t)[FN_MWA + 2u * k];
+        m = fm6_ctl(cc[k], FM6F(t)[FN_MWR + 2u * k]);
         if (tg & 1u)
             c->pmod = m > c->pmod ? m : c->pmod;
         if (tg & 2u)
@@ -441,14 +443,14 @@ static void fm6_ctl_block(track_t *t, const uint8_t *ed)
         c->emod = 127;
     if (!raw) {                                          /* pitch bend */
         c->pb = 0;
-    } else if (!fm6_fn[FN_PBSTEP]) {
-        c->pb = fm6_f32(raw * 2048 * (raw > 0 ? fm6_fn[FN_PBUP] : fm6_fn[FN_PBDN])) / 12;
+    } else if (!FM6F(t)[FN_PBSTEP]) {
+        c->pb = fm6_f32(raw * 2048 * (raw > 0 ? FM6F(t)[FN_PBUP] : FM6F(t)[FN_PBDN])) / 12;
     } else {
-        int32_t stp = 12 / fm6_fn[FN_PBSTEP];
+        int32_t stp = 12 / FM6F(t)[FN_PBSTEP];
         c->pb = ((raw * stp / 8191) * (8191 / stp)) * 2048;
     }
-    c->pon = (uint8_t)(fm6_fn[FN_PMODE] || t->porta);
-    c->prate = !c->pon ? FM6_PORTA[0] : fm6_fn[FN_GLISS] ? FM6_GLISS[fm6_fn[FN_PTIME]] : FM6_PORTA[fm6_fn[FN_PTIME]];
+    c->pon = (uint8_t)(FM6F(t)[FN_PMODE] || t->porta);
+    c->prate = !c->pon ? FM6_PORTA[0] : FM6F(t)[FN_GLISS] ? FM6_GLISS[FM6F(t)[FN_PTIME]] : FM6_PORTA[FM6F(t)[FN_PTIME]];
     if (c->trig || !(c->tick++ & 1u)) {                  /* Dexed's 64-sample grid, restarted by a retrigger */
         c->trig = 0;
         c->tick = 1;
@@ -518,10 +520,10 @@ static void fm6_sync(track_t *t, const voice_t *self);
 
 /* where portamento starts, as Dexed's initPortamento finds it: the last voice keyed (still going:
  * its pitch now; after a MONO key-up handed the note on, as it was then); 0 = no portamento */
-static int fm6_psrc(fm6_part_t *P, int32_t *src)
+static int fm6_psrc(const track_t *t, fm6_part_t *P, int32_t *src)
 {
     uint32_t k, l = P->pt.lav;
-    if (!l || !P->v[l - 1u].played || !P->pt.pon || fm6_fn[FN_PTIME] <= 0)
+    if (!l || !P->v[l - 1u].played || !P->pt.pon || FM6F(t)[FN_PTIME] <= 0)
         return 0;
     for (k = 0; k < 6u; k++)
         src[k] = P->v[l - 1u].porta[k];
@@ -603,7 +605,7 @@ static void fm6_key(track_t *t, uint32_t note)
     nt = (uint32_t)clamp((int32_t)note + ed[FP_TRNSP] - 24, 0, 127);
     for (k = 0; k < 6u; k++)                             /* init: the note's pitch */
         P->ms[c].porta[k] = fm6_logfreq(&ed[k * FP_OP], nt);
-    if (P->pt.mlav && P->ms[P->pt.mlav - 1u].note && P->pt.pon && fm6_fn[FN_PTIME] > 0) {
+    if (P->pt.mlav && P->ms[P->pt.mlav - 1u].note && P->pt.pon && FM6F(t)[FN_PTIME] > 0) {
         uint32_t a = P->pt.mlav - 1u;                    /* initPortamento: from the last keyed voice */
         for (k = 0; k < 6u; k++)
             P->ms[c].porta[k] = l == a + 1u && a != c ? P->v[0].porta[k] : P->ms[a].porta[k];
@@ -631,7 +633,7 @@ static void fm6_note_on(track_t *t, voice_t *v)
     P->pt.steal = 0;
     fm6_sync(t, v);
     ed = fm6_ed(t);
-    ps = fm6_psrc(P, src);                               /* before this voice takes the note */
+    ps = fm6_psrc(t, P, src);                               /* before this voice takes the note */
     for (i = 0; i < NVOICE; i++)                         /* the first key down: the LFO restarts */
         if (i != vi && t->v[i].gate)
             break;
@@ -642,7 +644,7 @@ static void fm6_note_on(track_t *t, voice_t *v)
         P->pt.trig = 1;
     }
     vel = v->mvel ? v->mvel : v->vel;                    /* (the note's: UNISON lowers v->vel) */
-    s->vel = (uint8_t)(fm6_fn[FN_VNORM] ? vel * 7874015u / 10000000u : vel);
+    s->vel = (uint8_t)(FM6F(t)[FN_VNORM] ? vel * 7874015u / 10000000u : vel);
     s->note = v->note;
     note = fm6_note(t, v);
     fm6_keyed(s, ed, note);
@@ -763,7 +765,7 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
             if (s->porta[k] != s->base[k]) {             /* portamento towards the note */
                 int32_t cur = s->porta[k], up = cur < s->base[k], np = cur + (up ? P->pt.prate : -P->pt.prate);
                 b = cur;
-                if (fm6_fn[FN_GLISS])
+                if (FM6F(t)[FN_GLISS])
                     b -= (b - 50857777) % ((1 << 24) / 12);
                 if ((up && np > s->base[k]) || (!up && np < s->base[k]))
                     np = s->base[k];
@@ -799,7 +801,7 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
     }
     s->quiet = dead ? (uint8_t)(s->quiet + (s->quiet < 2u)) : 0;
     fbv = clamp(ed[FP_FB] + ((m->shape - (64 << 8)) >> 11), 0, 7);   /* SHP moves the feedback */
-    fm6_plan(s, lv, alg, fm6_fn[FN_ENGINE], fbv ? 8u - (uint32_t)fbv : 16u);
+    fm6_plan(s, lv, alg, FM6F(t)[FN_ENGINE], fbv ? 8u - (uint32_t)fbv : 16u);
 }
 
 /* nothing moves a voice at rest: no LFO or controller pitch (PMS 0, or no depth), no amplitude

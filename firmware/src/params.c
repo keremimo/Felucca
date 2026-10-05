@@ -441,7 +441,7 @@ static const page_t PAGES[] = {
     {"PITCH LV", FAM_EDIT, SC_FM6, GR_FMPEG, {FP_PL1, FP_PL1 + 1, FP_PL1 + 2, FP_PL1 + 3}},
     {"FM LFO", FAM_EDIT, SC_FM6, GR_NONE, {FP_LFW, FP_LFS, FP_LFD, FP_LKS}},
     {"FM LFO 2", FAM_EDIT, SC_FM6, GR_NONE, {FP_LPMD, FP_LAMD, FP_LPMS, 0xFF}},
-    /* the FM6 function settings (one set for every FM6 track, a DX7's function mode; kept with the bank) */
+    /* the FM6 function settings (a DX7's function mode, the track's own: saved with the project) */
     {"FM BEND", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_PBUP, FP_SIZE + FN_PBDN, FP_SIZE + FN_PBSTEP, FP_SIZE + FN_VNORM}},
     {"FM PORTA", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_PMODE, FP_SIZE + FN_PTIME, FP_SIZE + FN_GLISS, FP_SIZE + FN_ENGINE}},
     {"FM WH/FT", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_MWR, FP_SIZE + FN_MWA, FP_SIZE + FN_FCR, FP_SIZE + FN_FCA}},
@@ -489,7 +489,7 @@ static const param_desc_t *fm6_page_desc(const page_t *pg, uint32_t slot, int16_
         fm6_cell[slot] = (int16_t)(id == FP_OP ? (fm6_on[tr] >> k) & 1u : v[k * FP_OP + id]);
         d = &FM6_OPD[id];
     } else if (id >= FP_SIZE) {
-        fm6_cell[slot] = fm6_fn[(id - FP_SIZE) % FM6_NFN];
+        fm6_cell[slot] = fm6_fn[tr][(id - FP_SIZE) % FM6_NFN];
         d = &FM6_FD[(id - FP_SIZE) % FM6_NFN];
     } else if (id >= FP_PR1 && id < FP_NAME) {
         fm6_cell[slot] = v[id];
@@ -502,7 +502,6 @@ static const param_desc_t *fm6_page_desc(const page_t *pg, uint32_t slot, int16_
 }
 
 /* .. and a new value there, into the patch (an edit: the sounding notes follow), the switches or the functions */
-static void fm6_fn_changed(void);                       /* fm6_store.c */
 static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
 {
     uint32_t id = pg->id[slot], tr = song.sel % NTRK;
@@ -521,8 +520,7 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
         }
         v[k * FP_OP + id] = (uint8_t)val;
     } else if (id >= FP_SIZE) {
-        fm6_fn_set((id - FP_SIZE) % FM6_NFN, val);
-        fm6_fn_changed();
+        fm6_fn_set(tr, (id - FP_SIZE) % FM6_NFN, val);   /* (the track's: saved with the project) */
         return;
     } else {
         v[id] = (uint8_t)val;

@@ -76,6 +76,9 @@ typedef struct {
     chain_config_t chain;
     motion_store_t motion;
     uint8_t fm6[NTRK][FM6_PACKED];             /* each track's FM6 patch, packed (eng_fm6.c) */
+    uint8_t fm6_fn[NTRK][FM6_NFN];             /* .. and its function settings (fm6_fn_ok; else Dexed's): not in
+                                                * FUN8, an FBK9 record keeps them (pattern_store.c BANK_FN_OFF) */
+    uint8_t fm6_fn_ok, rsv2[3];
     char name[PROJ_NAME_LEN];                  /* the project's name: upper-case ASCII 32..126, 0-padded; "" = none */
     uint32_t sum;
 } project_t;
@@ -406,15 +409,22 @@ static int proj_import(project_t *q, const void *b, int n)
     proj_fm4(q);
     return 1;
 }
+static int proj_fn_none(project_t *q)          /* a record without FM6 function settings: Dexed's */
+{
+    memset(q->fm6_fn, 0, sizeof q->fm6_fn);
+    q->fm6_fn_ok = 0;
+    q->sum = proj_sum(q);
+    return 1;
+}
 static int proj_import_any(project_t *q, const void *b, int n)
 {
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[0] == PROJ_MAGIC)
-        return proj_unpack(q, b, PROJ_STORE_SIZE);
+        return proj_unpack(q, b, PROJ_STORE_SIZE) && proj_fn_none(q);
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
         n = (int)((const uint32_t *)b)[1];      /* a retained slot holding an older, shorter record: its own size
                                                  * (every format checks its magic and hash) */
     if (n == (int)PROJ_STORE_V7 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V7)
-        return proj_unpack(q, b, PROJ_STORE_V7);
+        return proj_unpack(q, b, PROJ_STORE_V7) && proj_fn_none(q);
     if (n == (int)sizeof *q && proj_ok((const project_t *)b)) {
         memcpy(q, b, sizeof *q);
         proj_drums_to_part(q);
@@ -424,7 +434,7 @@ static int proj_import_any(project_t *q, const void *b, int n)
     if (!proj_import_old(q, b, n))
         return 0;
     proj_fm6_init(q);
-    return 1;
+    return proj_fn_none(q);
 }
 static int proj_import_old(project_t *q, const void *b, int n)
 {
@@ -705,7 +715,9 @@ static void project_capture(project_t *p)
         p->t[i].preset = trk[i].preset;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
         fm6_pack(fm6_patch[i], p->fm6[i]);
+        memcpy(p->fm6_fn[i], fm6_fn[i], FM6_NFN);
     }
+    p->fm6_fn_ok = 1;
     p->motion = motion;
     p->motion.rsv[0] = 1;                     /* full container supplies the bank tags */
     motion_unguard(f);
@@ -823,6 +835,7 @@ static int project_restore_runtime(const project_t *input)
             fm6_unpack(p->fm6[k], v);
             fm6_set_patch(k, v);
             fm6_slot[k] = (uint8_t)t->p[P_E7];
+            memcpy(fm6_fn[k], p->fm6_fn_ok && fm6_fn_ok(p->fm6_fn[k]) ? p->fm6_fn[k] : FM6_FNDEF, FM6_NFN);
         }
     }
     song.sel = (uint8_t)(p->sel < NTRK ? p->sel : 0u);
@@ -870,26 +883,57 @@ static void project_load(uint32_t slot)
 #include "settings_persist.c"
 
 /* The template (SAVE > PROJECT, SLOT TMPL): the music without its patterns: the globals, each track's sound
- * (engine, preset, parameters, FM6 patch) and the selected track. SAVE there keeps it, LOAD makes a new project
+ * (engine, preset, parameters, FM6 patch and function settings) and the selected track. SAVE there keeps it, LOAD makes a new project
  * from it (every pattern empty, LEN / DIV / SWG / GATE their defaults, no name, SLOT on a free slot), and power-on
  * loads it when BOOT is OFF or its slot empty. No flash sector is free: it follows the settings in their record
  * (set_rec, its size and magic last). P_COUNT, G_COUNT or FM6_PACKED changing changes it (the assert): convert. */
-#define TMPL_MAGIC 0x354C5054u                    /* "TPL5" (Melodee's before 1.0 had "TMP1" / "TMP2": not read) */
+#define TMPL_MAGIC 0x364C5054u                    /* "TPL6" (Melodee's before 1.0 had "TMP1" / "TMP2": not read) */
+#define TMPL_MAGIC5 0x354C5054u                   /* "TPL5": without the function settings (tmpl_take) */
+#define TMPL_SIZE5 1320u
 typedef struct {
     int16_t g[G_COUNT];
     uint8_t sel, rsv;                             /* (G_COUNT odd: the tracks start on a word) */
     struct { uint8_t engine, preset; int16_t p[P_COUNT]; } t[NTRK];
     uint8_t fm6[NTRK][FM6_PACKED];
+    uint8_t fm6_fn[NTRK][FM6_NFN];                /* (TPL6) */
     uint32_t size, magic;                         /* last: the record's end */
 } tmpl_t;
-_Static_assert(sizeof(tmpl_t) == 2u * G_COUNT + 2u + NTRK * (2u + 2u * P_COUNT) + NTRK * FM6_PACKED + 8u &&
-               sizeof(tmpl_t) == 1320u, "template layout (P_COUNT, G_COUNT, FM6_PACKED: a conversion)");
+_Static_assert(sizeof(tmpl_t) == 2u * G_COUNT + 2u + NTRK * (2u + 2u * P_COUNT) + NTRK * (FM6_PACKED + FM6_NFN) + 8u &&
+               sizeof(tmpl_t) == TMPL_SIZE5 + NTRK * FM6_NFN,
+               "template layout (P_COUNT, G_COUNT, FM6_PACKED: a conversion)");
 static tmpl_t tmpl __attribute__((section(".pool")));
 static struct { persist_t p; tmpl_t t; } set_rec __attribute__((section(".pool")));   /* the settings record */
 _Static_assert(sizeof set_rec == sizeof(persist_t) + sizeof(tmpl_t), "the template follows the settings");
 static uint8_t tmpl_dirty;                        /* saved in RAM, not yet in flash (settings_poll) */
 
 static int template_used(void) { return tmpl.magic == TMPL_MAGIC && tmpl.size == sizeof tmpl; }
+
+/* a stored template of len bytes -> tmpl: TPL6, or TPL5 (the function settings Dexed's); 0 = none (tmpl cleared) */
+static int tmpl_take(const uint8_t *b, uint32_t len)
+{
+    uint32_t sz, mg, k;
+    memset(&tmpl, 0, sizeof tmpl);
+    if (len < 8u)
+        return 0;
+    memcpy(&sz, b + len - 8u, 4);
+    memcpy(&mg, b + len - 4u, 4);
+    if (len == sizeof tmpl && sz == len && mg == TMPL_MAGIC) {
+        memcpy(&tmpl, b, sizeof tmpl);
+        for (k = 0; k < NTRK; k++)
+            if (!fm6_fn_ok(tmpl.fm6_fn[k]))
+                memcpy(tmpl.fm6_fn[k], FM6_FNDEF, FM6_NFN);
+        return 1;
+    }
+    if (len == TMPL_SIZE5 && sz == len && mg == TMPL_MAGIC5) {
+        memcpy(&tmpl, b, TMPL_SIZE5 - 8u);
+        for (k = 0; k < NTRK; k++)
+            memcpy(tmpl.fm6_fn[k], FM6_FNDEF, FM6_NFN);
+        tmpl.size = sizeof tmpl;
+        tmpl.magic = TMPL_MAGIC;
+        return 1;
+    }
+    return 0;
+}
 
 /* CLK TUNE MIDI ROUT: the device keeps them as last used (settings ext.glo), not only the projects */
 static const uint8_t GLO_KEPT[4] = {G_CLOCK, G_TUNE, G_MIDI, G_ROUTE};
@@ -935,6 +979,7 @@ static void template_save(void)
         for (i = 0; i < P_COUNT; i++)
             tmpl.t[k].p[i] = motion_base_value(&trk[k], i);
         fm6_pack(fm6_patch[k], tmpl.fm6[k]);
+        memcpy(tmpl.fm6_fn[k], fm6_fn[k], FM6_NFN);
     }
     tmpl.size = sizeof tmpl;
     tmpl.magic = TMPL_MAGIC;
@@ -985,7 +1030,9 @@ static void template_load(void)
         for (i = 0; i < 4u; i++)                      /* LEN DIV SWG GATE: as a new track's */
             p->t[k].p[P_SLEN + i] = TP[P_SLEN + i].def;
         memcpy(p->fm6[k], tmpl.fm6[k], FM6_PACKED);
+        memcpy(p->fm6_fn[k], tmpl.fm6_fn[k], FM6_NFN);
     }
+    p->fm6_fn_ok = 1;
     p->sum = proj_sum(p);
     if (project_restore_runtime(p))
         return;
@@ -1051,10 +1098,9 @@ static void persist_boot(void)                    /* before settings_init / pane
     }
     {   /* the settings, then a template if one follows them */
         int n = st_load(OBJ_SETTINGS, &set_rec, sizeof set_rec), ns = n;
-        if (n == (int)sizeof set_rec && set_rec.t.magic == TMPL_MAGIC && set_rec.t.size == sizeof set_rec.t) {
-            tmpl = set_rec.t;
-            ns = (int)sizeof set_rec.p;
-        }
+        if (n > (int)sizeof set_rec.p &&
+            tmpl_take((const uint8_t *)&set_rec + sizeof set_rec.p, (uint32_t)n - sizeof set_rec.p))
+            ns = (int)sizeof set_rec.p;               /* (a TPL5 one: its next save writes TPL6) */
         memset(&p, 0, sizeof p);
         if (ns > 0)
             memcpy(&p, &set_rec.p, (uint32_t)ns < sizeof p ? (uint32_t)ns : sizeof p);

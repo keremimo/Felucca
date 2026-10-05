@@ -855,7 +855,7 @@ static uint32_t graph_signature(void)
         h ^= fm6_pgen[song.sel % NTRK] * 2654435761u + fm6_on[song.sel % NTRK] * 40503u + fm6_opsel * 131u +
              fm6_bslot * 7919u + fm6_bank_gen * 104729u;
         for (i = 0; i < FM6_NFN; i++)
-            h = (h ^ fm6_fn[i]) * 16777619u;
+            h = (h ^ fm6_fn[song.sel % NTRK][i]) * 16777619u;
     }
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;

@@ -419,8 +419,12 @@ track and bank, while the ON switch remains track-wide. WATCH sends RELOAD when 
 Projects and runtime backups are FBK9 (`46 42 4B 39` in byte order, size 20224). Header words are magic
 0x394B4246 and size; a complete 3584-byte FUN8 record follows at byte 8. Byte 3592 holds four active bank
 IDs. Seven other banks per track follow, with the same nine-byte packed steps as FUN8. Then come 32 sets
-of four int16 timing values, 16 × four SONG bank assignments, and 64 motion bank tags. Remaining bytes are
-reserved; the final uint32 is FNV-1a over every preceding byte. The inner motion record's reserved byte 0
+of four int16 timing values, 16 × four SONG bank assignments, and 64 motion bank tags. Then (byte 20108) the
+tracks' FM6 function settings: `46 4E 36 31` ("FN61") and 4 × 16 bytes, track 1 first, in the order of the
+device's FM BEND / PORTA / WH/FT / BR/AT pages (bend up, bend down, step, portamento mode, time, glissando, wheel
+range, target, foot, breath and aftertouch the same, Dexed velocity, ENGINE 0 MODERN 1 MARK I 2 OPL); all zero in a
+record saved before them: Dexed's defaults. Remaining bytes are reserved; the final uint32 is FNV-1a over every
+preceding byte. The inner motion record's reserved byte 0
 is 1 when bank tags accompany it. Duplicate (place,param) events are valid on different banks only.
 
 Flash objects 8..11 have two five-sector copies each at 0xA0000..0xC7FFF; CRC-verified payload precedes
@@ -532,7 +536,7 @@ this firmware sends 3. Requests name objects, never flash addresses.
 | 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, USB audio devices, BOOT, CLK TUNE MIDI ROUT, ...), then the template (SAVE > PROJECT, SLOT TMPL) when one is saved; Felucca 1.0's record (PER4, no ext) restores too | the settings record's size: 604, or 1924 with the template |
 | 2..5 | PROJECT slots 1..4 (FUN8) | 3584, or 0 if empty |
 | 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size, or 0 if empty |
-| 8 | the FM6 patch bank (B1..B32) and the FM6 function settings (firmware with FM6 only; Felucca 1.0: B1..B27, 3472) | 3612, or 0 if empty |
+| 8 | the FM6 patch bank (B1..B32; its function settings block is kept but no longer read: those are each track's, in the projects; Felucca 1.0: B1..B27, 3472) | 3612, or 0 if empty |
 | 32..34 | user sample slots 1..3: header (512 bytes) then ADPCM data | 512 + data length, or 0 if empty |
 
 Reading: `BACKUP_LIST` (no arguments) stops the transport, then takes a snapshot of the runtime object and
@@ -604,8 +608,8 @@ FM6, else track n + 1, else the first FM6 track; the notes stop, as a DX7 progra
 B1..B32 (saved; not while the transport runs), a voice parameter change `F0 43 1n gg pp dd F7` edits one byte of
 the patch (pp + 128 gg; 155: the six operator switches, OP1 = bit 5), a function parameter change
 `F0 43 1n 08 pp dd F7` sets the FM6 function settings (64 mono, 65 bend range, 66 step, 68 glissando, 69
-portamento time, 70..77 wheel / foot / breath / aftertouch range and target: one set for every FM6 track, saved
-with the bank), and the dump requests `F0 43 2n 00 F7` / `F0 43 2n 09 F7` answer with the track's voice / the bank.
+portamento time, 70..77 wheel / foot / breath / aftertouch range and target: that track's own, saved with the
+project and the template), and the dump requests `F0 43 2n 00 F7` / `F0 43 2n 09 F7` answer with the track's voice / the bank.
 
 ## Tagged device preferences v1
 

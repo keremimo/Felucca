@@ -10,7 +10,9 @@
 #define BANK_TIMING_OFF (BANK_EXTRA_OFF + NTRK * (NPAT - 1u) * NSTEP * 9u)
 #define BANK_CHAIN_OFF (BANK_TIMING_OFF + NTRK * NPAT * 8u)
 #define BANK_MOTION_OFF (BANK_CHAIN_OFF + CHAIN_ROWS * NTRK)
-_Static_assert(BANK_MOTION_OFF + MOTION_MAX <= BANK_STORE_SIZE - 4u, "bank project extent");
+#define BANK_FN_OFF (BANK_MOTION_OFF + MOTION_MAX)   /* "FN61", then each track's FM6 function settings; 0: Dexed's */
+#define BANK_FN_MAGIC 0x31364E46u
+_Static_assert(BANK_FN_OFF + 4u + NTRK * FM6_NFN <= BANK_STORE_SIZE - 4u, "bank project extent");
 static void bank_checksum(uint8_t *raw)
 {
     uint32_t sum = proj_hash(raw, BANK_STORE_SIZE - 4u);
@@ -58,6 +60,11 @@ static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
         memcpy(raw + BANK_CHAIN_OFF, chain_patterns, sizeof chain_patterns);
         memcpy(raw + BANK_MOTION_OFF, motion_pattern, sizeof motion_pattern);
     }
+    if (q->fm6_fn_ok) {
+        uint32_t m = BANK_FN_MAGIC;
+        memcpy(raw + BANK_FN_OFF, &m, 4);
+        memcpy(raw + BANK_FN_OFF + 4u, q->fm6_fn, sizeof q->fm6_fn);
+    }
     motion_unguard(f);
     bank_checksum(raw);
     return 1;
@@ -98,6 +105,19 @@ static int bank_valid(const uint8_t *raw, uint32_t len)
             (e->param >= P_E0 || (e->param >= P_FM1_ATK && e->param <= P_FM4_LEVEL))) continue;
 #endif
         bank_import_tags[n++] = raw[BANK_MOTION_OFF + i];
+    }
+    {   /* the FM6 function settings (an FBK9 record of before: none, Dexed's) */
+        uint32_t m, k;
+        memcpy(&m, raw + BANK_FN_OFF, 4);
+        if (m == BANK_FN_MAGIC) {
+            const uint8_t *f = raw + BANK_FN_OFF + 4u;
+            for (k = 0; k < NTRK; k++)
+                if (!fm6_fn_ok(f + k * FM6_NFN))
+                    return 0;
+            memcpy(proj_scratch.fm6_fn, f, sizeof proj_scratch.fm6_fn);
+            proj_scratch.fm6_fn_ok = 1;
+            proj_scratch.sum = proj_sum(&proj_scratch);
+        }
     }
     proj_fm4(&proj_scratch);
     return 1;

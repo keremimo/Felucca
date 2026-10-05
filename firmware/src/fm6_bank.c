@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
-/* The FM6 patch bank (eng_fm6.c PTCH B1..B32, a DX7 cartridge) and the FM6 function settings (fm6_core.c fm6_fn):
- * 32 packed 128-byte patches, each 7-bit packed into 112 bytes (eight 7-bit bytes ride in seven), in one storage.c
+/* The FM6 patch bank (eng_fm6.c PTCH B1..B32, a DX7 cartridge): 32 packed 128-byte patches, each 7-bit packed into 112 bytes (eight 7-bit bytes ride in seven), in one storage.c
  * object (OBJ_FM6BANK, A/B: 0x9F000 / 0xFE000), mirrored in RAM (the pool) so a PTCH turn never reads flash. The
  * web editor writes it (EDITOR_PROTOCOL.md FM6_PUT / FM6_ERASE), so do a DX7 bank dump and STORE (fm6_store.c);
  * a full backup carries it (id 8). An empty slot plays the init voice. The banks of earlier firmware load: Felucca
@@ -15,7 +14,8 @@ typedef struct {
     uint32_t magic;
     uint16_t ver, nslot;                         /* FM6_BANK_VER, FM6_BANK_N */
     uint32_t used;                               /* bit k: slot k holds a patch */
-    uint8_t fn[FM6_NFN];                         /* the function settings */
+    uint8_t fn[FM6_NFN];                         /* inert: the function settings, which are the tracks' now (kept
+                                                  * as stored; a new bank: Dexed's) */
     uint8_t pk[FM6_BANK_N][FM6_BANK_PK];
 } fm6_bank_t;
 _Static_assert(sizeof(fm6_bank_t) == 3612u && sizeof(fm6_bank_t) <= 3840u, "FM6 bank layout (a backup object)");
@@ -73,12 +73,11 @@ static void fm6_bank_empty(void)
     memcpy(fm6_bank.fn, FM6_FNDEF, FM6_NFN);
 }
 
-/* the mirror after a load of n bytes (-1: none): a valid bank (its function settings in effect), else empty */
+/* the mirror after a load of n bytes (-1: none): a valid bank, else empty */
 static void fm6_bank_check(int n)
 {
     if (n != (int)sizeof fm6_bank || !fm6_bank_valid(&fm6_bank))
         fm6_bank_empty();
-    memcpy(fm6_fn, fm6_bank.fn, FM6_NFN);
     fm6_bank_read = fm6_bank_get;
     fm6_bank_gen++;
 }
@@ -112,9 +111,8 @@ static int fm6_bank_import(const uint8_t *b, int n)
     return 1;
 }
 
-static int fm6_bank_save(void)                   /* the mirror (and fm6_fn) to flash: 0 saved, else RAM only */
+static int fm6_bank_save(void)                   /* the mirror to flash: 0 saved, else RAM only */
 {
-    memcpy(fm6_bank.fn, fm6_fn, FM6_NFN);
 #if MELODEE_FLASH
     return flash_ok && !st_save(OBJ_FM6BANK, &fm6_bank, sizeof fm6_bank) ? 0 : -1;
 #else

@@ -26,7 +26,8 @@ enum {
     FP_LPMS, FP_TRNSP, FP_NAME, FP_SIZE = 155
 };
 
-/* the FM6 function settings (a DX7's function mode; one set for every FM6 track, kept with the patch bank):
+/* the FM6 function settings (a DX7's function mode; each track its own, as each Dexed instance has, saved with the
+ * project and the template; project.c):
  * pitch bend range up / down and step (0 = smooth), portamento (PEDAL: while CC 65 is down, ON) and its time
  * (CC 5 sets it) and glissando, then wheel, foot, breath and aftertouch: range and target (bit 0 pitch, 1
  * amplitude, 2 EG bias), Dexed's velocity scaling to the DX7's range, and ENGINE */
@@ -35,12 +36,25 @@ enum { FN_PBUP, FN_PBDN, FN_PBSTEP, FN_PMODE, FN_PTIME, FN_GLISS, FN_MWR, FN_MWA
 enum { FM6_MODERN, FM6_MARK1, FM6_OPL };
 static const uint8_t FM6_FNMAX[FM6_NFN] = {12, 12, 12, 1, 127, 1, 99, 7, 99, 7, 99, 7, 99, 7, 1, 2};
 static const uint8_t FM6_FNDEF[FM6_NFN] = {3, 3, 0, 0, 0, 0, 99, 1, 0, 0, 0, 0, 0, 0, 0, FM6_MARK1};   /* Dexed's */
-static uint8_t fm6_fn[FM6_NFN];                          /* (fm6_fn_reset at power-on; fm6_bank.c keeps them) */
-static void fm6_fn_reset(void) { memcpy(fm6_fn, FM6_FNDEF, sizeof fm6_fn); }
-static void fm6_fn_set(uint32_t k, int32_t v)
+static uint8_t fm6_fn[NTRK][FM6_NFN];                    /* per track (fm6_fn_reset at power-on, a new project) */
+static void fm6_fn_reset(void)
 {
-    if (k < FM6_NFN)
-        fm6_fn[k] = (uint8_t)clamp(v, 0, FM6_FNMAX[k]);
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        memcpy(fm6_fn[k], FM6_FNDEF, FM6_NFN);
+}
+static void fm6_fn_set(uint32_t tr, uint32_t k, int32_t v)
+{
+    if (tr < NTRK && k < FM6_NFN)
+        fm6_fn[tr][k] = (uint8_t)clamp(v, 0, FM6_FNMAX[k]);
+}
+static int fm6_fn_ok(const uint8_t *f)                    /* a stored set: every value in its range */
+{
+    uint32_t k;
+    for (k = 0; k < FM6_NFN; k++)
+        if (f[k] > FM6_FNMAX[k])
+            return 0;
+    return 1;
 }
 
 /* ---------------------------------------------------------- DX7 data --- */

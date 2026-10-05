@@ -2329,6 +2329,7 @@ static int test_boot_template(void)
     param_format(&GP[G_SLOT], song.g[G_SLOT], v, &u);
     bad += check("KNOB 1 past D: SLOT TMPL", song.g[G_SLOT] == PROJ_TMPL && str_eq(v, "TMPL"));
     trk[1].p[P_LEVEL] = 77;
+    fm6_fn[1][FN_PBUP] = 7;                              /* (track 2's FM6 bend range: kept too) */
     set_engine_of(&trk[2], ENGI_DRUM);
     trk[2].p[P_E0] = 4;                                  /* (KIT 808) */
     turn(EN_K4, 1);
@@ -2338,12 +2339,13 @@ static int test_boot_template(void)
     press(B_EDIT);
     bad += check("  EDIT there: no NAME (the template has no name)", !name_on());
     trk[1].p[P_LEVEL] = 20;
+    fm6_fn[1][FN_PBUP] = 2;
     set_engine_of(&trk[2], 0);
     trk[0].step[3].time = ST_NOTE; trk[0].step[3].n = 1; trk[0].step[3].note[0] = 60;
     project_save(0);                                     /* (A used: the template's project goes to B) */
     turn(EN_K3, 1);
     press(B_OCTUP);
-    ok = trk[1].p[P_LEVEL] == 77 && trk[2].eng_req == ENGI_DRUM && trk[2].p[P_E0] == 4;
+    ok = trk[1].p[P_LEVEL] == 77 && trk[2].eng_req == ENGI_DRUM && trk[2].p[P_E0] == 4 && fm6_fn[1][FN_PBUP] == 7u;
     for (i = 0; i < NTRK; i++)
         ok &= seq_is_empty(&trk[i]);
     bad += check("LOAD on TMPL: its sounds, every pattern empty, SLOT on a free slot (B)", ok &&
@@ -2386,8 +2388,8 @@ static int test_boot_template(void)
 }
 
 /* FM6's pages (params.c fm6_page_desc / fm6_page_put): the PRESETS knob picks the operator of the operator pages, a
- * knob edits that operator in the track's patch, ON switches it (fm6_on), the function settings are global and saved
- * later (fm6_fn_dirty); STORE writes the patch into bank slot KNOB 1 and PTCH follows it, not while playing; INIT */
+ * knob edits that operator in the track's patch, ON switches it (fm6_on), the function settings are the track's and
+ * go with the project; STORE writes the patch into bank slot KNOB 1 and PTCH follows it, not while playing; INIT */
 static int test_fm6_pages(void)
 {
     int bad = 0;
@@ -2413,11 +2415,25 @@ static int test_fm6_pages(void)
     turn(EN_K4, 1);
     bad += check("  .. and on again", (fm6_on[tr] & FM6_ON_ALL) == FM6_ON_ALL);
     go_title("FM PORTA");
-    fm6_fn_dirty = 0;
-    fm6_fn[FN_ENGINE] = FM6_MARK1;
+    fm6_fn_reset();
     turn(EN_K4, 1);
-    bad += check("FM PORTA ENGINE: global, to be saved", fm6_fn[FN_ENGINE] == FM6_MARK1 + 1u && fm6_fn_dirty);
-    fm6_fn[FN_ENGINE] = FM6_MARK1;
+    turn(EN_K2, 9);                                      /* TIME */
+    bad += check("FM PORTA ENGINE, TIME: the track's own (another FM6 track keeps Dexed's)",
+                 fm6_fn[tr][FN_ENGINE] == FM6_MARK1 + 1u && fm6_fn[tr][FN_PTIME] == 9u &&
+                 fm6_fn[(tr + 1u) % NTRK][FN_ENGINE] == FM6_MARK1 && !fm6_fn[(tr + 1u) % NTRK][FN_PTIME]);
+    project_save(3);
+    fm6_fn_reset();
+    project_load(3);
+    bad += check("  saved with the project, back with it", fm6_fn[tr][FN_ENGINE] == FM6_MARK1 + 1u &&
+                 fm6_fn[tr][FN_PTIME] == 9u);
+    {   /* a project saved before (no function settings in its record): Dexed's */
+        uint8_t *raw = proj_bank_slot[3];
+        memset(raw + BANK_FN_OFF, 0, 4u + NTRK * FM6_NFN);
+        bank_checksum(raw);
+        project_load(3);
+        bad += check("  a project of before: Dexed's", fm6_fn[tr][FN_ENGINE] == FM6_MARK1 && !fm6_fn[tr][FN_PTIME]);
+    }
+    fm6_fn_reset();
     go_title("STORE");
     turn(EN_K1, 4);
     turn(EN_K2, 1);

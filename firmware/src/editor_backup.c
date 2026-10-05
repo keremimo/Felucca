@@ -128,10 +128,15 @@ static uint32_t ed_bk_commit(void)
         return 0;
     } else if (ed_bk_id == 1u) {
         const persist_t *p = (const persist_t *)raw;         /* (PER4: Felucca 1.0's, without ext) */
-        const tmpl_t *t = (const tmpl_t *)(raw + sizeof *p);  /* a template after the settings */
-        if (!(ed_bk_len == sizeof *p || ed_bk_len == sizeof *p + sizeof *t ?
+        const uint8_t *t = raw + sizeof *p;                  /* a template after the settings (TPL6, TPL5) */
+        uint32_t tl = ed_bk_len - sizeof *p, tm = 0, ts = 0;
+        if (ed_bk_len >= sizeof *p + 8u) {
+            memcpy(&ts, t + tl - 8u, 4);
+            memcpy(&tm, t + tl - 4u, 4);
+        }
+        if (!(ed_bk_len == sizeof *p || ed_bk_len == sizeof ed_bk_set || ed_bk_len == sizeof *p + TMPL_SIZE5 ?
               p->magic == PERSIST_MAGIC && p->ext.usb_off <= 3u && p->ext.boot <= 4u &&
-              (ed_bk_len == sizeof *p || (t->magic == TMPL_MAGIC && t->size == sizeof *t)) :
+              (ed_bk_len == sizeof *p || (ts == tl && tm == (tl == TMPL_SIZE5 ? TMPL_MAGIC5 : TMPL_MAGIC))) :
               ed_bk_len == PERSIST_LEN4 && p->magic == PERSIST_MAGIC4) || !palette_stored_ok(p->palette) ||
             p->lowcut > 2u || p->zoom > 1u || !hold_stored_ok(p->bold) || p->favorites.filter > 1u || !ed_bk_panel_valid(&p->panel)) return 2;
         obj = OBJ_SETTINGS;
@@ -151,11 +156,12 @@ static uint32_t ed_bk_commit(void)
     (void)obj;
 #endif
     if (ed_bk_id == 1u) {
-        uint32_t ns = ed_bk_len == sizeof ed_bk_set ? sizeof ed_bk_set.p : ed_bk_len;
+        uint32_t ns = ed_bk_len > sizeof ed_bk_set.p ? sizeof ed_bk_set.p : ed_bk_len;
         memset(&ed_bk_set, 0, sizeof ed_bk_set);
-        memcpy(&ed_bk_set, raw, ed_bk_len);
+        memcpy(&ed_bk_set.p, raw, ns);
         settings_import(&ed_bk_set.p, (int)ns);         /* (a PER4 one becomes PER5) */
-        tmpl = ed_bk_set.t;                             /* (none in the backup: none now) */
+        tmpl_take(raw + ns, ed_bk_len - ns);            /* (none in the backup: none now; TPL5: converted) */
+        ed_bk_set.t = tmpl;
         tmpl_dirty = 0;
         panel_init(); settings_init(); palette_set(settings.palette);
 #if MELODEE_FLASH
@@ -184,7 +190,8 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
         if (len > ED_BK_MAX || (a[1] == 0u && len != BANK_STORE_SIZE && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
-            (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set) ||
+            (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set &&
+             len != sizeof(persist_t) + TMPL_SIZE5) ||
             (a[1] >= 2u && a[1] <= 5u && len && len != BANK_STORE_SIZE && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t)) ||
             (a[1] == 8u && len && len != sizeof(fm6_bank_t))) return 1;
