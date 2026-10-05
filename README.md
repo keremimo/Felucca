@@ -3,7 +3,7 @@
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 
 **TL;DR:** connect your FM-1 to a computer by USB, open the
-[web installer](https://keremimo.github.io/Melodee/) in Chrome or Edge, and press Install.
+[web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
 No extra hardware is needed. Beta: use at your own risk; M-VAVE's own updater takes you back
 to the official firmware.
 
@@ -103,8 +103,8 @@ millisecond and sighs as it decays, and velocity is the accent (louder hits are 
 the drum track: bass drum TONE, DECAY and TUNE, snare TONE and SNAPPY, tom / conga tuning, open hi-hat and
 cymbal DECAY (0 is the stock setting).
 
-- Install: [web installer](https://keremimo.github.io/Melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
-- Editor: [web editor](https://keremimo.github.io/Melodee/webapp/editor/)
+- Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
+- Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
 
 ## FM6
@@ -322,7 +322,7 @@ IN is enabled by default (`MELODEE_UART=1`).
 
 ## Support
 
-Melodee lives at <https://github.com/keremimo/Melodee>: bug reports, ideas and pull requests are
+Melodee lives at <https://github.com/keremimo/melodee>: bug reports, ideas and pull requests are
 welcome there.
 
 Felucca, which Melodee is built on, is Leo Kuroshita's work. If Melodee is useful to you, consider

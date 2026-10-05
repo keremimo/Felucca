@@ -201,7 +201,7 @@ does the same for the cost files.
 ## Install
 
 Use the web installer in Chrome or Edge:
-<https://keremimo.github.io/Melodee/webapp/installer/>. It installs the released package.
+<https://keremimo.github.io/melodee/webapp/installer/>. It installs the released package.
 
 From the command line (needs `pip3 install mido python-rtmidi`):
 
