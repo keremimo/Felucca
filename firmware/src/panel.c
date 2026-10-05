@@ -68,7 +68,7 @@ struct {
     uint32_t boot;                             /* project slot + 1 loaded at power-on, 0 = none (SAVE > PROJECT) */
 } settings __attribute__((section(".noinit")));
 
-static void settings_save(void);              /* project.c: flash copy (MELODEE_FLASH) */
+static int settings_save(void);               /* project.c: flash copy (MELODEE_FLASH), 0 = ok */
 
 static void settings_init(void)
 {

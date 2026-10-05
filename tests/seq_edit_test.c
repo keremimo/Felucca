@@ -1178,6 +1178,98 @@ static void boot_project_test(void)
     puts("boot project: BOOT knob, power-on load, failed boot skips it; factory presets leave the steps");
 }
 
+static void knob_frame(uint32_t k, int32_t steps)  /* one frame with knob k (0..3) turned */
+{
+    encoders[panel.enc[EN_K1 + k]] = steps;
+    fm1_ms += 20;
+    ui_input();
+}
+
+/* SAVE > PROJECT, SLOT TMPL: SAVE (two detents) keeps the sounds, the mix and the globals, no pattern;
+ * LOAD, or power-on with BOOT OFF or an empty BOOT slot, starts a new project from it, SLOT on a free
+ * project slot. The RAM project (proj_buf) is not touched. */
+static void template_test(void)
+{
+    track_t *t;
+    uint32_t i, k;
+    reset(16);
+    t = TSEL;
+    memset(&tmpl, 0, sizeof tmpl);
+    settings.boot = 0;
+    ui.page = (uint8_t)page_named("PROJECT");
+    page_entered();
+    for (i = 0; i < 6u; i++)                        /* SLOT past 4: the template */
+        knob_frame(0, 1);
+    ui.force = 1;
+    ui_draw();
+    assert(song.g[G_SLOT] == PROJ_TMPL && !strcmp(ui.focus_l, "SLOT") && !strcmp(ui.focus_v, "TMPL"));
+    knob_frame(1, -1);                              /* BOOT OFF, no template yet */
+    ui.force = 1;
+    ui_draw();
+    assert(!strcmp(ui.focus_v, "OFF"));
+
+    set_engine(1);                                  /* a sound, a mix, a tempo, and patterns */
+    apply_preset(2);
+    t->p[P_LEVEL] = 77;
+    song.g[G_BPM] = 133;
+    t->p[P_SLEN] = 8;
+    note(0);
+    pat_bank[song.sel][3].step[5].n = 1;
+    pat_bank[song.sel][3].set[0] = 12;
+    knob_frame(3, 1);
+    assert(!template_used() && !strcmp(ui.msg, "AGAIN: SAVE AS TEMPLATE"));
+    knob_frame(3, 1);
+    assert(template_used() && !strcmp(ui.msg, "TEMPLATE (RAM)"));
+    assert(tmpl.t[song.sel].engine == 1 && tmpl.t[song.sel].preset == 2 && tmpl.t[song.sel].p[P_LEVEL] == 77 &&
+           tmpl.g[G_BPM] == 133 && tmpl.t[song.sel].p[P_SLEN] == TP[P_SLEN].def);
+    ui.force = 1;
+    knob_frame(1, -1);                              /* BOOT OFF now reads TMPL */
+    ui_draw();
+    assert(!strcmp(ui.focus_v, "TMPL"));
+
+    set_engine(0);                                  /* something else, then LOAD the template */
+    song.g[G_BPM] = 90;
+    note(3);
+    knob_frame(2, 1);
+    assert(!strcmp(ui.msg, "AGAIN: LOAD TEMPLATE"));
+    knob_frame(2, 1);
+    assert(!strcmp(ui.msg, "TEMPLATE LOADED"));
+    assert(t->eng_req == 1 && t->preset == 2 && t->p[P_LEVEL] == 77 && song.g[G_BPM] == 133 &&
+           t->p[P_SLEN] == TP[P_SLEN].def && t->pat == 0);
+    for (k = 0; k < NTRK; k++) {                    /* not one step anywhere */
+        assert(seq_is_empty(&trk[k]));
+        for (i = 0; i < NPAT; i++)
+            assert(!pat_used(&trk[k], i) && !pat_bank[k][i].set[0]);
+    }
+    assert(song.g[G_SLOT] != PROJ_TMPL && !project_used((uint32_t)song.g[G_SLOT] - 1u));   /* a free slot */
+
+    note(0);                                        /* project 2 (RAM: proj_buf) survives the template */
+    project_save(1);
+    template_save();
+    template_load();
+    assert(seq_is_empty(t) && song.g[G_SLOT] == 1);
+    project_load(1);
+    assert(t->step[0].n && !strcmp(ui.msg, "LOADED"));
+
+    set_engine(0);                                  /* power-on with BOOT OFF: the template */
+    project_boot();
+    assert(t->eng_req == 1 && seq_is_empty(t) && song.g[G_SLOT] == 1 && !strcmp(ui.msg, "TEMPLATE LOADED"));
+    set_engine(0);
+    bootguard.failed = 1;                           /* after a failed start: the default sounds */
+    project_boot();
+    assert(t->eng_req == 0 && !strcmp(ui.msg, "TEMPLATE SKIPPED"));
+    bootguard.failed = 0;
+    settings.boot = 4;                              /* BOOT on an empty slot: the template, SLOT there */
+    project_boot();
+    assert(t->eng_req == 1 && song.g[G_SLOT] == 4);
+    settings.boot = 2;                              /* BOOT on a project: that project */
+    project_boot();
+    assert(t->step[0].n && song.g[G_SLOT] == 2 && !strcmp(ui.msg, "PROJECT 2"));
+    settings.boot = 0;
+    memset(&tmpl, 0, sizeof tmpl);
+    puts("template: SLOT TMPL saves without patterns, LOAD and power-on start from it, SLOT on a free slot");
+}
+
 int main(int argc, char **argv)
 {
     lengths_test();
@@ -1196,6 +1288,7 @@ int main(int argc, char **argv)
     loop_redraw_test();
     playing_key_lights_test();
     boot_project_test();
+    template_test();
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;
 }

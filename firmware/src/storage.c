@@ -17,7 +17,7 @@
 #define ST_PAYLOAD_MAX (ST_SECTOR - ST_PAYLOAD_OFF)   /* of a one-sector object */
 #define ST_PROJ_SPAN 5u                        /* sectors in a copy of a project (four tracks of patterns) */
 
-/* flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..): settings 0xFC000, the user sample slot
+/* flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..): settings (and the project template) 0xFC000, the user sample slot
  * 0xA0000..0xB3FFF (eng_sample.c), projects 0xB4000..0xDBFFF (where sample slots 2 and 3 were),
  * user preset banks 0xDC000..0xDFFFF (upreset.c), the FM6 user bank in 0x9F000 and 0xFE000
  * (fm6_store.c). 0x97000..0x9EFFF: the one-sector projects of formats 1..5 (OBJ_LEGACY0), read

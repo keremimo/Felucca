@@ -589,7 +589,7 @@ static uint32_t graph_signature(void)
     if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)project_used(i) << (20u + i);
-        h ^= settings.boot * 2654435761u;
+        h ^= settings.boot * 2654435761u + (uint32_t)template_used() * 40503u;
     }
     if (pg->graph == GR_STEPS) {
         for (i = 0; i < NTRK; i++)
@@ -651,22 +651,21 @@ static void graph_user(void)
     }
 }
 
-/* project slots: used / empty, the selected one in white, BOOT by the one power-on loads */
+/* project slots 1..4 and the template (T): used / empty, the selected one in white, BOOT by what
+ * power-on loads (BOOT OFF or an empty BOOT slot: the template, when there is one) */
 static void graph_slots(void)
 {
     uint32_t i;
-    for (i = 0; i < 4u; i++) {
-        int32_t y = 8 + (int32_t)i * 26;
-        char b[4];
-        int sel = (int32_t)i + 1 == song.g[G_SLOT];
-        b[0] = (char)('1' + i);
-        b[1] = 0;
+    for (i = 0; i < PROJ_TMPL; i++) {
+        int32_t y = 6 + (int32_t)i * 24;
+        char b[2] = {(char)(i + 1u < PROJ_TMPL ? '1' + i : 'T'), 0};
+        int sel = (int32_t)i + 1 == song.g[G_SLOT], tm = i + 1u == PROJ_TMPL, used = tm ? template_used() : project_used(i);
         if (sel)
             cv_rect(4, y + 6, 3, 3, C_WHITE);
         cv_text(14, y, &FONT_S, b, sel ? C_WHITE : C_GRAY);
-        cv_text(40, y, &FONT_S, project_used(i) ? "USED" : "EMPTY", project_used(i) ? (sel ? C_WHITE : C_HI) : C_DIM);
-        if (i + 1u == settings.boot)
-            cv_text(110, y, &FONT_S, "BOOT", control_color(1));
+        cv_text(40, y, &FONT_S, !used ? "EMPTY" : tm ? "TEMPLATE" : "USED", used ? (sel ? C_WHITE : C_HI) : C_DIM);
+        if (used && (tm ? !settings.boot || !project_used(settings.boot - 1u) : i + 1u == settings.boot))
+            cv_text(112, y, &FONT_S, "BOOT", control_color(1));
     }
 }
 
@@ -1585,7 +1584,7 @@ static void draw_columns(void)
 #endif
         if (cur_page()->id[c] == G_BOOT && cur_page()->scope == SC_GLOBAL) {
             char b[2] = {(char)('0' + settings.boot), 0};
-            draw_column(c, "BOOT", settings.boot ? b : "OFF", "", VAL(c), -1, ICON_AUTO);
+            draw_column(c, "BOOT", settings.boot ? b : template_used() ? "TMPL" : "OFF", "", VAL(c), -1, ICON_AUTO);
             continue;
         }
         if (cur_page()->id[c] == G_INFO && cur_page()->scope == SC_GLOBAL) {
@@ -1593,6 +1592,8 @@ static void draw_columns(void)
             unit = "%";
         } else {
             param_format(d, *vp, val, &unit);
+            if (cur_page()->id[c] == G_SLOT && cur_page()->scope == SC_GLOBAL && *vp == PROJ_TMPL)
+                str_cpy(val, "TMPL", sizeof val);
         }
         draw_column(c, d->label, val, unit, VAL(c), d->fmt == F_ENUM && d->max < 2 ? -1 : RATIO(d, *vp),
                     param_icon(d, *vp));

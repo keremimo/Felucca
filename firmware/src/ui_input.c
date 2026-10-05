@@ -469,7 +469,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         *vp = 0;
         ui.arm = (uint8_t)id;
         ui.arm_t = 90;
-        ui_say("AGAIN: ", d->label);
+        ui_say("AGAIN: ", (id == G_LOAD || id == G_SAVE) && song.g[G_SLOT] == PROJ_TMPL
+                              ? (id == G_LOAD ? "LOAD TEMPLATE" : "SAVE AS TEMPLATE") : d->label);
         return;
     }
     ui.arm = 0;
@@ -478,11 +479,17 @@ static void edit_param(uint32_t slot, int32_t steps)
     switch (id) {                                         /* GO buttons: act, then back to 0 */
     case G_LOAD:
         *vp = 0;
-        project_load((uint32_t)song.g[G_SLOT] - 1u);
+        if (song.g[G_SLOT] == PROJ_TMPL)
+            template_load();                              /* a new project: the template's sounds */
+        else
+            project_load((uint32_t)song.g[G_SLOT] - 1u);
         break;
     case G_SAVE:
         *vp = 0;
-        project_save((uint32_t)song.g[G_SLOT] - 1u);
+        if (song.g[G_SLOT] == PROJ_TMPL)
+            template_save();                              /* save as template: everything but the patterns */
+        else
+            project_save((uint32_t)song.g[G_SLOT] - 1u);
         break;
     case G_CLRSEQ:
         *vp = 0;

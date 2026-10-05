@@ -9,6 +9,9 @@ static void project_save(uint32_t slot);
 static void panel_setup(void);
 static void project_load(uint32_t slot);
 static int project_used(uint32_t slot);
+static void template_save(void);             /* the template (SLOT TMPL): project.c */
+static void template_load(void);
+static int template_used(void);
 static int up_used(uint32_t k);              /* user presets: upreset.c */
 static int up_load(uint32_t k);
 static uint32_t up_count(void);

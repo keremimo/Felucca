@@ -162,7 +162,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_USBOUT] = PE("OUT", N_DASH, 0),              /* device settings, not song.g: ui_input.c, ui_draw.c */
     [G_USBIN] = PE("IN", N_DASH, 0),
     [G_INFO] = PD("CPU", F_INT, 0, 0, 0),
-    [G_SLOT] = PD("SLOT", F_INT, 1, 4, 1),
+    [G_SLOT] = PD("SLOT", F_INT, 1, PROJ_TMPL, 1),   /* 5 = the template: ui_draw.c shows TMPL */
     [G_BOOT] = PE("BOOT", N_DASH, 0),               /* device setting (settings.boot), not song.g: as OUT / IN */
     [G_LOAD] = PE("LOAD", N_GO, 0),
     [G_SAVE] = PE("SAVE", N_GO, 0),

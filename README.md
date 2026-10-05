@@ -28,8 +28,8 @@ to Felucca. The installer also finds an FM-1 that still runs Felucca.
   patterns at the end of its loop
 - **Arpeggiator**, scales and quantize, glide, MONO / LEGATO / UNISON voice modes
 - **Effects:** distortion and the SLICER per track; chorus, delay and reverb sends; master limiter
-- **Presets:** factory presets (sound only: they never touch the sequencer), 32 user preset slots, 4 project slots,
-  one of which can load at power-on
+- **Presets:** factory presets (sound only: they never touch the sequencer), 32 user preset slots, 4 project slots
+  and a template (a project without patterns) for new projects; power-on loads a project or the template
 - **Web editor:** every parameter of every track, step grid, track mixer, preset library, sample upload
 - **USB:** class-compliant MIDI in and out (channels 1–3 for the parts, 10 for drums);
   updates over the same USB cable
@@ -69,9 +69,14 @@ TRACKS for length, pan and the full pattern mixer. Hold HOME for Settings. **SAV
 sound and project library; its next pages are USER, PROJECT and TOOLS.
 
 On **PROJECT**, knob 1 picks the slot, knob 3 loads and knob 4 saves (one detent arms, a second
-within ~1.5 s acts). Knob 2, **BOOT**, picks the project the FM-1 loads at power-on instead of the
-default sounds (OFF: the default sounds with empty patterns); the slot list marks it BOOT, and SLOT
-starts on it so a save goes back there. A start that crashed or hung skips the boot project once.
+within ~1.5 s acts). Past slot 4, knob 1 reaches **TMPL**, the template: SAVE there saves the song
+as a template (every sound and FM6 voice, the mix, tempo, effects and the other globals; no
+patterns, and LEN/DIV/SWING/GATE at their defaults), LOAD starts a new project from it with every
+pattern empty and SLOT on a free project slot. Knob 2, **BOOT**, picks the project the FM-1 loads at
+power-on, SLOT on it so a save goes back there. BOOT OFF (it reads TMPL once a template is saved), or
+a BOOT slot that is empty, starts a new project: from the template, else from the default sounds.
+The slot list marks what power-on loads with BOOT. A start that crashed or hung skips the boot
+project or template once.
 
 The center drawing is the focus of each workspace, with four knob values below it. The STUDIO
 look gives knobs 1–4 the same blue, coral, yellow and green cues on every page. The instrument

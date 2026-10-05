@@ -2,7 +2,8 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Projects: four slots in flash (storage.c OBJ_PROJECT0.., ST_PROJ_SPAN sectors a copy).
  * One project is in RAM at a time (proj_buf); proj_have says which slots hold one. Without
- * the flash (RAM only) proj_buf keeps the last save.
+ * the flash (RAM only) proj_buf keeps the last save. The template (a project without
+ * patterns, SLOT TMPL) is kept in the settings record: tmpl_t below.
  *
  * Formats: 7 ("FUN7", written) adds the FM6 parts' DX7 function settings (pitch bend,
  * portamento, controllers) to format 6; a format 6 project ("FUN6", read in place) gives them
@@ -315,6 +316,7 @@ static int proj_import(project_t *q, const project_old_t *b, int n)
 static project_t proj_buf __attribute__((section(".pool")));   /* the project being saved or loaded */
 static uint8_t proj_have;                      /* bit per slot: it holds a project (project_used) */
 static uint8_t proj_ram;                       /* RAM only: the slot + 1 whose save proj_buf holds */
+static int project_used(uint32_t slot) { return (proj_have >> (slot & 3u)) & 1u; }
 
 /* slot -> proj_buf (an older format converted): 1, or 0 = none */
 static int proj_fetch(uint32_t slot)
@@ -331,6 +333,23 @@ static int proj_fetch(uint32_t slot)
     }
 #endif
     return proj_ram == (slot & 3u) + 1u && proj_ok(&proj_buf);
+}
+
+/* part i's FM6 voice as a project keeps it, edits and all: DX7 packed with its operator switches
+ * (returns 1; 0: not an FM6 part), and its functions (fn[0] < 0: the defaults) */
+static int proj_fm6_take(uint32_t i, uint8_t *fm6, uint8_t *on, int8_t *fn)
+{
+    uint32_t k;
+    memset(fn, 0xFF, 16u);
+    if (fm6_fnok[i])
+        for (k = 0; k < FM6_NFN; k++)
+            fn[k] = (int8_t)fm6_ed[i][FN_PBUP + k];
+    if (ENGINES[trk[i].eng_req % NENGINES] != &ENG_FM6)
+        return 0;
+    fm6_pack(fm6, fm6_ed[i]);
+    for (k = 0; k < 6u; k++)
+        *on |= (uint8_t)(fm6_ed[i][FV_ON + k] ? 1u << k : 0u);
+    return 1;
 }
 
 static void project_save(uint32_t slot)
@@ -356,18 +375,9 @@ static void project_save(uint32_t slot)
             d->pt[d->pat].set[k] = trk[i].p[P_SLEN + k];
     }
     fm1_irq_on();
-    for (i = 0; i < NPART; i++) {                       /* the FM6 parts' voices, edits and all */
-        if (ENGINES[trk[i].eng_req % NENGINES] == &ENG_FM6) {
-            fm6_pack(p->fm6[i], fm6_ed[i]);
-            for (k = 0; k < 6u; k++)
-                p->fm6_on[i] |= (uint8_t)(fm6_ed[i][FV_ON + k] ? 1u << k : 0u);
+    for (i = 0; i < NPART; i++)                         /* the FM6 parts' voices */
+        if (proj_fm6_take(i, p->fm6[i], &p->fm6_on[i], p->fm6_fn[i]))
             p->fm6_has |= (uint8_t)(1u << i);
-        }
-        memset(p->fm6_fn[i], 0xFF, sizeof p->fm6_fn[i]);
-        if (fm6_fnok[i])
-            for (k = 0; k < FM6_NFN; k++)
-                p->fm6_fn[i][k] = (int8_t)fm6_ed[i][FN_PBUP + k];
-    }
     p->sum = proj_sum(p);
 #if MELODEE_FLASH
     if (flash_ok) {
@@ -396,6 +406,66 @@ static void step_sane(step_t *st)                       /* a loaded step back in
         st->note[j] &= 127u;
 }
 
+/* loading a project or the template: the transport stops, every note goes, the audio ISR waits (it
+ * must not see half a project: proj_put_end lets it go) and the globals come back inside their ranges */
+static void proj_put_begin(const int16_t *g)
+{
+    uint32_t i;
+    transport_req = 2;
+    panic_req = (1u << NTRK) - 1u;
+    fm1_irq_off();
+    for (i = 0; i < G_COUNT; i++)
+        if (i != G_SLOT && i != G_LOAD && i != G_SAVE)
+            song.g[i] = (int16_t)clamp(g[i], GP[i].min, GP[i].max);
+}
+
+/* track k's sound: engine, every value back inside its range, preset; a part's FM6 voice (fm6: DX7 packed,
+ * on: its operator switches; 0 = none: its VOICE afresh) and functions (fn[0] < 0: the defaults) */
+static void proj_put_sound(uint32_t k, const int16_t *v, uint32_t engine, uint32_t preset, const uint8_t *fm6,
+                           uint32_t on, const int8_t *fn)
+{
+    track_t *t = &trk[k];
+    uint32_t e = k < NPART ? engine % NENGINES : 0u, i;
+    t->eng_req = (uint8_t)e;
+    t->user = 0;                                        /* (no user preset slot is saved) */
+    for (i = 0; i < P_COUNT; i++) {
+        const param_desc_t *d = i < P_E0 || i > P_E7 ? &TP[i] : k == TRK_DRUM ? &DR_EDIT[i - P_E0]
+                                                                             : &ENGINES[e]->edit[i - P_E0];
+        t->p[i] = (int16_t)clamp(v[i], d->min, d->max);
+    }
+    t->preset = (uint8_t)(ENGINES[e]->npresets ? (preset == 0xFFu ? 0u : preset) % ENGINES[e]->npresets : 0u);
+    if (k >= NPART)
+        return;
+    fm6_fn_reset(fm6_ed[k]);                            /* its functions (older formats: the defaults) */
+    if (fn[0] >= 0)
+        for (i = 0; i < FM6_NFN; i++)
+            fm6_set(fm6_ed[k], FN_PBUP + i, fn[i]);
+    fm6_fnok[k] = 1;
+    fm6_cur[k] = 0;
+    if (ENGINES[e] == &ENG_FM6 && fm6) {
+        fm6_unpack(fm6_ed[k], fm6);
+        for (i = 0; i < 6u; i++)
+            fm6_ed[k][FV_ON + i] = (int16_t)((on >> i) & 1u);
+        fm6_cur[k] = (int16_t)(t->p[P_E0] + 1);
+    }
+}
+
+/* the selected track, the scale settings the parts share; the audio ISR back */
+static void proj_put_end(uint32_t sel)
+{
+    uint32_t k;
+    song.sel = (uint8_t)(sel < NTRK ? sel : 0u);
+    /* Older projects can hold different values per part. The selected synth part
+     * supplies the song setting; a selected drum track leaves part 1 in charge. */
+    k = song.sel < NPART ? song.sel : 0u;
+    scale_setting_set(&trk[k], P_SCALE, trk[k].p[P_SCALE]);
+    scale_setting_set(&trk[k], P_QUANT, trk[k].p[P_QUANT]);
+    scale_setting_set(&trk[k], P_MPCDEG, trk[k].p[P_MPCDEG]);
+    fm1_irq_on();
+    sync_reload = 1;
+    ui.force = 1;
+}
+
 static void project_load(uint32_t slot)
 {
     project_t *p = &proj_buf;
@@ -404,38 +474,12 @@ static void project_load(uint32_t slot)
         ui_message("EMPTY SLOT");
         return;
     }
-    transport_req = 2;
-    panic_req = (1u << NTRK) - 1u;
-    fm1_irq_off();                                      /* the audio ISR must not see half a project */
-    for (i = 0; i < G_COUNT; i++)
-        if (i != G_SLOT && i != G_LOAD && i != G_SAVE)
-            song.g[i] = (int16_t)clamp(p->g[i], GP[i].min, GP[i].max);
+    proj_put_begin(p->g);
     for (k = 0; k < NTRK; k++) {
         track_t *t = &trk[k];
         const proj_trk_t *s = &p->t[k];
-        uint32_t e = k < NPART ? s->engine % NENGINES : 0u;
-        t->eng_req = (uint8_t)e;
-        t->user = 0;                                    /* (no user preset slot is saved) */
-        for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
-            const param_desc_t *d = i < P_E0 || i > P_E7 ? &TP[i] : k == TRK_DRUM ? &DR_EDIT[i - P_E0]
-                                                                                 : &ENGINES[e]->edit[i - P_E0];
-            t->p[i] = (int16_t)clamp(s->p[i], d->min, d->max);
-        }
-        t->preset = (uint8_t)(ENGINES[e]->npresets ? (s->preset == 0xFFu ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
-        if (k < NPART) {                                /* FM6: its saved voice, else its VOICE afresh */
-            fm6_fn_reset(fm6_ed[k]);                    /* its functions (older formats: the defaults) */
-            if (p->fm6_fn[k][0] >= 0)
-                for (i = 0; i < FM6_NFN; i++)
-                    fm6_set(fm6_ed[k], FN_PBUP + i, p->fm6_fn[k][i]);
-            fm6_fnok[k] = 1;
-            fm6_cur[k] = 0;
-            if (ENGINES[e] == &ENG_FM6 && ((p->fm6_has >> k) & 1u)) {
-                fm6_unpack(fm6_ed[k], p->fm6[k]);
-                for (i = 0; i < 6u; i++)
-                    fm6_ed[k][FV_ON + i] = (int16_t)((p->fm6_on[k] >> i) & 1u);
-                fm6_cur[k] = (int16_t)(t->p[P_E0] + 1);
-            }
-        }
+        proj_put_sound(k, s->p, s->engine, s->preset, k < NPART && ((p->fm6_has >> k) & 1u) ? p->fm6[k] : 0,
+                       k < NPART ? p->fm6_on[k] : 0u, k < NPART ? p->fm6_fn[k] : 0);
         for (j = 0; j < NPAT; j++) {                    /* the patterns, each back inside the step model */
             pattern_t *b = &pat_bank[k][j];
             memcpy(b, &s->pt[j], sizeof *b);
@@ -449,28 +493,104 @@ static void project_load(uint32_t slot)
         t->pat_q = 0;
         memcpy(t->step, pat_bank[k][t->pat].step, sizeof t->step);
     }
-    song.sel = (uint8_t)(p->sel < NTRK ? p->sel : 0u);
-    /* Older projects can hold different values per part. The selected synth part
-     * supplies the song setting; a selected drum track leaves part 1 in charge. */
-    k = song.sel < NPART ? song.sel : 0u;
-    scale_setting_set(&trk[k], P_SCALE, trk[k].p[P_SCALE]);
-    scale_setting_set(&trk[k], P_QUANT, trk[k].p[P_QUANT]);
-    scale_setting_set(&trk[k], P_MPCDEG, trk[k].p[P_MPCDEG]);
-    fm1_irq_on();
+    proj_put_end(p->sel);
     for (k = 0; k < NPART; k++)                         /* a format 1 project: the default sounds of tracks 2, 3 */
         if (p->t[k].preset == 0xFFu) {
             apply_preset_to(&trk[k], TRK_DEF[k][1]);
             track_defaults_steps(&trk[k]);
         }
-    sync_reload = 1;
-    ui.force = 1;
     ui_message("LOADED");
+}
+
+/* The template (SAVE > PROJECT, SLOT TMPL): a project without patterns, the sounds, the mix and the globals
+ * a new project starts from; power-on loads it while BOOT is OFF. Small as it is, it rides at the end of
+ * the settings record (settings_save; the projects' flash is full) and is kept in RAM. */
+#define TMPL_MAGIC 0x544D5031u                     /* "TMP1" */
+typedef struct {
+    int16_t g[G_COUNT];
+    uint8_t sel, fm6_has, rsv[2];                  /* the selected track; the parts with an FM6 voice */
+    struct {
+        int16_t p[P_COUNT];                        /* (P_SLEN..P_SGATE: their defaults, there is no pattern) */
+        uint8_t engine, preset;
+    } t[NTRK];
+    uint8_t fm6[NPART][128];                       /* as in a project */
+    uint8_t fm6_on[NPART];
+    int8_t fm6_fn[NPART][16];
+    uint32_t size, magic;                          /* last: where in the record the settings end */
+} tmpl_t;
+/* As with the project formats: a change of P_COUNT, G_COUNT .. changes this, and a template saved
+ * before would be dropped. Convert it in persist_boot first, then update the size. */
+_Static_assert(sizeof(tmpl_t) == 976u, "template format 1 as stored");
+static tmpl_t tmpl;
+
+static int template_used(void) { return tmpl.magic == TMPL_MAGIC && tmpl.size == sizeof tmpl; }
+
+/* the first free project slot, for a new project (SLOT: a save goes there, not over a project), else 1 */
+static int16_t project_free_slot(void)
+{
+    uint32_t i;
+    for (i = 0; i < 4u; i++)
+        if (!project_used(i))
+            return (int16_t)(i + 1u);
+    return 1;
+}
+
+/* the song without its patterns -> the template */
+static void template_save(void)
+{
+    uint32_t i, k;
+    memset(&tmpl, 0, sizeof tmpl);
+    for (i = 0; i < G_COUNT; i++)
+        tmpl.g[i] = song.g[i];
+    tmpl.sel = song.sel;
+    for (i = 0; i < NTRK; i++) {
+        memcpy(tmpl.t[i].p, trk[i].p, sizeof tmpl.t[i].p);
+        for (k = P_SLEN; k <= P_SGATE; k++)
+            tmpl.t[i].p[k] = TP[k].def;
+        tmpl.t[i].engine = trk[i].eng_req;
+        tmpl.t[i].preset = trk[i].preset;
+    }
+    for (i = 0; i < NPART; i++)
+        if (proj_fm6_take(i, tmpl.fm6[i], &tmpl.fm6_on[i], tmpl.fm6_fn[i]))
+            tmpl.fm6_has |= (uint8_t)(1u << i);
+    tmpl.size = sizeof tmpl;
+    tmpl.magic = TMPL_MAGIC;
+#if MELODEE_FLASH
+    if (flash_ok) {
+        ui_message(settings_save() ? "SAVE ERROR" : "SAVED AS TEMPLATE");
+        return;
+    }
+#endif
+    ui_message("TEMPLATE (RAM)");
+}
+
+/* a new project from the template: its sounds, every pattern empty */
+static void template_load(void)
+{
+    uint32_t k;
+    if (!template_used()) {
+        ui_message("NO TEMPLATE");
+        return;
+    }
+    proj_put_begin(tmpl.g);
+    for (k = 0; k < NTRK; k++) {
+        proj_put_sound(k, tmpl.t[k].p, tmpl.t[k].engine, tmpl.t[k].preset,
+                       k < NPART && ((tmpl.fm6_has >> k) & 1u) ? tmpl.fm6[k] : 0, k < NPART ? tmpl.fm6_on[k] : 0u,
+                       k < NPART ? tmpl.fm6_fn[k] : 0);
+        pat_clear_bank(&trk[k]);
+        track_defaults_steps(&trk[k]);
+    }
+    proj_put_end(tmpl.sel);
+    song.g[G_SLOT] = project_free_slot();
+    ui_message("TEMPLATE LOADED");
 }
 
 /* settings + learned panel table: one flash object. The flash copy wins at
  * boot (the .noinit copies are garbage after a power-off). New fields go at
  * the end: a shorter PER2 record still loads (the rest stays 0), and older
- * firmware reads the prefix it knows. */
+ * firmware reads the prefix it knows. A saved template follows the settings
+ * (tmpl_t, its size and magic the record's last words: persist_boot finds
+ * where the settings end, whatever their length). */
 typedef struct {
     uint32_t magic, palette, lowcut, zoom;
     panel_t panel;
@@ -480,7 +600,7 @@ typedef struct {
 } persist_t;
 #define PERSIST_MAGIC 0x50455232u                  /* "PER2" */
 #if MELODEE_FLASH
-static persist_t persist_saved;
+static uint32_t persist_len, persist_crc;          /* the record in flash: settings_save writes a changed one */
 #endif
 
 static void persist_boot(void)                    /* before settings_init / panel_init */
@@ -500,11 +620,23 @@ static void persist_boot(void)                    /* before settings_init / pane
             smp_user_scan(k);
     }
     {
-        int n;
-        uint32_t tail;
+        uint8_t *rec = (uint8_t *)&proj_buf;               /* (free until the projects are scanned below) */
+        uint32_t tail, w[2];
+        int n, ns;
         memset(&p, 0, sizeof p);
-        n = st_load(OBJ_SETTINGS, &p, sizeof p);
-        tail = (uint32_t)((int)sizeof p - n);              /* the fields a shorter record does not have */
+        n = st_load(OBJ_SETTINGS, rec, ST_PAYLOAD_MAX);
+        ns = n;                                            /* the settings' bytes */
+        if (n >= (int)sizeof w) {
+            memcpy(w, rec + n - sizeof w, sizeof w);
+            if (w[1] == TMPL_MAGIC && w[0] <= (uint32_t)n) {   /* a template at the end */
+                ns = n - (int)w[0];
+                if (w[0] == sizeof tmpl)
+                    memcpy(&tmpl, rec + ns, sizeof tmpl);   /* (another layout: not this firmware's) */
+            }
+        }
+        if (ns > 0)
+            memcpy(&p, rec, (uint32_t)ns < sizeof p ? (uint32_t)ns : sizeof p);
+        tail = (uint32_t)((int)sizeof p - ns);             /* the fields a shorter record does not have */
         if ((tail == 0u || tail == sizeof p.boot || tail == sizeof p.boot + sizeof p.keys ||
              tail == sizeof p.boot + sizeof p.keys + sizeof p.usb_off) && p.magic == PERSIST_MAGIC) {
             settings.magic = SETTINGS_MAGIC;
@@ -516,8 +648,9 @@ static void persist_boot(void)                    /* before settings_init / pane
             settings.boot = p.boot;
             if (p.panel.magic == PANEL_MAGIC)
                 panel = p.panel;
-            persist_saved = p;
-        } else if (n == (int)(8u + sizeof(panel_t)) && p.magic == 0x50455231u) {   /* "PER1": palette, panel */
+            persist_len = (uint32_t)n;
+            persist_crc = st_crc32(rec, (uint32_t)n);
+        } else if (ns == (int)(8u + sizeof(panel_t)) && p.magic == 0x50455231u) {   /* "PER1": palette, panel */
             const uint32_t *w = (const uint32_t *)&p;
             panel_t old;
             memcpy(&old, w + 2, sizeof old);
@@ -542,34 +675,45 @@ static void persist_boot(void)                    /* before settings_init / pane
 #endif
 }
 
-static int project_used(uint32_t slot) { return (proj_have >> (slot & 3u)) & 1u; }
-
 /* power-on, after melodee_init: the BOOT project (SAVE > PROJECT KNOB 2) in place of the default
- * sounds, and SLOT on it so SAVE writes back there. A boot that crashed or hung within 30 s
- * (bootguard) skips it: a project that cannot load does not lock the FM-1 out. */
+ * sounds, SLOT on it so SAVE writes back there. BOOT OFF or an empty BOOT slot: a new project, from
+ * the template if one is saved, SLOT on a free slot (that BOOT slot first). A boot that crashed or hung
+ * within 30 s (bootguard) skips the project or the template: one that cannot load does not lock the
+ * FM-1 out. */
 static void project_boot(void)
 {
     char b[2] = {0, 0};
-    if (!settings.boot)
-        return;
-    song.g[G_SLOT] = (int16_t)settings.boot;
-    if (bootguard.failed) {
-        ui_message("BOOT PROJECT SKIPPED");
+    if (settings.boot && project_used(settings.boot - 1u)) {
+        song.g[G_SLOT] = (int16_t)settings.boot;
+        if (bootguard.failed) {
+            ui_message("BOOT PROJECT SKIPPED");
+            return;
+        }
+        project_load(settings.boot - 1u);
+        b[0] = (char)('0' + settings.boot);
+        ui_say("PROJECT ", b);
         return;
     }
-    if (!project_used(settings.boot - 1u))
-        return;                                    /* (an empty slot: the default sounds) */
-    project_load(settings.boot - 1u);
-    b[0] = (char)('0' + settings.boot);
-    ui_say("PROJECT ", b);
+    song.g[G_SLOT] = settings.boot ? (int16_t)settings.boot : project_free_slot();
+    if (!template_used())
+        return;                                    /* the default sounds (TRK_DEF) */
+    if (bootguard.failed)
+        ui_message("TEMPLATE SKIPPED");
+    else
+        template_load();
+    if (settings.boot)
+        song.g[G_SLOT] = (int16_t)settings.boot;   /* (template_load chose the first free one) */
 }
 
-static void settings_save(void)
+static int settings_save(void)                     /* 0: in flash (or nothing to write), else the error */
 {
 #if MELODEE_FLASH
     persist_t p;
+    uint8_t *rec = (uint8_t *)&proj_buf;           /* (scratch: with the flash it holds no project) */
+    uint32_t n = sizeof p, c;
+    int rc;
     if (!flash_ok)
-        return;
+        return 0;
     memset(&p, 0, sizeof p);
     p.magic = PERSIST_MAGIC;
     p.palette = settings.palette;
@@ -579,14 +723,25 @@ static void settings_save(void)
     p.usb_off = settings.usb_off;
     p.keys = settings.keys;
     p.boot = settings.boot;
-    if (!memcmp(&p, &persist_saved, sizeof p))
-        return;                                    /* unchanged: no erase cycle */
-    if (st_save(OBJ_SETTINGS, &p, sizeof p) == 0)
-        persist_saved = p;
+    memcpy(rec, &p, sizeof p);
+    if (template_used()) {
+        memcpy(rec + n, &tmpl, sizeof tmpl);
+        n += sizeof tmpl;
+    }
+    c = st_crc32(rec, n);
+    if (n == persist_len && c == persist_crc)
+        return 0;                                  /* unchanged: no erase cycle */
+    if ((rc = st_save(OBJ_SETTINGS, rec, n)) != 0)
+        return rc;
+    persist_len = n;
+    persist_crc = c;
 #endif
+    return 0;
 }
 
 #if MELODEE_FLASH
 _Static_assert(sizeof(project_t) <= ST_PROJ_SPAN * ST_SECTOR - ST_PAYLOAD_OFF, "project does not fit its flash object");
+_Static_assert(sizeof(persist_t) + sizeof(tmpl_t) <= ST_PAYLOAD_MAX && sizeof(project_t) >= ST_PAYLOAD_MAX,
+               "settings + template fit the settings object, and proj_buf holds the record");
 #endif
 #endif /* PROJ_HOST */
