@@ -51,12 +51,18 @@ int main(void)
     assert(!p.lowcut && p.bold == 1 && p.favorites.user == (1u << 31));   /* bold: kept as saved */
     assert(p.favorites.factory[8][0] == 1 && p.favorites.filter == 1);
     assert(p.panel.enc[0] == 3); /* saving one feature preserves the other */
+    p = original; p.magic = PERSIST_MAGIC4; p.ext.usb_off = 3;   /* PER4 (Felucca 1.0): favorites, no ext */
+    assert(settings_import(&p, PERSIST_LEN4) == 2 && p.magic == PERSIST_MAGIC);
+    assert(p.favorites.user == (1u << 31) && p.favorites.factory[8][0] == 1 && !p.ext.usb_off);
+    p = original; p.ext.usb_off = 2;                /* PER5: ext kept by a build without USB audio */
+    assert(settings_import(&p, sizeof p) == 1 && p.ext.usb_off == 2u);
+    settings_export(&p); assert(p.ext.usb_off == 2u);
     p = original; p.magic = 0x50455233u;
-    assert(settings_import(&p, sizeof p - sizeof p.favorites) == 2);
+    assert(settings_import(&p, PERSIST_LEN4 - sizeof p.favorites) == 2);
     assert(p.bold == 1 && !p.favorites.user && !p.favorites.filter);
     settings_export(&p); assert(p.bold == 1); /* favorites-only preserves PER3 font */
     p = original; p.magic = 0x50455232u;
-    assert(settings_import(&p, sizeof p - sizeof p.favorites - sizeof p.bold) == 2);
+    assert(settings_import(&p, PERSIST_LEN4 - sizeof p.favorites - sizeof p.bold) == 2);
     assert(!p.bold && !p.favorites.user && settings.zoom && panel.enc[0] == 3);
     p = original; p.magic = 0x50455231u;
     memcpy((uint8_t *)&p + 8, &PANEL_DEFAULT, sizeof(panel_t));
@@ -83,5 +89,5 @@ int main(void)
     }
     assert(settings_import(&p, 3) == 0 && settings_import(&p, -1) == 0);
     assert(settings_import(&p, sizeof p - 1) == 0);
-    puts("Settings: PER1/PER2/PER3 migration, palette ids, calibration, HOLD and independent feature preservation passed.");
+    puts("Settings: PER1..PER4 migration, palette ids, calibration, HOLD, ext and independent feature preservation passed.");
 }

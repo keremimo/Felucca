@@ -317,6 +317,10 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
  * -> dist -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
 static void events_block(uint32_t n);                    /* seq.c */
 static int32_t send_c[CTL], send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
+#if MELODEE_USB_AUDIO
+static int32_t track_capture[CTL * NTRK];               /* the parts after their level, before pan and sends:
+                                                         * Melodee In's four channels (audio.c ua_audio) */
+#endif
 
 /* one synth part into the dry mix and the sends; a part with no voice sounding costs
  * the LFO tick and a cleared buffer only (after the DIST tail has run out) */
@@ -348,6 +352,9 @@ static void mix_part(track_t *t, uint32_t n)
              * voices keep Dexed's headroom) */
             int32_t x = clamp(((clamp(b[i], -884000, 884000) >> 2) * lvl) >> 10, -524287, 524287), a = x < 0 ? -x : x;
             int32_t xs = clamp(x, -xmax, xmax);         /* sends: mulq15 would overflow */
+#if MELODEE_USB_AUDIO
+            track_capture[i * NTRK + (uint32_t)(t - trk)] = x;
+#endif
             if (a > pk)
                 pk = a;
             if (c)
@@ -386,6 +393,10 @@ static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
     int perf;
+#if MELODEE_USB_AUDIO
+    for (i = 0; i < n * NTRK; i++)
+        track_capture[i] = 0;
+#endif
     for (i = 0; i < n; i++)
         send_c[i] = send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     events_block(n);

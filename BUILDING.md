@@ -55,8 +55,8 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/melodee.c`, `c
 | --- | --- | --- |
 | `MELODEE_FLASH` | 1 | settings, presets and projects in flash |
 | `MELODEE_OTA` | 1 | update entry (needs `MELODEE_FLASH`) |
-| `MELODEE_CDC` | 1 | USB serial console |
-| `MELODEE_UAC` | 1 | USB audio input (the master output, 44.1 kHz stereo) |
+| `MELODEE_USB_AUDIO` | 1 | USB audio: "Melodee Out" plays the computer through the FM-1, "Melodee In" records the four tracks (16 / 24 bit, 44.1 kHz) |
+| `MELODEE_CDC` | 0 (1 without USB audio) | USB serial console; it shares EP2 / EP3 with USB audio, so `MELODEE_USB_AUDIO=0` |
 | `MELODEE_UART` | 1 | TRS MIDI IN |
 | `MELODEE_SLICE` | 1 | the SLICE engine |
 | `MELODEE_ICONS` | 1 | parameter icons on the knob cards |

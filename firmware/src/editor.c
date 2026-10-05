@@ -18,7 +18,8 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_TRACK, ED_TRACK_MIX, ED_TRACK_DUMP, ED_TRACK_STEP,                    /* v3: tracks */
        ED_TRACK_PARAM, ED_TRACK_CHANGED, ED_SONG,
        ED_UI_STATE, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET,
-       ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT };                              /* v6: song chain */
+       ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT,                               /* v6: song chain */
+       ED_AUDIO_STATS = 72 };                                       /* USB audio diagnostics (68..71: FM6, editor_fm6.c) */
 
 static uint8_t ed_out[600];
 static uint32_t ed_n;
@@ -374,6 +375,40 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
+#if MELODEE_USB_AUDIO
+    case ED_AUDIO_STATS: {                         /* [1: start new maxima] -> schema 2, then 20 counters (u35 each) */
+        uint32_t snapshot[20], k;
+        fm1_irq_off();
+        snapshot[0] = ua.play_alt;
+        snapshot[1] = ua.cap_alt;
+        snapshot[2] = UA_RATE;
+        snapshot[3] = UA_RATE;
+        snapshot[4] = ua.pw - ua.pr;
+        snapshot[5] = ua.cw - ua.cr;
+        snapshot[6] = ua.play_underruns;
+        snapshot[7] = ua.play_overruns;
+        snapshot[8] = ua.cap_underruns;
+        snapshot[9] = ua.cap_overruns;
+        snapshot[10] = ua.bad_packets;
+        snapshot[11] = ua.rx_packets;
+        snapshot[12] = ua.tx_packets;
+        snapshot[13] = ua.missed_frames;
+        snapshot[14] = ua.poll_max_ticks / FM1_TICKS_PER_US;
+        snapshot[15] = ua.service_max_ticks / FM1_TICKS_PER_US;
+        snapshot[16] = melodee_dbg.late;
+        snapshot[17] = ua_feedback();
+        snapshot[18] = melodee_dbg.max_us;            /* render time, TIMER5 preemption included */
+        snapshot[19] = song.cpu_q8;
+        if (na && (a[0] & 1u))
+            ua.poll_max_ticks = ua.service_max_ticks = melodee_dbg.max_us = 0;
+        fm1_irq_on();
+        ed_b(2);
+        for (i = 0; i < 20u; i++)
+            for (k = 0; k < 5u; k++)
+                ed_b(snapshot[i] >> (7u * k));
+        break;
+    }
+#endif
     case ED_MOTION: {
         track_t *t = &trk[a[0]]; uint32_t rc = 0;
         if (na > 1u && chain_busy()) rc = 3;

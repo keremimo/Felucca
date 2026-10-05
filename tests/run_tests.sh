@@ -46,8 +46,11 @@
 # INPUT (tests/input_test.c): the key / button debounce of hal/fm1_input.h against the TIMER5 scan and bouncing
 #                   contacts: a press within 2 scans (<= 2.3 ms), one note per bouncy press, no early or hanging
 #                   release, stray samples ignored, fast repeats, the encoders' detents.
-# USB audio (tests/uac_test.c): the UAC1 descriptors as a host parses them (with and without CDC), the
-#                   ring and packetiser: 44.1 frames per packet, every frame in order, underrun / overrun, restart.
+# USB audio (tests/usb_audio_*): the descriptors of every build (MIDI only, CDC, USB audio) as a host parses them
+#                   (usb_audio_desc_test.py); the rings against clock drift, packet bounds and recovery
+#                   (usb_audio_test.c); the endpoint driver against a model SIE: SET_INTERFACE, feedback, capture
+#                   packets ready in time, Out / In left out and the replug (usb_audio_driver_test.c); the four
+#                   track stems through the real mixer (usb_audio_tracks_test.c).
 # web (web/test_web.mjs): the editor protocol against its mock device, whose tables must equal the
 #                   firmware's (tests/descdump.c -> build/host/desc.json), the package builder, the updater.
 # PHYS (tests/phys_test.c): stability over the whole parameter and pitch range, the worst-case cost against
@@ -95,11 +98,13 @@ run "keys and buttons: fast press, long release, bouncy contacts (one note each)
 $CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
 run "TRS MIDI parser" "$OUT/midi_uart_test"
 
-HALF=$(sed -n 's/^#define HALF_FRAMES \([0-9]*\).*/\1/p' firmware/src/core.h)
-$CC -DT_CDC=1 -DHALF_FRAMES=$HALF -o "$OUT/uac_test" tests/uac_test.c
-run "USB audio input: descriptors (with CDC), ring and packets" "$OUT/uac_test"
-$CC -DT_CDC=0 -DHALF_FRAMES=$HALF -o "$OUT/uac_test_nocdc" tests/uac_test.c
-run "USB audio input: descriptors (without CDC), ring and packets" "$OUT/uac_test_nocdc"
+$CC -o "$OUT/usb_audio_test" tests/usb_audio_test.c -lm
+run "USB audio: routing, clock drift and stream recovery" "$OUT/usb_audio_test"
+$CC -o "$OUT/usb_audio_driver_test" tests/usb_audio_driver_test.c
+run "USB audio: endpoint lifecycle and packet ownership" "$OUT/usb_audio_driver_test"
+run "USB descriptors: MIDI, CDC and audio configurations" python3 tests/usb_audio_desc_test.py
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/usb_audio_tracks_test" tests/usb_audio_tracks_test.c -lm
+run "USB audio: four isolated track stems through the real mixer" "$OUT/usb_audio_tracks_test"
 
 [ -f build/melodee.fwsc ] || { echo "run ./build.sh first"; exit 1; }
 
@@ -145,10 +150,10 @@ if [ -f build/gen/melodee_tables.h ]; then
             python3 tests/text_spacing_test.py build/gen/ui_fonts.h
     fi
     $CC -O1 -w -Ibuild/gen -o "$OUT/settings_test" tests/settings_test.c
-    run "settings: PER1..PER4 migration, palette ids and preference preservation" "$OUT/settings_test"
-    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test" tests/ui_test.c -lm
+    run "settings: PER1..PER5 migration, palette ids and preference preservation" "$OUT/settings_test"
+    $CC -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test" tests/ui_test.c -lm
     run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" "$OUT/ui_test"
-    $CC -O1 -w -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render" tests/ui_render.c -lm
+    $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -Itests -o "$OUT/ui_render" tests/ui_render.c -lm
     mkdir -p build/ui_new/ppm build/ui_slot
     run "UI renders: layout lint (every screen and palette, every page, engine and column value), MONO gray, draw cost" \
         "$OUT/ui_render" build/ui_new build/ui_slot

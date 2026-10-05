@@ -596,3 +596,12 @@ rc 0 = applied and saved; 1 = invalid arguments; 2 = unsupported feature;
 by the same persistence path as the panel. These changes never stop playback.
 Unchanged writes do not erase flash. Replies echo preference ids/values and
 favorite ranges so the editor rejects replies to a different request.
+
+## USB audio diagnostics
+
+Firmware built with USB audio (`MELODEE_USB_AUDIO`, the default) answers command 72 with its USB audio counters;
+without it there is no answer. `tools/usb_audio_stats.py` reads them.
+
+| cmd | Request args | Reply args |
+| --- | --- | --- |
+| 72 AUDIO_STATS | — or 1 (start new maxima after this reply) | schema (2), then 20 counters, each 5 × 7 bits, LSB first: play alt, capture alt, play rate, capture rate (Hz), play fill, capture fill (frames), play underruns, play overruns, capture underruns, capture overruns, bad packets, packets received, packets sent, missed USB frames, longest gap between services (µs), longest service (µs), late renders, the feedback (10.14), longest render (µs), CPU (Q8) |

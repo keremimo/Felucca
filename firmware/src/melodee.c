@@ -16,14 +16,12 @@
 #ifndef MELODEE_OTA_DRYRUN
 #define MELODEE_OTA_DRYRUN 0     /* 1 = stage, ask "success", then undo: no record, no reset */
 #endif
+#ifndef MELODEE_USB_AUDIO
+#define MELODEE_USB_AUDIO 1      /* USB audio (usb_audio.c): "Melodee Out" plays through the FM-1, "Melodee In"
+                                  * records the four tracks; 16 / 24 bit, 44.1 kHz. Needs EP2 / EP3: no CDC */
+#endif
 #ifndef MELODEE_CDC
-#define MELODEE_CDC 1            /* USB CDC-ACM serial console */
-#endif
-#ifndef MELODEE_UAC
-#define MELODEE_UAC 1            /* USB audio input: the master output, 16-bit stereo 44.1 kHz (usb.c) */
-#endif
-#ifndef MELODEE_UAC_TONE
-#define MELODEE_UAC_TONE 0       /* bench: the USB input sends test triangles instead of the music */
+#define MELODEE_CDC !MELODEE_USB_AUDIO   /* USB CDC-ACM serial console */
 #endif
 #ifndef MELODEE_UART
 #define MELODEE_UART 1           /* TRS MIDI IN on UART1 / PH8 */

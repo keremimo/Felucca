@@ -1840,6 +1840,28 @@ static int test_layer(void)
         settings_export(&p); settings_hold = HOLD_DEF;
         bad += check("  HOLD is saved with the settings and read back", settings_import(&p, sizeof p) && settings_hold == 3u);
     }
+#if MELODEE_USB_AUDIO
+    /* USB AUDIO: KNOB 1 steps IN+OUT IN OUT OFF, into ua_off_want (main.c applies it 0.6 s after the knob rests: a
+     * replug, usb_audio_driver_test.c); the settings keep what the host got */
+    ui_power_on();
+    ua_off = ua_off_want = 0;
+    hold(B_HOME); ui.menu_sel = MI_USB; turn(EN_K1, 1); turn(EN_K1, 1);
+    ok = ua_off_want == UA_OFF_IN && !ua_off;
+    hold(B_HOME);
+    ua_off = ua_off_want;                            /* (ua_off_apply) */
+    {
+        persist_t p = {0};
+        p.magic = PERSIST_MAGIC; p.panel = panel;
+        settings_export(&p); ua_off = ua_off_want = 0;
+        bad += check("menu USB AUDIO (KNOB 1 twice: OUT only): wanted at once, the settings keep it",
+                     ok && p.ext.usb_off == UA_OFF_IN && settings_import(&p, sizeof p) && ua_off == UA_OFF_IN &&
+                     ua_off_want == UA_OFF_IN);
+        p.magic = PERSIST_MAGIC4;                    /* Felucca 1.0's record: both devices */
+        bad += check("  a PER4 record (Felucca 1.0) reads with both devices on", settings_import(&p, (int)PERSIST_LEN4) == 2 &&
+                     !ua_off && !ua_off_want && p.magic == PERSIST_MAGIC && !p.ext.usb_off);
+    }
+    ua_off = ua_off_want = 0;
+#endif
     /* combo: a key with FX: at once, silent, no MIDI, no recording, no step */
     ui_power_on();
     usb.config = 1; mo = mo_w;

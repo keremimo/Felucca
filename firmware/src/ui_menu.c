@@ -1,11 +1,23 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Melodee menu (HOME held): COLOR, SPEAKER (LOWCUT), HOLD (the layer threshold), CALIBRATION (the setup screen:
- * HARDWARE CALIBRATION), ABOUT.
+/* Melodee menu (HOME held): COLOR, SPEAKER (LOWCUT), HOLD (the layer threshold), USB AUDIO (the devices the host
+ * gets: IN+OUT, OUT, IN or OFF; usb.c ua_off_set), CALIBRATION (the setup screen: HARDWARE CALIBRATION), ABOUT.
  * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information. */
 /* ------------------------------------------------------------ menu --- */
-enum { MI_COLOR, MI_LOWCUT, MI_HOLD, MI_PANEL, MI_ABOUT, MI_BACK, MI_COUNT };
-static const char *const MI_NAME[MI_COUNT] = {"COLOR", "SPEAKER", "HOLD", "CALIBRATION", "ABOUT", "BACK"};
+enum { MI_COLOR, MI_LOWCUT, MI_HOLD,
+#if MELODEE_USB_AUDIO
+       MI_USB,
+#endif
+       MI_PANEL, MI_ABOUT, MI_BACK, MI_COUNT };
+static const char *const MI_NAME[MI_COUNT] = {"COLOR", "SPEAKER", "HOLD",
+#if MELODEE_USB_AUDIO
+                                              "USB AUDIO",
+#endif
+                                              "CALIBRATION", "ABOUT", "BACK"};
+#if MELODEE_USB_AUDIO
+/* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
+static const char *const MI_USB_NAME[4] = {"IN+OUT", "IN", "OUT", "OFF"};
+#endif
 
 /* https://keremimo.github.io/melodee, QR version 3, correction M (segno; checked with a decoder).
  * One row per word, leftmost module in bit 0; the constant matrix needs no encoder or RAM. */
@@ -166,19 +178,33 @@ static void menu_head(void)
     cv_blit(0, Y_HEAD);
 }
 
-/* the list: 24 px SURF rows 28 px apart from y 30, the selected one THEME with INK;
- * a 16 px icon, the name (S), the value (M) at the right; COLOR shows the palette's five colours.
- * Drawn in two bands (the canvas holds 124 rows), split at y 138 between two rows */
+/* the list: 24 px SURF rows 28 px apart from y 30 (seven items: 23 px, 25 apart from y 28), the selected one THEME
+ * with INK; a 16 px icon, the name (S), the value (M) at the right; COLOR shows the palette's five colours.
+ * Drawn in two bands (the canvas holds 124 rows), split between two rows */
+#if MELODEE_USB_AUDIO
+#define MENU_Y0 28
+#define MENU_ROW 25
+#define MENU_RH 23
+#define MENU_SPLIT 127
+#else
 #define MENU_Y0 30
 #define MENU_ROW 28
+#define MENU_RH 24
 #define MENU_SPLIT 138
+#endif
 static const khint_t MENU_KEYS[3] = {{KC_PRESETS, "MOVE"}, {KC_OCTUP, "OK"}, {KC_OCTDN, "BACK"}};
 static void draw_menu(void)
 {
-    static const uint16_t ICO[MI_COUNT] = {ICON_X_PALETTE, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_DOCTOR, ICON_X_INFO,
-                                           ICON_X_BACK};
+    static const uint16_t ICO[MI_COUNT] = {ICON_X_PALETTE, ICON_X_SPEAKER, ICON_X_TIMER,
+#if MELODEE_USB_AUDIO
+                                           ICON_X_USB,
+#endif
+                                           ICON_X_DOCTOR, ICON_X_INFO, ICON_X_BACK};
     uint32_t i, pass, sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u +
                             settings_hold * 3511u +
+#if MELODEE_USB_AUDIO
+                            ua_off_want * 92821u +
+#endif
                             song.rec * 65537u + song.sel * 13u +
                             (ui.menu == 2 ? ui.menu_scroll * 48611u : 0u);
     if (!ui.force && sig == ui.menu_sig)
@@ -213,13 +239,17 @@ static void draw_menu(void)
             int32_t y = MENU_Y0 + (int32_t)i * MENU_ROW;
             int sel = i == ui.menu_sel;
             uint16_t bg = sel ? T_THEME : T_SURF, fg = sel ? T_INK : T_TEXT, val = sel ? T_INK : T_THEME;
-            if (y + 24 <= top || y >= top + (int32_t)cv_h)
+            if (y + MENU_RH <= top || y >= top + (int32_t)cv_h)
                 continue;
-            cv_rrect(4, y, 232, 24, 6, bg, T_BG);
+            cv_rrect(4, y, 232, MENU_RH, 6, bg, T_BG);
             cv_icon_on(12, y + 4, 16, ICO[i], sel ? T_INK : T_MID, bg);
             cv_text_on(36, y + 5, &AF_S, MI_NAME[i], fg, bg);
             if (i == MI_LOWCUT)
                 cv_text_r(228, y + 3, &AF_M, (const char *const[]){"OFF", "LOWCUT", "BASS+"}[settings.lowcut % 3u], val, bg);
+#if MELODEE_USB_AUDIO
+            if (i == MI_USB)
+                cv_text_r(228, y + 3, &AF_M, MI_USB_NAME[ua_off_want & 3u], val, bg);
+#endif
             if (i == MI_HOLD) {                         /* "0.4" and its unit */
                 char b[8] = "0.4";
                 b[2] = (char)('0' + HOLD_MS[settings_hold % 4u] / 100u);
@@ -285,6 +315,16 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         fx_lowcut = (uint8_t)(settings.lowcut % 3u);
         ok = 0;
     }
+#if MELODEE_USB_AUDIO
+    if ((s != 0 || ok) && ui.menu == 1 && ui.menu_sel == MI_USB) {
+        /* KNOB 1 steps IN+OUT IN OUT OFF, OCT+ steps and wraps; the host gets it once it rests (main.c) */
+        uint32_t v = ua_off_want & 3u;
+        v = s > 0 ? (v < 3u ? v + 1u : 3u) : s < 0 ? (v ? v - 1u : 0u) : (v + 1u) % 4u;
+        ua_off_set(UA_OFF_OUT, !(v & UA_OFF_OUT), fm1_ms);
+        ua_off_set(UA_OFF_IN, !(v & UA_OFF_IN), fm1_ms);
+        ok = 0;
+    }
+#endif
     if ((s != 0 || ok) && ui.menu == 1 && ui.menu_sel == MI_HOLD) {
         /* KNOB 1 steps 0.3 .. 0.6 s, OCT+ steps and wraps */
         uint32_t v = settings_hold % 4u;
