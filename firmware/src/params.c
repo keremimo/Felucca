@@ -24,6 +24,13 @@ static const char *const N_DASH[] = {"--"};
 static const char *const N_RTYPE[] = {"ROOM", "SPRING"};   /* G_RTYPE: the reverb bus's model (fx.c) */
 static const char *const N_GO[] = {"--", "GO"};
 static const char *const N_BOOT[] = {"OFF", "A", "B", "C", "D"};
+static const char *const N_DRUMCH[] = {"OFF", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
+                                       "15", "16"};
+/* GLO > SYSTEM KNOB 2, DRUM: the MIDI channel that plays the first DRUM track whatever ROUT says (none: the selected
+ * track), 0 OFF, 1..16; 10 as General MIDI's. A device setting kept with the settings (ext.drumch), not the
+ * project's: the column shows drumch_cell (seq.c midi_track) */
+static uint8_t settings_drumch = 10;
+static int16_t drumch_cell;
 #define PROJ_TMPL 5                                      /* SLOT 5: the template (project.c tmpl) */
 /* SAVE > PROJECT KNOB 2, BOOT: the project power-on loads (OFF, A..D; OFF or an empty slot: the template, if one is
  * saved). A device setting kept with the settings (ext.boot), not the project's: the column shows boot_cell */
@@ -201,7 +208,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_CRATE] = PD("CRT", F_LFOHZ, 0, 127, 40),
     [G_CDEPTH] = PD("CDP", F_PCT, 0, 127, 60),
     [G_MIDI] = PE("MIDI", N_MIDI_INPUT, 0),
-    [G_SYNC] = PE("SYNC", N_DASH, 0),
+    [G_DRUMCH] = PE("DRUM", N_DRUMCH, 10),
     [G_ROUTE] = PE("ROUT", N_ROUTE, 0),          /* (was "--": stored 0 = CH1-4, as MIDI IN always was) */
     [G_INFO] = PD("CPU", F_INT, 0, 0, 0),
     [G_SLOT] = PD("SLOT", F_INT, 1, PROJ_TMPL, 1),     /* PROJ_TMPL: the template (param_format: TMPL) */
@@ -454,7 +461,7 @@ static const page_t PAGES[] = {
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
     {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
     {"GLOBAL", FAM_GLO, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_CLOCK, G_TUNE}},
-    {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, G_SYNC, G_ROUTE, G_INFO}},
+    {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, G_DRUMCH, G_ROUTE, G_INFO}},
     {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, {0xFF, 0xFF, 0xFF, 0xFF}},   /* browser: PRESETS knob / KNOB 1 */
     {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, {0xFF, 0xFF, 0xFF, 0xFF}},       /* user presets: SLOT LOAD ERASE SAVE */
     {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, G_BOOT, G_LOAD, G_SAVE}},
@@ -544,6 +551,11 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if (pg->scope == SC_GLOBAL && id == G_BOOT) {
         boot_cell = settings_boot;                       /* (a copy: ui_input.c edit_param writes it back) */
         *valp = &boot_cell;
+        return &GP[id];
+    }
+    if (pg->scope == SC_GLOBAL && id == G_DRUMCH) {
+        drumch_cell = settings_drumch;                   /* (as BOOT) */
+        *valp = &drumch_cell;
         return &GP[id];
     }
     if (pg->scope == SC_GLOBAL) {

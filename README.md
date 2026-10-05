@@ -53,7 +53,8 @@ runs Felucca.
   **Melodee In** records four mono tracks (one channel per track, after level and before pan, sends
   and master effects). Both support 16/24-bit audio at 44.1 kHz; each can be disabled in the
   HOME-held menu's USB AUDIO setting. No driver needed
-- **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4 (other channels the selected track),
+- **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4, channel 10 the first DRUM track (GLO >
+  SYSTEM **DRUM**: any channel or OFF; no DRUM track: the selected one), other channels the selected track,
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS
 - **Web:** editor for every parameter (with a 6-operator FM patch editor), step grid, mixer,
   preset library, sample upload and recording with trim; full backup and restore; return to the
@@ -113,8 +114,9 @@ grid keeps its white-key step and black-key lane controls.
 
 On **SAVE > PROJECT**, KNOB 2 **BOOT** selects OFF or project A–D to load at power-on.
 KNOB 1 **SLOT** also offers **TMPL**: save your sounds and settings there as the template for new
-projects, with empty patterns. BOOT OFF uses the template when one is saved. CLK, TUNE, MIDI SYNC
-and ROUT persist between starts; loading a project or template applies its own settings.
+projects, with empty patterns. BOOT OFF uses the template when one is saved. CLK, TUNE, MIDI
+and ROUT persist between starts; loading a project or template applies its own settings. DRUM is the
+device's own setting.
 
 Projects use the FBK9 format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
 projects load into pattern 1; their old project-based SONG rows are cleared. Pre-1.0 Melodee's

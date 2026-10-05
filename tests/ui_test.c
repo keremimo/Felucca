@@ -556,9 +556,9 @@ static int test_midi(void)
     ui_power_on();
     song.sel = 2;
     midi_hint = 0;
-    midi_event(0x90, 0, 60, 100); midi_event(0x90, 9, 61, 100);
-    bad += check("ROUT CH1-4 (default): channel 1 -> part 1, channel 10 -> selected",
-                 song.g[G_ROUTE] == 0 && midi_sel_on[0][60] == 1u && midi_sel_on[9][61] == 3u);
+    midi_event(0x90, 0, 60, 100); midi_event(0x90, 10, 61, 100);
+    bad += check("ROUT CH1-4 (default): channel 1 -> part 1, channel 11 -> selected, channel 10 -> the DRUM track 4",
+                 song.g[G_ROUTE] == 0 && midi_sel_on[0][60] == 1u && midi_sel_on[10][61] == 3u && midi_track(9) == &trk[3]);
     bad += check("a note into another track tells the UI", midi_hint == 1u);
     frame(); bad += check("MIDI IN -> T1 shown", msg_is("MIDI IN -> T1"));
     song.g[G_ROUTE] = 1;
@@ -3601,12 +3601,12 @@ static int test_home_notes(void)
     bad += check("CC120 clears held HOME notes only on its track", !live_held[1][1] && live_last[1] == (1u << 28));
     ui_power_on();
     midi_event(0x90, 0, 60, 100);
-    midi_event(0x90, 9, 60, 100);
+    midi_event(0x90, 10, 60, 100);
     midi_event(0x80, 0, 60, 0);
     bad += check("overlapping MIDI owners retain the HOME pitch until last release", live_held[0][1] == (1u << 28));
-    midi_event(0xB0, 9, 64, 127); midi_event(0x80, 9, 60, 0);
+    midi_event(0xB0, 10, 64, 127); midi_event(0x80, 10, 60, 0);
     bad += check("sustain keeps the displayed pitch held", live_held[0][1] == (1u << 28));
-    midi_event(0xB0, 9, 64, 0);
+    midi_event(0xB0, 10, 64, 0);
     bad += check("pedal-up releases emphasis but retains the last note", !live_held[0][1] && live_last[1] == (1u << 28));
     ui_power_on(); set_engine_of(TSEL, ENGI_FM6); events_block(32);
     midi_event(0x90, 0, 60, 100); midi_event(0x90, 0, 64, 100); midi_event(0x90, 0, 67, 100);

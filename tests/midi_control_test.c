@@ -230,9 +230,43 @@ static int usb_burst_test(void)
     events_block(CTL);
     return bad;
 }
+/* GLO > SYSTEM DRUM: channel 10 plays the first DRUM track whatever ROUT says, its note-off there too; no DRUM track:
+ * the selected one; OFF: as every other channel; another channel (2) wins over CH1-4 */
+static int drum_channel_test(void)
+{
+    int bad = 0;
+    midi_test_reset();
+    settings_drumch = 10;
+    set_engine_of(&trk[3], 0);                           /* (power-on: track 4 is a DRUM kit) */
+    set_engine_of(&trk[2], ENGI_DRUM);
+    song.g[G_ROUTE] = 0;
+    queued(0x99, 36, 100, 1);
+    bad += check("DRUM 10: channel 10 plays the DRUM track (track 3), not the selected one",
+                 trk[2].v[0].active && !gate_note(&trk[0], 36));
+    song.sel = 1;
+    queued(0x89, 36, 0, 1);
+    bad += check("  its note-off goes there too, the track selected meanwhile", !midi_owners[2]);
+    song.g[G_ROUTE] = 1;
+    queued(0x99, 38, 100, 1);
+    queued(0x89, 38, 0, 1);
+    bad += check("  ROUT SEL: channel 10 still the DRUM track", midi_track(9) == &trk[2] && midi_track(4) == &trk[1]);
+    set_engine_of(&trk[2], 0);
+    bad += check("  no DRUM track: the selected one", midi_track(9) == &trk[1]);
+    set_engine_of(&trk[3], ENGI_DRUM);
+    settings_drumch = 2;
+    song.g[G_ROUTE] = 0;
+    bad += check("DRUM 2: channel 2 the DRUM track (over CH1-4), channel 10 the selected", midi_track(1) == &trk[3] &&
+                 midi_track(9) == &trk[1] && midi_track(0) == &trk[0]);
+    settings_drumch = 0;
+    bad += check("DRUM OFF: channel 2 track 2 again", midi_track(1) == &trk[1]);
+    settings_drumch = 10;
+    set_engine_of(&trk[3], 0);
+    return bad;
+}
+
 int main(void)
 {
     int bad = controls_test() + sustain_test() + ownership_test() + clock_test(1) + clock_test(2) + clock_arp_and_boundaries() +
-              arp_ext_stop_test() + usb_burst_test();
+              arp_ext_stop_test() + usb_burst_test() + drum_channel_test();
     printf("%s\n", bad ? "MIDI CONTROL/CLOCK TEST FAILED" : "MIDI control/clock integration tests passed"); return bad != 0;
 }

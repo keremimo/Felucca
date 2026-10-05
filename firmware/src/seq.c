@@ -716,7 +716,19 @@ static void seq_tick(track_t *t, uint32_t n)
 }
 
 /* MIDI in: the track a channel plays (0..15): G_ROUTE CH1-4 (0) channels 1..4 their parts, SEL (1) none */
-static track_t *midi_track(uint32_t ch) { return ch < NPART && !song.g[G_ROUTE] ? &trk[ch] : TSEL; }
+/* the track MIDI channel ch (0..15) plays: the DRUM channel the first DRUM track (none: the selected one), then ROUT
+ * CH1-4 channels 1..4 tracks 1..4, every other channel the selected track */
+static track_t *midi_track(uint32_t ch)
+{
+    uint32_t k;
+    if (settings_drumch && ch + 1u == settings_drumch) {
+        for (k = 0; k < NPART; k++)
+            if (drum_track(&trk[k]))
+                return &trk[k];
+        return TSEL;
+    }
+    return ch < NPART && !song.g[G_ROUTE] ? &trk[ch] : TSEL;
+}
 
 #include "midi_control.c"
 #include "midi_clock.c"

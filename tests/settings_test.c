@@ -15,7 +15,7 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #include "../firmware/src/gfx.c"
 #include "../firmware/src/panel.c"
 static void settings_save(void) {}
-static uint8_t settings_boot;                       /* (params.c) */
+static uint8_t settings_boot, settings_drumch = 10;  /* (params.c) */
 #if __has_include("../firmware/src/favorites.c")
 #include "../firmware/src/favorites.c"
 #endif
@@ -55,6 +55,10 @@ int main(void)
     p = original; p.magic = PERSIST_MAGIC4; p.ext.usb_off = 3;   /* PER4 (Felucca 1.0): favorites, no ext */
     assert(settings_import(&p, PERSIST_LEN4) == 2 && p.magic == PERSIST_MAGIC);
     assert(p.favorites.user == (1u << 31) && p.favorites.factory[8][0] == 1 && !p.ext.usb_off);
+    settings_drumch = 0; settings_export(&p);        /* DRUM OFF: 17 in the record; 10 (the default): 0 */
+    assert(p.ext.drumch == 17u && settings_import(&p, sizeof p) == 1 && !settings_drumch);
+    settings_drumch = 10; settings_export(&p); assert(!p.ext.drumch);
+    settings_drumch = 3; assert(settings_import(&p, sizeof p) == 1 && settings_drumch == 10u);
     p = original; p.ext.usb_off = 2;                /* PER5: ext kept by a build without USB audio */
     assert(settings_import(&p, sizeof p) == 1 && p.ext.usb_off == 2u);
     settings_export(&p); assert(p.ext.usb_off == 2u);
