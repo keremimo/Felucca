@@ -88,9 +88,11 @@ static void reset(uint32_t len)
 
 static void key_frame(uint32_t keys, int32_t length_delta)
 {
+    int note_action = keys || ui.entry_open || step_midi_w != step_midi_r;
     note_edges = keys & ~fm1_in.notes;
     fm1_in.notes = keys;
-    encoders[panel.enc[EN_K1]] = length_delta;
+    encoders[panel.enc[EN_PRESET]] = note_action ? length_delta : 0;
+    encoders[panel.enc[EN_K1]] = note_action ? 0 : length_delta;
     fm1_ms += 20;
     ui_input();
 }
@@ -154,7 +156,7 @@ static void gestures_test(void)
 {
     reset(32);
     cursor_set(14);
-    /* Enter a chord and turn STEP on its first frame. */
+    /* Enter a chord and turn PRESETS on its first frame. */
     key_frame((1u << 7) | (1u << 11) | (1u << 14), 3);
     assert(ui.entry_open && ui.cursor == 14 && step_note_length(TSEL, 14) == 4);
     assert(TSEL->step[14].n == 3 && TSEL->preset == 0);
@@ -187,7 +189,7 @@ static void gestures_test(void)
     assert(TSEL->step[14].time == ST_NOTE);
     encoders[panel.enc[EN_PRESET]] = 1;
     ui_input();
-    assert(TSEL->preset == 1);              /* PRESETS browses on STEP */
+    assert(TSEL->pat_q == 2 && TSEL->preset == 0); /* LOOP's PRESETS selects patterns */
     reset(16);
     cursor_set(14);
     key_frame(1u << 7, 3);
@@ -204,7 +206,7 @@ static void gestures_test(void)
     key_frame(1u << 8, 0);                 /* silent scale key cannot start an entry */
     key_frame(0, 0);
     assert(ui.cursor == 0 && !TSEL->step[0].n);
-    puts("gestures: held chord, release/detent ordering, STEP cursor/length, TIME, preset browsing, drums and scale mode ok");
+    puts("gestures: held chord, release/detent ordering, PRESETS length, STEP cursor, TIME, patterns, drums and scale mode ok");
 }
 
 static void midi_entry_test(void)
@@ -397,7 +399,7 @@ static void mpc_page_test(void)
     }
     scale_setting_set(TSEL, P_SCALE, 1);
     scale_setting_set(TSEL, P_QUANT, Q_MPC);
-    open_family(FAM_SCL);
+    page_scroll(1);
     assert(cur_page()->graph == GR_MPC && page_shown(cur_page()));
     assert(TSEL->p[P_MPCDEG] == 1);
     encoders[panel.enc[EN_K1]] = 2;
@@ -464,13 +466,15 @@ static void mpc_page_test(void)
     midi_frame(0x80, 21, 0, 0);
     song.playing = song.rec = 0;
 
-    open_family(FAM_SCL);                  /* remembers MPC while available */
+    open_family(FAM_SCL);                  /* entering a module starts at its main page */
+    assert(cur_page()->graph == GR_SCALE);
+    open_family(FAM_SCL);
     assert(cur_page()->graph == GR_MPC);
     scale_setting_set(TSEL, P_QUANT, Q_WHITE);
     ui_input();                            /* mode changed externally: hidden page falls back */
     assert(cur_page()->graph == GR_SCALE);
     scale_setting_set(TSEL, P_QUANT, Q_MPC);
-    open_family(FAM_SCL);
+    page_scroll(1);
     assert(cur_page()->graph == GR_MPC);
     track_select(TRK_DRUM);
     ui_input();
@@ -754,15 +758,16 @@ static void render_test(const char *path)
     uint32_t i, j;
     reset(32);
     note(14);
+    TSEL->step[14].note[2] = 72;             /* highest note must stay below the hint strip */
     step_note_resize(TSEL, 14, 6);
     cursor_set(17);
     ui_draw();
     /* The second bank starts mid-chord: all three notes continue visibly. */
     for (j = 0; j < 3; j++) {
-        int y = Y_GRAPH + G_OY + 80 - (TSEL->step[14].note[j] - 60) * 74 / 12;
+        int y = Y_GRAPH + 24 + 80 - (TSEL->step[14].note[j] - 60) * 74 / 12;
         assert(screen[y * 240] == C_GRAY && screen[y * 240 + 14] == C_GRAY);
     }
-    assert(text_w(&FONT_S, "HOLD + STEP: 64 STP") <= 232);
+    assert(text_w(&FONT_S, "HOLD + PRESETS: 64 STP") <= 232);
     if (path) {
         FILE *f = fopen(path, "wb");
         assert(f);
@@ -868,6 +873,221 @@ static void patterns_test(void)
     puts("patterns: SEQ + keys pick (at once stopped, at the loop end playing), copy, LEN per pattern, projects");
 }
 
+static void workspace_test(void)
+{
+    uint32_t rec_bit;
+    reset(16);
+    go_home();
+    assert(ui.home && !ui.home_view);
+    trk[0].p[P_LEVEL] = 40;
+    encoders[panel.enc[EN_K1]] = 1;
+    ui_input();
+    assert(trk[0].p[P_LEVEL] > 40);
+    home_tap();
+    assert(ui.home && ui.home_view == 1u);
+    home_tap();
+    assert(ui.home && ui.home_view == 2u);
+    trk[0].p[P_PAN] = 0;
+    encoders[panel.enc[EN_K1]] = 1;
+    ui_input();
+    assert(trk[0].p[P_PAN] > 0);
+    home_tap();
+    assert(ui.home && ui.home_view == 3u);
+    song.g[G_DFDBK] = 40;
+    encoders[panel.enc[EN_K2]] = 1;
+    ui_input();
+    assert(song.g[G_DFDBK] > 40);
+    rec_bit = 1u << panel.btn[B_REC];
+    fm1_in.buttons |= rec_bit;
+    ui_input();
+    fm1_ms += 20;
+    fm1_in.buttons &= ~rec_bit;
+    ui_input();
+    assert((song.rec & 1u) && transport_req == 1u && ui.home_view);
+    ui_draw();
+    open_family(FAM_ENV);
+    assert(cur_page()->graph == GR_ADSR && !preset_pages());
+    encoders[panel.enc[EN_PRESET]] = 1;
+    ui_input();
+    assert(TSEL->preset == 1 && cur_page()->graph == GR_ADSR);
+    open_family(FAM_ENV);
+    assert(str_eq(cur_page()->title, "ENV DEST"));
+    open_family(FAM_ENV);
+    assert(cur_page()->graph == GR_ADSR);
+    open_family(FAM_SEQ);
+    assert(cur_page()->graph == GR_STEPS);
+    encoders[panel.enc[EN_PRESET]] = 1;
+    ui_input();
+    assert(TSEL->pat_q == 2);
+    encoders[panel.enc[EN_PRESET]] = -1;
+    ui_input();
+    assert(!TSEL->pat_q);
+    open_family(FAM_SEQ);
+    assert(cur_page()->scope == SC_STEP && !preset_pages());
+    open_family(FAM_SAVE);
+    assert(cur_page()->graph == GR_BROWSE);
+    open_family(FAM_SAVE);
+    assert(cur_page()->graph == GR_USER);
+    open_family(FAM_SAVE);
+    assert(cur_page()->graph == GR_SLOTS);
+    home_tap();
+    assert(ui.home && !ui.home_view);
+    puts("workspaces: NOTES/MIX LEVEL/PAN/FX, direct recording, instrument sounds, LOOP patterns and STEP");
+}
+
+static void performance_gestures_test(void)
+{
+    uint32_t rec = 1u << panel.btn[B_REC], play = 1u << panel.btn[B_PLAY];
+    uint32_t fx = 1u << panel.btn[B_FX];
+    reset(16);
+    go_home();
+    button_edges |= rec | play;
+    fm1_in.buttons |= rec | play;
+    ui_input();
+    assert((song.rec & 1u) && transport_req == 1u);
+    fm1_in.buttons &= ~(rec | play);
+    ui_input();
+    assert(song.rec & 1u);                         /* releasing REC does not disarm it */
+
+    reset(16);
+    go_home();
+    edit_frame(1, 1u << SOUND_KEY[1]);
+    assert(TSEL->preset == 1 && cur_page()->fam == FAM_EDIT);
+    edit_frame(0, 0);
+
+    reset(16);
+    go_home();
+    open_family(FAM_SEQ);
+    open_family(FAM_SEQ);
+    note(0);
+    cursor_set(0);
+    button_edges |= fx;
+    fm1_in.buttons |= fx;
+    ui_input();
+    assert(!TSEL->step[0].n && ui.cursor == 1 && cur_page()->scope == SC_STEP);
+    fm1_in.buttons &= ~fx;
+    ui_input();
+    puts("performance: REC+PLAY punch-in, EDIT sound keys, FX step clear");
+}
+
+static void scope_fixture(uint32_t period)
+{
+    uint32_t i;
+    for (i = 0; i < SCOPE_N; i++)
+        scope_buf[i] = (int16_t)(12000 * sin(6.283185307179586 * i / period));
+    scope_w = 0;
+}
+
+static void home_render_navigation_test(void)
+{
+    static uint16_t expected[240 * H_GRAPH];
+    uint32_t engine, page, view;
+    reset(16);
+    settings.zoom = 0;
+    memset(live_last, 0, sizeof live_last);
+    memset(live_held, 0, sizeof live_held);
+    live_last[60u >> 5] = 1u << (60u & 31u);
+    live_last[64u >> 5] = (1u << (64u & 31u)) | (1u << (67u & 31u));
+    memcpy(live_held, live_last, sizeof live_held);
+    scope_fixture(47);
+    for (engine = 0; engine <= NENGINES; engine++) {
+        song.sel = engine == NENGINES ? TRK_DRUM : 0;
+        if (engine < NENGINES)
+            TSEL->eng_req = (uint8_t)engine;
+        go_home();
+        ui_draw();
+        assert(area_has(4, Y_GRAPH, 40, Y_GRAPH + 30, C_WHITE));
+        assert(area_has(0, Y_GRAPH + 36, 240, Y_GRAPH + 64, page_color()));
+        memcpy(expected, screen + Y_GRAPH * 240, sizeof expected);
+        for (page = 0; page < NPAGES; page++) {
+            if (!page_shown(&PAGES[page]))
+                continue;
+            page_go(page);
+            ui_draw();
+            home_tap();
+            ui_draw();
+            assert(!memcmp(expected, screen + Y_GRAPH * 240, sizeof expected));
+        }
+        for (view = 0; view < 4; view++) {
+            home_tap();
+            ui_draw();
+        }
+        assert(!memcmp(expected, screen + Y_GRAPH * 240, sizeof expected));
+    }
+    /* Audio changes must redraw without a control event or full-screen refresh. */
+    scope_fixture(71);
+    ui.frame += 2;
+    ui_draw();
+    assert(!memcmp(expected, screen + Y_GRAPH * 240, 240 * 32 * sizeof(uint16_t)));
+    assert(memcmp(expected + 240 * 32, screen + (Y_GRAPH + 32) * 240, 240 * (H_GRAPH - 32) * sizeof(uint16_t)));
+    settings.zoom = 1;
+    ui.hot_t = 4;
+    ui.frame += 2;
+    ui_draw();
+    assert(area_has(0, Y_GRAPH + 58, 240, Y_GRAPH + 82, page_color()));
+    ui.hot_t = 0;
+    memset(live_held, 0, sizeof live_held);
+    memset(scope_buf, 0, sizeof scope_buf);
+    ui.frame += 2;
+    ui_draw();
+    assert(area_has(4, Y_GRAPH, 40, Y_GRAPH + 30, C_HI));
+    assert(!area_has(0, Y_GRAPH + 36, 240, Y_GRAPH + 64, page_color()));
+    puts("HOME display: notes and live waveform together, all engines/FM6, return from every page, zoom, release and silence");
+}
+
+static void loop_redraw_test(void)
+{
+    static uint16_t previous[240 * H_GRAPH];
+    reset(16);
+    open_family(FAM_SEQ);
+    trk[1].seq_idx = 3;
+    song.playing = 1;
+    ui_draw();
+    memcpy(previous, screen + Y_GRAPH * 240, sizeof previous);
+    song.playing = 0;
+    ui_draw();
+    assert(memcmp(previous, screen + Y_GRAPH * 240, sizeof previous));
+    memcpy(previous, screen + Y_GRAPH * 240, sizeof previous);
+    trk[1].p[P_SLEN] = 4;
+    ui_draw();
+    assert(memcmp(previous, screen + Y_GRAPH * 240, sizeof previous));
+    puts("LOOP display: stopping clears playheads; other tracks' length changes redraw");
+}
+
+static void playing_key_lights_test(void)
+{
+    track_t *t;
+    uint32_t k;
+    reset(16);
+    t = TSEL;
+    t->p[P_SCALE] = 1;                         /* C major */
+    t->p[P_ROOT] = 0;
+    t->p[P_QUANT] = Q_OFF;
+    assert(play_key_led(t, 0) && !play_key_led(t, 1));  /* F, F# */
+    assert(play_key_led(t, 7) && !play_key_led(t, 8));  /* C, C# */
+    t->p[P_ROOT] = 2;                          /* D major moves the guide */
+    assert(!play_key_led(t, 0) && play_key_led(t, 1));
+    t->p[P_TRANS] = 7;
+    song.octave = 2;
+    assert(!play_key_led(t, 0) && play_key_led(t, 1)); /* output transposition keeps layout */
+    t->p[P_SCALE] = 0;
+    for (k = 0; k < 27u; k++)
+        assert(play_key_led(t, k));            /* chromatic */
+    t->p[P_SCALE] = 1;
+    t->p[P_QUANT] = Q_SNAP;
+    for (k = 0; k < 27u; k++)
+        assert(play_key_led(t, k));            /* every key snaps to a pitch */
+    t->p[P_QUANT] = Q_WHITE;
+    assert(play_key_led(t, 7) && !play_key_led(t, 8) && play_key_led(t, 9));
+    t->p[P_QUANT] = Q_MPC;
+    assert(play_key_led(t, 7) && !play_key_led(t, 8) && play_key_led(t, 9));
+    t->p[P_QUANT] = Q_ALL;
+    assert(play_key_led(t, 7) && play_key_led(t, 8) && play_key_led(t, 9));
+    assert(play_key_led(TDRUM, 8));            /* drum keys remain available */
+    puts("playing key lights: scale, root, layouts, transposition and drums");
+}
+
+#ifndef FELUCCA_UI_PREVIEW
 int main(int argc, char **argv)
 {
     lengths_test();
@@ -880,6 +1100,12 @@ int main(int argc, char **argv)
     home_notes_test(argc > 2 ? argv[2] : NULL);
     fm6_page_nav_test();
     patterns_test();
+    workspace_test();
+    performance_gestures_test();
+    home_render_navigation_test();
+    loop_redraw_test();
+    playing_key_lights_test();
     render_test(argc > 1 ? argv[1] : NULL);
     return 0;
 }
+#endif

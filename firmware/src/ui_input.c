@@ -31,13 +31,12 @@ static const uint8_t FAM_BTN[FAM_COUNT] = {B_HOME, B_ENV, B_LFO, B_FX, B_SCL, B_
 static uint32_t cur_fam(void) { return ui.home ? FAM_HOME : cur_page()->fam; }
 
 /* ---------------------------------------------------- EDIT + keys --- */
-/* EDIT held on an EDIT page: the black keys open the pages, in page order (one key per page or
- * pair: the key again = the other page of the pair), the first six white keys pick FM6's
- * operator. Lit = there is something, blinking = where you are. The keys stay silent meanwhile
- * (seq.c keyboard_block: kb_nav_btn); a tap of EDIT still goes to the next page. */
+/* EDIT held: black keys jump to deeper sound controls. White keys recall the
+ * first eight sounds of the active engine (FM6 keeps its six operator keys). */
 #define NAV_N 11u
 static const uint8_t NAV_BLACK[NAV_N] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};   /* F#3 .. F#5 */
 static const uint8_t NAV_WHITE[6] = {0, 2, 4, 6, 7, 9};                              /* F3 .. D4: OP1..OP6 */
+static const uint8_t SOUND_KEY[8] = {0, 2, 4, 6, 7, 9, 11, 12};                       /* first eight sounds */
 static const char *const NAV_PAGE[NAV_N][2] = {
     {"EDIT 1", "EDIT 2"}, {"STORE", 0}, {"ALGO", 0}, {"FREQ", 0}, {"OUT", 0}, {"EG RATE", "EG LVL"},
     {"SCALE", "CURVE"}, {"PITCH EG", "PITCH LV"}, {"FM LFO", "FM LFO 2"}, {"VOICE", "VOICE 2"},
@@ -78,11 +77,20 @@ static void nav_keys(uint32_t pressed)
             else if (a != 0xFF || b != 0xFF)
                 page_go(a != 0xFF ? a : b);
         }
-        for (g = 0; g < 6u; g++)
-            if (NAV_WHITE[g] == k && fm6_shown()) {
-                fm6_opsel = (uint8_t)g;
-                ui.force = 1;
-            }
+        if (fm6_shown()) {
+            for (g = 0; g < 6u; g++)
+                if (NAV_WHITE[g] == k) {
+                    fm6_opsel = (uint8_t)g;
+                    ui.force = 1;
+                }
+        } else if (!is_drum(TSEL)) {
+            const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
+            for (g = 0; g < 8u && g < e->npresets; g++)
+                if (SOUND_KEY[g] == k) {
+                    apply_preset(g);
+                    ui.force = 1;
+                }
+        }
     }
 }
 
@@ -95,6 +103,11 @@ static void nav_leds(uint8_t *nl)
     }
     for (g = 0; g < 6u && fm6_shown(); g++)
         led_put(nl, 14u + NAV_WHITE[g], blink || fm6_opsel != g);
+    if (!fm6_shown() && !is_drum(TSEL)) {
+        const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
+        for (g = 0; g < 8u && g < e->npresets; g++)
+            led_put(nl, 14u + SOUND_KEY[g], g == TSEL->preset ? (int)blink : 1);
+    }
 }
 
 /* ------------------------------------------------------ SEQ + keys --- */
@@ -172,6 +185,21 @@ static void pat_leds(uint8_t *nl)
                                                         : pat_used(t, k));
 }
 
+/* The playing layout follows the selected track. OFF leaves pitches chromatic,
+ * so mark the keys in ROOT/SCL without changing what they sound. TRN and the
+ * octave buttons shift both the note and the scale by the same interval. */
+static int play_key_led(const track_t *t, uint32_t k)
+{
+    int32_t degree;
+    if (is_drum(t) || is_gm_sample(t) || is_slice(t))
+        return 1;
+    if (t->p[P_QUANT] == Q_OFF) {
+        degree = (53 + (int32_t)k - t->p[P_ROOT] + 120) % 12;
+        return (int)((scale_mask(t) >> (uint32_t)degree) & 1u);
+    }
+    return kb_map(t, k) != KB_SILENT;
+}
+
 static void ui_leds(void)
 {
     uint8_t nl[FM1_NCOL] = {0};
@@ -183,6 +211,8 @@ static void ui_leds(void)
         ready = 1;
     }
     led_put(nl, panel.btn[FAM_BTN[fam]], 1);
+    if (fam == FAM_EDIT || fam == FAM_ENV || fam == FAM_LFO || fam == FAM_FX || fam == FAM_SCL || fam == FAM_ARP)
+        led_put(nl, panel.btn[B_EDIT], 1);            /* instrument workspace remains visible */
     led_put(nl, panel.btn[B_PLAY], song.playing && ((song.tick / 64u) & 1u) == 0u);   /* blinks: intended */
     led_put(nl, panel.btn[B_REC], song.rec != 0u);
     led_put(nl, panel.btn[B_OCTDN], song.octave < 0);
@@ -193,7 +223,7 @@ static void ui_leds(void)
         nav_leds(nl);
     else
         for (k = 0; k < 27u; k++)
-            led_put(nl, 14u + k, (int)((fm1_in.notes >> k) & 1u));
+            led_put(nl, 14u + k, play_key_led(TSEL, k));
     for (c = 0; c < FM1_NCOL; c++)
         fm1_led[c] = nl[c];
 }
@@ -257,10 +287,8 @@ static void step_edit(uint32_t slot, int32_t steps)
     step_t *st = &TSEL->step[ui.cursor];
     uint32_t i;
     switch (slot) {
-    case 0:                                               /* STEP: held entry length, otherwise cursor */
-        if (ui.entry_open)
-            step_length_edit(steps);
-        else
+    case 0:                                               /* STEP cursor; PRESETS shapes a held note */
+        if (!ui.entry_open)
             cursor_set(ui.cursor + steps);
         break;
     case 1:                                               /* NOTE: transpose the step */
@@ -287,7 +315,7 @@ static void step_edit(uint32_t slot, int32_t steps)
     }
 }
 
-/* KNOB 1 while entering a note resizes it from its onset. */
+/* PRESETS while entering a note resizes it from its onset. */
 static void step_length_edit(int32_t steps)
 {
     track_t *t = TSEL;
@@ -531,7 +559,7 @@ static void ui_input(void)
 {
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k, fam = cur_fam();
     uint32_t home = btn_hold(&ui.home_t0, B_HOME, now, 1);
-    uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && (fam == FAM_SEQ || fam == FAM_ARP || fam == FAM_TRK));
+    uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu);
     int32_t s;
     if (home == BT_HOLD) {                              /* HOME held: open the menu, or leave it */
         if (ui.menu) {
@@ -555,18 +583,16 @@ static void ui_input(void)
             menu_input(pressed);
         return;
     }
-    if (rec == BT_HOLD) {                               /* REC held on SEQ / ARP: "clear the sequence?", */
-        ui.confirm = fam == FAM_TRK ? 2 : 1;            /* on TRACKS "clear track n?" (the selected one) */
-        ui.confirm_trk = song.sel;
-        ui.force = 1;
-    } else if (rec == BT_TAP && !ui.confirm) {          /* REC records what the page shows: */
-        if (fam == FAM_TRK)
-            tracks_rec_tap();                           /* TRACKS: arm the selected track (PLAY too) */
-        else if (fam == FAM_SEQ || fam == FAM_ARP)
-            song.rec ^= (uint8_t)(1u << song.sel);      /* SEQ / ARP: arm live recording */
-        else
-            open_family(FAM_TRK);                       /* nothing to record here: the TRACKS page */
-    }
+    if (rec == BT_HOLD) {
+        if (fam != FAM_TRK) {
+            open_family(FAM_TRK);                      /* long REC: track setup and pattern mixer */
+        } else {
+            ui.confirm = 2;                            /* TRACKS: clear all patterns of this track */
+            ui.confirm_trk = song.sel;
+            ui.force = 1;
+        }
+    } else if (rec == BT_TAP && !ui.confirm)
+        tracks_rec_tap();                               /* arm and roll from any musical workspace */
     if (ui.confirm) {                                   /* OCT- cancels, OCT+ clears; nothing else reacts */
         seq_midi_events(0);
         step_midi_held = ui.entry_open = 0;
@@ -596,8 +622,8 @@ static void ui_input(void)
         enc_drop();
         return;
     }
-    if (home == BT_TAP)                                 /* HOME acts on release: a hold opens the menu */
-        go_home();
+    if (home == BT_TAP)                                 /* HOME: notes/scope, levels, pan, master effects */
+        home_tap();
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     page_fix();                                         /* the track or its engine changed: FM6 pages */
     seq_record_follow();
@@ -606,7 +632,7 @@ static void ui_input(void)
             open_family(FAM_EDIT);                      /* a tap on an EDIT page: the next page */
         ui.edit_hold = 0;
     } else if (ui.edit_hold && !(ui.edit_hold & 4u) && !ui.edit_used && now - ui.edit_t0 > 400u * 1000u * FM1_TICKS_PER_US) {
-        ui_message(fm6_shown() ? "BLACK: PAGE  WHITE: OP" : "BLACK KEYS: PAGES");   /* held: what the keys do */
+        ui_message(fm6_shown() ? "BLACK: PAGE  WHITE: OP" : "WHITE: SOUND BLACK: PAGE");
         ui.edit_hold |= 4u;
     }
     if (ui.seq_hold && !((fm1_in.buttons >> panel.btn[B_SEQ]) & 1u)) {   /* SEQ let go */
@@ -623,12 +649,23 @@ static void ui_input(void)
         b = panel_btn_of(id);
         switch (b) {
         case B_PLAY:
-            transport_req = song.playing ? 2 : 1;
+            if ((fm1_in.buttons >> panel.btn[B_REC]) & 1u) {
+                song.rec |= (uint8_t)(1u << song.sel);  /* REC + PLAY: punch in / start */
+                if (!song.playing)
+                    transport_req = 1;
+                ui.rec_t0 |= 2u;                       /* REC release is not another tap */
+            } else
+                transport_req = song.playing ? 2 : 1;
             break;
         case B_REC:                                     /* tap / hold: above */
             break;
         case B_OCTDN:
         case B_OCTUP: {
+            if (cur_fam() == FAM_SEQ) {
+                cursor_set((int32_t)ui.cursor + (b == B_OCTDN ? -1 : 1));
+                ui.force = 1;
+                break;
+            }
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
             if ((fm1_in.buttons & both) == both)
                 song.octave = 0;
@@ -647,12 +684,6 @@ static void ui_input(void)
             open_family(FAM_SEQ);
             break;
         case B_EDIT:
-            if (song.seq_mode && cur_page()->scope == SC_STEP) {   /* STEP page: EDIT clears the step */
-                step_clear(&TSEL->step[ui.cursor]);
-                cursor_set(ui.cursor + 1);
-                ui_message("STEP CLEARED");
-                break;
-            }
             ui.edit_t0 = now;                           /* held: EDIT + keys (nav_keys) */
             ui.edit_used = 0;
             if (!ui.home && cur_page()->fam == FAM_EDIT) {   /* on an EDIT page the next one comes on release */
@@ -660,6 +691,14 @@ static void ui_input(void)
                 break;
             }
             ui.edit_hold = 1;
+            /* fall through */
+        case B_FX:
+            if (b == B_FX && cur_fam() == FAM_SEQ && cur_page()->scope == SC_STEP) {
+                step_clear(&TSEL->step[ui.cursor]);
+                cursor_set(ui.cursor + 1);
+                ui_message("STEP CLEARED");
+                break;
+            }
             /* fall through */
         default: {                                      /* page family buttons (HOME, REC: above) */
             uint32_t f;
@@ -694,13 +733,27 @@ static void ui_input(void)
         if (!ui.home && (cur_page()->scope == SC_FMOP || cur_page()->graph == GR_FMALG) && fm6_shown()) {
             fm6_opsel = (uint8_t)clamp((int32_t)fm6_opsel + (s > 0 ? 1 : -1), 0, 5);   /* FM6: PRESETS picks the operator */
             ui.force = 1;
-        } else if (ui.home || cur_page()->graph == GR_BROWSE || cur_fam() == FAM_TRK || cur_page()->scope == SC_STEP) {
-            /* PRESETS browses the selected part's presets on HOME, STEP, the PRESETS
-             * page and TRACKS (the drum track: nothing):
-             * elsewhere a stray turn would throw away the sound being edited */
+        } else if (ui.home) {
+            track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
+        } else if (cur_fam() == FAM_SEQ) {
+            if (cur_page()->scope == SC_STEP && ui.entry_open)
+                step_length_edit(s);
+            else {
+                uint32_t target = (uint32_t)(((int32_t)(TSEL->pat_q ? TSEL->pat_q - 1u : TSEL->pat) +
+                                              (s > 0 ? 1 : (int32_t)NPAT - 1)) % (int32_t)NPAT);
+                TSEL->pat_q = (uint8_t)(target == TSEL->pat ? 0u : target + 1u);   /* back to the current pattern cancels */
+                ui.force = 1;
+            }
+        } else if (cur_page()->graph == GR_BROWSE || cur_fam() == FAM_TRK ||
+                   cur_fam() == FAM_EDIT || cur_fam() == FAM_ENV || cur_fam() == FAM_LFO ||
+                   cur_fam() == FAM_FX || cur_fam() == FAM_SCL || cur_fam() == FAM_ARP) {
+            /* In the instrument workspace PRESETS loads sounds directly; TRACKS
+             * and the library browser keep the same browsing action. */
             uint32_t total, cur = preset_pos(&total);
             if (total)
                 preset_go((cur + (s > 0 ? 1u : total - 1u)) % total);   /* past the factory ones: user presets */
+        } else if (preset_pages()) {
+            page_scroll(s);
         }
     }
     if ((s = panel_enc(EN_ALGO)) != 0)             /* ALGORITHM: the selected track, on every page */
@@ -720,9 +773,20 @@ static void ui_input(void)
             ui.hot_t = 40;
         }
         if (ui.home) {
-            int16_t *vp;
-            const param_desc_t *d = home_param(k, &vp);
-            *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, d->max - d->min), d->min, d->max);
+            if (ui.home_view == 3u) {
+                static const uint8_t MASTER[4] = {G_DTIME, G_DFDBK, G_RSIZE, G_DMIX};
+                const param_desc_t *d = &GP[MASTER[k]];
+                int16_t *vp = &song.g[MASTER[k]];
+                *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, d->max - d->min), d->min, d->max);
+            } else if (ui.home_view == 2u) {
+                int16_t *vp = &trk[k].p[P_PAN];
+                *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, 127), TP[P_PAN].min, TP[P_PAN].max);
+            } else {
+                int16_t *vp = k == TRK_DRUM ? &song.g[G_DRLVL] : &trk[k].p[P_LEVEL];
+                if (k != TRK_DRUM && trk[k].p[P_MUTE])
+                    trk[k].p[P_MUTE] = 0;
+                *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, 127), 0, 127);
+            }
         } else {
             edit_param(k, s);
         }

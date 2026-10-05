@@ -34,9 +34,43 @@ Multi-engine synthesizer firmware for the M-VAVE FM-1.
 - **TRS MIDI IN:** enabled by default, with the same channel routing and scale
   mapping as USB MIDI; supports pitch bend, mod-wheel vibrato, sustain and MIDI panic;
   [controls and limits](docs/MIDI-EXPRESSION.txt)
-- **Note readout:** HOME shows the notes or chord last played on the synth parts (keys, USB and TRS MIDI),
-  as they sound after the scale; white while held, kept after the release
+- **Note readout:** HOME opens the notes or chord last played on the synth parts (keys, USB and TRS MIDI),
+  as they sound after the scale, above the live output waveform; white while held, kept after the release,
+  including with FM6 sounds
 - **MIDI status:** GLO > SYSTEM knob 1 switches the first column between USB status and TRS status/activity; both inputs remain active
+
+## Device workspaces
+
+**EDIT** opens the instrument. Tracks 1–3 are synths; track 4 is the drum kit. Turn **ALGORITHM**
+to pick a track and **PRESETS** to pick a sound. Hold EDIT and tap one of the first eight white
+keys to recall that engine's first eight sounds; on FM6 those keys pick operators instead. The
+black keys jump to deeper sound controls. **ENV**, **FX**, **LFO**, **SCL** and **ARP** open their
+modules directly; tap a module button again for its next control surface.
+
+**SEQ** opens LOOP, a four-track view of the current 16-step bank. Turn **PRESETS** to queue the
+selected track's next pattern, **ALGORITHM** to change track, and **OCT−/OCT+** to move the step
+cursor. Tap SEQ again for STEP entry; **FX** clears the current step there. Hold SEQ and use the
+lit white keys to pick or copy patterns. The patterns remain note data, so changing a sound also
+changes what its recorded notes play.
+
+**HOME** opens the note/chord view and live output waveform, with one track level per knob. Tap HOME again for the four-track
+mixer, then for pan controls, then for master delay and reverb controls with a scope. Turn **ALGORITHM** or **PRESETS** to
+select a track. Tap **REC** in
+any musical workspace to arm that track and start playback if stopped, or press **REC + PLAY**
+to begin recording in one gesture. **PLAY** stops or starts the transport. Hold REC to open
+TRACKS for length, pan and the full pattern mixer. Hold HOME for Settings. **SAVE** opens the
+sound and project library; its next pages are USER, PROJECT and TOOLS.
+
+The center drawing is the focus of each workspace, with four knob values below it. The STUDIO
+look gives knobs 1–4 the same blue, coral, yellow and green cues on every page. The instrument
+has distinct synth and drum scenes, LOOP shows all four tracks, and the mixer shows levels and
+activity. The top strip shows the track, sound and page; the narrow bottom strip shows the
+current 16-step bank.
+
+STUDIO is selected on a fresh installation. If the FM-1 already has a saved colour choice, hold
+**HOME**, turn **PRESETS** to **COLOR**, turn **knob 1** until **STUDIO** appears, then press
+**OCT-** to save and leave Settings. **ZOOM** in the same menu controls the large value readout
+that appears when a knob turns.
 
 ## Engines
 
@@ -95,7 +129,7 @@ The DX7 functions are the part's (as Dexed's are the plugin's), saved with the p
 
 On FM6 parts the generic wheel vibrato and the part's bend range give way to these.
 
-**EDIT** steps through the pages. **PATCH** (also HOME's knobs): VOICE, then MOD (the modulators'
+**EDIT** steps through the pages. **PATCH**: VOICE, then MOD (the modulators'
 levels: brightness), M.TIM and C.TIM (the modulators' and carriers' envelope times); these are
 Felucca's own and neutral at 0. Then **STORE**, and the voice itself: **ALGO** (algorithm, feedback,
 key sync, transpose), six operator pages (**FREQ**, **OUT**, **EG RATE**, **EG LVL**, **SCALE**,
@@ -175,6 +209,11 @@ minor blues (BLUES), whole tone (WHOLE), half-whole diminished (DIMHW), and
 whole-half diminished (DIMWH). Scale degrees continue across keyboard octave
 boundaries; roots need not fall on every C key.
 The drum track and GM sample kit retain their existing note mapping.
+During normal playing, the key LEDs show the selected track's layout. OFF
+highlights notes in the chosen ROOT/SCL (all keys for CHR) without changing
+their pitches; SNAP and ALL light every sounding key; WHITE and MPC light the
+white keys. Holding EDIT or SEQ shows their shortcut
+lights instead.
 
 Incoming MIDI uses the receiving track's **WHITE** or **ALL** layout: MIDI note 60
 (C4) plays ROOT, and each participating key advances one scale degree.
@@ -194,7 +233,7 @@ routing, so use a synth-part channel or one that follows the selected track.
 The H-bank input filter also applies to the drum channel, GM sample kits and
 SLICE; those destinations retain their existing mapping for accepted notes.
 
-With **QNT = MPC**, press **SCL** again to open the **MPC** subpage. **Knob 1
+With **QNT = MPC**, tap **SCL** again to open the **MPC** subpage. **Knob 1
 (DEG)** selects which scale degree H02 plays; the display previews the resulting
 note, for example `H02: 3 -> E4` in C major. H01 is one degree below H02 and
 H03–H16 continue upward through the scale. ROOT stays unchanged. DEG ranges from
@@ -218,13 +257,14 @@ verification with an external MIDI source.
 
 ## Sequencer note length
 
-On **SEQ > STEP**, play notes from the FM-1 keys or external USB/TRS MIDI. Notes
+Tap **SEQ** twice from another workspace to reach STEP, then play notes from the FM-1 keys or
+external USB/TRS MIDI. Notes
 enter at the cursor; chords use up to four notes in POLY mode. Hold a key or chord
-and turn **STEP** (knob 1) to change its length. Clockwise extends it;
+and turn **PRESETS** to change its length. Clockwise extends it;
 counterclockwise shortens it to a minimum of one step. Release all keys to advance
-the cursor past the note. When no note is held, STEP moves the cursor normally.
-**PRESETS** browses sounds, and **TIME** on knob 3 still selects NOTE, TIE or REST.
-The readout above the piano roll shows `HOLD + STEP: 4 STP`, for example. Ties
+the cursor past the note. When no note is held, STEP moves the cursor and PRESETS selects the
+track's pattern. **TIME** on knob 3 still selects NOTE, TIE or REST.
+The readout above the piano roll shows `HOLD + PRESETS: 4 STP`, for example. Ties
 are added and removed automatically.
 
 Lengths can cross a 16-step bank or the pattern's loop boundary, up to one full
@@ -235,7 +275,8 @@ banks, and existing projects keep using the same NOTE/TIE representation.
 ## Patterns
 
 Each track has 8 patterns. Each pattern has its own steps and its own **LEN**, **DIV**,
-**SWING** and **GATE** (SEQ > PATTERN). Hold **SEQ** (it opens the SEQ pages): the white keys F3–F4 are
+**SWING** and **GATE** (SEQ > LOOP). Press **SEQ** for the four-track LOOP overview. Hold **SEQ**:
+the white keys F3–F4 are
 patterns 1–8 of the selected track. A lit key holds notes, the playing pattern blinks, and a
 queued pattern blinks fast.
 
@@ -245,10 +286,10 @@ queued pattern blinks fast.
 - **Copy:** hold one key and press another: the held pattern is copied there, with its LEN etc.
 - A pattern never played starts with the LEN etc. of the pattern it follows.
 
-While SEQ is held the keys play nothing. A short tap of SEQ still turns the page. The bottom
+While SEQ is held the keys play nothing. A short tap of SEQ switches LOOP and STEP. The top
 line of the SEQ pages shows the pattern, with the queued one after it: `P2>5 STEP`. Projects
-store every pattern of every track. REC held on SEQ clears the playing pattern; REC held on
-TRACKS clears all 8 patterns of the track. The web editor shows and edits the playing pattern.
+store every pattern of every track. Hold REC to open TRACKS; holding it there offers to clear
+all 8 patterns of the track. The web editor shows and edits the playing pattern.
 
 Projects from older firmware load with their pattern as pattern 1. Projects now live where user
 sample slots 2 and 3 were: one user sample slot (USR1) remains.

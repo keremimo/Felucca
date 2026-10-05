@@ -38,6 +38,20 @@ On Linux x86-64 the toolchain runs natively and Docker is not needed.
 ./build.sh
 ```
 
+To inspect the device UI without flashing, render representative 240×240 screens
+with the host renderer:
+
+```
+cc -O2 -w -Ibuild/gen -Ifirmware/src -o build/host/ui_preview tests/ui_preview.c -lm
+mkdir -p build/ui-preview
+build/host/ui_preview build/ui-preview
+```
+
+This writes PPM images for the instrument, drum kit, four-track LOOP, STEP, notes/chord and waveform
+view while held and after release, mixer
+level, pan and master effects views, each engine's scene, Settings and the clear confirmation. They use the
+actual firmware drawing code and the STUDIO palette.
+
 `JIELI_TOOLCHAIN` and `AC79_SDK` override the default locations
 (`~/.jieli/toolchain`, `~/fw-AC79_AIoT_SDK`).
 
