@@ -189,7 +189,7 @@ static void pat_leds(uint8_t *nl)
  * so mark the keys in ROOT/SCL without changing what they sound. TRN and the
  * octave buttons shift both the note and the scale by the same interval.
  * A key is bright while it is held or its pitch sounds from MIDI in (live_refs),
- * the rest of the layout dim (Settings > KEYS). */
+ * the rest of the layout dim (Settings > KEYS); GLO > LIGHTS KEYS OFF: none lit. */
 enum { KL_OFF, KL_DIM, KL_ON };
 static uint32_t play_key_led(const track_t *t, uint32_t k)
 {
@@ -208,16 +208,24 @@ static uint32_t play_key_led(const track_t *t, uint32_t k)
 }
 
 static const uint8_t KEYS_DIM_MASK[KEYS_N] = {0, 7, 3, 1, 0};   /* frames lit: -, 1/8, 1/4, 1/2, all */
+#define BTN_DIM_MASK 3u                                           /* idle buttons: 1/4 of the frames */
 
+/* Every button glows dim and is bright while held or engaged: its page family,
+ * PLAY (blinking), REC, a shifted octave. The keys show the playing layout
+ * (play_key_led) or, EDIT / SEQ held, their shortcuts. */
 static void ui_leds(void)
 {
-    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0};
-    uint32_t k, c;
-    uint32_t fam = cur_fam();
+    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0};
+    uint32_t k, c, b;
+    uint32_t fam = cur_fam(), lvl = settings.keys & ~KEYS_DARK;
     static uint8_t ready;
     if (!ready) {
         led_pos_init();
         ready = 1;
+    }
+    for (b = 0; b < NB; b++) {
+        led_put(nb, panel.btn[b], 1);
+        led_put(nl, panel.btn[b], (int)((fm1_in.buttons >> panel.btn[b]) & 1u));
     }
     led_put(nl, panel.btn[FAM_BTN[fam]], 1);
     if (fam == FAM_EDIT || fam == FAM_ENV || fam == FAM_LFO || fam == FAM_FX || fam == FAM_SCL || fam == FAM_ARP)
@@ -230,15 +238,17 @@ static void ui_leds(void)
         pat_leds(nl);
     else if (nav_held())                                /* EDIT + keys: the key map */
         nav_leds(nl);
-    else
+    else if (!(settings.keys & KEYS_DARK))
         for (k = 0; k < 27u; k++) {
             uint32_t lv = play_key_led(TSEL, k);
             led_put(nl, 14u + k, lv == KL_ON);
-            led_put(nd, 14u + k, lv == KL_DIM && settings.keys != KEYS_OFF);
+            led_put(nd, 14u + k, lv == KL_DIM && lvl != KEYS_OFF);
         }
-    fm1_led_dim_mask = KEYS_DIM_MASK[settings.keys];
+    fm1_led_dim_mask[0] = KEYS_DIM_MASK[lvl];
+    fm1_led_dim_mask[1] = BTN_DIM_MASK;
     for (c = 0; c < FM1_NCOL; c++) {
-        fm1_led_dim[c] = (uint8_t)(nd[c] | nl[c]);    /* first: a key going dim <-> bright never goes dark */
+        fm1_led_dim[0][c] = (uint8_t)(nd[c] | nl[c]);   /* first: a key going dim <-> bright never goes dark */
+        fm1_led_dim[1][c] = nb[c];
         fm1_led[c] = nl[c];
     }
 }
@@ -353,12 +363,12 @@ static void step_length_edit(int32_t steps)
         ui_message("NEXT NOTE");
 }
 
-/* SAVE > PROJECT BOOT: kept in flash once the knob rests (boot_save), not on every detent */
-static uint32_t boot_t;                                   /* fm1_ms of the last BOOT detent | 1, 0 = saved */
-static void boot_save(void)
+/* SAVE > PROJECT BOOT, GLO > LIGHTS: kept in flash once the knob rests (set_save), not on every detent */
+static uint32_t set_t;                                    /* fm1_ms of the last change | 1, 0 = saved */
+static void set_save(void)
 {
-    if (boot_t && fm1_ms - boot_t > 1500u) {
-        boot_t = 0;
+    if (set_t && fm1_ms - set_t > 1500u) {
+        set_t = 0;
         settings_save();                                  /* (nothing to write if it is back where it was) */
     }
 }
@@ -380,7 +390,15 @@ static void edit_param(uint32_t slot, int32_t steps)
     if (pg->scope == SC_GLOBAL && id == G_BOOT) {        /* OFF, 1..4: the project power-on loads */
         if (steps) {
             settings.boot = (uint32_t)clamp((int32_t)settings.boot + (steps > 0 ? 1 : -1), 0, 4);
-            boot_t = fm1_ms | 1u;
+            set_t = fm1_ms | 1u;
+        }
+        return;
+    }
+    if (pg->scope == SC_GLOBAL && id == G_LIGHTS) {
+        uint32_t keys = steps > 0 ? settings.keys & ~KEYS_DARK : settings.keys | KEYS_DARK;
+        if (steps && keys != settings.keys) {             /* right = ON, left = OFF */
+            settings.keys = keys;
+            set_t = fm1_ms | 1u;
         }
         return;
     }
@@ -601,7 +619,7 @@ static void ui_input(void)
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu);
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);
     int32_t s;
-    boot_save();
+    set_save();
     if (home == BT_HOLD) {                              /* HOME held: open the menu, or leave it */
         if (ui.menu) {
             menu_close();

@@ -50,8 +50,9 @@ static void draw_menu(void)
                 cv_text(14, y, &FONT_S, MI_NAME[i], sel ? C_WHITE : C_GRAY);
                 if (i == MI_LOWCUT || i == MI_ZOOM)
                     cv_text(90, y, &FONT_S, (i == MI_LOWCUT ? settings.lowcut : settings.zoom) ? "ON" : "OFF", C_HI);
-                if (i == MI_KEYS)                   /* how bright the keys not sounding are */
-                    cv_text(90, y, &FONT_S, KEYS_NAME[settings.keys], C_HI);
+                if (i == MI_KEYS)                   /* how bright the keys not sounding are; dim: GLO > LIGHTS OFF */
+                    cv_text(90, y, &FONT_S, KEYS_NAME[settings.keys & ~KEYS_DARK],
+                            settings.keys & KEYS_DARK ? C_DIM : C_HI);
                 if (i == MI_COLOR) {
                     uint32_t k;
                     cv_text(90, y, &FONT_S, PALETTES[settings.palette].name, C_HI);
@@ -109,8 +110,10 @@ static void menu_input(uint32_t pressed)
         fx_lowcut = (uint8_t)(settings.lowcut != 0);
         ok = 0;
     }
-    if (s != 0 && ui.menu == 1 && ui.menu_sel == MI_KEYS)   /* KNOB 1: brighter / dimmer; the keys show it */
-        settings.keys = (uint32_t)clamp((int32_t)settings.keys + (s > 0 ? 1 : -1), KEYS_OFF, KEYS_FULL);
+    if (s != 0 && ui.menu == 1 && ui.menu_sel == MI_KEYS) {  /* KNOB 1: brighter / dimmer; the keys show it */
+        int32_t lv = (int32_t)(settings.keys & ~KEYS_DARK) + (s > 0 ? 1 : -1);
+        settings.keys = (uint32_t)clamp(lv, KEYS_OFF, KEYS_FULL);   /* (GLO > LIGHTS back ON) */
+    }
     if (ok && ui.menu == 1) {
         switch (ui.menu_sel) {
         case MI_COLOR:                                 /* OCT+ steps through the palettes too */
@@ -118,7 +121,7 @@ static void menu_input(uint32_t pressed)
             palette_set(settings.palette);
             break;
         case MI_KEYS:                                  /* OCT+ steps through the levels too */
-            settings.keys = (settings.keys + 1u) % KEYS_N;
+            settings.keys = ((settings.keys & ~KEYS_DARK) + 1u) % KEYS_N;
             break;
         case MI_PANEL:
             panel_setup();
