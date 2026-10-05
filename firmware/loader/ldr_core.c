@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Melodee update loader, the portable part (step 2 of the M-UPGRADE update
+/* Felucca update loader, the portable part (step 2 of the M-UPGRADE update
  * protocol).
  *
  * The host serves the package ("logical image") with cmd 0x30 reads (ota.c).
@@ -17,7 +17,7 @@
  * Power loss during 3: the record is still there, the SPL runs the loader
  * again on the next power-on and the host can resume.
  *
- * Hooks from the platform (loader.c, tests/ldr_test.c):
+ * Hooks from the platform (loader.c, ldr_test.c):
  *   ldr_fread(off, p, n)  ldr_erase(off)  ldr_prog(off, p, n)   flash, 0 = ok
  *   ldr_record_clear()    forget the RAM update record
  *   ldr_progress(done, total)
@@ -25,7 +25,7 @@
 #define LDR_APP_LO 0x4000u
 #define LDR_APP_HI 0x93000u
 #define LDR_REC_LO 0x93000u                     /* update records live above the app ... */
-#define LDR_REC_HI 0xFC000u                     /* ... and below Melodee's globals */
+#define LDR_REC_HI 0xFC000u                     /* ... and below Felucca's globals */
 
 static int ldr_fread(uint32_t off, void *p, uint32_t n);
 static int ldr_erase(uint32_t off);

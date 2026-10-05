@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Build an FM-1 update package (.fwsc) from the Melodee app and update loader.
+"""Build a complete FM-1 update package (.fwsc) from scratch, with no vendor
+material in it:
 
   flash.bin  head [0, 0x4000): flash header (JieLi SDK default values), JLFS
-             entries, the SDK SPL (uboot.boot, Apache-2.0) and an isd_config
-             blob that decodes to the chip key. The update loader never writes
-             the head.
-             app area 0x4000..: app_area_head, app.bin, the SDK cfg_tool.bin and
-             eq_cfg_hw.bin, the region descriptors; SFC-encrypted with the chip key
-  ota.bin    the Melodee update loader (firmware/loader)
+             entries, the SDK SPL (uboot.boot, Apache-2.0), an isd_config blob
+             of our own that decodes to the chip key; the head is never written
+             by Felucca's loader, it only has to look like a package head
+             app area 0x4000..: app_area_head, Felucca app.bin, the SDK
+             cfg_tool.bin and eq_cfg_hw.bin, the region descriptors, SFC-encrypted
+             with the chip key
+  ota.bin    Felucca's own update loader (firmware/loader)
 
-The SDK files come from the JieLi AC79 SDK (AC79_SDK, or --sdk).
-All integrity checks in the format are CRC16 (poly 0x1021, init 0).
+The layout values (offsets, flags, descriptor addresses, header fields) are
+facts of the FM-1 flash layout and the SDK file formats.
 
-  fm1pkg_make.py APP.bin OTA.bin OUT.fwsc [--product FM-1_9XY] [--sdk DIR]
+The three SDK files (uboot.boot, cfg_tool.bin, eq_cfg_hw.bin) are Apache-2.0, not GPL:
+ship LICENSES/Apache-2.0.txt with every package (LICENSING.md; make_site.py and
+build.py --release do).
+
+  fm1pkg_make.py APP.bin OTA.bin OUT.fwsc [--product FM-1_9XY] [--key 0x980F]
 """
 import argparse
 import os
@@ -102,7 +108,7 @@ def flash_image(app, key):
     spl = sdk_file("uboot.boot")                         # SDK SPL, BANKCB-encoded as in the SDK
     cfg_tool = sdk_file("cfg_tool.bin")
     eq = sdk_file("cfg/eq_cfg_hw.bin")
-    isd = key_blob(key) + b"[FELUCCA]\r\n"                # tag from before the rename, kept
+    isd = key_blob(key) + b"[FELUCCA]\r\n"
     f = bytearray(b"\xFF" * FLASH_SIZE)
     # ---- head
     spl_off = 0xA0

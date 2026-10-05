@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Host test of the Melodee update loader (firmware/loader/ldr_core.c): a fake
+/* Host test of the Felucca update loader (firmware/loader/ldr_core.c): a fake
  * host serves a package over the SysEx protocol, the "device" flash starts as
  * another package's flash.bin (as if that firmware were installed).
  *   ldr_test OLD.fwsc NEW.fwsc */
@@ -9,8 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MELODEE_ID "ota-FM-1_900"
-#define MELODEE_OTA_DRYRUN 0
+#define FELUCCA_ID "ota-FM-1_900"
+#define FELUCCA_OTA_DRYRUN 0
 
 static uint8_t nor[0x100000], *logical;
 static size_t logical_len;

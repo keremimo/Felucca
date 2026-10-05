@@ -9,13 +9,23 @@
 
 static uint8_t nor[0x100000];
 static int fail_after = -1;            /* torn-write injection: stop after N programs */
+static int fail_bytes = -1;            /* power loss after any programmed byte */
+static int erase_error, write_protected;
+static uint32_t io_calls;
 
-static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
-static int st_erase(uint32_t off) { memset(nor + off, 0xFF, 4096); return 0; }
+static int st_read(uint32_t off, void *dst, uint32_t n) { io_calls++; memcpy(dst, nor + off, n); return 0; }
+static int st_erase(uint32_t off)
+{
+    io_calls++;
+    if (erase_error) return -8;
+    if (!write_protected) memset(nor + off, 0xFF, 4096);
+    return 0;
+}
 static int st_prog(uint32_t off, const void *src, uint32_t n)
 {
     const uint8_t *s = src;
     uint32_t i;
+    io_calls++;
     if (fail_after == 0)
         return -9;
     if (fail_after > 0)
@@ -24,8 +34,11 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
         printf("page wrap at %#x\n", off);
         exit(1);
     }
-    for (i = 0; i < n; i++)
-        nor[off + i] &= s[i];
+    for (i = 0; i < n; i++) {
+        if (fail_bytes == 0) return -9;
+        if (fail_bytes > 0) fail_bytes--;
+        if (!write_protected) nor[off + i] &= s[i];
+    }
     return 0;
 }
 #include "../firmware/src/storage.c"
@@ -87,50 +100,80 @@ int main(void)
     nor[st_sector(OBJ_PROJECT0 + 2, 0) + 8] ^= 0x01;    /* both headers broken */
     nor[st_sector(OBJ_PROJECT0 + 2, 1) + 8] ^= 0x01;
     bad += check("both headers broken -> nothing", st_load(OBJ_PROJECT0 + 2, got, sizeof got) < 0);
-    {   /* every copy of every object: inside the main store or the globals, none on another */
-        uint32_t o, c, o2, c2;
-        int ok = st_sector(OBJ_UPRESET0, 0) >= 0xDC000 && st_sector(OBJ_FM6, 0) == 0x9F000 &&
-                 st_sector(OBJ_FM6, 1) == 0xFE000;
-        for (o = 0; o < OBJ_COUNT; o++)
-            for (c = 0; c < 2u; c++) {
-                uint32_t s = st_sector(o, c), e = s + st_span(o) * 4096;
-                ok &= (s >= 0x97000 && e <= 0xE0000) || (s >= 0xFC000 && e <= 0xFF000);
-                ok &= e <= 0xA0000 || s >= 0xB4000;                     /* (the user sample slot) */
-                for (o2 = 0; o2 < OBJ_COUNT; o2++)
-                    for (c2 = 0; c2 < 2u; c2++) {
-                        uint32_t s2 = st_sector(o2, c2), e2 = s2 + st_span(o2) * 4096;
-                        ok &= (o2 == o && c2 == c) || e2 <= s || s2 >= e;
-                    }
-            }
-        ok &= st_sector(OBJ_PROJECT0, 0) == 0xB4000 && st_sector(OBJ_PROJECT0 + 3, 1) + ST_PROJ_SPAN * 4096 == 0xDC000;
-        bad += check("data stays in the Melodee regions, no two copies overlap", ok);
-    }
-    {   /* the FM6 bank: its copies are not neighbours (0x9F000 / 0xFE000) */
-        static uint8_t big[3588], back[3588];
+    bad += check("data stays in the Felucca regions",
+                 st_sector(OBJ_SETTINGS, 1) + 4096 <= 0xFF000 && st_sector(OBJ_PROJECT0 + 3, 1) + 4096 <= 0xE0000 &&
+                     st_sector(OBJ_UPRESET0, 0) >= 0xDC000 && st_sector(OBJ_UPRESET0 + 1, 1) + 4096 <= 0xE0000);
+    /* the FM6 patch bank: the two free sectors, 0x9F000 (after the projects) and 0xFE000 (after the settings) */
+    bad += check("FM6 bank in the free sectors 0x9F000 / 0xFE000",
+                 OBJ_FM6BANK == OBJ_COUNT - 1 && st_sector(OBJ_FM6BANK, 0) == 0x9F000u &&
+                     st_sector(OBJ_PROJECT0 + 3, 1) + 4096 == 0x9F000u && st_sector(OBJ_FM6BANK, 1) == 0xFE000u &&
+                     st_sector(OBJ_SETTINGS, 1) + 4096 == 0xFE000u);
+    {
+        static uint8_t bank[3472], back[3472];
         uint32_t i;
-        for (i = 0; i < sizeof big; i++)
-            big[i] = (uint8_t)(i * 13u);
-        bad += check("FM6 bank: save, save again, load the newer", st_save(OBJ_FM6, a, sizeof a) == 0 &&
-                     st_save(OBJ_FM6, big, sizeof big) == 0 && st_load(OBJ_FM6, back, sizeof back) == (int)sizeof big &&
-                     !memcmp(back, big, sizeof big));
+        for (i = 0; i < sizeof bank; i++) bank[i] = (uint8_t)(i * 7u);
+        bad += check("FM6 bank save / load (A then B)", st_save(OBJ_FM6BANK, bank, sizeof bank) == 0 &&
+                     st_load(OBJ_FM6BANK, back, sizeof back) == (int)sizeof back && !memcmp(bank, back, sizeof bank) &&
+                     (bank[0] ^= 1, st_save(OBJ_FM6BANK, bank, sizeof bank) == 0) &&
+                     st_load(OBJ_FM6BANK, back, sizeof back) == (int)sizeof back && back[0] == bank[0]);
+        {
+            int erased = 1;
+            for (i = 256u + sizeof bank; i < 4096u; i++) erased &= nor[0x9F000u + i] == 0xFFu && nor[0xFE000u + i] == 0xFFu;
+            bad += check("FM6 bank: the sector tails stay erased", erased);
+        }
     }
-    {   /* a project: one copy spans ST_PROJ_SPAN sectors; torn in its last one, the older copy stays */
-        static uint8_t big[5 * 4096 - 256], back[sizeof big];
-        uint32_t i;
+    {
+        uint8_t copies[2 * ST_SECTOR];
+        uint32_t off = st_sector(OBJ_PROJECT0, 0), cut;
+        int ok = 1;
         memset(nor, 0xFF, sizeof nor);
-        for (i = 0; i < sizeof big; i++)
-            big[i] = (uint8_t)(i * 7u + (i >> 8));
-        bad += check("project object: full size saves and loads", st_save(OBJ_PROJECT0 + 1, big, sizeof big) == 0 &&
-                     st_load(OBJ_PROJECT0 + 1, back, sizeof back) == (int)sizeof big && !memcmp(back, big, sizeof big));
-        bad += check("project object: one byte more is refused", st_save(OBJ_PROJECT0 + 1, big, sizeof big + 1) < 0);
-        big[0] ^= 0xFF;
-        fail_after = (int)(sizeof big / 256u) - 1;       /* every payload page but the last one */
-        st_save(OBJ_PROJECT0 + 1, big, sizeof big);
-        fail_after = -1;
-        bad += check("project object: torn save keeps the older copy",
-                     st_load(OBJ_PROJECT0 + 1, back, sizeof back) == (int)sizeof big && back[0] == (uint8_t)~big[0]);
-        bad += check("project object: the neighbours untouched", st_load(OBJ_PROJECT0, back, sizeof back) < 0 &&
-                     st_load(OBJ_PROJECT0 + 2, back, sizeof back) < 0 && st_load(OBJ_UPRESET0, back, 16) < 0);
+        st_save(OBJ_PROJECT0, a, sizeof a);
+        st_save(OBJ_PROJECT0, b, sizeof b);
+        memcpy(copies, nor + off, sizeof copies);
+        for (cut = 0; cut < sizeof a + sizeof(st_hdr_t); cut++) {
+            memcpy(nor + off, copies, sizeof copies);
+            fail_bytes = (int)cut;
+            ok &= st_save(OBJ_PROJECT0, a, sizeof a) != 0;
+            fail_bytes = -1;
+            ok &= st_load(OBJ_PROJECT0, got, sizeof got) == (int)sizeof b && !memcmp(got, b, sizeof b);
+        }
+        bad += check("every payload/header byte cut keeps old data", ok);
+        erase_error = 1;
+        ok = st_save(OBJ_PROJECT0, a, sizeof a) != 0;
+        erase_error = 0;
+        bad += check("erase failure keeps old data", ok && st_load(OBJ_PROJECT0, got, sizeof got) == (int)sizeof b &&
+                                                      !memcmp(got, b, sizeof b));
+        write_protected = 1;
+        ok = st_save(OBJ_PROJECT0, a, sizeof a) != 0;
+        write_protected = 0;
+        bad += check("write protection is a save error", ok && st_load(OBJ_PROJECT0, got, sizeof got) == (int)sizeof b &&
+                                                            !memcmp(got, b, sizeof b));
+    }
+    {
+        st_hdr_t h;
+        uint32_t copy;
+        for (copy = 0; copy < 2u; copy++) {
+            uint32_t off = st_sector(OBJ_PROJECT0, copy);
+            memcpy(&h, nor + off, sizeof h);
+            h.seq = 0xFFFFFFFEu + copy;
+            h.hcrc = st_crc32(&h, sizeof h - 4u);
+            memcpy(nor + off, &h, sizeof h);
+        }
+        bad += check("save sequence wraps", st_save(OBJ_PROJECT0, a, sizeof a) == 0);
+        n = st_load(OBJ_PROJECT0, got, sizeof got);
+        bad += check("wrapped sequence loads new data", n == (int)sizeof a && !memcmp(got, a, sizeof a));
+        bad += check("save after sequence wrap", st_save(OBJ_PROJECT0, b, sizeof b) == 0 &&
+                                                st_load(OBJ_PROJECT0, got, sizeof got) == (int)sizeof b &&
+                                                !memcmp(got, b, sizeof b));
+    }
+    {
+        uint32_t calls = io_calls;
+        bad += check("invalid object load does no flash access", st_load(OBJ_COUNT, got, sizeof got) < 0 && io_calls == calls);
+        bad += check("invalid object save does no flash access", st_save(OBJ_COUNT, a, sizeof a) < 0 && io_calls == calls);
+        bad += check("wrapped object rejected", st_save(0xFFFFFFFFu, a, sizeof a) < 0 && io_calls == calls);
+        memset(got, 'X', sizeof got);
+        bad += check("small destination rejects whole object", st_load(OBJ_PROJECT0, got, sizeof got - 1u) < 0 && got[0] == 'X');
+        bad += check("oversized save rejected", st_save(OBJ_PROJECT0, a, ST_PAYLOAD_MAX + 1u) < 0);
     }
     printf("%s\n", bad ? "STORAGE TEST FAILED" : "storage test passed");
     return bad != 0;

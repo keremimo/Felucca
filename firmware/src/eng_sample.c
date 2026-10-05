@@ -16,7 +16,7 @@ typedef struct {
     const char *name;
     uint16_t z0, nz;
 } smp_set_t;
-#include "melodee_samples.h"
+#include "felucca_samples.h"
 
 static const int16_t IMA_STEP[89] = {
     7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97,
@@ -29,17 +29,16 @@ static const int8_t IMA_IDX[8] = {-1, -1, -1, -1, 2, 4, 6, 8};
 static uint32_t pow2_q16(int32_t d16)
 {
     uint32_t u = (uint32_t)(d16 + 192 * 16), oct = u / 192u;     /* no loop for negative d16 */
-    uint32_t r = PITCH_INC[1600 + u % 192u] / (PITCH_INC[1600] >> 16);   /* 2^(d/192) via the pitch table */
+    uint32_t r = pitch_inc(1600 + u % 192u) / (pitch_inc(1600) >> 16);   /* 2^(d/192) via the pitch table */
     return oct >= 16u ? r << (oct - 16u) : r >> (16u - oct);
 }
 
 /* ---- user sample slots (loaded from the web editor into flash, see web/EDITOR_PROTOCOL.md)
- * 1 slot of 80 KiB at flash 0xA0000 (Melodee data region; slots 2 and 3 became the projects'
- * patterns, storage.c), read through the plain XIP
+ * 3 slots of 80 KiB at flash 0xA0000.. (Felucca data region), read through the plain XIP
  * window. Slot = header (magic, count, name, data length, CRC32) + up to 16 zones in the
  * smp_zone_t layout (off relative to the slot's data at +512) + IMA ADPCM data. */
 #include "../hal/fm1_xip.h"   /* relative: hostsim includes this file too */
-#define SMP_USER_SLOTS 1
+#define SMP_USER_SLOTS 3
 #define SMP_USER_BASE 0xA0000u
 #define SMP_USER_SIZE 0x14000u
 #define SMP_USER_DATA 512u
@@ -55,13 +54,13 @@ typedef struct {
 } smp_user_hdr_t;                                   /* 32 + 16 x 28 = 480 B, data at +512 */
 static smp_zone_t usr_zone[SMP_USER_SLOTS][16];     /* RAM copy, off rebased onto SMP_DATA */
 static uint8_t usr_nz[SMP_USER_SLOTS];
-static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1"};
+static const char *const SMP_ALL_NAMES[SMP_NALL] = {SMP_SET_NAMES_INIT, "USR1", "USR2", "USR3"};
 
 #ifndef SMP_USER_XIP                                /* host tests: a RAM image of the slots */
 #define SMP_USER_XIP(k) fm1_xip_ptr(SMP_USER_BASE + (k) * SMP_USER_SIZE)
 #endif
 static const uint8_t *smp_user_xip(uint32_t k) { return SMP_USER_XIP(k); }
-#if MELODEE_SLICE
+#if FELUCCA_SLICE
 static void slc_user_scan(uint32_t k, int valid);   /* eng_slice.c: SLICE's slice table of the slot */
 #else
 #define slc_user_scan(k, valid) ((void)0)
@@ -126,18 +125,27 @@ static inline int32_t sample_next(const smp_zone_t *z, voice_t *v, int loop)
 
 static void sample_note_on(track_t *t, voice_t *v)
 {
-    uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL, i, zi = 0xFFFFu;
+    uint32_t si = (uint32_t)t->p[P_E0] % SMP_NALL, i, zi = 0xFFFFu, width = 128u;
     if (si < SMP_NSETS) {
         const smp_set_t *set = &SMP_SETS[si];
-        for (i = 0; i < set->nz; i++)
-            if (v->note >= SMP_ZONES[set->z0 + i].lo && v->note <= SMP_ZONES[set->z0 + i].hi)
+        for (i = 0; i < set->nz; i++) {
+            const smp_zone_t *z = &SMP_ZONES[set->z0 + i];
+            /* A single-note hat/cymbal takes precedence over a broad tom zone. */
+            if (v->note >= z->lo && v->note <= z->hi && z->hi - z->lo <= width) {
                 zi = set->z0 + i;
+                width = z->hi - z->lo;
+            }
+        }
         v->s[4] = (int32_t)(zi == 0xFFFFu ? set->z0 : zi);
     } else {                                        /* user slot: silent if empty */
         uint32_t k = si - SMP_NSETS;
-        for (i = 0; i < usr_nz[k]; i++)
-            if (v->note >= usr_zone[k][i].lo && v->note <= usr_zone[k][i].hi)
+        for (i = 0; i < usr_nz[k]; i++) {
+            const smp_zone_t *z = &usr_zone[k][i];
+            if (v->note >= z->lo && v->note <= z->hi && z->hi - z->lo <= width) {
                 zi = 0x8000u | k << 5 | i;
+                width = z->hi - z->lo;
+            }
+        }
         v->s[4] = (int32_t)(zi == 0xFFFFu ? 0 : zi);
     }
     v->ph[0] = 0;
@@ -155,7 +163,7 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
     const smp_zone_t *z = smp_zone((uint32_t)v->s[4]);
     uint32_t i, frac = v->ph[1];
     int32_t d16 = clamp(m->pitch16 + p[P_E1] * 16 - z->root16, -1536, 576);   /* <= 3 octaves up: bounded decode load */
-    uint32_t r = midi_fine_inc(pow2_q16(d16), m->midi_fine), stepq = (r >> 8) * (z->rate >> 8);
+    uint32_t r = pow2_q16(d16), stepq = (r >> 8) * (z->rate >> 8);   /* Q16 samples per output */
     int32_t bits = p[P_E2], lp = 4000 + ((clamp((p[P_E4] << 8) + m->cutoff, 0, 127 << 8) * 28767) >> 15);
     int32_t drv = p[P_E6], sh = bits / 10;
     if (v->s[6] || !z->n) {
@@ -173,6 +181,10 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
             if (v->ph[0] >= z->n) {                   /* one-shot reached its end */
                 v->s[6] = 1;
                 v->s[3] = 0;
+                if (frac >= 65536u) {                /* past the last sample-to-zero interval */
+                    v->s[2] = 0;
+                    frac &= 65535u;
+                }
                 break;
             }
             v->s[3] = sample_next(z, v, p[P_E3]);
@@ -183,17 +195,39 @@ static void sample_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, cons
         if (drv)
             s = softclip(s + (((s >> 2) * (drv * 150)) >> 11));   /* = s * drv * 600 / 32768, no overflow */
         v->s[7] += mulq15(s - v->s[7], lp);           /* gentle tone control (CUT) */
-        out[i] += mulq15(mulq15(v->s[7], amp_at(m, i)), VOICE_FS) << 1;
+        out[i] += voice_amp(v->s[7], m, i) << 1;
         if (v->s[6])
             break;
     }
     v->ph[1] = frac;
 }
 
+/* SMP_SETS index of "PERC", the GM-mapped kit (tools/gen_samples.py GM_KIT), -1 = none */
+static int32_t smp_perc_set(void)
+{
+    static int16_t set = -2;
+    uint32_t i;
+    if (set == -2) {
+        set = -1;
+        for (i = 0; i < SMP_NSETS; i++)
+            if (str_eq(SMP_SETS[i].name, "PERC"))
+                set = (int16_t)i;
+    }
+    return set;
+}
+
+/* the GM kit (PERC): the first C (key 7) is the kick (C2), no scale */
+static int32_t sample_keys(const track_t *t, uint32_t k)
+{
+    if (smp_perc_set() < 0 || (uint32_t)t->p[P_E0] % SMP_NALL != (uint32_t)smp_perc_set())
+        return -1;
+    return clamp(29 + 12 * song.octave + (int32_t)k, 0, 127);
+}
 
 static const engine_t ENG_SAMPLE = {
-    "SAMPLE", {"SET", "TONE"},
-    {
+    .name = "SAMPLE",
+    .page_title = {"SET", "TONE"},
+    .edit = {
         {"SET", F_ENUM, 0, SMP_NALL - 1, 0, SMP_ALL_NAMES, 0},
         {"TUNE", F_SEMI, -24, 24, 0, 0, 0},
         {"BITS", F_INT, 0, 127, 0, 0, 0},
@@ -203,6 +237,11 @@ static const engine_t ENG_SAMPLE = {
         {"DRV", F_PCT, 0, 127, 0, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0},
     },
-    SMP_PRESET_TABLE, sizeof(SMP_PRESET_TABLE) / sizeof(SMP_PRESET_TABLE[0]), -1, sample_note_on, sample_render,
-    0xFFFF, {P_E0, P_E4, P_ATK, P_REL},
+    .presets = SMP_PRESET_TABLE,
+    .npresets = SMP_NPRESETS,
+    .note_on = sample_note_on,
+    .render = sample_render,
+    .knob = {P_E0, P_E4, P_ATK, P_REL},
+    .sampled = 1,
+    .keys = sample_keys,
 };

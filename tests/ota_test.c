@@ -10,8 +10,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MELODEE_ID "FM-1_900"
-#define MELODEE_OTA_DRYRUN 0
+#define FELUCCA_ID "FM-1_900"
+#define FELUCCA_OTA_DRYRUN 0
 
 static uint8_t nor[0x100000];
 static uint8_t *logical;
@@ -174,8 +174,8 @@ int main(int argc, char **argv)
         host_reply(m, 7);
         ota_service();
         bad += check("handshake answered", ident_replies == 1);
-        bad += check("identity frame is " MELODEE_ID,
-                     ota_msg[2] == 0x11 && !memcmp(ota_msg + 6, MELODEE_ID, sizeof MELODEE_ID - 1));
+        bad += check("identity frame is " FELUCCA_ID,
+                     ota_msg[2] == 0x11 && !memcmp(ota_msg + 6, FELUCCA_ID, sizeof FELUCCA_ID - 1));
     }
 
     /* full session */

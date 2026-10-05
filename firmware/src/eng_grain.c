@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* GRAIN: a granular engine over the SAMPLE material. Melodee's own design.
+/* GRAIN: a granular engine over the SAMPLE material. Felucca's own design.
  *
- * Source: the SAMPLE sets (built in, IMA ADPCM in flash) and the user slot USR1 (XIP), the
+ * Source: the SAMPLE sets (built in, IMA ADPCM in flash) and the user slots USR1..3 (XIP), the
  * same zones across the keyboard as SAMPLE: a note picks its zone, its pitch sets the grain
  * playback rate against the zone's root. Needs eng_sample.c (zones, ADPCM tables, pow2_q16).
  *
@@ -233,7 +233,7 @@ static void gr_spawn(gr_part_t *P, const track_t *t, uint32_t vi, uint32_t zl, u
     /* rate: the note against the zone's root, PITCH, the random detune (RAND^2, up to +-1 oct) */
     amt = p[P_E6] * p[P_E6] * 192 / (127 * 127);
     d16 = m->pitch16 - z->root16 + p[P_E4] * 16 + (((int32_t)(r1 & 0xFFFFu) - 32768) * amt >> 15);
-    step = (midi_fine_inc(pow2_q16(clamp(d16, -1536, 576)), m->midi_fine) >> 8) * (z->rate >> 8);
+    step = (pow2_q16(clamp(d16, -1536, 576)) >> 8) * (z->rate >> 8);
     step = step > GR_STEP_MAX ? GR_STEP_MAX : step < 256u ? 256u : step;
     rev = ((r1 >> 16) & 255u) < (uint32_t)p[P_E6];  /* RAND 127: half of them */
     span = (len * step) >> 16;                      /* source samples the grain reads */
@@ -415,22 +415,23 @@ static void grain_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     lp = 4000 + ((clamp((p[P_E7] << 8) + m->cutoff, 0, 127 << 8) * 28767) >> 15);
     for (i = 0; i < n; i++) {
         y += mulq15(clamp(acc[i], -65535, 65535) - y, lp);
-        out[i] += mulq15(mulq15(y, amp_at(m, i)), VOICE_FS) << 1;
+        out[i] += voice_amp(y, m, i) << 1;
     }
     v->s[2] = y;
 }
 
 static const preset_t GRAIN_PRESETS[] = {
     /* name, {SRC, POS, SIZE, DENS, PTCH, SPRD, RAND, TONE}, {A D S R}, fenv, mono */
-    {"CLOUD PAD", {2, 50, 92, 88, 0, 40, 14, 100}, {70, 90, 120, 90}, 0, 0, FX(0, 40, 25, 85)},
-    {"GLITCH", {3, 64, 24, 112, 0, 100, 90, 127}, {0, 70, 100, 30}, 0, 0, FX(10, 0, 50, 25)},
-    {"FROZEN", {0, 40, 108, 72, 0, 0, 10, 92}, {50, 100, 127, 100}, 0, 0, FX(0, 30, 20, 95)},
-    {"SHIMMER", {1, 30, 70, 100, 12, 30, 24, 110}, {30, 90, 110, 90}, 0, 0, FX(0, 50, 40, 90)},
+    {"CLOUD PAD", {2, 50, 92, 88, 0, 40, 14, 100}, {70, 90, 120, 90}, 0, 0, FX(0, 40, 25, 85), PAT(5)},
+    {"GLITCH", {3, 64, 24, 112, 0, 100, 90, 127}, {0, 70, 100, 30}, 0, 0, FX(10, 0, 50, 25), PAT(4)},
+    {"FROZEN", {0, 40, 108, 72, 0, 0, 10, 92}, {50, 100, 127, 100}, 0, 0, FX(0, 30, 20, 95), PAT(5)},
+    {"SHIMMER", {0, 30, 70, 100, 12, 30, 24, 110}, {30, 90, 110, 90}, 0, 0, FX(0, 50, 40, 90), PAT(7)},
 };
 
 static const engine_t ENG_GRAIN = {
-    "GRAIN", {"GRAN", "SPRY"},
-    {
+    .name = "GRAIN",
+    .page_title = {"GRAN", "SPRY"},
+    .edit = {
         {"SRC", F_ENUM, 0, SMP_NALL - 1, 0, SMP_ALL_NAMES, 0},
         {"POS", F_PCT, 0, 127, 32, 0, 0},
         {"SIZE", F_PCT, 0, 127, 80, 0, 0},
@@ -440,6 +441,11 @@ static const engine_t ENG_GRAIN = {
         {"RAND", F_PCT, 0, 127, 10, 0, 0},
         {"TONE", F_PCT, 0, 127, 127, 0, 0},
     },
-    GRAIN_PRESETS, sizeof(GRAIN_PRESETS) / sizeof(GRAIN_PRESETS[0]), 1, grain_note_on, grain_render,
-    0x87F0, {P_E1, P_E2, P_E3, P_E5}, GR_POLY, 0, 0, grain_block,
+    .presets = GRAIN_PRESETS,
+    .npresets = NELEM(GRAIN_PRESETS),
+    .note_on = grain_note_on,
+    .render = grain_render,
+    .knob = {P_E1, P_E2, P_E3, P_E5},
+    .poly = GR_POLY,
+    .block = grain_block,
 };

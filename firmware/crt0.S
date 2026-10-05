@@ -1,9 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* App entry. The SPL maps app.bin at XIP 0x02000120 and jumps to its first
- * byte with r0 = boot-parameter block (0x01C7FE08, inside the vector table).
- * The SPL expects `goto +4; rts` as the first instruction. The core state
- * the SPL left is saved first; then interrupts off and our stacks. */
+/* FM-1 standalone app entry. The SPL maps app.bin
+ * at XIP 0x02000120 and jumps to its first byte with r0 = boot-parameter block
+ * (0x01C7FE08, inside the vector table we are about to own). The SPL expects
+ * `goto +4; rts` as the first instruction. Before anything else the core state
+ * the SPL left is saved for the boot probe; then interrupts off, our stacks. */
 	.section .text.crt0,"ax",@progbits
 	.globl _start
 _start:

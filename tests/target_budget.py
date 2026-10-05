@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Target-side cost estimate of the hot DSP code, from the pi32v2 objdump listing tools/build.py writes
-(build/melodee.dis). For each engine's render function and the audio ISR: the instructions
+(build/felucca.dis). For each engine's render function and the audio ISR: the instructions
 inside loops (every address range closed by a backward branch: the per-sample loops and what they
 contain), and the hardware divides and calls in them. cost = the loop instructions, each weighted 4 per
 level of nesting (an inner loop runs several times per sample) and 1 + 8 for a divide (many cycles). A static count, not a cycle count: it changes only when the compiled code changes,
@@ -14,16 +14,27 @@ import os
 import re
 import sys
 
-FUNCS = ["analog_render", "digital_render", "phase_render", "lofi_render", "sample_render", "formant_render",
-         "trio_render", "trio_pass", "drawbar_render", "drawbar_block",
-         "grain_render", "grain_block", "fm6_render", "fm6_block", "slicer_track", "drums_mix",
-         "fm1_alnk0_irq", "midi_event", "midi_pitch_tick", "midi_forget_track"]
+FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_render_custom", "phase_render", "lofi_render", "sample_render", "formant_render",
+         "trio_render", "trio_pass", "wheel_render", "wheel_block",
+         "grain_render", "grain_block", "phys_render", "drum_render", "noise_render", "fm6_render", "fm6_op_run", "fm6_op_fb", "px_modal_block", "px_modal_run", "px_memb_block",
+         "px_string_excite", "px_string_run", "px_symp_run",
+         "dv_metal_run", "dv_kick_run", "dv_snare_run", "dv_clap_run", "dv_hat_run", "dv_tom_run",   # drum_voice.c
+         "dv_rim_run", "dv_bell_run", "dv_cym_run", "dv_out",
+         "slicer_track",
+         "slice_render", "slc_rev",                          # SLICE (eng_slice.c): the render, the reverse windows
+         "fm1_alnk0_irq",
+         "mod_begin", "mod_voice", "mod_end",                 # the modulation matrix (mod.c), called when active
+         "perf_begin", "perf_mute", "perf_pre", "perf_block", "perf_master",   # the FX layer (perform.c), when busy
+         "rev_room", "rev_spring"]                # the reverb bus (fx.c): REVERB TYPE ROOM / SPRING
+# built only with FELUCCA_FM4=1 (DIGITAL, src/eng_digital.c; not in the default build, so not in BUDGET): absent,
+# they are skipped; present, checked against these (their budget lines until the engine was retired in 1.0)
+OPTIONAL = {"digital_render": 12, "digital_render_legacy": 333, "digital_render_custom": 558}
 TOL = 0.10                      # exact (no noise): small edits pass, a grown render loop does not
 DIV_W = 8                       # a divide weighs 1 + 8 instructions
 NEST = 4                        # an instruction in a loop inside a loop weighs 4, two deep 16, ...
 MAXD = 4
 
-dis = sys.argv[1] if len(sys.argv) > 1 else "build/melodee.dis"
+dis = sys.argv[1] if len(sys.argv) > 1 else "build/felucca.dis"
 budget = sys.argv[2] if len(sys.argv) > 2 else "tests/target_budget.txt"
 LABEL = re.compile(r"^([A-Za-z_][A-Za-z_0-9.]*):$")
 INSN = re.compile(r"^\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*(.*)$")
@@ -48,7 +59,7 @@ def functions(path):
     return out
 
 
-def cost(insns, whole_function=False):
+def cost(insns):
     """loops: one span per loop head (the farthest backward branch to it); an instruction inside d
     spans weighs NEST ** (d - 1) (an inner loop runs several times per pass of the outer one)"""
     lo = insns[0][0]
@@ -62,8 +73,6 @@ def cost(insns, whole_function=False):
     w = 0
     for a, t in insns:
         d = min(sum(1 for h, e in heads.items() if h <= a <= e), MAXD)
-        if whole_function:
-            d = max(d, 1)                   # the MIDI pitch tick is called every block but has no loop
         if not d:
             continue
         k = NEST ** (d - 1)
@@ -81,8 +90,8 @@ def main():
         print(f"target: skip ({dis} missing: run ./build.sh)")
         return 0
     fns = functions(dis)
-    res = {n: cost(fns[n], n == "midi_pitch_tick") for n in FUNCS if fns.get(n)}
-    missing = [n for n in FUNCS if n not in res]
+    res = {n: cost(fns[n]) for n in FUNCS if fns.get(n)}
+    missing = [n for n in FUNCS if n not in res and n not in OPTIONAL]
     base = {}
     if os.path.exists(budget):
         for line in open(budget):
@@ -91,18 +100,19 @@ def main():
                 base[p[0]] = int(p[1])
     if os.environ.get("BUDGET_UPDATE"):
         with open(budget, "w") as f:
-            f.write("# MELODEE target cost budget (tests/target_budget.py): instructions in the loops of each\n"
-                    f"# function in build/melodee.dis, x{NEST} per nesting level, divides x{1 + DIV_W}. The check allows "
+            f.write("# FELUCCA target cost budget (tests/target_budget.py): instructions in the loops of each\n"
+                    f"# function in build/felucca.dis, x{NEST} per nesting level, divides x{1 + DIV_W}. The check allows "
                     f"+{TOL * 100:.0f} %.\n# Rewritten by BUDGET_UPDATE=1.\n")
             for n, r in res.items():
-                f.write(f"{n} {r['cost']}\n")
+                if n not in OPTIONAL:
+                    f.write(f"{n} {r['cost']}\n")
         print(f"target: budget {budget} rewritten ({len(res)} functions)")
     fail = 0
     for n in missing:
         print(f"target: FAIL {n} not found in {dis} (renamed? inlined? update FUNCS)")
         fail += 1
     for n, r in res.items():
-        b = base.get(n)
+        b = base.get(n, OPTIONAL.get(n))
         state = "no budget (BUDGET_UPDATE=1 adds it)" if b is None else "ok"
         if b is not None and not os.environ.get("BUDGET_UPDATE"):
             if r["cost"] > b * (1 + TOL):
