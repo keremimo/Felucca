@@ -344,6 +344,30 @@ static void sound_name(const track_t *t, char *b)
         str_cpy(b, e->presets[t->preset % e->npresets].name, 16);
 }
 
+#if MELODEE_UART
+#define MIDI_TRS_STATE "ON"                               /* (the input is on; no cable detection) */
+#else
+#define MIDI_TRS_STATE "OFF"
+#endif
+/* SYSTEM's MIDI column: input trs (0 USB, 1 TRS) received something in the last 250 ms (both inputs always play;
+ * KNOB 1 only picks the one shown). Sampled whenever the column draws */
+static int midi_rx_recent(uint32_t trs)
+{
+    static uint32_t last[2], at[2];
+    static uint8_t seen[2];
+#if MELODEE_UART
+    uint32_t n = trs ? um.bytes : usb.rx_pkts;
+#else
+    uint32_t n = trs ? 0u : usb.rx_pkts;
+#endif
+    if (n != last[trs & 1u]) {
+        last[trs & 1u] = n;
+        at[trs & 1u] = fm1_ms;
+        seen[trs & 1u] = 1;
+    }
+    return seen[trs & 1u] && fm1_ms - at[trs & 1u] < 250u;
+}
+
 static void draw_foot(void)
 {
     char s[48], pn[16], ti[20];
@@ -658,10 +682,12 @@ static void draw_columns(void)
             draw_column(c, "", "", "", T_THEME, -1, ICON_AUTO);
             continue;
         }
-        if (cur_page()->id[c] == G_MIDI && cur_page()->scope == SC_GLOBAL) {
-            str_cpy(val, !usb.up ? "OFF" : usb.config ? "MIDI" : usb.setups ? "ENUM" : usb.sof_seen ? "BUS" : "WAIT", 12);
-            unit = "USB";
-            draw_column(c, "USB", val, unit, T_THEME, -1, ICON_AUTO);
+        if (cur_page()->id[c] == G_MIDI && cur_page()->scope == SC_GLOBAL) {   /* KNOB 1: which input's status */
+            uint32_t trs = song.g[G_MIDI] != 0, rx = midi_rx_recent(trs);
+            str_cpy(val, trs ? "TRS" : "USB", 12);
+            unit = rx ? "RX" : trs ? MIDI_TRS_STATE :
+                   !usb.up ? "OFF" : usb.config ? "ON" : usb.setups ? "ENUM" : usb.sof_seen ? "BUS" : "WAIT";
+            draw_column(c, "MIDI", val, unit, rx ? T_ACCENT : T_THEME, -1, ICON_AUTO);
             continue;
         }
         if ((act_cols() >> c) & 1u) {

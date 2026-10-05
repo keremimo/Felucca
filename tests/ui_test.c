@@ -2389,6 +2389,27 @@ static int test_boot_template(void)
     return bad;
 }
 
+/* GLO > SYSTEM KNOB 1: the MIDI column shows USB's or TRS's status (both inputs play), RX for 250 ms after input */
+static int test_midi_status(void)
+{
+    int bad = 0, ok;
+    ui_power_on();
+    go_title("SYSTEM");
+    song.g[G_MIDI] = 0;
+    turn(EN_K1, 1);
+    ok = song.g[G_MIDI] == 1;
+    turn(EN_K1, -1);
+    bad += check("SYSTEM KNOB 1: TRS's status, then USB's", ok && song.g[G_MIDI] == 0);
+    midi_rx_recent(0);                                   /* (what came before: seen) */
+    fm1_ms += 1000;
+    ok = !midi_rx_recent(0);
+    usb.rx_pkts++;
+    ok &= midi_rx_recent(0);
+    fm1_ms += 300;
+    bad += check("  USB RX for 250 ms after a packet", ok && !midi_rx_recent(0));
+    return bad;
+}
+
 /* SAVE + REC: the project back to its slot at once ("SAVED B"); playing: stopped first, then saved; a new project:
  * PROJECT on a free slot, SAVE picked; neither button does its own thing (no page, no undo, no arming) */
 static int test_quick_save(void)
@@ -3792,6 +3813,7 @@ int main(void)
     bad += test_key_lights();
     bad += test_rec_gestures();
     bad += test_quick_save();
+    bad += test_midi_status();
 #if MELODEE_SLICE
 #if SMP_USER_SLOTS
     bad += test_slices();

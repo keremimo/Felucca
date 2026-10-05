@@ -58,7 +58,8 @@ runs Felucca.
   HOME-held menu's USB AUDIO setting. No driver needed
 - **MIDI:** USB and TRS MIDI in; channels 1–4 play tracks 1–4, channel 10 the first DRUM track (GLO >
   SYSTEM **DRUM**: any channel or OFF; no DRUM track: the selected one), other channels the selected track,
-  and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS
+  and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
+  GLO > SYSTEM KNOB 1 shows the USB or the TRS input's status (RX while it receives; both always play)
 - **Web:** editor for every parameter (with a 6-operator FM patch editor), step grid, mixer,
   preset library, sample upload and recording with trim; full backup and restore; return to the
   official firmware
