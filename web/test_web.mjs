@@ -40,7 +40,7 @@ async function editorMock() {
   inp.onmidimessage = (e) => link.receive(e.data);
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
-  ok(info.nengines === 9 && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.pcount === 58 && info.pe0 === 50 && info.engines[4] === "SAMPLE",
+  ok(info.nengines === 9 && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.pcount === 62 && info.pe0 === 54 && info.engines[4] === "SAMPLE",
     "editor: INFO");
   {
     /* the firmware's parameter ids (core.h): the editor's layout (EXPECT) and the mock must follow them, or the
@@ -172,6 +172,13 @@ async function editorLibrarian() {
   for (let i = 0; i < 16; i++) st.push(E.parse[C.STEP_GET](await rq(E.req.stepGet(i))));
   ok(rc === 0 && d2.engine === 0 && eq(d2.p, cap.p) && js(E.patternFromSteps(st)) === js(cap.pattern), "librarian: UP_LOAD applies sound + pattern (empty sequencer)");
 
+  for (const [id, value] of [[50, 3], [51, 7], [52, 2], [53, 1], [37, 2]]) await rq(E.req.set(0, id, value));
+  rc = await E.bank.load(rq, 10);
+  const chordDump = E.parse[C.DUMP](await rq(E.req.dump()), info);
+  ok(rc === 0 && eq(chordDump.p.slice(50, 54), [3, 7, 2, 1]) && chordDump.p[37] === 0,
+    "librarian: loading a sound retains chord performance settings and restores polyphony");
+  for (const id of [50, 51, 52, 53]) await rq(E.req.set(0, id, 0));
+
   rc = await E.bank.erase(rq, 11);
   const b2 = await E.bank.list(rq);
   const rcEmpty = await E.bank.load(rq, 11);
@@ -209,7 +216,7 @@ async function editorLibrarian() {
   const ctx = { keys, engines: info.engines, firmware: info.version, pe0: info.pe0 };
   const pts = [cap, { ...bass, engineName: info.engines[bass.engine], tags: ["bass", "device"] }];
   const file = JSON.parse(JSON.stringify(E.libraryFile("library", pts, ctx)));
-  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 58 && file.paramLabels.length === 58 && file.engines.length === 9,
+  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === info.pcount && file.paramLabels.length === info.pcount && file.engines.length === 9,
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
   ok(back.patches.length === 2 && !back.skipped && eq(back.patches[0].p, cap.p) && eq(back.patches[1].p, bass.p)
@@ -220,7 +227,7 @@ async function editorLibrarian() {
   const eng2 = ["PHASE", "ANALOG", "SAMPLE"];
   const fut = E.readLibraryFile(file, { keys: keys2, engines: eng2 });
   const p0 = fut.patches[0].p;
-  ok(fut.patches.length === 2 && p0.length === 59 && p0[5] === null && p0[6] === cap.p[5] && p0[58] === cap.p[57]
+  ok(fut.patches.length === 2 && p0.length === info.pcount + 1 && p0[5] === null && p0[6] === cap.p[5] && p0[info.pcount] === cap.p[info.pcount - 1]
     && fut.patches[0].engine === 1 && fut.patches[1].engine === 0, "library file: other ids / engine order mapped by label and name");
   const lost = E.readLibraryFile({ ...file, patches: [{ ...file.patches[0], engineName: "WAVETABLE" }] }, ctx);
   ok(lost.patches.length === 0 && lost.skipped === 1, "library file: a patch for an unknown engine is skipped");

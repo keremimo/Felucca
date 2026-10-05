@@ -92,6 +92,9 @@ static void fm6_freq_text(char *val, const char **unit, int coarse)
     }
 }
 
+static const char *const N_CHMODE[] = {"OFF", "TRIAD", "7TH", "FIXED"};
+static const char *const N_CHTYPE[] = {"MAJOR", "MINOR", "DIM", "AUG", "SUS2", "SUS4", "7", "MAJ7", "MIN7", "M7B5"};
+static const char *const N_CHSPREAD[] = {"CLOSE", "OPEN", "WIDE"};
 static const param_desc_t TP[P_COUNT] = {
     [P_LEVEL] = PD("LVL", F_DB, 0, 127, 104),
     [P_ATK] = PD("ATK", F_TIME, 0, 127, 10),
@@ -143,6 +146,10 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),
     [P_SLDEPTH] = PD("DEPTH", F_PCT, 0, 127, 127),
     [P_MPCDEG] = PD("DEG", F_INT, 1, 12, 1),
+    [P_CHMODE] = PE("CHORD", N_CHMODE, 0),
+    [P_CHTYPE] = PE("SHAPE", N_CHTYPE, 0),
+    [P_CHINV] = PD("INV", F_INT, 0, 3, 0),
+    [P_CHSPREAD] = PE("SPRD", N_CHSPREAD, 0),
 };
 
 static const param_desc_t GP[G_COUNT] = {
@@ -324,7 +331,7 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,      /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
        SC_FM6, SC_FMOP };                                      /* FM6: the voice; its operator fm6_opsel */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
-       GR_SLCR, GR_FMALG, GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_MPC };
+       GR_SLCR, GR_FMALG, GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_MPC, GR_CHORD };
 
 typedef struct {
     const char *title;
@@ -342,6 +349,7 @@ static const page_t PAGES[] = {
     {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
     {"REV/CHO", FAM_FX, SC_GLOBAL, GR_NONE, {G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
+    {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, {P_CHMODE, P_CHTYPE, P_CHINV, P_CHSPREAD}},
     {"MPC", FAM_SCL, SC_TRACK, GR_MPC, {P_MPCDEG, 0xFF, 0xFF, 0xFF}},
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},

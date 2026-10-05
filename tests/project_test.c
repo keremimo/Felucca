@@ -94,8 +94,8 @@ int main(void)
     int bad = 0, ok;
 
     bad += check("layout: MPC degree follows SLICER, before engine parameters",
-                 P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_MPCDEG && P_MPCDEG + 1 == P_E0 &&
-                 P_E0 == 50 && P_COUNT == PROJ_NP_V2 + 5u);
+                 P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_MPCDEG && P_MPCDEG + 1 == P_CHMODE && P_CHSPREAD + 1 == P_E0 &&
+                 P_E0 == 54 && P_COUNT == 62u);
     bad += check("format 7 fits its flash object (storage.c ST_PROJ_SPAN 5)", sizeof(project_t) <= 5u * 4096u - 256u);
 
     /* format 2, as written before the SLICER */
@@ -155,7 +155,7 @@ int main(void)
          q2.t[1].engine == 8 && q2.fm6_has == 4 && q2.fm6[2][9] == 63 && q2.fm6_on[2] == 0x2D &&
          q2.t[0].p[P_MPCDEG] == 5 && str_eq(ENGINES[9]->name, "FM6");
     for (t = 0; t < NTRK; t++)
-        ok &= !memcmp(q2.t[t].p, v5.t[t].p, sizeof v5.t[t].p) && pats_ok(&q2.t[t], v5.t[t].step);
+        ok &= !memcmp(q2.t[t].p, v5.t[t].p, 50u * sizeof(int16_t)) && !memcmp(q2.t[t].p + P_E0, v5.t[t].p + 50u, 8u * sizeof(int16_t)) && q2.t[t].p[P_CHMODE] == 0 && pats_ok(&q2.t[t], v5.t[t].step);
     bad += check("FUN5 -> FUN7: degree 5, engine 8, FM6 voice; its pattern is pattern 1", ok);
     bad += check("FUN5 wrong length refused", !proj_import(&q2, &buf, (int)sizeof v5 - 2));
 
@@ -168,20 +168,44 @@ int main(void)
     q2.t[1].pt[6].step[0].vel ^= 1u;
     bad += check("FUN6: patterns under the checksum", ok && !proj_ok(&q2));
 
-    /* format 6 as stored (no FM6 functions, its sum after the switches) -> format 7 in place */
-    q2.t[1].pt[6].step[0].vel ^= 1u;
-    q2.magic = PROJ_MAGIC_V6;
-    q2.size = PROJ_V6_SIZE;
+    /* Actual FUN7 layout, before chord parameters existed, and its FUN6 prefix. */
     {
-        uint32_t s6 = proj_hash(&q2, PROJ_V6_SIZE - 4u);
-        memcpy((uint8_t *)&q2 + PROJ_V6_SIZE - 4u, &s6, 4);
+        static project_v7_t old;
+        memset(&old, 0, sizeof old);
+        old.magic = PROJ_MAGIC_V7; old.size = sizeof old;
+        memcpy(old.g, q2.g, sizeof old.g); old.sel = q2.sel;
+        for (t = 0; t < NTRK; t++) {
+            memcpy(old.t[t].p, q2.t[t].p, 50u * sizeof(int16_t));
+            memcpy(old.t[t].p + 50, q2.t[t].p + P_E0, 8u * sizeof(int16_t));
+            old.t[t].engine = q2.t[t].engine; old.t[t].preset = q2.t[t].preset; old.t[t].pat = q2.t[t].pat;
+            memcpy(old.t[t].pt, q2.t[t].pt, sizeof old.t[t].pt);
+        }
+        memcpy(old.fm6, q2.fm6, sizeof old.fm6);
+        memcpy(old.fm6_on, q2.fm6_on, sizeof old.fm6_on); old.fm6_has = q2.fm6_has;
+        for (t = 0; t < NPART; t++) for (i = 0; i < 16; i++) old.fm6_fn[t][i] = (int8_t)(t + i);
+        old.sum = proj_hash(&old, sizeof old - 4u);
+        memcpy(&q2, &old, sizeof old);
+        ok = proj_from_v7(&q2, sizeof old) && proj_ok(&q2) && q2.fm6_has == 4 && q2.fm6[2][9] == 63 &&
+             q2.t[1].pat == 5 && q2.t[1].pt[5].step[7].n == 2 && !memcmp(q2.fm6_fn, old.fm6_fn, sizeof old.fm6_fn);
+        for (t = 0; t < NTRK; t++) {
+            ok &= !memcmp(q2.t[t].p, old.t[t].p, 50u * sizeof(int16_t)) &&
+                  !memcmp(q2.t[t].p + P_E0, old.t[t].p + 50, 8u * sizeof(int16_t)) &&
+                  !memcmp(q2.t[t].pt, old.t[t].pt, sizeof old.t[t].pt);
+            for (i = P_CHMODE; i <= P_CHSPREAD; i++) ok &= q2.t[t].p[i] == TP[i].def;
+        }
+        bad += check("FUN7 -> FUN8: every pattern, sound, function and new default preserved", ok);
+        old.magic = PROJ_MAGIC_V6; old.size = PROJ_V6_SIZE;
+        { uint32_t sum = proj_hash(&old, PROJ_V6_SIZE - 4u); memcpy((uint8_t *)&old + PROJ_V6_SIZE - 4u, &sum, 4); }
+        memcpy(&q2, &old, PROJ_V6_SIZE);
+        ok = proj_from_v6(&q2, PROJ_V6_SIZE) && proj_ok(&q2) && q2.fm6_has == 4 && q2.fm6[2][9] == 63 &&
+             q2.t[1].pat == 5 && q2.t[1].pt[5].step[7].n == 2 && q2.fm6_fn[0][0] < 0 && q2.fm6_fn[2][15] < 0;
+        bad += check("FUN6 -> FUN8: in place, voices and patterns kept, functions default", ok);
+        memcpy(&q2, &old, PROJ_V6_SIZE); ((uint8_t *)&q2)[100] ^= 1;
+        bad += check("FUN6 with a bad sum refused", !proj_from_v6(&q2, PROJ_V6_SIZE));
+        old.magic = PROJ_MAGIC_V7; old.size = sizeof old; old.sum = proj_hash(&old, sizeof old - 4u);
+        memcpy(&q2, &old, sizeof old); ((uint8_t *)&q2)[100] ^= 1;
+        bad += check("FUN7 with a bad sum refused", !proj_from_v7(&q2, sizeof old));
     }
-    ok = proj_from_v6(&q2, (int)PROJ_V6_SIZE) && proj_ok(&q2) && q2.fm6_has == 4 && q2.fm6[2][9] == 63 &&
-         q2.t[1].pat == 5 && q2.t[1].pt[5].step[7].n == 2 && q2.fm6_fn[0][0] < 0 && q2.fm6_fn[2][15] < 0;
-    bad += check("FUN6 -> FUN7: in place, voices and patterns kept, FM6 functions default", ok);
-    q2.magic = PROJ_MAGIC_V6;
-    q2.size = PROJ_V6_SIZE;
-    bad += check("FUN6 with a bad sum refused", !proj_from_v6(&q2, (int)PROJ_V6_SIZE));
     {
         project_t f = q2;
         f.fm6_fn[1][0] = 0;

@@ -562,7 +562,7 @@ static uint32_t graph_signature(void)
     if (ui.home)
         return h ^ (ui.frame / 2u);                  /* scope: redraw every other frame */
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u;
-    if (pg->graph == GR_MPC)
+    if (pg->graph == GR_MPC || pg->graph == GR_CHORD)
         h = (h ^ (uint32_t)(song.octave + 3)) * 16777619u;
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
@@ -1186,6 +1186,35 @@ static int graph_notes(void)
     return 1;
 }
 
+/* CHORD page: what the C4 key (panel key 7) plays now, named; the notes below it */
+static void graph_chord(const track_t *t, uint16_t c)
+{
+    uint8_t note[4];
+    char b[48];
+    uint32_t i, n = chord_notes(t, kb_map(t, 7), note), pcs = 0, root = 0;
+    const char *q;
+    for (i = 0; i < n; i++)
+        pcs |= 1u << (note[i] % 12u);
+    q = n ? chord_of(pcs, note[0] % 12u, &root) : 0;
+    if (q) {                                     /* named as HOME names it, "/bass" off the root */
+        int32_t x = cv_text(4, 0, &FONT_L, N_NOTE[root], c);
+        x = cv_text(x + 1, 3, &FONT_S, q, c);
+        if (root != note[0] % 12u) {
+            x = cv_text(x + 2, 0, &FONT_L, "/", c);
+            cv_text(x, 0, &FONT_L, N_NOTE[note[0] % 12u], c);
+        }
+    } else {
+        cv_text(4, 8, &FONT_S, t->p[P_CHMODE] ? "SCALE VOICING" : "SINGLE NOTES", t->p[P_CHMODE] ? c : C_DIM);
+    }
+    if (n) {
+        notes_fit(b, note, n, &FONT_S, 232);
+        cv_text(4, 40, &FONT_S, b, C_HI);
+    }
+    if (t->p[P_CHMODE] && t->p[P_VOICE] != V_POLY)
+        cv_text(4, 64, &FONT_S, "SET VOICE TO POLY", C_GRAY);
+    cv_text(4, 104, &FONT_S, "C4 KEY", C_DIM);
+}
+
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -1242,6 +1271,9 @@ static void draw_graph(void)
             break;
         case GR_MPC:
             graph_mpc(t, c);
+            break;
+        case GR_CHORD:
+            graph_chord(t, c);
             break;
         case GR_FX:
             graph_fx(t, c);
@@ -1566,6 +1598,10 @@ static void draw_columns(void)
         const param_desc_t *d = page_desc(cur_page(), c, &vp);
         if (!d || !d->label || d->label[0] == '-') {
             draw_column(c, "", "", "", C_HI, -1, ICON_AUTO);
+            continue;
+        }
+        if (cur_page()->graph == GR_CHORD && c == 1u && (TSEL->p[P_CHMODE] == 1 || TSEL->p[P_CHMODE] == 2)) {
+            draw_column(c, d->label, "SCALE", "", C_DIM, -1, ICON_NONE);   /* the scale picks the quality */
             continue;
         }
         if (cur_page()->id[c] == G_MIDI && cur_page()->scope == SC_GLOBAL) {

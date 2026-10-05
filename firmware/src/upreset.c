@@ -258,6 +258,8 @@ static int up_load(uint32_t k)
     t->eng_req = r->engine;
     for (i = 0; i < P_COUNT; i++)
         t->p[i] = v[i];
+    if (t->p[P_CHMODE])
+        t->p[P_VOICE] = V_POLY;
     t->preset = 0;
     fm6_cur[song.sel % NPART] = 0;                      /* FM6: the VOICE it names, afresh */
     fm1_irq_on();

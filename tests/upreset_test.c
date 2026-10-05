@@ -139,7 +139,7 @@ int main(void)
     for (i = 0; i < 53u; i++)
         r.p[i] = (int16_t)(2000 + i);
     up_params(&r, v, def);
-    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_MPCDEG && P_MPCDEG + 1 == P_E0 && P_E0 == 50;
+    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_MPCDEG && P_MPCDEG + 1 == P_CHMODE && P_CHSPREAD + 1 == P_E0 && P_E0 == 54;
     for (i = 0; i < 45u; i++)
         ok &= v[i] == (int16_t)(2000 + i);
     for (i = P_SLCR; i <= P_MPCDEG; i++)

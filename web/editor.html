@@ -1226,6 +1226,7 @@ function makeMockDevice(opt = {}) {
     E("GLMOD", ["RATE", "TIME"], 0), E("PRIO", ["LAST", "LOW", "HIGH"], 0), E("ALLOC", ["ROT", "REUSE"], 0), D("DTUNE", F.INT, 0, 127, 40),
     E("SLCR", ["OFF", "GATE", "STUT"], 0), D("PAT", F.INT, 1, 16, 1), E("RATE", ["1/8", "1/16", "1/32", "8T", "16T", "32T"], 1), D("DEPTH", F.PCT, 0, 127, 127),
     D("DEG", F.INT, 1, 12, 1),
+    E("CHORD", ["OFF", "TRIAD", "7TH", "FIXED"], 0), E("SHAPE", ["MAJOR", "MINOR", "DIM", "AUG", "SUS2", "SUS4", "7", "MAJ7", "MIN7", "M7B5"], 0), D("INV", F.INT, 0, 3, 0), E("SPRD", ["CLOSE", "OPEN", "WIDE"], 0),
   ];
   /* the drum track's P_E0..P_E7: the kit's controls (drums.c DR_EDIT), 0 = the stock sound */
   const DRUM_EDIT = [D("BTONE", F.BIPCT, -64, 63, 0), D("BDCAY", F.BIPCT, -64, 63, 0), D("STONE", F.BIPCT, -64, 63, 0),
@@ -1313,7 +1314,7 @@ function makeMockDevice(opt = {}) {
     [[60, 60, 61, 61, 62, 0, 63, 63, 64, 65, 65, 0, 66, 66, 66, 67], [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]],
     [[60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]],
   ];
-  const P_COUNT = 58, G_COUNT = 27, NSTEP = 64, P_E0 = 50, G_ENGSEL = 20, P_SLCR = 45;   /* core.h */
+  const P_COUNT = 62, G_COUNT = 27, NSTEP = 64, P_E0 = 54, G_ENGSEL = 20, P_SLCR = 45;   /* core.h */
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   /* FM6 (opt.fm6, eng_fm6.c): VOICE R01..R16 (stand-ins here), U01..U32 = the user bank */
   const slotTag = (c, i) => c + String(i + 1).padStart(2, "0");
@@ -1386,7 +1387,7 @@ function makeMockDevice(opt = {}) {
     st.preset = pi;
     for (let i = 0; i < 8; i++) st.p[P_E0 + i] = pr.e[i];
     [1, 2, 3, 4].forEach((id, k) => { st.p[id] = pr.env[k]; });
-    st.p[37] = pr.mono ? 2 : 0;
+    st.p[37] = !st.p[50] && pr.mono ? 2 : 0;
     st.p[33] = 0; st.p[34] = 24; st.p[35] = 28; st.p[36] = 36;
     for (let i = P_SLCR; i < P_SLCR + 4; i++) st.p[i] = TP[i].def;   /* a factory preset turns the SLICER off */
   }
@@ -1476,9 +1477,11 @@ function makeMockDevice(opt = {}) {
         if (a.length < 1) return null;
         const u = drumSel() ? null : st.bank[a[0]];
         if (u) {                                    /* the sound; the track's LEVEL / PAN / MUTE stay */
-          const mix = [0, 39, 40].map((i) => st.p[i]);
+          const keptIds = [0, 39, 40, 50, 51, 52, 53];
+          const kept = keptIds.map((i) => st.p[i]);
           st.engine = u.engine; st.preset = 0; st.p = u.p.slice();
-          [0, 39, 40].forEach((i, k) => { st.p[i] = mix[k]; });
+          keptIds.forEach((i, k) => { st.p[i] = kept[k]; });
+          if (st.p[50]) st.p[37] = 0;
           if (u.pattern.some((x) => x[0]) && seqEmpty()) { loadPat16(u.pattern); st.p[29] = clamp(u.p[29], 1, 16); }
         }
         b(a[0]); b(u ? 0 : 1);
@@ -2051,7 +2054,7 @@ function selfLoad() {
 const stepEdit = new Map(); /* index -> time of the last edit */
 
 /* parameter ids (firmware/src/core.h); used only when P_COUNT / G_COUNT match */
-const EXPECT = { pcount: 58, gcount: 27, pe0: 50 };
+const EXPECT = { pcount: 62, gcount: 27, pe0: 54 };
 const P = { LEVEL: 0, SLEN: 29 };
 const LAYOUT = (pe0) => [
   { t: "ENV", pages: [["ENV", 0, [1, 2, 3, 4]], ["ENV DEST", 0, [5, 6, 7]]] },   /* (P_ED_FX 8: nothing reads it) */
@@ -2059,7 +2062,7 @@ const LAYOUT = (pe0) => [
   { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]]] },
   { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 41, 42]], ["VOICE 2", 0, [43, 44, 39, 40]]] },
   { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DLY", 1, [4, 5, 6, 7]], ["REV/CHO", 1, [8, 9, 10, 11]]] },
-  { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ["MPC", 0, [49]]] },   /* MPC: the pad degree (QNT MPC) */
+  { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ["MPC", 0, [49]], ["CHORD", 0, [50, 51, 52, 53]]] },   /* MPC: the pad degree (QNT MPC) */
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
   { t: "SEQ PATTERN", tab: "seqgroups", pages: [["PATTERN", 0, [29, 30, 31, 32]]] },
   { t: "TEMPO", tab: "seqgroups", pages: [["TEMPO", 1, [0, 1]]] },   /* BPM SWG: the project's (SEQ > TEMPO) */

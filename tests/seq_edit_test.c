@@ -75,6 +75,7 @@ static void reset(uint32_t len)
     memset(midi_ch, 0, sizeof midi_ch);
     memset(midi_owners, 0, sizeof midi_owners);
     memset(live_refs, 0, sizeof live_refs);
+    memset(kb_chord_n, 0, sizeof kb_chord_n);
     step_midi_w = step_midi_r = step_midi_overflow = 0;
     mi_w = mi_r = 0;
     host_tracks_init();
@@ -401,12 +402,16 @@ static void mpc_page_test(void)
     transport_req = panic_req = 0;
     for (mode = Q_OFF; mode < Q_MPC; mode++) {
         scale_setting_set(TSEL, P_QUANT, (int16_t)mode);
+        page_go(page_first(FAM_SCL));
         open_family(FAM_SCL);
-        open_family(FAM_SCL);
+        assert(cur_page()->graph == GR_CHORD);
+        open_family(FAM_SCL);              /* MPC hidden: back to SCL */
         assert(cur_page()->graph == GR_SCALE);
     }
     scale_setting_set(TSEL, P_SCALE, 1);
     scale_setting_set(TSEL, P_QUANT, Q_MPC);
+    page_scroll(1);
+    assert(cur_page()->graph == GR_CHORD);
     page_scroll(1);
     assert(cur_page()->graph == GR_MPC && page_shown(cur_page()));
     assert(TSEL->p[P_MPCDEG] == 1);
@@ -479,11 +484,15 @@ static void mpc_page_test(void)
     open_family(FAM_SCL);                  /* entering a module starts at its main page */
     assert(cur_page()->graph == GR_SCALE);
     open_family(FAM_SCL);
+    assert(cur_page()->graph == GR_CHORD);
+    open_family(FAM_SCL);
     assert(cur_page()->graph == GR_MPC);
     scale_setting_set(TSEL, P_QUANT, Q_WHITE);
     ui_input();                            /* mode changed externally: hidden page falls back */
     assert(cur_page()->graph == GR_SCALE);
     scale_setting_set(TSEL, P_QUANT, Q_MPC);
+    page_scroll(1);
+    assert(cur_page()->graph == GR_CHORD);
     page_scroll(1);
     assert(cur_page()->graph == GR_MPC);
     track_select(TRK_DRUM);

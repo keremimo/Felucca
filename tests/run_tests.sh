@@ -73,13 +73,15 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_scale_test" tests/midi_scale
 run "MIDI scales: mapping, recording, routing and held notes" "$OUT/midi_scale_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/seq_edit_test" tests/seq_edit_test.c -lm
 run "sequencer: note length, panel gestures, playback and display" "$OUT/seq_edit_test"
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_test" tests/chord_test.c -lm
+run "chords: voicings, panel releases, MIDI out burst, editor and FUN8/TMP2 persistence" "$OUT/chord_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_expression_test" tests/midi_expression_test.c -lm
 run "MIDI expression: pitch bend, mod wheel, panic, sustain (USB and TRS)" "$OUT/midi_expression_test"
 run "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
 mkdir -p build/tracks_demo
 run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
 $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/project_test" tests/project_test.c -lm
-run "project formats (FUN1..FUN6 -> FUN7: patterns, MPC degree, parameters, FM6 voices and functions)" "$OUT/project_test"
+run "project formats (FUN1..FUN7 -> FUN8: patterns, parameters, FM6 voices and functions)" "$OUT/project_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slicer_test" tests/slicer_test.c -lm
 mkdir -p build/slicer_demo
 run "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" "$OUT/slicer_test" build/slicer_demo
