@@ -1,13 +1,13 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: GPL-3.0-only
      Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments -->
-<!-- Felucca web editor. One file, no libraries. Protocol: EDITOR_PROTOCOL.md.
+<!-- Melodee web editor. One file, no libraries. Protocol: EDITOR_PROTOCOL.md.
      Add ?mock=1 to the URL to use a built-in simulated device. -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Felucca Editor</title>
+<title>Melodee Editor</title>
 <style>
   /* Fukiai: Hügelton Instruments' icon font (MIT, FUKIAI-LICENSE.txt). Icons are text in .ic spans;
      they stay hidden until the face has loaded (html.fk), so a missing font never shows boxes. */
@@ -150,7 +150,7 @@
 <body>
 <main>
   <button class="lang" id="lang"></button>
-  <h1>Felucca Editor</h1>
+  <h1>Melodee Editor</h1>
   <p class="dim"><a href="../installer/" style="color:inherit" data-t="installer"></a></p>
   <!-- always visible: connection, version, sync mode, the tabs and (Sound / Sequencer / Tracks) the track selector -->
   <header class="top">
@@ -301,7 +301,9 @@
     </div>
   </section>
 
-  <footer>Felucca by Leo Kuroshita (@kurogedelic), <a href="https://hugelton.com" target="_blank" rel="noopener">Hügelton Instruments</a>. GPL-3.0.<br>
+  <footer><a href="https://github.com/keremimo/melodee" target="_blank" rel="noopener">Melodee</a> by Ellic Studio,
+    based on <a href="https://github.com/hugelton/Felucca" target="_blank" rel="noopener">Felucca</a> by Leo Kuroshita (@kurogedelic),
+    <a href="https://hugelton.com" target="_blank" rel="noopener">Hügelton Instruments</a>. GPL-3.0.<br>
     <span data-t="foot"></span> M-VAVE and FM-1 are trademarks of their respective owners.<br>
     <a href="FUKIAI-LICENSE.txt" data-t="iconsCredit"></a></footer>
 </main>
@@ -873,7 +875,7 @@ function buildSlot(name, zonesIn) {
      {
        "format": "felucca-library", "version": 1,
        "kind": "library" | "bank" | "patch",
-       "firmware": "FELUCCA 0.5 ...",          device version string when exported ("" if unknown)
+       "firmware": "MELODEE 0.5 ...",          device version string when exported ("" if unknown)
        "pCount": 58, "pE0": 50,                 P_COUNT and the first engine parameter id
        "paramLabels": ["LVL", "ATK", ...],      one key per parameter id: the DESC label, "#2", "#3" appended to
                                                 a repeated label (PIT, PIT#2), and "E0".."E7" for the engine
@@ -886,7 +888,8 @@ function buildSlot(name, zonesIn) {
      }
    Reading maps every parameter by its key, so a firmware with other ids (or more parameters) still gets
    the right values; parameters the file does not have are null (left at the engine default). Engines are
-   matched by name. The old single-sound file ("felucca-patch" version 1, "Save to file") is read too. */
+   matched by name. The old single-sound file ("felucca-patch" version 1, "Save to file") is read too.
+   The format names are Felucca's: files from before the rename stay readable both ways. */
 const LIB = { FORMAT: "felucca-library", VERSION: 1 };
 
 /* DX7 VCED voices stay in the library; VMEM banks become 32 individual voices.
@@ -1494,7 +1497,7 @@ function makeMockDevice(opt = {}) {
         b(0);
         break;
       case CMD.INFO:
-        s(opt.legacy ? "FELUCCA 0.4 BETA (MOCK)" : "FELUCCA 0.5 BETA (MOCK)"); b(ENG.length); b(P_COUNT); b(G_COUNT); b(NSTEP); b(P_E0);
+        s(opt.legacy ? "MELODEE 0.4 BETA (MOCK)" : "MELODEE 0.5 BETA (MOCK)"); b(ENG.length); b(P_COUNT); b(G_COUNT); b(NSTEP); b(P_E0);
         ENG.forEach((e) => s(e.name));
         if (!opt.legacy) b(NTRK);
         break;
@@ -1639,13 +1642,13 @@ function makeMockDevice(opt = {}) {
     return frame(cmd, out);
   }
 
-  /* a WebMIDI-like access object: one input and one output named "Felucca" */
-  const input = { id: "mock-in", name: "Felucca", type: "input", state: "connected", onmidimessage: null };
+  /* a WebMIDI-like access object: one input and one output named "Melodee" */
+  const input = { id: "mock-in", name: "Melodee", type: "input", state: "connected", onmidimessage: null };
   let busy = false;
   const output = {
-    id: "mock-out", name: "Felucca", type: "output", state: "connected",
+    id: "mock-out", name: "Melodee", type: "output", state: "connected",
     send(data) {
-      if (data[0] === 0xF0 && data[1] === 0x43) {    /* DX7 SysEx (FM6): no Felucca frame, no busy slot */
+      if (data[0] === 0xF0 && data[1] === 0x43) {    /* DX7 SysEx (FM6): no Melodee frame, no busy slot */
         const d = Array.from(data);
         if (opt.fm6) setTimeout(() => {
           const r = yamaha(d);
@@ -1808,9 +1811,9 @@ const TEXT = {
     foot: "Chrome か Edge で使えます。", iconsCredit: "アイコン: Fukiai（MIT）Hügelton Instruments",
     nomidi: "このブラウザでは使えません。Chrome か Edge で開いてください。",
     denied: "MIDI（SysEx）の使用が許可されませんでした。",
-    nodevice: "Felucca が見つかりません。USB で接続して、もう一度押してください。",
+    nodevice: "Melodee が見つかりません。USB で接続して、もう一度押してください。",
     connecting: "接続中", reading: "読み込み中 ", steploading: "ステップを読み込み中 ",
-    ready: "接続しました", disconnected: "切断されました", lost: "Felucca が外されました",
+    ready: "接続しました", disconnected: "切断されました", lost: "Melodee が外されました",
     noreply: "応答がありません", error: "エラー: ", busy: "処理中",
     applying: "書き込み中 ", applied: "読み込みました", badfile: "ファイルを読み込めません: ",
     savedSlot: "保存しました: スロット ", loadedSlot: "読み込みました: スロット ", emptySlot: "空のスロットです: ",
@@ -1830,7 +1833,7 @@ const TEXT = {
     name: "名前", tagsCol: "タグ", date: "更新",
     audition: "試聴", toSlot: "本体スロットへ", rename: "名前変更", tags: "タグ", duplicate: "複製", delete: "削除",
     exportPatch: "書き出し", saveToLib: "今の音色をライブラリへ", import: "読み込み", exportLib: "ライブラリを書き出し",
-    dx7Help: "Felucca JSON、DX7 .syx 音色・32音色バンクを読み込めます。DX7音色はシンセトラックで試聴し、「保存」で本体のFM6バンクに残せます。",
+    dx7Help: "Melodee JSON、DX7 .syx 音色・32音色バンクを読み込めます。DX7音色はシンセトラックで試聴し、「保存」で本体のFM6バンクに残せます。",
     dx7Sent: "DX7音色の読み込みを確認しました（「保存」でFM6バンクに残せます）: ", dx7Store: "DX7音色はFM6バンクへ: FM6のスロットにドラッグするか「保存」を使ってください。",
     fm6Bank: "本体のFM6音色", fm6Use: "トラックで鳴らす", fm6Import: ".syx を読み込み", fm6Export: ".syx に書き出し",
     fm6Help: "ライブラリのDX7音色をスロットにドラッグすると本体に保存されます。32音色の .syx バンクは本体のバンクを置き換え、単音色は空きスロットに入ります。トラックの VOICE は R01–R16 が内蔵音色、U01–U32 がこのバンクです。",
@@ -1856,7 +1859,7 @@ const TEXT = {
     putDone: "本体に書き込みました: スロット ", storedSlot: "本体に保存しました: スロット ", erasedSlot: "消去しました: スロット ",
     loadedUser: "読み込みました: ", reloaded: "本体で音色が変わったので読み直しました", readingBank: "スロットを読み込み中",
     badEngine: "このファームウェアにないエンジンです: ", flashFail: "書き込みに失敗しました（rc {rc}）",
-    installer: "Felucca インストーラー",
+    installer: "Melodee インストーラー",
     tabSeq: "シーケンサー", tabTracks: "トラック", tabSettings: "設定",
     needDevice: "FM-1 を接続すると編集できます。", smpNone: "このファームウェアにはユーザーサンプルのスロットがありません。",
     bankConnect: "FM-1 を接続すると本体のユーザープリセットも扱えます。", bankNone: "このファームウェアにはユーザープリセットがありません。",
@@ -1880,9 +1883,9 @@ const TEXT = {
     foot: "Works in Chrome or Edge.", iconsCredit: "Icons: Fukiai (MIT), Hügelton Instruments",
     nomidi: "This browser cannot do it. Open the page in Chrome or Edge.",
     denied: "MIDI (SysEx) access was not allowed.",
-    nodevice: "Felucca not found. Connect it by USB and press Connect again.",
+    nodevice: "Melodee not found. Connect it by USB and press Connect again.",
     connecting: "Connecting", reading: "Reading ", steploading: "Reading steps ",
-    ready: "Connected", disconnected: "Disconnected", lost: "Felucca was unplugged",
+    ready: "Connected", disconnected: "Disconnected", lost: "Melodee was unplugged",
     noreply: "No reply from the device", error: "Error: ", busy: "Busy",
     applying: "Writing ", applied: "Loaded", badfile: "Cannot read the file: ",
     savedSlot: "Saved to slot ", loadedSlot: "Loaded slot ", emptySlot: "Empty slot: ",
@@ -1902,7 +1905,7 @@ const TEXT = {
     name: "Name", tagsCol: "Tags", date: "Changed",
     audition: "Audition", toSlot: "To device slot", rename: "Rename", tags: "Tags", duplicate: "Duplicate", delete: "Delete",
     exportPatch: "Export", saveToLib: "Save current sound", import: "Import", exportLib: "Export library",
-    dx7Help: "Import Felucca JSON or DX7 .syx voices and 32-voice banks. Audition a DX7 voice on a synth track, then Keep stores it in the device's FM6 bank.",
+    dx7Help: "Import Melodee JSON or DX7 .syx voices and 32-voice banks. Audition a DX7 voice on a synth track, then Keep stores it in the device's FM6 bank.",
     dx7Sent: "DX7 voice loaded and verified (Keep stores it in the FM6 bank): ", dx7Store: "DX7 voices go to the FM6 bank: drag one onto an FM6 slot or use Keep.",
     fm6Bank: "FM6 voices on the device", fm6Use: "Play on track", fm6Import: "Import .syx", fm6Export: "Save as .syx",
     fm6Help: "Drag a DX7 voice from the library onto a slot to store it on the device. A 32-voice .syx bank replaces the device's bank; single voices go into free slots. A track's VOICE: R01-R16 are the built-in voices, U01-U32 this bank.",
@@ -1928,7 +1931,7 @@ const TEXT = {
     putDone: "Written to the device: slot ", storedSlot: "Stored on the device: slot ", erasedSlot: "Erased slot ",
     loadedUser: "Loaded ", reloaded: "The sound changed on the device: read again", readingBank: "Reading the slots",
     badEngine: "This firmware has no such engine: ", flashFail: "Write failed (rc {rc})",
-    installer: "Felucca installer",
+    installer: "Melodee installer",
     tabSeq: "Sequencer", tabTracks: "Tracks", tabSettings: "Settings",
     needDevice: "Connect the FM-1 to edit.", smpNone: "This firmware has no user sample slots.",
     bankConnect: "Connect the FM-1 to see its user presets too.", bankNone: "This firmware has no user presets.",
@@ -2086,7 +2089,7 @@ async function connect() {
       }
       access.onstatechange = onState;
     }
-    const isF = (p) => /felucca/i.test(p.name || "") && p.state !== "disconnected";
+    const isF = (p) => /melodee|felucca/i.test(p.name || "") && p.state !== "disconnected";
     const input = [...access.inputs.values()].find(isF);
     const output = [...access.outputs.values()].find(isF);
     if (!input || !output) { sayK("nodevice"); return; }
@@ -2137,7 +2140,7 @@ function disconnect(reasonKey = "disconnected") {
 
 function onState(e) {
   const p = e.port;
-  if (!p || !/felucca/i.test(p.name || "")) return;
+  if (!p || !/melodee|felucca/i.test(p.name || "")) return;
   if (dev && p.state === "disconnected" && (p.id === dev.input.id || p.id === dev.output.id)) {
     disconnect("lost");
   } else if (!dev && wantConnected && p.state === "connected" && p.type === "output") {
@@ -3102,7 +3105,7 @@ $("savefile").addEventListener("click", () => {
     engineName: dev.info.engines[engine], presetName: (dev.names[engine] || [])[preset],
     engine, preset, p: dev.dump.p.slice(), g: dev.dump.g.slice(),
     steps: dev.steps.map((s) => ({ n: s.n, notes: s.notes.slice(), time: s.time, flags: s.flags, vel: s.vel })) };
-  download(`felucca-${fileSlug(data.engineName || "patch")}-${fileSlug(data.presetName || preset)}.json`, data);
+  download(`melodee-${fileSlug(data.engineName || "patch")}-${fileSlug(data.presetName || preset)}.json`, data);
 });
 $("loadfile").addEventListener("click", () => { $("file").value = ""; $("file").click(); });
 $("file").addEventListener("change", async () => {
@@ -3145,7 +3148,8 @@ $("file").addEventListener("change", async () => {
 });
 
 /* ----------------------------------------------------------- library --- */
-/* Patches live in IndexedDB "felucca-editor": store "patches" (by id), store "meta" ("layout": the
+/* Patches live in IndexedDB "felucca-editor" (named before the rename; saved patches stay there):
+   store "patches" (by id), store "meta" ("layout": the
    parameter keys / engine names the stored values are in). Without IndexedDB (some private windows)
    the library is kept in memory only. */
 const store = (() => {
@@ -3287,7 +3291,7 @@ function renderLib() {
         el("td", { text: new Date(p.modified).toLocaleDateString(lang) }));
       tr.addEventListener("click", () => { libSel = p.id; renderLib(); });
       tr.addEventListener("dblclick", () => libAudition(p.id));
-      tr.addEventListener("dragstart", (e) => { libSel = p.id; e.dataTransfer.setData("text/x-felucca-lib", p.id); e.dataTransfer.effectAllowed = "copy"; });
+      tr.addEventListener("dragstart", (e) => { libSel = p.id; e.dataTransfer.setData("text/x-melodee-lib", p.id); e.dataTransfer.effectAllowed = "copy"; });
       tb.append(tr);
     }
     box.replaceChildren(tb, ...(v.length ? [] : [el("div", { class: "none", text: t("noMatch") })]));
@@ -3322,13 +3326,13 @@ function renderBank() {
       el("td", { text: x.used ? dev.info.engines[x.engine] || String(x.engine) : "" }));
     tr.addEventListener("click", () => { bankSel = x.slot; renderBank(); renderLib(); });
     tr.addEventListener("dblclick", () => { if (x.used) bankLoad(x.slot); });
-    tr.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/x-felucca-slot", String(x.slot)); e.dataTransfer.effectAllowed = "copy"; });
-    tr.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/x-felucca-lib")) { e.preventDefault(); tr.classList.add("over"); } });
+    tr.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/x-melodee-slot", String(x.slot)); e.dataTransfer.effectAllowed = "copy"; });
+    tr.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/x-melodee-lib")) { e.preventDefault(); tr.classList.add("over"); } });
     tr.addEventListener("dragleave", () => tr.classList.remove("over"));
     tr.addEventListener("drop", (e) => {
       e.preventDefault();
       tr.classList.remove("over");
-      const id = e.dataTransfer.getData("text/x-felucca-lib");
+      const id = e.dataTransfer.getData("text/x-melodee-lib");
       if (id) { bankSel = x.slot; libPut(id, x.slot); }
     });
     tb.append(tr);
@@ -3346,13 +3350,13 @@ function renderBank() {
 /* a slot dropped on the library: copy it there */
 $("liblist").addEventListener("dragover", (e) => {
   const ty = e.dataTransfer.types;
-  if (ty.includes("text/x-felucca-slot") || ty.includes("text/x-felucca-fm6")) { e.preventDefault(); $("liblist").classList.add("over"); }
+  if (ty.includes("text/x-melodee-slot") || ty.includes("text/x-melodee-fm6")) { e.preventDefault(); $("liblist").classList.add("over"); }
 });
 $("liblist").addEventListener("dragleave", () => $("liblist").classList.remove("over"));
 $("liblist").addEventListener("drop", (e) => {
   e.preventDefault();
   $("liblist").classList.remove("over");
-  const s = e.dataTransfer.getData("text/x-felucca-slot"), f = e.dataTransfer.getData("text/x-felucca-fm6");
+  const s = e.dataTransfer.getData("text/x-melodee-slot"), f = e.dataTransfer.getData("text/x-melodee-fm6");
   if (s !== "") bankGet(+s);
   else if (f !== "") fm6Get(+f);
 });
@@ -3476,9 +3480,9 @@ const fileSlug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").repl
 const today = () => new Date().toISOString().slice(0, 10);
 $("libexp1").addEventListener("click", () => {
   const p = lib.find((x) => x.id === libSel);
-  if (p) download(`felucca-patch-${fileSlug(p.name)}.json`, libraryFile("patch", [p], libCtx()));
+  if (p) download(`melodee-patch-${fileSlug(p.name)}.json`, libraryFile("patch", [p], libCtx()));
 });
-$("libexport").addEventListener("click", () => download(`felucca-library-${today()}.json`, libraryFile("library", lib, libCtx())));
+$("libexport").addEventListener("click", () => download(`melodee-library-${today()}.json`, libraryFile("library", lib, libCtx())));
 $("libimport").addEventListener("click", () => { $("libfile").value = ""; $("libfile").click(); });
 $("libfile").addEventListener("change", async () => {
   let n = 0, skipped = 0;
@@ -3566,7 +3570,7 @@ $("bkexport").addEventListener("click", () => libOp(async () => {
     const u = await bank.get(rqf, dev.info, x.slot);
     if (u.used) out.push({ name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, pattern: u.pattern, slot: x.slot });
   }
-  download(`felucca-bank-${today()}.json`, libraryFile("bank", out, libCtx()));
+  download(`melodee-bank-${today()}.json`, libraryFile("bank", out, libCtx()));
   sayK("ready");
 }));
 
@@ -3637,13 +3641,13 @@ function renderFm6() {
       el("td", { text: slotName(k) }), el("td", {}, k === playing ? icon("symbol_audio") : "", empty ? t("empty") : name));
     tr.addEventListener("click", () => { fm6Sel = fm6Sel === k ? null : k; renderFm6(); renderLib(); });
     tr.addEventListener("dblclick", () => fm6Use(k));
-    tr.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/x-felucca-fm6", String(k)); e.dataTransfer.effectAllowed = "copy"; });
-    tr.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/x-felucca-lib")) { e.preventDefault(); tr.classList.add("over"); } });
+    tr.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/x-melodee-fm6", String(k)); e.dataTransfer.effectAllowed = "copy"; });
+    tr.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("text/x-melodee-lib")) { e.preventDefault(); tr.classList.add("over"); } });
     tr.addEventListener("dragleave", () => tr.classList.remove("over"));
     tr.addEventListener("drop", (e) => {
       e.preventDefault();
       tr.classList.remove("over");
-      const id = e.dataTransfer.getData("text/x-felucca-lib");
+      const id = e.dataTransfer.getData("text/x-melodee-lib");
       if (id) fm6Put(id, k);
     });
     tb.append(tr);
@@ -3713,7 +3717,7 @@ $("fmrefresh").addEventListener("click", () => libOp(async () => {
   sayK("ready");
 }));
 $("fmexport").addEventListener("click", () => {
-  if (dev && dev.fm6) saveBlob(`felucca-fm6-bank-${today()}.syx`, new Blob([Uint8Array.from(fm6Bank.message(dev.fm6.bank))], { type: "application/octet-stream" }));
+  if (dev && dev.fm6) saveBlob(`melodee-fm6-bank-${today()}.syx`, new Blob([Uint8Array.from(fm6Bank.message(dev.fm6.bank))], { type: "application/octet-stream" }));
 });
 $("fmimport").addEventListener("click", () => { $("fmfile").value = ""; $("fmfile").click(); });
 /* a 32-voice bank replaces the device's bank; single voices go into free slots from the selected one on */
