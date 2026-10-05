@@ -683,7 +683,7 @@ static int chk_mode_release(char *msg, uint32_t n)
                     trk[0].p[P_VOICE] = (int16_t)to;
                     trk_note_off(&trk[0], order ? 60u : 64u);
                     trk_note_off(&trk[0], order ? 64u : 60u);
-                    bad += mode_release_gates() != 0 || trk[0].nmono != 0 || voices_busy() > NVOICE;
+                    bad += mode_release_gates() != 0 || trk[0].nmono != 0 || voices_busy() > VBUDGET;
                     for (i = 0; i < FS / CTL && !parts_free(); i++) blk();
                     bad += !parts_free();
                     cases++;
@@ -702,7 +702,7 @@ static int chk_mode_release(char *msg, uint32_t n)
         cases++;
         for (priority = 0; priority < 3u; priority++) {
             uint32_t lead = priority == 1u ? 72u : 80u, other = priority == 1u ? 80u : 72u;
-            uint32_t want = mode == V_UNISON ? NVOICE : 1u;
+            uint32_t want = mode == V_UNISON ? trk_nvoice(&trk[0]) : 1u;
             mode_release_reset(0, V_POLY);
             trk_note_on(&trk[0], 48, 100);
             trk_note_on(&trk[0], 64, 100);
@@ -718,7 +718,7 @@ static int chk_mode_release(char *msg, uint32_t n)
             trk_note_off(&trk[0], lead);
             bad += mode_release_gates() != want || trk[0].v[0].note != 76u || trk[0].mono_note != 76u;
             trk_note_off(&trk[0], 76);
-            bad += mode_release_gates() != 0 || trk[0].nmono != 0 || voices_busy() > NVOICE;
+            bad += mode_release_gates() != 0 || trk[0].nmono != 0 || voices_busy() > VBUDGET;
             cases++;
         }
     }

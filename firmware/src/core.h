@@ -2,14 +2,16 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MELODEE core types: tracks, voices, engines, parameters.
  * Four tracks, each a synth part: its own engine, preset, parameters, voices and 64-step
- * pattern. The parts share one budget of NVOICE sounding voices (voice.c). Drums are the DRUM
+ * pattern. The parts share one budget of VBUDGET units of sounding voices (voice.c). Drums are the DRUM
  * engine or the SAMPLE engine's PERC set (General MIDI map) on any part.
  * Sections: sizes, parameters, voices and engines, tracks and the song, system. */
 #include <stdint.h>
 
 /* ------------------------------------------------------------ sizes --- */
-#define NVOICE 8                 /* voices per part, and the budget shared by all parts */
+#define NVOICE 16                /* voice slots per part (FM6 plays Dexed's 16) */
 #define NPOLY 8                  /* the voices of an engine without its own cap (its per-voice state: engines.c eng_state) */
+#define VBUDGET 16               /* the sounding voices of all parts, in units: a voice of an engine capped above NPOLY
+                                  * (FM6) takes one, any other two, so the others keep their shared eight */
 #define NPART 4                  /* synth parts: tracks 1..4 */
 #define NTRK NPART               /* tracks (the formats and the protocol count these): every track is a part */
 #define NSTEP 64
@@ -143,6 +145,8 @@ typedef struct {                 /* per-voice control-rate modulation, computed 
     int32_t shape;               /* 0..127 << 8 */
     int32_t envq15;              /* env value (for engines that use it as a mod source) */
     int32_t fine;                /* the residual below 1/16 semitone in inc: unison detune, TUNE, bend (1/4096) */
+    int32_t plog;                /* the voice's own pitch offset without TUNE and bend (glide, LFO and ENV pitch, the
+                                  * matrix's, unison detune), Q24 octaves: for engines that figure their pitch (FM6) */
 } vmod_t;
 
 typedef struct {
@@ -168,7 +172,7 @@ typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c 
     const preset_t *presets;
     uint8_t npresets;
     uint8_t knob[4];             /* HOME: the four parameters on KNOB 1..4 */
-    uint8_t poly;                /* voice cap for POLY and UNISON, 0 = NVOICE */
+    uint8_t poly;                /* voice cap for POLY and UNISON (up to NVOICE), 0 = NPOLY */
     uint8_t sampled;             /* 1 = plays recorded material (a position, not a phase): voice.c keeps
                                   * no phases over a retrigger, spreads none for UNISON, renders at SUS 0 */
     uint8_t keep;                /* bit k: s[k] is kept when a sounding voice is retriggered (filters) */
@@ -191,6 +195,14 @@ typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c 
      * done() says so (once per control tick, before the render), not at the end of the ADSR's release */
     uint8_t ownenv;
     int (*done)(struct track *t, voice_t *v);
+    /* optional: the POLY voice (0..cap-1) for a new note, the engine's own choice (FM6: Dexed's) */
+    uint32_t (*alloc)(struct track *t, uint32_t note);
+    /* optional: MONO / LEGATO / UNISON moved a sounding voice to a new note without a new attack */
+    void (*legato)(struct track *t, voice_t *v);
+    /* optional: a key went down in MONO / LEGATO / UNISON, whether or not it takes the voice */
+    void (*mono_key)(struct track *t, uint32_t note);
+    /* optional: the part's block after its voices (FM6: Dexed's DC filter); nr: voices rendered */
+    void (*post)(struct track *t, int32_t *out, uint32_t n, uint32_t nr);
 } engine_t;
 
 /* ------------------------------------------------- tracks, the song --- */
@@ -268,7 +280,7 @@ typedef struct track {
     uint8_t rh_last;             /* the last of them; rh_bak: what it held (an early release puts it back) */
     step_t rh_bak;
     /* mono */
-    uint8_t mono_stack[8];
+    uint8_t mono_stack[NVOICE];  /* keys held, in press order (as many as Dexed keeps voices for) */
     uint8_t nmono;
     uint8_t mono_note;           /* note the MONO / LEGATO / UNISON voice(s) play, 0 = none */
     uint8_t rr;                  /* POLY ROTATE: next voice to try */
@@ -283,6 +295,8 @@ typedef struct track {
     uint8_t xp_n, xp_note[4], xp_vel[4];   /* note-ons during the fade, played on the new engine */
     /* modulation matrix (mod.c): MIDI performance controllers of the track's channel, 0..127 */
     uint8_t mw, at;              /* CC1 mod wheel, channel aftertouch */
+    uint8_t foot, breath, porta; /* CC4 foot, CC2 breath, CC65 portamento on: FM6's DX7 controllers */
+    int16_t bend_raw;            /* the pitch bend as sent (signed 14-bit): FM6 bends by its own range */
     uint8_t ex_off;              /* 127 - CC11 expression (0: full, the MIDI default) */
     uint8_t m_vel, m_key, m_vi;  /* the latest note-on: velocity, note, voice index (per-block destinations) */
     int16_t m_rnd;               /* .. its RAND */

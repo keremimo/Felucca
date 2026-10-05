@@ -4,7 +4,9 @@
  * Runs in the audio ISR.
  *
  * Each synth part has its own NVOICE voices (so MONO / LEGATO / UNISON keep using
- * v[0..]), but only NVOICE of all the parts' voices sound at once: a part that starts
+ * v[0..]; POLY uses the engine's cap, NPOLY or FM6's 16), but the parts' sounding voices
+ * share one budget of VBUDGET units (a voice of an engine capped above NPOLY takes one, any
+ * other two: eight of them, as before): a part that starts
  * a voice while the budget is full takes one from any part (voice_victim): the oldest
  * released voice, else the oldest extra UNISON voice, else the oldest held voice of a
  * POLY part that is not its lowest note. A voice taken from another part fades out
@@ -56,11 +58,11 @@ static void track_lfo_tick(track_t *t)
     }
 }
 
-/* voices the engine may use (POLY and UNISON): its cap, else all of them */
+/* voices the engine may use (POLY and UNISON): its cap, else NPOLY */
 static uint32_t trk_nvoice(const track_t *t)
 {
     uint32_t c = ENGINES[t->engine]->poly;
-    return c && c < NVOICE ? c : NVOICE;
+    return !c ? NPOLY : c < NVOICE ? c : NVOICE;
 }
 
 /* the part's voice mode: P_VOICE, POLY for an engine of hits (engine_t.oneshot: DRUM) */
@@ -70,13 +72,17 @@ static uint32_t trk_vmode(const track_t *t)
 }
 
 /* ------------------------------------------------- the shared voice budget --- */
-static uint32_t voices_busy(void)                       /* sounding voices of all parts (not the fading ones) */
+static uint32_t voice_units(const track_t *t) { return trk_nvoice(t) > NPOLY ? 1u : 2u; }
+
+static uint32_t voices_busy(void)                       /* budget units of all parts' sounding voices (not fading) */
 {
-    uint32_t p, i, n = 0;
-    for (p = 0; p < NPART; p++)
-        for (i = 0; i < NVOICE; i++)
+    uint32_t p, i, n, u = 0;
+    for (p = 0; p < NPART; p++) {
+        for (i = n = 0; i < NVOICE; i++)
             n += trk[p].v[i].active && trk[p].v[i].stage != 4u;
-    return n;
+        u += n * voice_units(&trk[p]);
+    }
+    return u;
 }
 
 static uint32_t lowest_held(const track_t *t)           /* index of the lowest held note (the bass), NVOICE = none */
@@ -131,18 +137,17 @@ static void voice_kill(voice_t *v)                      /* fade out over the nex
     voice_kills++;
 }
 
-/* the budget is full: free a voice for part t. 0 = nothing to take (soft) */
+/* the budget is full: free room for a voice of part t. 0 = nothing to take (soft) */
 static int voice_room(track_t *t, int soft)
 {
-    track_t *vp = 0;
-    uint32_t k;
-    if (voices_busy() < NVOICE)
-        return 1;
-    k = voice_victim(t, soft, &vp);
-    if (k == NVOICE)
-        return !soft;                                   /* hard: over the budget (cannot happen: each of the
-                                                         * NPART < NVOICE parts protects one voice at most) */
-    voice_kill(&vp->v[k]);
+    while (voices_busy() + voice_units(t) > VBUDGET) {
+        track_t *vp = 0;
+        uint32_t k = voice_victim(t, soft, &vp);
+        if (k == NVOICE)
+            return !soft;                               /* hard: over the budget (cannot happen: each of the
+                                                         * NPART parts protects one voice at most) */
+        voice_kill(&vp->v[k]);
+    }
     return 1;
 }
 
@@ -163,8 +168,15 @@ static voice_t *voice_reuse(track_t *t, voice_t *v)
  * in place instead. */
 static voice_t *voice_alloc(track_t *t, uint32_t note)
 {
+    const engine_t *e = ENGINES[t->engine];
     uint32_t i, np = trk_nvoice(t), best = np, low = np, nfree = 0;
     int32_t bd = 0x7FFFFFFF;
+    if (e->alloc) {                                     /* the engine's own choice (FM6: Dexed's) */
+        voice_t *v = &t->v[e->alloc(t, note) % np];
+        if (!v->active || v->stage == 4u)
+            voice_room(t, 0);
+        return v;
+    }
     if (t->engine == ENGI_DRUM) {
         voice_t *v = drum_reuse(t, note);
         if (v)
@@ -175,13 +187,14 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
             return voice_reuse(t, &t->v[i]);
         nfree += !t->v[i].active;
     }
-    if (nfree && voices_busy() >= NVOICE) {
+    while (nfree && voices_busy() + voice_units(t) > VBUDGET) {
         track_t *vp = 0;
         uint32_t k = voice_victim(t, 0, &vp);
         if (k < np && vp == t)
             return &t->v[k];                            /* our own: restart it in place (no click) */
-        if (k < NVOICE)
-            voice_kill(&vp->v[k]);
+        if (k >= NVOICE)
+            break;
+        voice_kill(&vp->v[k]);
     }
     if (t->p[P_ALLOC] || t->p[P_GLIDE]) {
         for (i = 0; i < np; i++) {
@@ -278,7 +291,7 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     }
 }
 
-/* MONO / LEGATO / UNISON: one note on one voice (eight for UNISON, or the
+/* MONO / LEGATO / UNISON: one note on one voice (NPOLY for UNISON, or the
  * engine's voice cap, spread by DETUNE over the same width) */
 static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int glide)
 {
@@ -286,14 +299,14 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
     for (i = 0; i < nv; i++) {
         voice_t *v = &t->v[i];
         int32_t k = 2 * (int32_t)i - (int32_t)(nv - 1u);   /* -7 .. 7 */
-        if (nv > 1u && nv < NVOICE)
-            k = k * (NVOICE - 1) / (int32_t)(nv - 1u);      /* fewer voices: the outer ones as wide */
+        if (nv > 1u && nv != NPOLY)
+            k = k * (NPOLY - 1) / (int32_t)(nv - 1u);       /* other counts: the outer ones as wide */
         v->fine = nv > 1u ? k * t->p[P_DETUNE] * 56 / 889 : 0;   /* up to ~±40 cents */
         if (retrig || !v->active || !v->gate) {
             if ((!v->active || v->stage == 4u) && !voice_room(t, i > 0))
                 continue;                                   /* no room for this extra UNISON voice */
             /* level: about the same sum for 8 or 4 voices at random phases */
-            voice_start(t, v, note, nv >= NVOICE ? vel * 36u / 100u : nv > 1u ? vel / 2u : vel, glide);
+            voice_start(t, v, note, nv >= NPOLY ? vel * 36u / 100u : nv > 1u ? vel / 2u : vel, glide);
             if (nv > 1u && i && !ENGINES[t->engine]->sampled) {   /* random start phases: */
                 static uint32_t seed = 0x1234567u;          /* in phase they stack, evenly spread they cancel */
                 seed = seed * 1664525u + 1013904223u;
@@ -307,6 +320,8 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
             if (vel > v->vel && nv == 1u)
                 v->vel = (uint8_t)vel;
             glide_set(t, v, glide);
+            if (ENGINES[t->engine]->legato)
+                ENGINES[t->engine]->legato(t, v);
         }
     }
     t->mono_note = (uint8_t)note;
@@ -370,9 +385,11 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
     {
         uint32_t sounding = t->mono_note && t->v[0].active && t->v[0].gate, want;
         mono_remove(t, note);
-        if (t->nmono >= 8u)
+        if (t->nmono >= NVOICE)
             mono_remove(t, t->mono_stack[0]);
         t->mono_stack[t->nmono++] = (uint8_t)note;
+        if (ENGINES[t->engine]->mono_key)
+            ENGINES[t->engine]->mono_key(t, note);
         want = mono_pick(t);
         if (sounding && want == t->mono_note)
             return;                                     /* LOW / HIGH priority: this key does not win */
@@ -595,9 +612,13 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
         if (mod.on)                                     /* the modulation matrix (mod.c) */
             mod_voice(t, v, &m, v->fine + tune_fine + bend_fine);
+        /* 1/16 st and 1/4096 -> Q24 octaves: the voice's own offset (the matrix's pitch too), without TUNE and bend */
+        m.plog = (m.pitch16 - tune - bend16 - v->pitch16) * 87381 + (m.fine - tune_fine - bend_fine) * 5909;
         e->render(t, v, out, n, &m);
         nr++;
     }
+    if (e->post)
+        e->post(t, out, n, nr);
     if (fade) {
         for (i = 0; i < 8u; i++)
             t->p[P_E0 + i] = pe_new[i];
