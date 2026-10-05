@@ -15,7 +15,9 @@ static void draw_menu(void)
     if (ui.force)                                   /* head + rule + two bands cover rows 0..229 */
         lcd_fill(0, H_HEAD + 1 + 124 + 85, 240, 240 - (H_HEAD + 1 + 124 + 85), C_BLACK);
     cv_begin(240, H_HEAD, C_BLACK);
-    cv_text(4, 1, &FONT_S, ui.menu == 2 ? "ABOUT" : "MENU", C_HI);
+    cv_text(4, 1, &FONT_S, ui.menu == 2 ? "ABOUT FELUCCA" : "SETTINGS", C_HI);
+    for (i = 0; i < 4u; i++)
+        cv_rect((int32_t)i * 60, 18, 60, 2, control_color(i));
     cv_blit(0, Y_HEAD);
     lcd_fill(0, H_HEAD, 240, 1, C_LINE);
     for (pass = 0; pass < 2u; pass++) {             /* the canvas holds 124 rows: draw in two bands */
@@ -40,8 +42,10 @@ static void draw_menu(void)
             for (i = 0; i < MI_COUNT; i++) {
                 int32_t y = 4 + (int32_t)i * 24;
                 int sel = i == ui.menu_sel;
-                if (sel)
-                    cv_rect(4, y + 6, 3, 3, C_WHITE);
+                if (sel) {
+                    cv_rect(4, y + 1, 3, 15, control_color(i));
+                    cv_rect(10, y + 18, 224, 1, C_LINE);
+                }
                 cv_text(14, y, &FONT_S, MI_NAME[i], sel ? C_WHITE : C_GRAY);
                 if (i == MI_LOWCUT || i == MI_ZOOM)
                     cv_text(90, y, &FONT_S, (i == MI_LOWCUT ? settings.lowcut : settings.zoom) ? "ON" : "OFF", C_HI);
@@ -49,7 +53,8 @@ static void draw_menu(void)
                     uint32_t k;
                     cv_text(90, y, &FONT_S, PALETTES[settings.palette].name, C_HI);
                     for (k = 0; k < 5u; k++)
-                        cv_rect(160 + (int32_t)k * 14, y + 3, 10, 10, pal[k]);
+                        cv_rect(160 + (int32_t)k * 14, y + 3, 10, 10,
+                                palette_mode == PAL_STUDIO ? (k == 4u ? C_HI : control_color(k)) : pal[k]);
                 }
             }
             cv_text(4, 170, &FONT_S, "PRESETS MOVE", C_DIM);
@@ -122,4 +127,3 @@ static void menu_input(uint32_t pressed)
     }
     enc_drop();                                        /* swallow the rest while the menu is up */
 }
-

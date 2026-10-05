@@ -30,22 +30,24 @@ static uint8_t sync_reload;                  /* engine / preset / project / user
 #define ACC C_HI                   /* amber everywhere; white is the only accent */
 #define VAL(c) ((c) == ui.hot_col && ui.hot_t ? C_WHITE : C_HI)
 #define RATIO(d, v) ((d)->max > (d)->min ? ((int32_t)(v) - (d)->min) * 1000 / ((d)->max - (d)->min) : -1)
-/* layout: four 60 px columns, 4 px inset */
-/* Terminus 8x16 (S) and 16x32 (L) */
+/* Layout: mode and sound above the scene, four controls below it. */
 #define Y_HEAD 0
 #define H_HEAD 20
-#define Y_LABEL 26
-#define Y_VALUE 44
-#define Y_GAUGE 64
-#define Y_SEP_END 70
-#define Y_GRAPH 74
+#define Y_FOOT 20
+#define H_FOOT 30
+#define Y_GRAPH 54
 #define H_GRAPH 124
-#define G_OY 24                       /* graphs draw in the lower 100 px; the focus readout sits on top */
-#define Y_FOOT 202
-#define H_FOOT 38
+#define G_OY 0                        /* the scene uses the full center area */
+#define Y_LABEL 183
+#define Y_VALUE 199
+#define Y_GAUGE 222
+#define Y_SEP_END 230
+#define Y_STEP 233
+#define H_STEP 7
 
 static struct {
     uint8_t home;
+    uint8_t home_view;           /* HOME: 0 notes, 1 levels, 2 pan, 3 master effects */
     uint8_t page;                /* index into PAGES */
     uint8_t fam_last[FAM_COUNT]; /* last page used per family */
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
@@ -163,18 +165,47 @@ static void note_name(char *b, uint32_t n)
 
 static void open_family(uint32_t fam)
 {
-    if (!ui.home && cur_page()->fam == fam) {          /* same button again: the next page the track has */
+    if (fam == FAM_SEQ && (ui.home || cur_page()->fam != FAM_SEQ)) {
+        uint32_t i = page_first(FAM_SEQ);
+        while (i < NPAGES && PAGES[i].fam == FAM_SEQ && PAGES[i].graph != GR_STEPS)
+            i++;
+        page_go(i < NPAGES && PAGES[i].fam == FAM_SEQ ? i : page_first(FAM_SEQ));
+        return;
+    }
+    if (!ui.home && cur_page()->fam == fam) {          /* same module button: its next control surface */
         uint32_t i = ui.page;
         do {
             if (++i >= NPAGES || PAGES[i].fam != fam)
                 i = page_first(fam);
         } while (!page_shown(&PAGES[i]) && i != ui.page);
         page_go(i);
-    } else {
-        page_go(ui.fam_last[fam] && PAGES[ui.fam_last[fam]].fam == fam && page_shown(&PAGES[ui.fam_last[fam]])
-                    ? ui.fam_last[fam]
-                    : page_first(fam));
-    }
+    } else
+        page_go(page_first(fam));                      /* entering a module starts at its main control */
+}
+
+/* PRESETS navigates utility pages; in the musical workspaces it picks sounds or patterns. */
+static int preset_pages(void)
+{
+    const page_t *pg = cur_page();
+    return !ui.home && (pg->fam == FAM_GLO || pg->fam == FAM_SAVE) && pg->graph != GR_BROWSE;
+}
+
+static void page_scroll(int32_t direction)
+{
+    uint32_t fam = cur_page()->fam, i = ui.page;
+    do {
+        if (direction > 0)
+            i = i + 1u < NPAGES && PAGES[i + 1u].fam == fam ? i + 1u : page_first(fam);
+        else if (i > 0u && PAGES[i - 1u].fam == fam)
+            i--;
+        else {
+            i = page_first(fam);
+            while (i + 1u < NPAGES && PAGES[i + 1u].fam == fam)
+                i++;
+        }
+    } while (!page_shown(&PAGES[i]) && i != ui.page);
+    if (i != ui.page)
+        page_go(i);
 }
 
 /* the page went away (another track or engine: the FM6 pages): to its family's first page */
@@ -189,12 +220,24 @@ static void page_fix(void)
 static void go_home(void)
 {
     ui.home = 1;
+    ui.home_view = 0;
     ui.entry_open = 0;
     step_midi_held = 0;
     step_midi_r = step_midi_w;
     ui.hot_t = 0;
     song.seq_mode = 0;
     ui.force = 1;
+}
+
+static void home_tap(void)
+{
+    if (ui.home) {
+        ui.home_view = (uint8_t)((ui.home_view + 1u) % 4u);
+        ui.hot_t = 0;
+        ui.force = 1;
+    } else {
+        go_home();
+    }
 }
 
 /* ------------------------------------------------------- track setup --- */
@@ -425,26 +468,6 @@ static void preset_go(uint32_t n)                    /* load list index n into t
         select_engine(e);
     apply_preset(k);
     ui.force = 1;
-}
-
-/* HOME: what KNOB k edits: the engine's four main parameters; on the drum track
- * LEVEL and REV (GLO > DRUMS), PAN and LEN */
-static const param_desc_t *home_param(uint32_t k, int16_t **vp)
-{
-    static const uint8_t DRUM_HOME[4][2] = {{1, G_DRLVL}, {1, G_DRREV}, {0, P_PAN}, {0, P_SLEN}};
-    uint32_t id;
-    if (is_drum(TSEL)) {
-        id = DRUM_HOME[k & 3u][1];
-        if (DRUM_HOME[k & 3u][0]) {
-            *vp = &song.g[id];
-            return &GP[id];
-        }
-        *vp = &TSEL->p[id];
-        return &TP[id];
-    }
-    id = ENGINES[TSEL->eng_req % NENGINES]->macro[k & 3u];
-    *vp = &TSEL->p[id];
-    return track_desc(TSEL, id);
 }
 
 /* select track i (KNOB 1 on TRACKS, the editor): its sound, pages and pattern from now on */

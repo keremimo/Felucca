@@ -70,9 +70,9 @@ static void settings_init(void)
 {
     if (settings.magic != SETTINGS_MAGIC || settings.palette >= NPALETTES) {
         settings.magic = SETTINGS_MAGIC;
-        settings.palette = 4;                  /* MONO (default) */
+        settings.palette = PAL_STUDIO;
         settings.lowcut = 0;
-        settings.zoom = 0;                     /* large readout of the touched value: off */
+        settings.zoom = 1;                     /* show the touched value on new installations */
         settings.usb_off = 0;                  /* both USB audio devices on */
     }
     palette_set(settings.palette);

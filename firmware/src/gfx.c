@@ -34,20 +34,34 @@ static const palette_t PALETTES[] = {
     {"CYAN", {RGB(0, 30, 50), RGB(0, 62, 96), RGB(16, 112, 160), RGB(56, 172, 222), RGB(140, 222, 255)}},
     {"RED", {RGB(52, 8, 8), RGB(100, 18, 14), RGB(170, 36, 26), RGB(226, 64, 48), RGB(255, 112, 92)}},
     {"MONO", {RGB(40, 40, 40), RGB(80, 80, 80), RGB(130, 130, 130), RGB(186, 186, 186), RGB(226, 226, 226)}},
+    {"STUDIO", {RGB(34, 43, 51), RGB(68, 80, 88), RGB(139, 153, 158), RGB(209, 214, 204), RGB(245, 242, 226)}},
 };
 #define NPALETTES (sizeof(PALETTES) / sizeof(PALETTES[0]))
+#define PAL_STUDIO 5u
 static uint16_t pal[5];
+static uint8_t palette_mode;
 #define C_LINE pal[0]                /* 1 rules, separators */
 #define C_DIM pal[1]                 /* 2 inactive, empty steps, units */
 #define C_GRAY pal[2]                /* 3 labels */
 #define C_AMB pal[3]                 /* 4 secondary text */
 #define C_HI pal[4]                  /* 5 values, curves */
 
+/* The four screen controls have stable colours in STUDIO. Other palettes keep
+ * their single-colour character, including the user's saved choice. */
+static uint16_t control_color(uint32_t slot)
+{
+    static const uint16_t STUDIO[4] = {
+        RGB(100, 190, 234), RGB(244, 137, 109), RGB(235, 197, 103), RGB(125, 213, 169)
+    };
+    return palette_mode == PAL_STUDIO ? STUDIO[slot & 3u] : C_HI;
+}
+
 static void palette_set(uint32_t i)
 {
     uint32_t k;
+    palette_mode = (uint8_t)(i % NPALETTES);
     for (k = 0; k < 5u; k++)
-        pal[k] = PALETTES[i % NPALETTES].c[k];
+        pal[k] = PALETTES[palette_mode].c[k];
 }
 
 static inline uint16_t swap16(uint32_t c) { return (uint16_t)(((c >> 8) & 0xFFu) | ((c & 0xFFu) << 8)); }
