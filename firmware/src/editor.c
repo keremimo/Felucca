@@ -417,6 +417,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 if (a[0] == 0) {
                     (void)motion_capture(TSEL, a[1], *vp);
                     load_extend(TSEL);                      /* (ui.c undo: an audition's values after G_ENGSEL) */
+                    if (scale_shared(a[1]))
+                        scale_share(TSEL);
                 }
             }
             ui.force = 1;
@@ -743,6 +745,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             if (d->max > d->min)                           /* as SET: clamped; a fixed value stays */
                 t->p[a[1]] = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
             (void)motion_capture(t, a[1], t->p[a[1]]);
+            if (scale_shared(a[1]))
+                scale_share(t);
             ed_known(a[0], a[1]);
             ui.force = 1;
         }

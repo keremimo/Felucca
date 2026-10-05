@@ -121,6 +121,8 @@ static uint32_t layer_btn(void);
  * a SLICE track's (ui_slice.c) */
 static int page_visible(uint32_t i)
 {
+    if (PAGES[i].id[0] == P_MPCDEG && PAGES[i].scope == SC_TRACK)
+        return TSEL->p[P_QUANT] == Q_MPC;
 #if MELODEE_SLICE
     if (PAGES[i].graph == GR_SLICES)
         return ENGINES[TSEL->eng_req % NENGINES] == &ENG_SLICE;
@@ -640,7 +642,20 @@ static void pat_load_ui(track_t *t, uint32_t n)
 static int param_kept(uint32_t i)
 {
     return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC;
+           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_MPCDEG;
+}
+
+/* SCL, QNT and the MPC degree are the song's: one scale for every part, kept the same in each track's own slots
+ * (the formats and the editor keep them per track). ROOT and TRN stay the track's */
+static int scale_shared(uint32_t id) { return id == P_SCALE || id == P_QUANT || id == P_MPCDEG; }
+static void scale_share(const track_t *from)
+{
+    uint32_t k;
+    for (k = 0; k < NPART; k++) {
+        trk[k].p[P_SCALE] = from->p[P_SCALE];
+        trk[k].p[P_QUANT] = from->p[P_QUANT];
+        trk[k].p[P_MPCDEG] = (int16_t)clamp(from->p[P_MPCDEG], 1, (int32_t)scale_count(from));
+    }
 }
 
 /* a retired preset kept as an alias, so stored preset numbers stay valid: SAMPLE 1, once TRANH, is PIANO

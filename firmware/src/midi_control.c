@@ -99,16 +99,22 @@ static void midi_release(uint32_t ch, uint32_t note)
     }
 }
 
-/* a MIDI note-on (ch, note) of track t: its chord (chord.c) or the note alone. A note another key or MIDI
- * note holds already sounds: not started again */
-static void midi_play(track_t *t, uint32_t ch, uint32_t note, uint32_t vel)
+/* a MIDI note-on (ch, note) of track t: through the scale layouts (seq.c midi_map), then its chord (chord.c) or the
+ * note alone. A note another key or MIDI note holds already sounds: not started again. What it plays is kept (an
+ * mchord) whenever that is not the note itself, so the note-off ends exactly that. 0: it plays nothing */
+static int midi_play(track_t *t, uint32_t ch, uint32_t note, uint32_t vel)
 {
     uint8_t nn[CHORD_MAX];
-    uint32_t n = chord_build(t, note, nn), i, f = 0;
+    uint32_t m = midi_map(t, note), n, i, f = 0;
+    if (m == KB_SILENT)
+        return 0;
+    n = chord_build(t, m, nn);
     if (n > 1u || nn[0] != note)
         for (f = 0; f < MCHORD_N && mchord[f].id; f++)
             ;
-    if (f == MCHORD_N) {                          /* no room to keep a chord: the note alone */
+    if (f == MCHORD_N) {                          /* no room to keep a chord: the note alone, if it is itself */
+        if (m != note)
+            return 0;
         n = 1;
         nn[0] = (uint8_t)note;
     }
@@ -124,6 +130,7 @@ static void midi_play(track_t *t, uint32_t ch, uint32_t note, uint32_t vel)
             m->note[i] = nn[i];
         m->id = (uint8_t)(trk_index(t) + 1u);
     }
+    return 1;
 }
 
 static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
@@ -136,10 +143,11 @@ static void midi_note_event(uint32_t ch, uint32_t note, uint32_t vel)
         if (id)
             midi_release(ch, note);
         midi_expression(t, c);
+        if (!midi_play(t, ch, note, vel))           /* (a note the layout silences: no owner) */
+            return;
         if (t != TSEL)
             midi_hint = (uint8_t)(trk_index(t) + 1u);
         c->targets |= (uint8_t)(1u << trk_index(t));
-        midi_play(t, ch, note, vel);
         midi_notes[ch][note] = (uint8_t)(trk_index(t) + 1u);
         midi_owners[trk_index(t)]++;
         c->owned[trk_index(t)]++;

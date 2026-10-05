@@ -104,7 +104,12 @@ Mixolydian (MIX), major pentatonic (PEN), minor pentatonic (MPEN), harmonic mino
 minor blues (BLUES), whole tone (WHOLE), half-whole diminished (DIMHW), and
 whole-half diminished (DIMWH). Scales with other than seven notes continue across
 the white keys without repeating notes; their roots need not fall on every C key.
-Drum kits and incoming MIDI keep their own note mapping.
+
+QNT **ALL** plays the next scale note on every key, black keys included. QNT **MPC** maps an
+MPC's Bank H pads (MIDI 20–35, H01–H16 of MPC Sample's default map) to successive scale notes;
+the MPC page (SCL, then SCL again) sets **DEG**, the degree pad H02 plays. Incoming MIDI follows
+WHITE, ALL and MPC the way the keys do (without the octave buttons). SCL, QNT and DEG are shared by
+all four tracks; ROOT and TRN stay per track. Drum kits and slices keep their own note mapping.
 
 Press **SCL** again for the **CHORD** page: CHRD picks the chord keys (OFF, the scale's triads or
 sevenths, or a fixed shape) and VOIC the voicing.

@@ -366,6 +366,8 @@ static void edit_param(uint32_t slot, int32_t steps)
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max));
     *vp = (int16_t)v;
     if (pg->scope != SC_GLOBAL) motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
+    if (pg->scope == SC_TRACK && scale_shared((uint32_t)(vp - TSEL->p)))
+        scale_share(TSEL);
 }
 
 /* OCT+ on an action page: the picked action. A load stays picked (browse and load again); the others

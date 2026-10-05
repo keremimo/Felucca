@@ -155,8 +155,8 @@ int main(void)
     int bad = 0, ok;
 
     bad += check("layout: SLICER after DETUNE, then the matrix just before P_E0",
-                 P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_E0 && P_E0 == 83 &&
-                 P_COUNT == PROJ_NP_V3 + 34u && PROJ_NP_V3 == PROJ_NP_V2 + 4u);
+                 P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_MPCDEG && P_MPCDEG + 1 == P_E0 && P_E0 == 84 &&
+                 P_COUNT == PROJ_NP_V3 + 35u && PROJ_NP_V3 == PROJ_NP_V2 + 4u);
     bad += check("FUN8 fits one flash object, the retained cache in NOINIT", sizeof(project_store_t) <= 4096u - 256u &&
                  sizeof(project_store_t) == 3584u && 0xC8u + 4u * sizeof(project_store_t) <= 0x3D50u);
 
@@ -400,7 +400,7 @@ int main(void)
         uint32_t i, zero = 1;
         bad += check("FUN8 name at the end of the reserved tail, the FM6 patches before it, after the data",
                      PROJ_NAME_OFF == 3568u && PROJ_FM6_OFF == 3056u && 68u + NTRK * (P_COUNT + 2u + NSTEP * 9u) +
-                     sizeof(chain_config_t) + sizeof(motion_store_t) + 16u == PROJ_FM6_OFF);
+                     sizeof(chain_config_t) + sizeof(motion_store_t) + 12u == PROJ_FM6_OFF);
         memset(&a, 0, sizeof a);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);

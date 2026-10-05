@@ -126,6 +126,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "motion, whole-step chance, FUN7 migration, song restore and ARP repeat" "$OUT/motion_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_control_test" tests/midi_control_test.c -lm
     run "USB/TRS clock, bend, sustain, ownership and panic recovery" "$OUT/midi_control_test"
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_scale_test" tests/midi_scale_test.c -lm
+    run "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" "$OUT/midi_scale_test"
     $CC -O1 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/digital_test" tests/digital_test.c -lm
     run "DIGITAL (retired, built here with MELODEE_FM4=1): operator envelopes/levels; sample zone priority" "$OUT/digital_test"
     $CC -O2 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/fm4_test" tests/fm4_test.c -lm

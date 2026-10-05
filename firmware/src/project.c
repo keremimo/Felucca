@@ -97,8 +97,8 @@ _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "
  * The tail's last 12 bytes (PROJ_NAME_OFF, just before the hash) are the project's name since 1.0:
  * ASCII 32..126 (upper case), 0-padded, all 0 = no name ("PROJECT A"). Firmware before wrote them 0 and
  * never reads them, so every FUN7 file stays valid both ways; FUN6..FUN1 imports get no name.
- * FUN8: the same, 3584 bytes, the four packed FM6 patches at PROJ_FM6_OFF (before the name); 16 bytes of the
- * reserved tail are left for parameters added later. */
+ * FUN8: the same, 3584 bytes, the four packed FM6 patches at PROJ_FM6_OFF (before the name); 12 bytes of the
+ * reserved tail are left for parameters added later (P_MPCDEG took 4). */
 #define PROJ_STORE_SIZE 3584u
 #define PROJ_STORE_V7 3388u                    /* FUN7 */
 #define PROJ_NAME_OFF (PROJ_STORE_SIZE - 4u - PROJ_NAME_LEN)
@@ -822,6 +822,7 @@ static int project_restore_runtime(const project_t *input)
         }
         pat_sig[k] = ~steps_sig(t);                     /* a project's steps are the user's */
     }
+    scale_share(TSEL);                                  /* (older projects: one scale per part, the selected wins) */
     undo_depth--;
     sync_reload = 1;
     ui.force = 1;

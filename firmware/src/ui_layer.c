@@ -315,6 +315,7 @@ static uint32_t layer_oct(uint32_t pressed, uint32_t oct)
                 trk[lys.trk % NTRK].p[P_ROOT + k] = lys.v[k];
             trk[lys.trk % NTRK].p[P_CHRD] = lys.v[4];
             trk[lys.trk % NTRK].p[P_VOIC] = lys.v[5];
+            scale_share(&trk[lys.trk % NTRK]);
             ui_message("SCALE PUT BACK");
         }
     }

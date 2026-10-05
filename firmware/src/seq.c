@@ -63,46 +63,90 @@ static uint32_t scale_mask(const track_t *t)
     return SCALE_MASK[clamp(t->p[P_SCALE], 0, sizeof SCALE_MASK / sizeof SCALE_MASK[0] - 1)];
 }
 
-static uint32_t kb_map(const track_t *t, uint32_t k)
+static uint32_t scale_count(const track_t *t)
+{
+    uint32_t mask = scale_mask(t), count = 0;
+    while (mask) {
+        count += mask & 1u;
+        mask >>= 1;
+    }
+    return count;
+}
+
+static int32_t mpc_degree(const track_t *t) { return clamp(t->p[P_MPCDEG], 1, (int32_t)scale_count(t)); }
+
+/* scale degree `degree` from C4 (0 = the ROOT above C4) in the track's scale, + offset semitones and TRN. strict: a
+ * note off the MIDI range is silent (else clamped). Scales of 5, 6, 8 or 12 notes repeat no degree */
+static uint32_t scale_degree_map(const track_t *t, int32_t degree, int32_t offset, int strict)
+{
+    uint32_t mask = scale_mask(t), i;
+    int32_t count = (int32_t)scale_count(t), oct, n;
+    oct = degree / count;
+    degree %= count;
+    if (degree < 0) {
+        degree += count;
+        oct--;
+    }
+    for (i = 0; i < 12u; i++)
+        if ((mask >> i) & 1u) {
+            if (!degree)
+                break;
+            degree--;
+        }
+    n = 60 + t->p[P_ROOT] + 12 * oct + (int32_t)i + offset + t->p[P_TRANS];
+    if (strict && (n < 0 || n > 127))
+        return KB_SILENT;
+    return (uint32_t)clamp(n, 0, 127);
+}
+
+/* note n (a key's or a MIDI note) through the WHITE / ALL layouts. WHITE (and MPC on the keys): the white keys walk
+ * the scale from C4 = ROOT, the black keys are silent. ALL: every key the next degree of the scale */
+static uint32_t scale_map(const track_t *t, int32_t n, int32_t offset)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
+    int32_t degree;
+    if (t->p[P_QUANT] == Q_ALL)
+        return scale_degree_map(t, n - 60, offset, 1);
+    if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_MPC) {
+        if ((degree = DEGREE[n % 12]) < 0)
+            return KB_SILENT;
+        return scale_degree_map(t, degree + (n / 12 - 5) * 7, offset, 0);
+    }
+    return (uint32_t)clamp(n + offset + t->p[P_TRANS], 0, 127);
+}
+
+static uint32_t kb_map(const track_t *t, uint32_t k)
+{
     const engine_t *e = ENGINES[eng_idx(t->eng_req)];   /* (the engine it switches to) */
     int32_t n;
     if (e->keys && (n = e->keys(t, k)) >= 0)           /* the engine's own key map (GM kit, slices) */
         return (uint32_t)n;
     n = 53 + (int32_t)k;
-    if (t->p[P_QUANT] == 1) {                    /* SNAP: every key, rounded down to the scale */
+    if (t->p[P_QUANT] == Q_SNAP) {                     /* SNAP: every key, rounded down to the scale */
         uint32_t mask = scale_mask(t), guard = 12;
         n += 12 * song.octave + t->p[P_TRANS];
         while (guard-- && !((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u))
             n--;
         return (uint32_t)clamp(n, 0, 127);
     }
-    if (t->p[P_QUANT] == 2) {                    /* WHITE: white keys walk the scale, black keys are silent */
-        uint32_t mask = scale_mask(t), i;
-        int32_t count = 0, degree = DEGREE[n % 12], oct;
-        if (degree < 0)
-            return KB_SILENT;
-        /* C4 is the root. Walk scale degrees on successive white keys, including
-         * below C4; scales with 5, 6, 8 or 12 notes still have no duplicated degrees. */
-        degree += (n / 12 - 5) * 7;
-        for (i = 0; i < 12u; i++)
-            count += (mask >> i) & 1u;
-        oct = degree / count;
-        degree %= count;
-        if (degree < 0) {
-            degree += count;
-            oct--;
-        }
-        for (i = 0; i < 12u; i++)
-            if ((mask >> i) & 1u) {
-                if (!degree)
-                    break;
-                degree--;
-            }
-        n = 60 + t->p[P_ROOT] + 12 * oct + (int32_t)i;
-    }
-    return (uint32_t)clamp(n + 12 * song.octave + t->p[P_TRANS], 0, 127);
+    return scale_map(t, n, 12 * song.octave);
+}
+
+/* a MIDI note into track t: WHITE and ALL map it as the keys (without the octave buttons), MPC plays the 16 pads of
+ * an MPC's Bank H (MIDI 20..35, H01..H16 of MPC Sample's default map; any other note is silent, kits too) as
+ * successive degrees of the scale, pad H02 on degree DEG. Kits and slices keep their own note map. KB_SILENT: none */
+static uint32_t midi_map(const track_t *t, uint32_t note)
+{
+    const engine_t *e = ENGINES[eng_idx(t->eng_req)];
+    if (t->p[P_QUANT] == Q_MPC && (note < 20u || note > 35u))
+        return KB_SILENT;
+    if (e->keys && e->keys(t, 0) >= 0)
+        return note;
+    if (t->p[P_QUANT] == Q_MPC)
+        return scale_degree_map(t, (int32_t)note - 21 + mpc_degree(t) - 1, 12 * song.octave, 1);
+    if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL)
+        return scale_map(t, (int32_t)note, 0);
+    return note;
 }
 
 #include "chord.c"
