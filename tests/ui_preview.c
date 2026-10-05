@@ -4,7 +4,7 @@
 
 int main(int argc, char **argv)
 {
-    static const char *const pages[] = {"ENV", "LFO", "FX", "GLOBAL", "EDIT 1", "TRACKS", "PATTERN", "STEP"};
+    static const char *const pages[] = {"ENV", "LFO", "FX", "GLOBAL", "EDIT 1", "TRACKS", "PATTERN", "STEP", "TEMPO"};
     uint32_t i;
     char path[512];
     if (argc != 2)

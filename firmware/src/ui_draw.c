@@ -67,7 +67,7 @@ static void draw_head(void)
     int32_t x;
     uint32_t rec = (song.rec >> song.sel) & 1u ? 2u : song.rec != 0u;   /* 2 the selected track armed, 1 another */
     uint32_t sig = (uint32_t)song.playing * 3u + rec * 5u + (uint32_t)(song.octave + 8) * 11u + song.sel * 13131u +
-                   (ui.msg_t ? str_hash(7u, ui.msg) : 0u) + (uint32_t)song.g[G_BPM] * 101u + (ui.bpm_t != 0) * 31u +
+                   (ui.msg_t ? str_hash(7u, ui.msg) : 0u) + (uint32_t)song.g[G_BPM] * 101u +
                    (uint32_t)batt_shown() * 7777u + (usb.config && !usb.suspended) * 99991u;
     if (!ui.force && sig == ui.head_sig)
         return;
@@ -94,7 +94,7 @@ static void draw_head(void)
         cv_icon(x, 2, ICON_TEMPO, C_GRAY);
         x += 14;
     }
-    x = cv_text(x, 1, &FONT_S, b, ui.bpm_t ? C_WHITE : C_HI);   /* white while SELECT turns it */
+    x = cv_text(x, 1, &FONT_S, b, C_HI);
     if (song.octave) {
         str_cpy(b, song.octave > 0 ? "+" : "", 4);
         fmt_int(b + str_len(b), song.octave);
@@ -1409,7 +1409,7 @@ static void draw_foot(void)
         const char *hint = ui.home ? (ui.home_view == 0u ? "HOME: MIXER" : ui.home_view == 1u ? "HOME: PAN"
                                    : ui.home_view == 2u ? "HOME: FX" : "HOME: NOTES")
                            : pg->scope == SC_STEP ? "PRESETS: PAT / LEN"
-                           : pg->graph == GR_STEPS ? "PRESETS PATTERN"
+                           : pg->fam == FAM_SEQ ? "PRESETS PATTERN"
                            : fm6_shown() && pg->scope == SC_FMOP ? "PRESETS OP"
                            : preset_pages() ? "PRESETS PAGE" : is_drum(t) ? "DRUM KIT" : "PRESETS SOUND";
         char pf[16];
@@ -1650,8 +1650,6 @@ static void ui_draw(void)
     draw_graph();
     if (ui.msg_t)
         ui.msg_t--;
-    if (ui.bpm_t)
-        ui.bpm_t--;
     if (ui.arm_t && !--ui.arm_t)
         ui.arm = 0;
     if (ui.hot_t)

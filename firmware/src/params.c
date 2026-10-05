@@ -367,7 +367,7 @@ static const page_t PAGES[] = {
     {"FM PORTA", FAM_EDIT, SC_FM6, GR_NONE, {FN_PMODE, FN_PTIME, FN_GLISS, 0xFF}},
     {"FM WH/FT", FAM_EDIT, SC_FM6, GR_NONE, {FN_MWR, FN_MWA, FN_FCR, FN_FCA}},
     {"FM BR/AT", FAM_EDIT, SC_FM6, GR_NONE, {FN_BCR, FN_BCA, FN_ATR, FN_ATA}},
-    {"GLOBAL", FAM_GLO, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_CLOCK, G_TUNE}},
+    {"GLOBAL", FAM_GLO, SC_GLOBAL, GR_NONE, {G_CLOCK, G_TUNE, 0xFF, 0xFF}},      /* the studio's: kept on the device */
 #if MELODEE_USB_AUDIO
     {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, G_USBOUT, G_USBIN, G_INFO}},   /* + Melodee Out / In on/off */
 #else
@@ -381,8 +381,10 @@ static const page_t PAGES[] = {
     {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_NONE, {G_CLRSEQ, G_INITSND, 0xFF, 0xFF}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
-    {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
+    /* SEQ: LOOP (opens first), STEP, TEMPO; a SEQ tap turns them in this order */
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
+    {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
+    {"TEMPO", FAM_SEQ, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, 0xFF, 0xFF}},        /* the project's: saved with it */
     {"TRACKS", FAM_TRK, SC_TRK, GR_TRK, {0, 1, 2, 3}},   /* REC button; TRACK LEVEL LEN PAN */
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))

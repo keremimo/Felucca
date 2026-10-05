@@ -143,7 +143,7 @@ LEN becomes the stored LEN, at most 16. The slots are numbered 0..31 (the device
 
 **On the device:** SAVE > USER page: KNOB 1 picks the slot, KNOB 2 LOAD, KNOB 3 ERASE, KNOB 4 SAVE
 (one detent arms, a second one within ~1.5 s acts, as PROJECT LOAD / SAVE). SAVE uses the automatic
-name. SELECT and the SAVE > PRESETS browser continue past the factory presets into the used user
+name. PRESETS and the SAVE > PRESETS browser continue past the factory presets into the used user
 presets.
 
 **Flash** (`firmware/src/upreset.c`): two storage objects (`OBJ_UPRESET0/1`, A/B sector pairs at

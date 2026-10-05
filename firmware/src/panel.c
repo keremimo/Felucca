@@ -63,8 +63,11 @@ enum { KEYS_OFF, KEYS_LOW, KEYS_MID, KEYS_HIGH, KEYS_FULL, KEYS_N };   /* idle k
 #define KEYS_DARK 0x80u         /* settings.keys flag, GLO > LIGHTS KEYS OFF: no layout, no button glow; the level stays */
 static const char *const KEYS_NAME[KEYS_N] = {"OFF", "LOW", "MID", "HIGH", "FULL"};
 /* the GLO > GLOBAL and DRUMS values, kept on the device as last used: power-on restores them
- * (glo_restore), a BOOT project or the template loaded then brings its own */
-static const uint8_t GLO_KEPT[] = {G_BPM, G_SWING, G_CLOCK, G_TUNE, G_DRCH, G_DRLVL, G_DRREV};
+ * (glo_restore), a BOOT project or the template loaded then brings its own. BPM and SWG are the
+ * project's (SEQ > TEMPO): their slots stay empty (GLO_GONE), so a record saved while they were
+ * kept still puts CLK .. REV back where they belong */
+#define GLO_GONE 0xFFu
+static const uint8_t GLO_KEPT[] = {GLO_GONE, GLO_GONE, G_CLOCK, G_TUNE, G_DRCH, G_DRLVL, G_DRREV};
 #define NGLO_KEPT (sizeof GLO_KEPT)
 struct {
     uint32_t magic, palette, lowcut, zoom;
@@ -81,16 +84,17 @@ static void glo_defaults(void)
 {
     uint32_t i;
     for (i = 0; i < NGLO_KEPT; i++)
-        settings.glo[i] = GP[GLO_KEPT[i]].def;
+        settings.glo[i] = GLO_KEPT[i] == GLO_GONE ? 0 : GP[GLO_KEPT[i]].def;
 }
 
 static void glo_restore(void)                  /* power-on, after the defaults (melodee_init) */
 {
     uint32_t i;
-    for (i = 0; i < NGLO_KEPT; i++) {
-        const param_desc_t *d = &GP[GLO_KEPT[i]];
-        song.g[GLO_KEPT[i]] = settings.glo[i] = (int16_t)clamp(settings.glo[i], d->min, d->max);
-    }
+    for (i = 0; i < NGLO_KEPT; i++)
+        if (GLO_KEPT[i] != GLO_GONE) {
+            const param_desc_t *d = &GP[GLO_KEPT[i]];
+            song.g[GLO_KEPT[i]] = settings.glo[i] = (int16_t)clamp(settings.glo[i], d->min, d->max);
+        }
 }
 
 static void settings_init(void)

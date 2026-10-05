@@ -52,16 +52,20 @@ to Felucca. The installer also finds an FM-1 that still runs Felucca.
 to pick a track and **PRESETS** to pick a sound. Hold EDIT and tap one of the first eight white
 keys to recall that engine's first eight sounds; on FM6 those keys pick operators instead. The
 black keys jump to deeper sound controls. **ENV**, **FX**, **LFO**, **SCL** and **ARP** open their
-modules directly; tap a module button again for its next control surface.
+modules directly; tap a module button again for its next control surface, or turn **SELECT** to
+move through a workspace's pages both ways.
 
 **SEQ** opens LOOP, a four-track view of the current 16-step bank. Turn **PRESETS** to queue the
 selected track's next pattern, **ALGORITHM** to change track, and **OCT−/OCT+** to move the step
-cursor. Tap SEQ again for STEP entry; **FX** clears the current step there. Hold SEQ and use the
+cursor. Tap SEQ again for STEP entry; **FX** clears the current step there, and **SELECT** moves
+the cursor (faster when turned quickly). Tap SEQ once more for **TEMPO**: knob 1 **BPM**, knob 2
+**SWG** (the swing every track gets on top of its own). Tempo and swing belong to the project: a
+project and the template save them, and loading one brings them back. Hold SEQ and use the
 lit white keys to pick or copy patterns. The patterns remain note data, so changing a sound also
 changes what its recorded notes play.
 
 **HOME** opens the note/chord view and live output waveform, with one track level per knob. Tap HOME again for the four-track
-mixer, then for pan controls, then for master delay and reverb controls with a scope. Turn **ALGORITHM** or **PRESETS** to
+mixer, then for pan controls, then for master delay and reverb controls with a scope (or turn **SELECT** through them). Turn **ALGORITHM** or **PRESETS** to
 select a track. Tap **REC** in
 any musical workspace to arm that track and start playback if stopped, or press **REC + PLAY**
 to begin recording in one gesture. **PLAY** stops or starts the transport. Hold REC to open
@@ -96,11 +100,12 @@ Every button glows dimly; it lights fully while held and while it is engaged: th
 button (HOME, ENV, FX, SAVE, GLO ...), EDIT on the instrument pages, PLAY (blinking while playing),
 REC while recording, OCT- / OCT+ while the octave is shifted.
 
-The GLO values (GLOBAL: BPM, SWG, CLK, TUNE; DRUMS: CH, LVL, REV) are kept on the FM-1 as last
+The GLO values (GLOBAL: CLK, TUNE; DRUMS: CH, LVL, REV) are kept on the FM-1 as last
 used, whether set on the panel, from the web editor or by loading a project. They are saved once
 the knob rests and the transport is stopped (writing flash briefly silences the audio), and come
-back at power-on; a BOOT project or the template loaded at power-on then brings its own. A BPM set
-by an outside clock (CLK USB or TRS) is not kept.
+back at power-on; a BOOT project or the template loaded at power-on then brings its own. BPM and
+SWG (SEQ > TEMPO) are not kept on the FM-1: power-on plays at the tempo of the BOOT project or the
+template, else at 120 BPM.
 
 ## Engines
 
@@ -299,8 +304,8 @@ external USB/TRS MIDI. Notes
 enter at the cursor; chords use up to four notes in POLY mode. Hold a key or chord
 and turn **PRESETS** to change its length. Clockwise extends it;
 counterclockwise shortens it to a minimum of one step. Release all keys to advance
-the cursor past the note. When no note is held, STEP moves the cursor and PRESETS selects the
-track's pattern. **TIME** on knob 3 still selects NOTE, TIE or REST.
+the cursor past the note. When no note is held, SELECT moves the cursor (OCT−/OCT+ one step) and
+PRESETS selects the track's pattern. **TIME** on knob 3 still selects NOTE, TIE or REST.
 The readout above the piano roll shows `HOLD + PRESETS: 4 STP`, for example. Ties
 are added and removed automatically.
 
@@ -323,7 +328,7 @@ queued pattern blinks fast.
 - **Copy:** hold one key and press another: the held pattern is copied there, with its LEN etc.
 - A pattern never played starts with the LEN etc. of the pattern it follows.
 
-While SEQ is held the keys play nothing. A short tap of SEQ switches LOOP and STEP. The top
+While SEQ is held the keys play nothing. A short tap of SEQ turns LOOP, STEP and TEMPO. The top
 line of the SEQ pages shows the pattern, with the queued one after it: `P2>5 STEP`. Projects
 store every pattern of every track. Hold REC to open TRACKS; holding it there offers to clear
 all 8 patterns of the track. The web editor shows and edits the playing pattern.

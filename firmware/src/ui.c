@@ -64,7 +64,6 @@ static struct {
     uint32_t menu_sig, home_t0;  /* HOME press time (btn_hold) */
     uint8_t force;               /* full redraw pending */
     uint8_t msg_t;               /* transient message frames */
-    uint8_t bpm_t;               /* frames the BPM stays highlighted after a SELECT turn */
     uint8_t arm, arm_t;          /* destructive action armed: param id, frames left to confirm */
     uint32_t rec_t0;             /* REC press time (btn_hold) */
     uint32_t save_t0;            /* SAVE press time (btn_hold): a tap opens SAVE, a hold saves the project */
@@ -234,15 +233,19 @@ static void go_home(void)
     ui.force = 1;
 }
 
+static void home_view_step(int32_t direction)      /* notes, levels, pan, master effects (a HOME tap, SELECT) */
+{
+    ui.home_view = (uint8_t)((ui.home_view + (direction > 0 ? 1u : 3u)) % 4u);
+    ui.hot_t = 0;
+    ui.force = 1;
+}
+
 static void home_tap(void)
 {
-    if (ui.home) {
-        ui.home_view = (uint8_t)((ui.home_view + 1u) % 4u);
-        ui.hot_t = 0;
-        ui.force = 1;
-    } else {
+    if (ui.home)
+        home_view_step(1);
+    else
         go_home();
-    }
 }
 
 /* ------------------------------------------------------- track setup --- */

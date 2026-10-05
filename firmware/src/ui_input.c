@@ -382,18 +382,18 @@ static void step_length_edit(int32_t steps)
 }
 
 /* SAVE > PROJECT BOOT, GLO > LIGHTS and the GLO values (GLO_KEPT, from any source: knobs, the editor,
- * a project loaded; BPM not while an outside clock sets it) go to flash once they rest, not on every
- * detent, and only while stopped: an erase silences the audio */
+ * a project loaded) go to flash once they rest, not on every detent, and only while stopped: an
+ * erase silences the audio */
 static uint32_t set_t;                                    /* fm1_ms of the last change | 1, 0 = saved */
 static void set_save(void)
 {
     uint32_t i;
     for (i = 0; i < NGLO_KEPT; i++)
-        if (settings.glo[i] != song.g[GLO_KEPT[i]] && (GLO_KEPT[i] != G_BPM || !song.g[G_CLOCK])) {
+        if (GLO_KEPT[i] != GLO_GONE && settings.glo[i] != song.g[GLO_KEPT[i]]) {
             settings.glo[i] = song.g[GLO_KEPT[i]];
             set_t = fm1_ms | 1u;
         }
-    if (set_t && fm1_ms - set_t > 1500u && !song.playing) {
+    if (set_t && fm1_ms - (set_t & ~1u) > 1500u && !song.playing) {   /* (| 1 may put set_t past fm1_ms) */
         set_t = 0;
         settings_save();                                  /* (nothing to write if it is back where it was) */
     }
@@ -850,9 +850,14 @@ static void ui_input(void)
     }
     if ((s = panel_enc(EN_ALGO)) != 0)             /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
-    if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT knob = global tempo */
-        song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
-        ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */
+    if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT: the open workspace's pages, both ways; */
+        if (ui.home)                                /* STEP: the cursor (OCT- / OCT+ one step) */
+            home_view_step(s);
+        else if (cur_page()->scope == SC_STEP) {
+            cursor_set((int32_t)ui.cursor + accel(EN_SELECT, s, NSTEP));
+            ui.force = 1;
+        } else
+            page_scroll(s);
     }
     for (k = 0; k < 4u; k++) {
         const page_t *pg = cur_page();

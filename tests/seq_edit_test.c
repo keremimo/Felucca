@@ -459,7 +459,9 @@ static void mpc_page_test(void)
     track_defaults_steps(TSEL);
     TSEL->p[P_ROOT] = 0;
     TSEL->p[P_TRANS] = 0;
-    ui.page = (uint8_t)page_first(FAM_SEQ);
+    for (i = page_first(FAM_SEQ); PAGES[i].scope != SC_STEP; i++)
+        ;
+    ui.page = (uint8_t)i;
     page_entered();
     midi_frame(0x90, 21, 100, 1);
     assert(TSEL->step[0].n == 1 && TSEL->step[0].note[0] == 67);
@@ -862,7 +864,10 @@ static void patterns_test(void)
     transport_req = 2;
     events_block(0);
 
-    /* a tap of SEQ on a SEQ page still turns the page */
+    /* a tap of SEQ on a SEQ page still turns the page: STEP, TEMPO, LOOP */
+    seq_frame(1, 0);
+    seq_frame(0, 0);
+    assert(ui.page == page_named("TEMPO"));
     seq_frame(1, 0);
     seq_frame(0, 0);
     assert(ui.page == page_named("PATTERN"));
@@ -940,6 +945,70 @@ static void workspace_test(void)
     home_tap();
     assert(ui.home && !ui.home_view);
     puts("workspaces: NOTES/MIX LEVEL/PAN/FX, direct recording, instrument sounds, LOOP patterns and STEP");
+}
+
+/* SELECT: the open workspace's pages both ways (HOME: its views), on STEP the cursor; it no longer
+ * sets the tempo. SEQ > TEMPO holds the project's BPM and SWG, and a project brings them back */
+static void select_turn(int32_t s)
+{
+    fm1_ms += 100;                                  /* (slow turns: one detent each) */
+    encoders[panel.enc[EN_SELECT]] = s;
+    ui_input();
+}
+
+static void select_knob_test(void)
+{
+    int16_t bpm;
+    reset(16);
+    go_home();
+    bpm = song.g[G_BPM];
+    select_turn(1);
+    assert(ui.home && ui.home_view == 1u && song.g[G_BPM] == bpm);
+    select_turn(-1);
+    select_turn(-1);
+    assert(ui.home && ui.home_view == 3u);
+    open_family(FAM_ENV);
+    select_turn(1);
+    assert(str_eq(cur_page()->title, "ENV DEST"));
+    select_turn(-1);
+    assert(cur_page()->graph == GR_ADSR);
+    select_turn(-1);                                /* back past the first page: the last */
+    assert(str_eq(cur_page()->title, "ENV DEST"));
+    open_family(FAM_GLO);
+    assert(cur_page()->id[0] == G_CLOCK && cur_page()->id[1] == G_TUNE);   /* GLOBAL: the studio's */
+
+    open_family(FAM_SEQ);                           /* LOOP; to its left, TEMPO */
+    assert(cur_page()->graph == GR_STEPS);
+    select_turn(-1);
+    assert(ui.page == page_named("TEMPO") && song.seq_mode);
+    fm1_ms += 100;
+    encoders[panel.enc[EN_K1]] = 1;
+    encoders[panel.enc[EN_K2]] = 1;
+    ui_input();
+    assert(song.g[G_BPM] == bpm + 1 && song.g[G_SWING] == 1);
+    encoders[panel.enc[EN_PRESET]] = 1;             /* PRESETS still queues the next pattern */
+    ui_input();
+    assert(TSEL->pat_q == 2);
+    TSEL->pat_q = 0;
+    select_turn(-1);
+    assert(ui.page == page_named("STEP"));
+    cursor_set(0);
+    select_turn(1);                                 /* STEP: the cursor, not the page */
+    assert(ui.page == page_named("STEP") && ui.cursor == 1);
+    select_turn(-1);
+    select_turn(-1);
+    assert(ui.cursor == 15);                        /* wraps inside LEN */
+    encoders[panel.enc[EN_SELECT]] = 1;             /* turned fast: three steps a detent */
+    ui_input();
+    assert(ui.cursor == 2);
+
+    project_save(1);
+    song.g[G_BPM] = 90;
+    song.g[G_SWING] = 0;
+    project_load(1);
+    assert(song.g[G_BPM] == bpm + 1 && song.g[G_SWING] == 1);
+    transport_req = panic_req = 0;
+    puts("SELECT: pages both ways, HOME views, the STEP cursor; SEQ > TEMPO: the project's BPM and SWG");
 }
 
 static void performance_gestures_test(void)
@@ -1046,7 +1115,8 @@ static void loop_redraw_test(void)
 {
     static uint16_t previous[240 * H_GRAPH];
     reset(16);
-    open_family(FAM_SEQ);
+    go_home();
+    open_family(FAM_SEQ);                           /* LOOP */
     trk[1].seq_idx = 3;
     song.playing = 1;
     ui_draw();
@@ -1215,8 +1285,8 @@ static void panel_lights_test(void)
 }
 
 /* GLO > GLOBAL and DRUMS kept on the device: any change (knob, editor, a project) goes to flash once
- * it rests and the transport is stopped, BPM not while an outside clock sets it; power-on restores
- * them (glo_restore), a BOOT project or the template then brings its own */
+ * it rests and the transport is stopped; power-on restores them (glo_restore), a BOOT project or the
+ * template then brings its own. BPM and SWG (SEQ > TEMPO) are the project's: never kept */
 static void glo_kept_test(void)
 {
     uint32_t i;
@@ -1237,20 +1307,27 @@ static void glo_kept_test(void)
     song.playing = 0;
     ui_input();
     assert(!set_t);
-    song.g[G_CLOCK] = 1;                       /* USB clock: its BPM is not kept */
-    song.g[G_BPM] = 133;
+    fm1_ms = (fm1_ms + 1u) & ~1u;              /* an even ms: set_t (| 1) is past it, still no save yet */
+    song.g[G_CLOCK] = 1;
     ui_input();
-    assert(settings.glo[2] == 1 && settings.glo[0] == GP[G_BPM].def);
-    song.g[G_CLOCK] = 0;                       /* back on INT: the BPM it plays at is */
+    assert(settings.glo[2] == 1 && set_t);
+    fm1_ms += 1600;
     ui_input();
-    assert(settings.glo[0] == 133);
+    assert(!set_t);
+    song.g[G_BPM] = 133;                       /* the project's tempo and swing: nothing to save */
+    song.g[G_SWING] = 30;
+    ui_input();
+    assert(!set_t);
     for (i = 0; i < G_COUNT; i++)              /* power-on: the defaults, then the values kept */
         song.g[i] = GP[i].def;
-    settings.glo[1] = 500;                     /* (a .noinit copy out of range) */
+    settings.glo[0] = 133;                     /* a record from when BPM and SWG were kept */
+    settings.glo[1] = 30;
+    settings.glo[4] = 500;                     /* (a .noinit copy out of range) */
     glo_restore();
-    assert(song.g[G_TUNE] == 7 && song.g[G_BPM] == 133 && song.g[G_CLOCK] == 0 &&
-           song.g[G_SWING] == GP[G_SWING].max && settings.glo[1] == GP[G_SWING].max);
-    puts("GLO values: kept once they rest while stopped, not an outside clock's BPM; restored at power-on");
+    assert(song.g[G_TUNE] == 7 && song.g[G_CLOCK] == 1 && song.g[G_BPM] == GP[G_BPM].def &&
+           song.g[G_SWING] == GP[G_SWING].def && song.g[G_DRCH] == GP[G_DRCH].max &&
+           settings.glo[4] == GP[G_DRCH].max);
+    puts("GLO values: kept once they rest while stopped, BPM and SWG not (the project's); restored at power-on");
 }
 
 #ifndef MELODEE_UI_PREVIEW
@@ -1486,6 +1563,7 @@ int main(int argc, char **argv)
     fm6_page_nav_test();
     patterns_test();
     workspace_test();
+    select_knob_test();
     performance_gestures_test();
     home_render_navigation_test();
     loop_redraw_test();
