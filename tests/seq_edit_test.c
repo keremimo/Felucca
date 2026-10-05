@@ -69,6 +69,7 @@ static void reset(uint32_t len)
     memset(trk, 0, sizeof trk);
     memset(&song, 0, sizeof song);
     memset(&ui, 0, sizeof ui);
+    step_history_clear();
     memset(encoders, 0, sizeof encoders);
     memset(midi_notes, 0, sizeof midi_notes);
     memset(midi_ch, 0, sizeof midi_ch);
@@ -98,7 +99,7 @@ static void key_frame(uint32_t keys, int32_t length_delta)
     int note_action = keys || ui.entry_open || step_midi_w != step_midi_r;
     note_edges = keys & ~fm1_in.notes;
     fm1_in.notes = keys;
-    encoders[panel.enc[EN_PRESET]] = note_action ? length_delta : 0;
+    encoders[panel.enc[EN_SELECT]] = note_action ? length_delta : 0;
     encoders[panel.enc[EN_K1]] = note_action ? 0 : length_delta;
     fm1_ms += 20;
     ui_input();
@@ -163,7 +164,7 @@ static void gestures_test(void)
 {
     reset(32);
     cursor_set(14);
-    /* Enter a chord and turn PRESETS on its first frame. */
+    /* Enter a chord and turn SELECT on its first frame. */
     key_frame((1u << 7) | (1u << 11) | (1u << 14), 3);
     assert(ui.entry_open && ui.cursor == 14 && step_note_length(TSEL, 14) == 4);
     assert(TSEL->step[14].n == 3 && TSEL->preset == 0);
@@ -213,7 +214,7 @@ static void gestures_test(void)
     key_frame(1u << 8, 0);                 /* silent scale key cannot start an entry */
     key_frame(0, 0);
     assert(ui.cursor == 0 && !TSEL->step[0].n);
-    puts("gestures: held chord, release/detent ordering, PRESETS length, STEP cursor, TIME, patterns, drums and scale mode ok");
+    puts("gestures: held chord, release/detent ordering, SELECT length, STEP cursor, TIME, patterns, drums and scale mode ok");
 }
 
 static void midi_entry_test(void)
@@ -776,7 +777,9 @@ static void render_test(const char *path)
         int y = Y_GRAPH + 24 + 80 - (TSEL->step[14].note[j] - 60) * 74 / 12;
         assert(screen[y * 240] == C_GRAY && screen[y * 240 + 14] == C_GRAY);
     }
-    assert(text_w(&FONT_S, "HOLD + PRESETS: 64 STP") <= 232);
+    assert(text_w(&FONT_S, "HOLD + SELECT: 64 STP") <= 232);
+    assert(text_w(&FONT_S, "ENV + SELECT: 64 STP") <= 232);
+    assert(text_w(&FONT_S, "SCALE + SELECT: MOVE") <= 232);
     if (path) {
         FILE *f = fopen(path, "wb");
         assert(f);
@@ -1072,12 +1075,12 @@ static void step_delete_test(void)
         button_edges |= fx;
         fm1_in.buttons |= fx;
         ui_input();
-        assert(ui.cursor == (at + 1u) % len && cur_page()->scope == SC_STEP);
-        assert(!strcmp(ui.msg, "STEP CLEARED"));
+        assert(ui.cursor == (start + 1u) % len && cur_page()->scope == SC_STEP);
+        assert(!strcmp(ui.msg, "NOTE CLEARED"));
         for (i = 0; i < NSTEP; i++) {
-            uint32_t distance = (i + len - at) % len;
+            uint32_t distance = (i + len - start) % len;
             step_t *st = &TSEL->step[i];
-            if (i < len && distance < duration - offset)
+            if (i < len && distance < duration)
                 assert(st->time == ST_REST && !st->n && !st->flags && !st->vel);
             else
                 assert(!memcmp(st, &before[i], sizeof *st));
@@ -1102,7 +1105,367 @@ static void step_delete_test(void)
         assert(!memcmp(&TSEL->step[i], &before[i], sizeof before[i]));
     fm1_in.buttons &= ~fx;
     ui_input();
-    puts("STEP delete: following ties cleared, bank/loop wrap, tie suffix, full loop, neighboring notes/rests preserved");
+    puts("STEP delete: whole note from onset or tie, bank/loop wrap, full loop, neighboring notes/rests preserved");
+}
+
+static void step_moves_test(void)
+{
+    uint32_t len, n, at, i;
+    int32_t dir;
+    step_t saved[NSTEP];
+    for (len = 1; len <= NSTEP; len++)
+        for (n = 1; n <= len; n++)
+            for (dir = -1; dir <= 1; dir += 2) {
+                reset(len);
+                at = len - 1u;
+                note(at);
+                assert(step_note_resize(TSEL, at, (int32_t)n) == n);
+                for (i = 0; i < n; i++) {
+                    TSEL->step[(at + i) % len].flags |= SF_SLIDE;
+                    saved[i] = TSEL->step[(at + i) % len];
+                }
+                for (i = 0; i < len; i++) {
+                    at = step_note_move(TSEL, at, dir);
+                    assert(step_note_length(TSEL, at) == n);
+                    for (uint32_t j = 0; j < n; j++)
+                        assert(!memcmp(&saved[j], &TSEL->step[(at + j) % len], sizeof saved[j]));
+                    for (uint32_t j = n; j < len; j++)
+                        assert(TSEL->step[(at + j) % len].time == ST_REST);
+                }
+                assert(at == len - 1u);
+            }
+    reset(16);
+    note(2); note(8);
+    step_note_resize(TSEL, 2, 3);
+    step_note_resize(TSEL, 8, 2);
+    memcpy(saved, TSEL->step, sizeof saved);
+    assert(step_note_move(TSEL, 2, 12) == 5);     /* fast turn stops at the next note */
+    assert(!memcmp(&saved[8], &TSEL->step[8], sizeof saved[8]) && TSEL->step[9].time == ST_TIE);
+    assert(step_note_move(TSEL, 5, -12) == 10);  /* backward wraps and stops behind its tail */
+    reset(16);
+    note(0);
+    TSEL->step[4].time = ST_TIE;
+    assert(step_note_move(TSEL, 0, 16) == 2);    /* leave a rest before an orphan tie */
+    assert(TSEL->step[4].time == ST_TIE);
+    assert(step_note_move(TSEL, NSTEP, 1) == NSTEP);
+    puts("STEP move: every length, both directions, wrap, full-loop notes, chords/flags/velocity, collisions and orphan ties");
+}
+
+static void step_modifier_frame(uint32_t label, int down, int32_t delta)
+{
+    uint32_t bit = 1u << panel.btn[label];
+    if (down && !(fm1_in.buttons & bit))
+        button_edges |= bit;
+    if (down)
+        fm1_in.buttons |= bit;
+    else
+        fm1_in.buttons &= ~bit;
+    encoders[panel.enc[EN_SELECT]] = delta;
+    fm1_ms += 100;
+    ui_input();
+}
+
+static void step_modifiers_test(void)
+{
+    reset(32);
+    note(14);
+    step_note_resize(TSEL, 14, 4);
+    cursor_set(16);                             /* resize from a tie, not just the onset */
+    step_modifier_frame(B_ENV, 1, 2);
+    assert(cur_page()->scope == SC_STEP && ui.cursor == 14 && step_note_length(TSEL, 14) == 6);
+    step_modifier_frame(B_ENV, 1, -3);
+    assert(step_note_length(TSEL, 14) == 3);
+    step_modifier_frame(B_ENV, 0, 0);
+    assert(cur_page()->scope == SC_STEP);
+    cursor_set(15);
+    step_modifier_frame(B_SCL, 1, 3);
+    assert(ui.cursor == 17 && ui.bank == 1 && step_note_length(TSEL, 17) == 3 && !TSEL->pat_q);
+    step_modifier_frame(B_SCL, 0, 0);
+    assert(cur_page()->scope == SC_STEP);        /* release must not cycle pages */
+    step_modifier_frame(B_SCL, 1, 0);
+    step_modifier_frame(B_SCL, 0, -1);          /* final detent on release still moves */
+    assert(cur_page()->scope == SC_STEP && ui.cursor == 16 && step_note_length(TSEL, 16) == 3);
+    step_modifier_frame(B_ENV, 1, 0);
+    step_modifier_frame(B_ENV, 0, -1);          /* likewise for resizing */
+    assert(cur_page()->scope == SC_STEP && step_note_length(TSEL, 16) == 2);
+    step_modifier_frame(B_SCL, 1, 1);
+    step_modifier_frame(B_SCL, 0, 0);
+    step_modifier_frame(B_ENV, 1, 1);
+    step_modifier_frame(B_ENV, 0, 0);
+    note(20);
+    step_modifier_frame(B_SCL, 1, 1);
+    assert(ui.cursor == 17 && !strcmp(ui.msg, "NO ROOM"));
+    step_modifier_frame(B_SCL, 0, 0);
+    cursor_set(4);
+    step_modifier_frame(B_SCL, 1, 1);
+    assert(ui.cursor == 4 && !strcmp(ui.msg, "SELECT A NOTE"));
+    step_modifier_frame(B_SCL, 0, 0);
+    step_modifier_frame(B_ENV, 1, 1);
+    assert(ui.cursor == 4 && !strcmp(ui.msg, "SELECT A NOTE"));
+    step_modifier_frame(B_ENV, 0, 0);
+    assert(cur_page()->scope == SC_STEP);
+    step_modifier_frame(B_ENV, 1, 0);            /* unused ENV still opens the instrument envelope */
+    step_modifier_frame(B_ENV, 0, 0);
+    assert(cur_fam() == FAM_ENV);
+    reset(16);
+    step_modifier_frame(B_SCL, 1, 0);
+    assert(cur_page()->scope == SC_STEP);
+    step_modifier_frame(B_SCL, 0, 0);
+    assert(cur_fam() == FAM_SCL);
+    reset(16);
+    track_select(TRK_DRUM);
+    note(0);
+    step_modifier_frame(B_ENV, 1, 2);
+    assert(step_note_length(TSEL, 0) == 1 && !strcmp(ui.msg, "DRUMS: ONE SHOT"));
+    step_modifier_frame(B_ENV, 0, 0);
+    step_modifier_frame(B_SCL, 1, -1);
+    assert(ui.cursor == 15 && TSEL->step[15].n == 3 && !TSEL->step[0].n);
+    step_modifier_frame(B_SCL, 0, 0);
+    reset(16);
+    key_frame(1u << 7, 2);
+    encoders[panel.enc[EN_PRESET]] = 1;
+    ui_input();
+    assert(ui.entry_open && ui.cursor == 0 && step_note_length(TSEL, 0) == 3 && TSEL->pat_q == 2);
+    key_frame(0, 0);
+    reset(16);
+    key_frame(1u << 7, 15);                     /* full-loop release keeps the cursor but changes its hint */
+    uint32_t held_sig = graph_signature();
+    key_frame(0, 0);
+    assert(ui.cursor == 0 && !ui.entry_open && graph_signature() != held_sig);
+    puts("STEP modifiers: ENV resize and tap, SCALE move without page/pattern switch, ties, banks, empty steps, drums and PRESETS while held");
+}
+
+static void knob_frame(uint32_t k, int32_t steps)  /* one frame with knob k (0..3) turned */
+{
+    encoders[panel.enc[EN_K1 + k]] = steps;
+    fm1_ms += 20;
+    ui_input();
+}
+
+static void history_shortcut(int redo, int together)
+{
+    uint32_t label = redo ? B_OCTUP : B_OCTDN;
+    uint32_t oct = 1u << panel.btn[label], fx = 1u << panel.btn[B_FX];
+    if (together) {
+        button_edges |= oct | fx;
+        fm1_in.buttons |= oct | fx;
+        fm1_ms += 20;
+        ui_input();
+        fm1_in.buttons &= ~(oct | fx);
+        fm1_ms += 20;
+        ui_input();
+    } else {
+        uint32_t cursor = ui.cursor;
+        step_modifier_frame(label, 1, 0);
+        assert(ui.cursor == cursor);                   /* the modifier must not navigate */
+        step_modifier_frame(B_FX, 1, 0);
+        step_modifier_frame(B_FX, 0, 0);
+        step_modifier_frame(label, 0, 0);
+    }
+    assert(cur_page()->scope == SC_STEP && !ui.step_oct && !ui.step_oct_used);
+}
+
+static void step_history_test(void)
+{
+    step_t states[5][NSTEP], before[NSTEP];
+    uint32_t i, cursor;
+    reset(32);
+    memcpy(states[0], TSEL->step, sizeof states[0]);
+    key_frame((1u << 7) | (1u << 11) | (1u << 14), 2);
+    key_frame((1u << 7) | (1u << 11) | (1u << 14), 1);
+    key_frame(0, 0);
+    memcpy(states[1], TSEL->step, sizeof states[1]);
+    assert(step_history.count == 2 && step_note_length(TSEL, 0) == 4);
+    cursor_set(0);
+    step_modifier_frame(B_SCL, 1, 2);
+    step_modifier_frame(B_SCL, 1, 1);
+    step_modifier_frame(B_SCL, 0, 0);
+    memcpy(states[2], TSEL->step, sizeof states[2]);
+    assert(step_history.count == 3 && step_note_length(TSEL, 3) == 4);
+    cursor_set(4);
+    step_modifier_frame(B_ENV, 1, 2);
+    step_modifier_frame(B_ENV, 1, -1);
+    step_modifier_frame(B_ENV, 0, 0);
+    memcpy(states[3], TSEL->step, sizeof states[3]);
+    assert(step_history.count == 4 && step_note_length(TSEL, 3) == 5);
+    cursor_set(5);                                     /* delete from a chord's tie tail */
+    step_modifier_frame(B_FX, 1, 0);
+    step_modifier_frame(B_FX, 0, 0);
+    memcpy(states[4], TSEL->step, sizeof states[4]);
+    assert(step_history.count == 5);
+    for (i = 4; i > 0; i--) {
+        history_shortcut(0, i & 1u);
+        assert(!memcmp(TSEL->step, states[i - 1u], sizeof states[0]) && !strcmp(ui.msg, "UNDO"));
+    }
+    cursor = ui.cursor;
+    history_shortcut(0, 0);
+    assert(ui.cursor == cursor && !memcmp(TSEL->step, states[0], sizeof states[0]) && !strcmp(ui.msg, "NOTHING TO UNDO"));
+    for (i = 1; i <= 4; i++) {
+        history_shortcut(1, i & 1u);
+        assert(!memcmp(TSEL->step, states[i], sizeof states[0]) && !strcmp(ui.msg, "REDO"));
+    }
+    history_shortcut(1, 0);
+    assert(!strcmp(ui.msg, "NOTHING TO REDO"));
+    history_shortcut(0, 0);
+    cursor_set(25);
+    step_modifier_frame(B_ENV, 1, 1);                    /* blocked edits keep redo */
+    step_modifier_frame(B_ENV, 0, 0);
+    step_modifier_frame(B_FX, 1, 0);                     /* clearing an empty step is a no-op too */
+    step_modifier_frame(B_FX, 0, 0);
+    history_shortcut(1, 0);
+    assert(!memcmp(TSEL->step, states[4], sizeof states[0]));
+    history_shortcut(0, 0);
+    cursor_set(3);
+    knob_frame(1, 1);                                  /* NOTE transpose branches the history */
+    memcpy(before, TSEL->step, sizeof before);
+    history_shortcut(1, 0);
+    assert(!memcmp(TSEL->step, before, sizeof before) && !strcmp(ui.msg, "NOTHING TO REDO"));
+    history_shortcut(0, 0);
+    assert(!memcmp(TSEL->step, states[3], sizeof states[0]));
+
+    reset(16);
+    note(0);
+    ui_input();
+    for (i = 0; i < STEP_HISTORY + 4u; i++)
+        knob_frame(1, 1);
+    assert(step_history.count == STEP_HISTORY + 1u);
+    for (i = 0; i < STEP_HISTORY; i++)
+        history_shortcut(0, 0);
+    assert(TSEL->step[0].note[0] == 64);
+    memcpy(before, TSEL->step, sizeof before);
+    history_shortcut(0, 0);
+    assert(!memcmp(TSEL->step, before, sizeof before) && !strcmp(ui.msg, "NOTHING TO UNDO"));
+    for (i = 0; i < STEP_HISTORY; i++)
+        history_shortcut(1, 0);
+    assert(TSEL->step[0].note[0] == 72);
+
+    reset(16);
+    key_frame(1u << 7, 4);                              /* undo before releasing a held note */
+    history_shortcut(0, 0);
+    assert(!TSEL->step[0].n && !ui.entry_open);
+    key_frame(0, 0);
+    history_shortcut(1, 0);
+    assert(step_note_length(TSEL, 0) == 5);
+    reset(16);
+    key_frame(1u << 7, 4);
+    step_modifier_frame(B_FX, 1, 0);                   /* deleting while keys are held is its own edit */
+    step_modifier_frame(B_FX, 0, 0);
+    assert(!TSEL->step[0].n && step_history.count == 3);
+    history_shortcut(0, 0);
+    assert(step_note_length(TSEL, 0) == 5);
+    key_frame(0, 0);
+    history_shortcut(0, 0);
+    assert(!TSEL->step[0].n);
+    reset(16);
+    midi_frame(0x90, 60, 100, 2);
+    midi_frame(0x90, 64, 100, 1);
+    midi_frame(0x80, 60, 0, 0);
+    midi_frame(0x80, 64, 0, 1);
+    memcpy(before, TSEL->step, sizeof before);
+    assert(step_history.count == 2);
+    history_shortcut(0, 0);
+    assert(!TSEL->step[0].n);
+    history_shortcut(1, 0);
+    assert(!memcmp(TSEL->step, before, sizeof before));
+
+    reset(16);
+    cursor_set(0);
+    step_modifier_frame(B_OCTDN, 1, 0);
+    assert(ui.cursor == 0);
+    step_modifier_frame(B_OCTDN, 0, 0);
+    assert(ui.cursor == 15);
+    step_modifier_frame(B_OCTUP, 1, 0);
+    step_modifier_frame(B_OCTUP, 0, 0);
+    assert(ui.cursor == 0);
+    key_frame(1u << 7, 1);
+    key_frame(0, 0);
+    memcpy(before, TSEL->step, sizeof before);
+    uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]) | (1u << panel.btn[B_FX]);
+    button_edges |= both;
+    fm1_in.buttons |= both;
+    ui_input();
+    fm1_in.buttons &= ~both;
+    ui_input();
+    assert(!memcmp(TSEL->step, before, sizeof before) && !strcmp(ui.msg, "USE ONE OCT BUTTON"));
+    uint8_t old = panel.btn[B_FX];                     /* shortcuts follow calibration, not matrix order */
+    panel.btn[B_FX] = panel.btn[B_OCTDN];
+    panel.btn[B_OCTDN] = old;
+    history_shortcut(0, 1);
+    assert(!TSEL->step[0].n);
+    history_shortcut(1, 0);
+    assert(!memcmp(TSEL->step, before, sizeof before));
+    reset(16);
+    cursor_set(14);
+    note(14);
+    step_note_resize(TSEL, 14, 4);
+    memcpy(before, TSEL->step, sizeof before);
+    ui_input();
+    knob_frame(3, -1);                                 /* FLAG then TIME, preserving wrapped chord metadata */
+    memcpy(states[1], TSEL->step, sizeof states[1]);
+    knob_frame(2, 1);
+    memcpy(states[2], TSEL->step, sizeof states[2]);
+    history_shortcut(0, 0);
+    assert(!memcmp(TSEL->step, states[1], sizeof before));
+    history_shortcut(0, 0);
+    assert(!memcmp(TSEL->step, before, sizeof before));
+    history_shortcut(1, 0);
+    history_shortcut(1, 0);
+    assert(!memcmp(TSEL->step, states[2], sizeof before));
+    puts("STEP undo/redo: grouped entry/move/resize, whole-note delete, transpose, eight edits, branching, no-ops, MIDI, held input, chords and calibrated shortcuts");
+}
+
+static void step_history_context_test(void)
+{
+    step_t before[NSTEP];
+    reset(16);
+    key_frame(1u << 7, 1);
+    key_frame(0, 0);
+    track_select(1);
+    history_shortcut(0, 0);
+    assert(!strcmp(ui.msg, "NOTHING TO UNDO") && !TSEL->step[0].n && trk[0].step[0].n);
+    track_select(0);
+    history_shortcut(0, 0);
+    assert(!strcmp(ui.msg, "NOTHING TO UNDO") && TSEL->step[0].n);
+    cursor_set(0);
+    knob_frame(1, 1);
+    pat_switch(TSEL, 1);
+    history_shortcut(0, 0);
+    assert(!strcmp(ui.msg, "NOTHING TO UNDO") && !TSEL->step[0].n);
+    pat_switch(TSEL, 0);
+    ui_input();
+    knob_frame(1, 1);
+    TSEL->p[P_SLEN] = 8;
+    memcpy(before, TSEL->step, sizeof before);
+    history_shortcut(0, 0);
+    assert(!strcmp(ui.msg, "NOTHING TO UNDO") && !memcmp(TSEL->step, before, sizeof before));
+    knob_frame(1, 1);
+    note(7);                                           /* editor/external edit invalidates stale history */
+    memcpy(before, TSEL->step, sizeof before);
+    history_shortcut(0, 0);
+    assert(!strcmp(ui.msg, "NOTHING TO UNDO") && !memcmp(TSEL->step, before, sizeof before));
+    knob_frame(1, 1);
+    song.playing = song.rec = 1;
+    history_shortcut(0, 0);
+    assert(!strcmp(ui.msg, "NOTHING TO UNDO"));
+    song.playing = song.rec = 0;
+    ui_input();
+    knob_frame(1, 1);
+    project_save(0);
+    project_load(0);                                    /* even loading identical steps resets history */
+    memcpy(before, TSEL->step, sizeof before);
+    history_shortcut(0, 0);
+    assert(!strcmp(ui.msg, "NOTHING TO UNDO") && !memcmp(TSEL->step, before, sizeof before));
+    cursor_set(0);
+    knob_frame(1, 1);
+    open_family(FAM_SAVE);
+    step_history_sync();
+    track_defaults_steps(TSEL);                         /* a tools/library change does not enter STEP history */
+    step_history_end();
+    assert(!step_history.valid);
+    page_go(page_named("STEP"));
+    history_shortcut(0, 0);
+    assert(!strcmp(ui.msg, "NOTHING TO UNDO") && !TSEL->step[0].n);
+    puts("STEP undo context: tracks, patterns, length changes, external edits, armed playback and identical project loads stay isolated");
 }
 
 static void scope_fixture(uint32_t period)
@@ -1449,13 +1812,6 @@ static void boot_project_test(void)
     puts("boot project: BOOT knob, power-on load, failed boot skips it; factory presets leave the steps");
 }
 
-static void knob_frame(uint32_t k, int32_t steps)  /* one frame with knob k (0..3) turned */
-{
-    encoders[panel.enc[EN_K1 + k]] = steps;
-    fm1_ms += 20;
-    ui_input();
-}
-
 /* SAVE > PROJECT, SLOT TMPL: SAVE (two detents) keeps the sounds, the mix and the globals, no pattern;
  * LOAD, or power-on with BOOT OFF or an empty BOOT slot, starts a new project from it, SLOT on a free
  * project slot. The RAM project (proj_buf) is not touched. */
@@ -1625,6 +1981,10 @@ int main(int argc, char **argv)
     select_knob_test();
     performance_gestures_test();
     step_delete_test();
+    step_moves_test();
+    step_modifiers_test();
+    step_history_test();
+    step_history_context_test();
     home_render_navigation_test();
     loop_redraw_test();
     playing_key_lights_test();

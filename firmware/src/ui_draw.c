@@ -600,7 +600,7 @@ static uint32_t graph_signature(void)
         uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
         if (ph / 16u != ui.bank)
             ph = 0xFFFFu;                            /* the roll shows the cursor's bank only */
-        h ^= steps_hash(t) + ph * 31u + ui.cursor * 7919u;
+        h ^= steps_hash(t) + ph * 31u + ui.cursor * 7919u + ui.entry_open * 65537u;
     }
     return h;
 }
@@ -1311,14 +1311,16 @@ static void draw_graph(void)
     }
     if (!ui.home && pg->scope == SC_STEP) {
         uint32_t start = step_note_start(t, ui.cursor);
-        char hint[32] = "PRESETS: PAT / HOLD: LEN";
+        char hint[32] = "HOLD + SELECT: LENGTH";
         if (is_drum(t)) {
             str_cpy(hint, "DRUMS: ONE SHOT", sizeof hint);
         } else if (start < NSTEP) {
-            str_cpy(hint, "HOLD + PRESETS: ", sizeof hint);
+            str_cpy(hint, ui.entry_open ? "HOLD + SELECT: " : "ENV + SELECT: ", sizeof hint);
             fmt_int(hint + str_len(hint), (int32_t)step_note_length(t, start));
             str_cpy(hint + str_len(hint), " STP", 5);
         }
+        if (ui.step_scl && !ui.step_env)
+            str_cpy(hint, "SCALE + SELECT: MOVE", sizeof hint);
         cv_text(4, 2, &FONT_S, hint, C_HI);
         top = 1;
     }
@@ -1408,7 +1410,7 @@ static void draw_foot(void)
         char tn[3] = {'T', (char)('1' + song.sel), 0};
         const char *hint = ui.home ? (ui.home_view == 0u ? "HOME: MIXER" : ui.home_view == 1u ? "HOME: PAN"
                                    : ui.home_view == 2u ? "HOME: FX" : "HOME: NOTES")
-                           : pg->scope == SC_STEP ? "PRESETS: PAT / LEN"
+                           : pg->scope == SC_STEP ? "PRESETS PATTERN"
                            : pg->fam == FAM_SEQ ? "PRESETS PATTERN"
                            : fm6_shown() && pg->scope == SC_FMOP ? "PRESETS OP"
                            : preset_pages() ? "PRESETS PAGE" : is_drum(t) ? "DRUM KIT" : "PRESETS SOUND";

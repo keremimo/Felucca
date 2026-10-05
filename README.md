@@ -57,7 +57,7 @@ move through a workspace's pages both ways.
 
 **SEQ** opens LOOP, a four-track view of the current 16-step bank. Turn **PRESETS** to queue the
 selected track's next pattern, **ALGORITHM** to change track, and **OCT−/OCT+** to move the step
-cursor. Tap SEQ again for STEP entry; **FX** clears the current step and its following ties, and **SELECT** moves
+cursor. Tap SEQ again for STEP entry; **FX** deletes the selected note and all its ties, and **SELECT** moves
 the cursor (faster when turned quickly). Tap SEQ once more for **TEMPO**: knob 1 **BPM**, knob 2
 **SWG** (the swing every track gets on top of its own). Tempo and swing belong to the project: a
 project and the template save them, and loading one brings them back. Hold SEQ and use the
@@ -302,15 +302,26 @@ verification with an external MIDI source.
 Tap **SEQ** twice from another workspace to reach STEP, then play notes from the FM-1 keys or
 external USB/TRS MIDI. Notes
 enter at the cursor; chords use up to four notes in POLY mode. Hold a key or chord
-and turn **PRESETS** to change its length. Clockwise extends it;
+and turn **SELECT** to change its length. Clockwise extends it;
 counterclockwise shortens it to a minimum of one step. Release all keys to advance
 the cursor past the note. When no note is held, SELECT moves the cursor (OCT−/OCT+ one step) and
-PRESETS selects the track's pattern. **TIME** on knob 3 still selects NOTE, TIE or REST.
-The readout above the piano roll shows `HOLD + PRESETS: 4 STP`, for example. Ties
+PRESETS selects the track's pattern. Hold **SCALE** and turn **SELECT** to move the selected note;
+hold **ENV** and turn **SELECT** to extend or shrink it. Both work from its onset or any tied step,
+and releasing the button keeps STEP open. Tap ENV or SCALE without turning SELECT to open its module.
+Tap **FX** to delete the whole note or chord, including all its ties; the cursor advances one step
+from the deleted onset. **TIME** on knob 3 still selects NOTE, TIE or REST.
+Hold **OCT−** and tap **FX** to undo; hold **OCT+** and tap **FX** to redo. These shortcuts
+restore the edit's cursor and suppress FX's ordinary delete action. Eight manual STEP edits are
+kept for the current track and pattern: note/chord entry with its held length, a SCALE move, an ENV resize, deletion,
+and NOTE/TIME/FLAG edits. A held entry or modifier gesture is one edit. A new edit clears redo;
+changing track, pattern or pattern length, loading a project, live recording or editor changes
+start a fresh history. On STEP, a plain OCT−/OCT+ tap moves the cursor on release.
+The readout above the piano roll shows `HOLD + SELECT: 4 STP`, for example. Ties
 are added and removed automatically.
 
 Lengths can cross a 16-step bank or the pattern's loop boundary, up to one full
-pattern. Extensions stop before another note; shortening clears only the removed
+pattern. Moving preserves note length, chord, velocity and flags, wraps across the loop, and stops
+at occupied steps. Extensions stop before another note; shortening clears only the removed
 ties. Drum hits remain one-shot. The piano roll shows sustained chords across
 banks, and existing projects keep using the same NOTE/TIE representation.
 

@@ -325,12 +325,30 @@ static void tracks_rec_tap(void)
 
 static void step_length_edit(int32_t steps);
 
+static void step_move_edit(int32_t steps)
+{
+    track_t *t = TSEL;
+    uint32_t start, target;
+    fm1_irq_off();
+    start = step_note_start(t, ui.cursor);
+    target = step_note_move(t, start, steps);
+    fm1_irq_on();
+    if (target == NSTEP) {
+        ui_message("SELECT A NOTE");
+        return;
+    }
+    cursor_set((int32_t)target);
+    ui.hot_t = 0;
+    if (target == start)
+        ui_message("NO ROOM");
+}
+
 static void step_edit(uint32_t slot, int32_t steps)
 {
     step_t *st = &TSEL->step[ui.cursor];
     uint32_t i;
     switch (slot) {
-    case 0:                                               /* STEP cursor; PRESETS shapes a held note */
+    case 0:                                               /* STEP cursor; SELECT shapes a held note */
         if (!ui.entry_open)
             cursor_set(ui.cursor + steps);
         break;
@@ -358,7 +376,7 @@ static void step_edit(uint32_t slot, int32_t steps)
     }
 }
 
-/* PRESETS while entering a note resizes it from its onset. */
+/* SELECT while entering a note resizes it from its onset. */
 static void step_length_edit(int32_t steps)
 {
     track_t *t = TSEL;
@@ -659,7 +677,12 @@ static void ui_input(void)
     }
     if (ui.menu || ui.confirm)
         kb_nav_btn = ui.edit_hold = ui.seq_hold = ui.pat_src = 0;   /* (no EDIT / SEQ + keys there) */
+    if (ui.menu || ui.confirm || ui.home || cur_page()->scope != SC_STEP)
+        ui.step_env = ui.step_env_used = ui.step_scl = ui.step_scl_used = 0;
+    if (ui.menu || ui.confirm || ui.home || cur_page()->scope != SC_STEP)
+        ui.step_oct = ui.step_oct_used = 0;
     if (ui.menu) {                                      /* HOME / REC taps do nothing here */
+        step_history_finish();
         seq_midi_events(0);
         step_midi_held = ui.entry_open = 0;
         if (ui.rec_t0)
@@ -681,6 +704,7 @@ static void ui_input(void)
     } else if (rec == BT_TAP && !ui.confirm)
         tracks_rec_tap();                               /* arm and roll from any musical workspace */
     if (ui.confirm) {                                   /* OCT- cancels, OCT+ clears; nothing else reacts */
+        step_history_finish();
         seq_midi_events(0);
         step_midi_held = ui.entry_open = 0;
         if ((pressed >> panel.btn[B_OCTUP]) & 1u) {
@@ -718,6 +742,23 @@ static void ui_input(void)
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     page_fix();                                         /* the track or its engine changed: FM6 pages */
     seq_record_follow();
+    step_history_sync();
+    if (!ui.home && cur_page()->scope == SC_STEP && ((pressed >> panel.btn[B_FX]) & 1u)) {
+        uint32_t oct = ((fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u) |
+                       (((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) << 1);
+        if (oct) {                                     /* consume FX and OCT before either ordinary action */
+            ui.step_oct |= (uint8_t)oct;
+            ui.step_oct_used |= (uint8_t)oct;
+            if (oct == 3u)
+                ui_message("USE ONE OCT BUTTON");
+            else
+                step_history_apply(oct == 2u);
+            seq_midi_events(0);
+            step_midi_held = ui.entry_open = 0;
+            enc_drop();
+            return;
+        }
+    }
     if (ui.edit_hold && !((fm1_in.buttons >> panel.btn[B_EDIT]) & 1u)) {   /* EDIT let go */
         if ((ui.edit_hold & 3u) == 2u && !ui.edit_used && now - ui.edit_t0 < 500u * 1000u * FM1_TICKS_PER_US)
             open_family(FAM_EDIT);                      /* a tap on an EDIT page: the next page */
@@ -751,8 +792,28 @@ static void ui_input(void)
         case B_REC:                                     /* tap / hold: above */
         case B_SAVE:
             break;
+        case B_ENV:
+            if (!ui.home && cur_page()->scope == SC_STEP) {
+                ui.step_env = 1;
+                ui.step_env_used = 0;
+                ui.force = 1;
+            } else
+                open_family(FAM_ENV);
+            break;
+        case B_SCL:
+            if (!ui.home && cur_page()->scope == SC_STEP) {
+                ui.step_scl = 1;
+                ui.step_scl_used = 0;
+                ui.force = 1;
+            } else
+                open_family(FAM_SCL);
+            break;
         case B_OCTDN:
         case B_OCTUP: {
+            if (!ui.home && cur_page()->scope == SC_STEP) {
+                ui.step_oct |= b == B_OCTDN ? 1u : 2u;  /* wait: it may be an undo/redo modifier */
+                break;
+            }
             if (cur_fam() == FAM_SEQ) {
                 cursor_set((int32_t)ui.cursor + (b == B_OCTDN ? -1 : 1));
                 ui.force = 1;
@@ -786,9 +847,15 @@ static void ui_input(void)
             /* fall through */
         case B_FX:
             if (b == B_FX && cur_fam() == FAM_SEQ && cur_page()->scope == SC_STEP) {
+                uint32_t start = step_note_start(TSEL, ui.cursor);
+                step_history_finish();                 /* deletion is distinct from any held entry/move/resize */
+                fm1_irq_off();
                 step_delete(TSEL, ui.cursor);
+                fm1_irq_on();
+                if (start < NSTEP)
+                    ui.cursor = (uint8_t)start;
                 cursor_set(ui.cursor + 1);
-                ui_message("STEP CLEARED");
+                ui_message(start < NSTEP ? "NOTE CLEARED" : "STEP CLEARED");
                 break;
             }
             /* fall through */
@@ -828,14 +895,10 @@ static void ui_input(void)
         } else if (ui.home) {
             track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
         } else if (cur_fam() == FAM_SEQ) {
-            if (cur_page()->scope == SC_STEP && ui.entry_open)
-                step_length_edit(s);
-            else {
-                uint32_t target = (uint32_t)(((int32_t)(TSEL->pat_q ? TSEL->pat_q - 1u : TSEL->pat) +
-                                              (s > 0 ? 1 : (int32_t)NPAT - 1)) % (int32_t)NPAT);
-                TSEL->pat_q = (uint8_t)(target == TSEL->pat ? 0u : target + 1u);   /* back to the current pattern cancels */
-                ui.force = 1;
-            }
+            uint32_t target = (uint32_t)(((int32_t)(TSEL->pat_q ? TSEL->pat_q - 1u : TSEL->pat) +
+                                          (s > 0 ? 1 : (int32_t)NPAT - 1)) % (int32_t)NPAT);
+            TSEL->pat_q = (uint8_t)(target == TSEL->pat ? 0u : target + 1u);   /* back to the current pattern cancels */
+            ui.force = 1;
         } else if (cur_page()->graph == GR_BROWSE || cur_fam() == FAM_TRK ||
                    cur_fam() == FAM_EDIT || cur_fam() == FAM_ENV || cur_fam() == FAM_LFO ||
                    cur_fam() == FAM_FX || cur_fam() == FAM_SCL || cur_fam() == FAM_ARP) {
@@ -854,7 +917,16 @@ static void ui_input(void)
         if (ui.home)                                /* STEP: the cursor (OCT- / OCT+ one step) */
             home_view_step(s);
         else if (cur_page()->scope == SC_STEP) {
-            cursor_set((int32_t)ui.cursor + accel(EN_SELECT, s, NSTEP));
+            if (ui.step_env) {
+                ui.step_env_used = 1;
+                step_length_edit(s);
+            } else if (ui.step_scl) {
+                ui.step_scl_used = 1;
+                step_move_edit(s);
+            } else if (ui.entry_open)
+                step_length_edit(s);
+            else
+                cursor_set((int32_t)ui.cursor + accel(EN_SELECT, s, NSTEP));
             ui.force = 1;
         } else
             page_scroll(s);
@@ -895,6 +967,32 @@ static void ui_input(void)
         uint32_t n = is_drum(TSEL) ? 1u : step_note_length(TSEL, ui.cursor);
         cursor_set(ui.cursor + (n ? n : 1u));
     }
+    /* Include a final detent arriving in the button-release frame. A plain
+     * tap opens the module; using SELECT consumes that tap. */
+    if (ui.step_env && !((fm1_in.buttons >> panel.btn[B_ENV]) & 1u)) {
+        if (!ui.step_env_used && !ui.home && cur_page()->scope == SC_STEP)
+            open_family(FAM_ENV);
+        ui.step_env = ui.step_env_used = 0;
+        ui.force = 1;
+    }
+    if (ui.step_scl && !((fm1_in.buttons >> panel.btn[B_SCL]) & 1u)) {
+        if (!ui.step_scl_used && !ui.home && cur_page()->scope == SC_STEP)
+            open_family(FAM_SCL);
+        ui.step_scl = ui.step_scl_used = 0;
+        ui.force = 1;
+    }
+    for (k = 0; k < 2u; k++) {
+        uint32_t bit = 1u << k;
+        if ((ui.step_oct & bit) && !((fm1_in.buttons >> panel.btn[k ? B_OCTUP : B_OCTDN]) & 1u)) {
+            if (!(ui.step_oct_used & bit) && !ui.home && cur_page()->scope == SC_STEP) {
+                cursor_set((int32_t)ui.cursor + (k ? 1 : -1));
+                ui.force = 1;
+            }
+            ui.step_oct &= (uint8_t)~bit;
+            ui.step_oct_used &= (uint8_t)~bit;
+        }
+    }
+    step_history_end();
 }
 
 /* ---------------------------------------------------- panel setup --- */

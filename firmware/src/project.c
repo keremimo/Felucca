@@ -420,6 +420,7 @@ static void step_sane(step_t *st)                       /* a loaded step back in
 static void proj_put_begin(const int16_t *g)
 {
     uint32_t i;
+    step_history_clear();
     transport_req = 2;
     panic_req = (1u << NTRK) - 1u;
     fm1_irq_off();

@@ -57,6 +57,11 @@ static struct {
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
     uint8_t cursor;              /* SEQ: step being edited (STEP page KNOB 1 moves it) */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
+    uint8_t step_env;            /* ENV pressed on STEP: tap opens ENV, hold + SELECT resizes */
+    uint8_t step_env_used;       /* SELECT used: releasing ENV stays on STEP */
+    uint8_t step_scl;            /* SCALE pressed on STEP: tap opens scales, hold + SELECT moves */
+    uint8_t step_scl_used;       /* SELECT used: releasing SCALE stays on STEP */
+    uint8_t step_oct, step_oct_used; /* STEP: OCT taps on release, held with FX undo/redo */
     uint8_t hot_col, hot_t;      /* column whose knob was just turned (drawn white) */
     uint8_t menu;                /* 0 off, 1 list, 2 about (HOME held) */
     uint8_t menu_sel;
@@ -149,6 +154,8 @@ static void cursor_fix(void)                           /* LEN got shorter: onto 
     if (ui.cursor >= (uint32_t)TSEL->p[P_SLEN])
         cursor_set(TSEL->p[P_SLEN] - 1);
 }
+
+#include "seq_undo.c"
 
 static int seq_record_follow(void)
 {
@@ -450,6 +457,7 @@ static void track_select(uint32_t i)
 {
     if (i >= NTRK || i == song.sel)
         return;
+    step_history_clear();
     song.sel = (uint8_t)i;
     ui.entry_open = 0;
     step_midi_held = 0;
