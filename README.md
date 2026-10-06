@@ -9,8 +9,8 @@ No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the i
 It saves a complete backup first. If your firmware cannot export one, you can select
 **Skip backup** and confirm that Melodee music, sounds and settings may be lost.
 
-Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.10**
-([what's new](#whats-new-in-010)).
+Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.11**
+([what's new](#whats-new-in-011)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -21,6 +21,26 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 0.11
+
+- **CZ-1**, a new engine playing native Casio CZ-1 tones: two lines, each with its own eight-step pitch,
+  timbre and volume envelopes, the CZ's waveforms and windows, ring and noise modulation, detune, vibrato,
+  key follow, line levels and velocity sensitivity (from MIDI)
+- **Casio's 64 CZ-1 preset tones** (A-1 BRASS 1 to H-8 TYPHOON SOUND) as CZ-1's presets, and in banks A–D
+  until you save your own there
+- **Eight CZ-1 banks** of 16 tones, kept on the device: import and export Casio .syx tones and banks in the
+  web editor, pick them with BANK / PTCH on the device; full backups include them
+- **Every tone value on the device:** 38 EDIT pages for the lines, detune, vibrato, windows and the six
+  envelopes, and CZ TOOLS (NAME, copy line 1 > 2 or 2 > 1, COMPARE). A value that has no effect on the
+  tone as it is (line 2 in LINE1, steps after END, vibrato without DEPTH) is drawn dim
+- **Casio SysEx over MIDI:** CZ editors and librarians can send tones to a CZ-1 track and request them
+- **PHASE** keeps its own six presets and gains LINK / SPLIT: separate native DCO, DCW and DCA envelopes
+- **Installer:** **Return to official V15** can skip the backup when the firmware cannot export one
+- **Removed:** the SAMPLE, GRAIN and SLICE engines and the custom drum kit (DRUM plays the 808)
+
+**Upgrading from 0.10:** projects, templates, settings and user presets load. Tracks and user presets
+that used SAMPLE, GRAIN or SLICE need another sound; a track with the custom drum kit plays the 808.
 
 ## What's new in 0.10
 
