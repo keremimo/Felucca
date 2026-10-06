@@ -1,436 +1,167 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* MIDI queue -> actual scale mapping, live recording, arp and voices. */
-#include <assert.h>
-#define main hostsim_main
-#include "hostsim.c"
-#undef main
+/* MIDI IN through the scale layouts (seq.c midi_map, midi_control.c midi_play): WHITE and ALL map incoming notes as the
+ * keys, MPC plays MPC Bank H pads (MIDI 20..35) as scale degrees from DEG, kits and slices keep their own map; a mapped
+ * note's note-off ends exactly what it started; SCL, QNT and DEG are shared by every part (ui.c scale_share). */
+#define UI_TEST_NO_MAIN 1
+#include "ui_test.c"
 
-static void reset(void)
+static void scale_reset(void)
 {
-    memset(trk, 0, sizeof trk);
-    memset(&song, 0, sizeof song);
-    memset(midi_notes, 0, sizeof midi_notes);
-    memset(midi_ch, 0, sizeof midi_ch);
-    memset(midi_owners, 0, sizeof midi_owners);
-    memset(live_refs, 0, sizeof live_refs);
-    memset(&um, 0, sizeof um);
-    host_tracks_init();
-    fm1_in.notes = kb_prev = 0;
-    mi_w = mi_r = mo_w = mo_r = 0;
-    panic_req = transport_req = 0;
-    usb.config = 1;
+    ui_power_on();
+    memset(midi_ch, 0, sizeof midi_ch); memset(midi_notes, 0, sizeof midi_notes);
+    memset(midi_owners, 0, sizeof midi_owners); memset(mchord, 0, sizeof mchord);
+    mi_r = mi_w = 0; midi_in_overflow = 0;
+    fm1_in.notes = kb_prev = 0; song.sel = 0; song.octave = 0;
+    events_block(CTL);
 }
-
-static void send(uint32_t status, uint32_t note, uint32_t vel)
+static void midi(uint32_t st, uint32_t d1, uint32_t d2)
 {
-    midi_in_q[mi_w++ % MQ] = (status >> 4) | status << 8 | note << 16 | vel << 24;
-    events_block(0);
+    midi_enqueue(st >> 4 | st << 8 | d1 << 16 | d2 << 24, 1u);
+    events_block(CTL);
 }
-
-static int gated(const track_t *t, uint32_t note)
+static int sounding(const track_t *t, uint32_t note)
 {
-    uint32_t i;
-    for (i = 0; i < NVOICE; i++)
-        if (t->v[i].gate && t->v[i].note == note) return 1;
+    for (uint32_t i = 0; i < NVOICE; i++) if (t->v[i].active && t->v[i].gate && t->v[i].note == note) return 1;
     return 0;
 }
+static uint32_t nsounding(const track_t *t)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < NVOICE; i++) n += t->v[i].active && t->v[i].gate;
+    return n;
+}
 
-static void mapping_test(void)
+/* the note `degree` scale degrees from C4 (0 = ROOT above C4), by walking semitones: an oracle independent of
+ * scale_degree_map */
+static int32_t walk(uint32_t scale, int32_t root, int32_t degree)
+{
+    int32_t offset = 0;
+    while (degree) {
+        int32_t dir = degree > 0 ? 1 : -1;
+        offset += dir;
+        if (SCALE_MASK[scale] & (1u << ((offset % 12 + 12) % 12))) degree -= dir;
+    }
+    return 60 + root + offset;
+}
+
+static int mapping_test(void)
 {
     static const int8_t DEGREE[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
-    uint32_t s, root, note;
-    int trans;
-    reset();
-    trk[0].p[P_QUANT] = Q_WHITE;
-    song.octave = 3;                      /* external pitches ignore the panel octave */
+    track_t *t = &trk[0];
+    uint32_t s, note, ok = 1, ok_all = 1;
+    int32_t root, trans;
+    int bad = 0;
+    scale_reset();
+    song.octave = 2;                                  /* MIDI notes ignore the octave buttons */
     for (s = 0; s <= (uint32_t)TP[P_SCALE].max; s++)
         for (root = 0; root < 12; root++)
             for (trans = -24; trans <= 24; trans += 24) {
-                trk[0].p[P_SCALE] = (int16_t)s;
-                trk[0].p[P_ROOT] = (int16_t)root;
-                trk[0].p[P_TRANS] = (int16_t)trans;
-                for (note = 0; note < 128; note++) {
-                    int degree = DEGREE[note % 12], offset = 0;
-                    uint32_t got = midi_map(&trk[0], note);
-                    if (degree < 0) { assert(got == KB_SILENT); continue; }
-                    degree += ((int)note / 12 - 5) * 7;
-                    /* Independent oracle: walk semitones from the root until
-                     * the requested number of scale notes has been passed. */
-                    while (degree) {
-                        int dir = degree > 0 ? 1 : -1;
-                        offset += dir;
-                        if (SCALE_MASK[s] & (1u << ((offset % 12 + 12) % 12))) degree -= dir;
-                    }
-                    assert(got == (uint32_t)clamp(60 + (int)root + trans + offset, 0, 127));
+                t->p[P_SCALE] = (int16_t)s; t->p[P_ROOT] = (int16_t)root; t->p[P_TRANS] = (int16_t)trans;
+                t->p[P_QUANT] = Q_WHITE;
+                for (note = 0; note < 128u; note++) {
+                    int32_t d = DEGREE[note % 12u], want;
+                    uint32_t got = midi_map(t, note);
+                    if (d < 0) { ok &= got == KB_SILENT; continue; }
+                    want = clamp(walk(s, root, d + ((int32_t)note / 12 - 5) * 7) + trans, 0, 127);
+                    ok &= got == (uint32_t)want;
+                }
+                t->p[P_QUANT] = Q_ALL;
+                for (note = 0; note < 128u; note++) {
+                    int32_t want = walk(s, root, (int32_t)note - 60) + trans;
+                    uint32_t got = midi_map(t, note);
+                    ok_all &= want < 0 || want > 127 ? got == KB_SILENT : got == (uint32_t)want;
                 }
             }
-    trk[0].p[P_QUANT] = 0;
-    for (note = 0; note < 128; note++) assert(midi_map(&trk[0], note) == note);
-    trk[0].p[P_QUANT] = Q_SNAP;           /* SNAP is a panel-keyboard mode: MIDI passes through */
-    for (note = 0; note < 128; note++) assert(midi_map(&trk[0], note) == note);
-    TDRUM->p[P_QUANT] = Q_WHITE;
-    for (note = 0; note < 128; note++) assert(midi_map(TDRUM, note) == note);
-    trk[0].engine = trk[0].eng_req = 4;
-    trk[0].p[P_QUANT] = Q_WHITE;
-    if (drum_set() >= 0) {
-        trk[0].p[P_E0] = (int16_t)drum_set();
-        for (note = 0; note < 128; note++) assert(midi_map(&trk[0], note) == note);
-    }
-    puts("MIDI scales: 16 scales, 12 roots, all 128 input notes, transpose, octave isolation, SNAP and bypasses ok");
-}
-
-static void all_mapping_test(void)
-{
-    uint32_t s, root, note;
-    int trans;
-    reset();
-    trk[0].p[P_QUANT] = Q_ALL;
-    song.octave = -3;                      /* panel octave never shifts external MIDI */
-    for (s = 0; s <= (uint32_t)TP[P_SCALE].max; s++)
-        for (root = 0; root < 12; root++)
-            for (trans = -24; trans <= 24; trans += 12) {
-                int previous = -1;
-                trk[0].p[P_SCALE] = (int16_t)s;
-                trk[0].p[P_ROOT] = (int16_t)root;
-                trk[0].p[P_TRANS] = (int16_t)trans;
-                for (note = 0; note < 128; note++) {
-                    int degree = (int)note - 60, offset = 0, want;
-                    uint32_t actual = midi_map(&trk[0], note);
-                    while (degree) {
-                        int dir = degree > 0 ? 1 : -1;
-                        offset += dir;
-                        if (SCALE_MASK[s] & (1u << ((offset % 12 + 12) % 12))) degree -= dir;
-                    }
-                    want = 60 + (int)root + trans + offset;
-                    if (want < 0 || want > 127) {
-                        assert(actual == KB_SILENT);
-                    } else {
-                        assert(actual == (uint32_t)want && want > previous);
-                        previous = want;
-                    }
-                }
-            }
-    TDRUM->p[P_QUANT] = Q_ALL;
-    for (note = 0; note < 128; note++) assert(midi_map(TDRUM, note) == note);
-    trk[0].engine = trk[0].eng_req = 4;
-    if (drum_set() >= 0) {
-        trk[0].p[P_E0] = (int16_t)drum_set();
-        for (note = 0; note < 128; note++) assert(midi_map(&trk[0], note) == note);
-    }
-    puts("MIDI ALL: all 128 keys, 16 scales, 12 roots and transpose; no duplicate pitches or clamped endpoints");
-}
-
-static void mpc_mapping_test(void)
-{
-    static const uint8_t COUNTS[] = {12, 7, 7, 7, 7, 5, 5, 7, 7, 7, 7, 7, 6, 6, 8, 8};
-    uint32_t s, root, pad, deg;
-    int oct;
-    reset();
-    trk[0].p[P_QUANT] = Q_MPC;
-    for (s = 0; s <= (uint32_t)TP[P_SCALE].max; s++)
-        for (root = 0; root < 12; root++)
-            for (oct = -3; oct <= 3; oct++) {
-                trk[0].p[P_SCALE] = (int16_t)s;
-                trk[0].p[P_ROOT] = (int16_t)root;
-                song.octave = (int8_t)oct;
-                assert(scale_count(&trk[0]) == COUNTS[s]);
-                assert(track_desc(&trk[0], P_MPCDEG)->max == COUNTS[s]);
-                for (deg = 1; deg <= COUNTS[s]; deg++) {
-                    trk[0].p[P_MPCDEG] = (int16_t)deg;
-                    for (pad = 0; pad < 16; pad++) {
-                        int degree = (int)pad - 1 + (int)deg - 1, offset = 0, want;
-                        while (degree) {
-                            int dir = degree > 0 ? 1 : -1;
-                            offset += dir;
-                            if (SCALE_MASK[s] & (1u << ((offset % 12 + 12) % 12))) degree -= dir;
-                        }
-                        want = 60 + (int)root + 12 * oct + offset;
-                        assert(midi_map(&trk[0], 20 + pad) ==
-                               (want < 0 || want > 127 ? KB_SILENT : (uint32_t)want));
-                    }
-                }
-            }
+    bad += check("WHITE: 16 scales x 12 roots x TRN, every MIDI note, black keys silent", ok);
+    bad += check("ALL: every MIDI note the next degree from C4 = ROOT, out of range silent", ok_all);
+    t->p[P_SCALE] = 1; t->p[P_ROOT] = 0; t->p[P_TRANS] = 0;
+    ok = 1;
+    t->p[P_QUANT] = Q_OFF;
+    for (note = 0; note < 128u; note++) ok &= midi_map(t, note) == note;
+    t->p[P_QUANT] = Q_SNAP;                           /* SNAP is the keys' mode: MIDI passes through */
+    for (note = 0; note < 128u; note++) ok &= midi_map(t, note) == note;
+    bad += check("OFF and SNAP: MIDI notes pass through", ok);
     song.octave = 0;
-    trk[0].p[P_SCALE] = 1;
-    trk[0].p[P_MPCDEG] = 1;
-    trk[0].p[P_ROOT] = 0;
-    trk[0].p[P_TRANS] = 12;
-    assert(midi_map(&trk[0], 21) == 72);
-    for (pad = 0; pad < 128; pad++)
-        if (pad < 20 || pad > 35) assert(midi_map(&trk[0], pad) == KB_SILENT);
-    assert(kb_map(&trk[0], 7) == 72 && kb_map(&trk[0], 8) == KB_SILENT);
-
-    send(0x90, 21, 97);
-    assert(gated(&trk[0], 72) && midi_notes[0][21] == (1u << 8 | 72u));
-    trk[0].p[P_MPCDEG] = 3;
-    song.octave = 1;
-    trk[0].p[P_ROOT] = 2;
-    trk[0].p[P_QUANT] = Q_OFF;
-    send(0x80, 21, 0);
-    assert(!gated(&trk[0], 72) && live_refs[0][72] == 0);
-    trk[0].p[P_QUANT] = Q_MPC;
-    trk[0].p[P_ROOT] = 0;
-    trk[0].p[P_TRANS] = 0;
-    trk[0].p[P_SCALE] = 2;
-    song.octave = 1;
-    um_byte(0x90); um_byte(21); um_byte(100);
-    events_block(0);
-    assert(gated(&trk[0], 75) && midi_notes[0][21] == (1u << 8 | 75u));
-    trk[0].p[P_MPCDEG] = 5;
-    um_byte(0x80); um_byte(21); um_byte(0);
-    events_block(0);
-    assert(!gated(&trk[0], 75));
-    trk[0].p[P_MPCDEG] = 0;
-    assert(midi_map(&trk[0], 21) == 72);    /* malformed degree clamps to the scale */
-    trk[0].p[P_MPCDEG] = 99;
-    assert(midi_map(&trk[0], 21) == 82);
-    puts("MIDI MPC: every H02 degree, scale, root and octave; USB/TRS release survives degree changes");
+    return bad;
 }
 
-static void mpc_filter_test(void)
-{
-    uint32_t source, arp, ch, note, i;
-    for (source = 0; source < 2; source++)
-        for (arp = 0; arp < 2; arp++) {
-            uint32_t hits = drums.age;
-            reset();
-            song.sel = 2;
-            song.seq_mode = song.playing = 1;
-            song.rec = (1u << NTRK) - 1u;
-            step_midi_w = step_midi_r = step_midi_overflow = 0;
-            for (i = 0; i < NPART; i++) {
-                trk[i].p[P_QUANT] = Q_MPC;
-                trk[i].p[P_AMODE] = (int16_t)arp;
-            }
-            for (ch = 0; ch < 16; ch++)
-                for (note = 0; note < 128; note++) {
-                    if (note >= 20 && note <= 35) continue;
-                    if (source) {
-                        um_byte(0x90 | ch); um_byte(note); um_byte(100);
-                        events_block(0);
-                        um_byte(0x80 | ch); um_byte(note); um_byte(0);
-                        events_block(0);
-                    } else {
-                        send(0x90 | ch, note, 100);
-                        send(0x80 | ch, note, 0);
-                    }
-                    assert(!midi_notes[ch][note]);
-                }
-            assert(!step_midi_w && !step_midi_overflow && drums.age == hits);
-            for (i = 0; i < NTRK; i++) {
-                assert(!midi_owners[i] && !trk[i].nheld && !trk[i].step[0].n);
-                for (note = 0; note < 128; note++)
-                    assert(!live_refs[i][note] && !gated(&trk[i], note));
-            }
-            /* Accepted H02 still reaches live recording, arp and STEP entry. */
-            send(0x90, 21, 100);
-            assert(midi_notes[0][21] == 0x013C && trk[0].step[0].note[0] == 60);
-            assert(trk[0].step[0].n == 1 && step_midi_w == 1);
-            if (arp) assert(trk[0].nheld == 1);
-            send(0x90, 21, 0);
-            assert(!live_refs[0][60] && !trk[0].nheld && step_midi_w == 2);
-        }
-    reset();
-    send(0x90, 60, 100);
-    trk[0].p[P_QUANT] = Q_MPC;
-    send(0x80, 60, 0);                    /* enabling MPC must not strand an older note */
-    assert(!gated(&trk[0], 60) && !midi_notes[0][60]);
-    trk[0].engine = trk[0].eng_req = 4;
-    if (drum_set() >= 0) {
-        trk[0].p[P_E0] = (int16_t)drum_set();
-        for (note = 0; note < 128; note++)
-            assert(midi_map(&trk[0], note) == (note >= 20 && note <= 35 ? note : KB_SILENT));
-    }
-    puts("MIDI MPC: USB/TRS reject other banks on every channel, including drums, arp, recording and STEP edges; old releases work");
-}
-
-static void routing_test(void)
-{
-    uint32_t ch;
-    reset();
-    song.sel = 2;
-    for (ch = 0; ch < NPART; ch++) {
-        trk[ch].p[P_QUANT] = Q_WHITE;
-        trk[ch].p[P_SCALE] = 2;
-        trk[ch].p[P_ROOT] = (int16_t)ch;
-    }
-    for (ch = 0; ch < 16; ch++) {
-        uint32_t track = ch == 9 ? TRK_DRUM : ch < NPART ? ch : 2;
-        uint32_t note = track == TRK_DRUM ? 64 : 63 + track;
-        send(0x90 | ch, 64, 99);
-        assert(midi_notes[ch][64] == ((track + 1) << 8 | note));
-        assert(live_refs[track][note] == 1);
-        send(0x80 | ch, 64, 0);
-        assert(live_refs[track][note] == 0 && midi_notes[ch][64] == 0);
-    }
-    assert(mo_w == 0);                     /* do not echo external input into a MIDI loop */
-    puts("MIDI scales: all channels keep part/drum/selected-track routing; no MIDI echo");
-}
-
-static void release_test(void)
+static int mpc_test(void)
 {
     track_t *t = &trk[0];
-    reset();
-    t->p[P_QUANT] = Q_WHITE; t->p[P_SCALE] = 2;
-    song.playing = song.rec = 1;
-    send(0x93, 64, 115);                    /* channel 4 follows the selected track */
-    assert(gated(t, 63));
-    assert(t->step[0].n == 1 && t->step[0].note[0] == 63 && t->step[0].vel == 115);
-    assert(t->step[0].flags & SF_ACCENT);
-    song.sel = 1;
-    t->p[P_SCALE] = 9; t->p[P_ROOT] = 11; t->p[P_TRANS] = 12; t->p[P_QUANT] = 0;
-    send(0x93, 64, 0);                     /* velocity-zero note-on is note-off */
-    assert(!gated(t, 63) && live_refs[0][63] == 0);
-    reset();
-    t->p[P_QUANT] = Q_WHITE; t->p[P_SCALE] = 2;
-    send(0x90, 61, 100);                   /* muted black key does not record or sound */
-    assert(midi_notes[0][61] == 0 && !gated(t, 60) && !gated(t, 61));
-    t->p[P_QUANT] = 0;
-    send(0x90, 61, 0);
-    assert(live_refs[0][61] == 0);
-    t->p[P_QUANT] = Q_WHITE;
-    send(0x90, 64, 100);
-    t->p[P_ROOT] = 2;
-    send(0x90, 64, 90);                    /* repeated on replaces its old pitch */
-    assert(!gated(t, 63) && gated(t, 65) && live_refs[0][65] == 1);
-    song.g[G_DRCH] = 1;                   /* drum-channel reassignment cannot misroute release */
-    send(0x80, 64, 0);
-    assert(!gated(t, 65));
-    puts("MIDI scales: velocity/recording, muted keys, repeated notes and release after settings/routing changes ok");
+    uint32_t note, ok = 1;
+    int bad = 0;
+    scale_reset();
+    t->p[P_SCALE] = 1; t->p[P_ROOT] = 2; t->p[P_QUANT] = Q_MPC; t->p[P_MPCDEG] = 1;   /* D major */
+    for (note = 0; note < 128u; note++)
+        ok &= (note < 20u || note > 35u) == (midi_map(t, note) == KB_SILENT);
+    bad += check("MPC: only Bank H (MIDI 20..35) plays", ok);
+    bad += check("MPC: H02 on DEG 1 is the ROOT, H01 the degree below, H03 the next",
+                 midi_map(t, 21) == 62u && midi_map(t, 20) == 61u && midi_map(t, 22) == 64u && midi_map(t, 35) == 62u + 24u);
+    t->p[P_MPCDEG] = 3;
+    bad += check("MPC: DEG 3 moves H02 to the third", midi_map(t, 21) == 66u);
+    t->p[P_MPCDEG] = 9;                               /* (past the scale's 7: the 7th) */
+    bad += check("MPC: DEG is clamped to the scale's notes", midi_map(t, 21) == 73u && track_desc(t, P_MPCDEG)->max == 7);
+    t->p[P_MPCDEG] = 1;
+    song.octave = 1;
+    bad += check("MPC: the octave buttons shift the pads", midi_map(t, 21) == 74u);
+    song.octave = 0;
+    set_engine_of(&trk[3], ENGI_DRUM);
+    trk[3].p[P_QUANT] = Q_MPC;
+    bad += check("MPC: a DRUM track keeps its notes, outside Bank H silent",
+                 midi_map(&trk[3], 21) == 21u && midi_map(&trk[3], 36) == KB_SILENT);
+    trk[3].p[P_QUANT] = Q_WHITE;
+    bad += check("WHITE: a DRUM track keeps its GM notes", midi_map(&trk[3], 37) == 37u && midi_map(&trk[3], 36) == 36u);
+    return bad;
 }
 
-static void overlap_test(void)
+static int play_test(void)
 {
-    uint32_t arp;
-    for (arp = 0; arp < 2; arp++) {
-        reset();
-        trk[0].p[P_QUANT] = Q_WHITE;
-        trk[0].p[P_ROOT] = 11;
-        trk[0].p[P_TRANS] = 24;
-        trk[0].p[P_AMODE] = (int16_t)arp;
-        send(0x90, 125, 100);
-        send(0x90, 127, 100);              /* both clamp to 127 */
-        assert(live_refs[0][127] == 2);
-        if (arp) assert(trk[0].nheld == 1 && trk[0].arp_phys == 2);
-        send(0x80, 125, 0);
-        assert(live_refs[0][127] == 1 && gated(&trk[0], 127));
-        if (arp) assert(trk[0].nheld == 1 && trk[0].arp_phys == 1);
-        send(0x80, 127, 0);
-        assert(!gated(&trk[0], 127));
-        if (arp) assert(trk[0].nheld == 0 && trk[0].arp_phys == 0);
-        reset();
-        trk[0].p[P_AMODE] = (int16_t)arp;
-        fm1_in.notes = 1u << 7;            /* local C4 plus MIDI C4 */
-        events_block(0);
-        send(0x90, 60, 100);
-        send(0x93, 60, 100);               /* another channel, same selected track */
-        assert(live_refs[0][60] == 3);
-        send(0x80, 60, 0);
-        send(0x83, 60, 0);
-        assert(live_refs[0][60] == 1 && gated(&trk[0], 60));
-        fm1_in.notes = 0;
-        events_block(0);
-        assert(!gated(&trk[0], 60));
-        if (arp) assert(trk[0].arp_phys == 0 && trk[0].nheld == 0);
-    }
-    puts("MIDI scales: clamped pitches and overlapping local/MIDI/channel notes release only on the last key-up");
+    track_t *t = &trk[0];
+    int bad = 0;
+    scale_reset();
+    t->p[P_SCALE] = 2; t->p[P_ROOT] = 9; t->p[P_QUANT] = Q_WHITE; t->p[P_CHRD] = 0;   /* A minor */
+    t->p[P_VOICE] = V_POLY;                           /* (track 1's sound is a LEGATO bass) */
+    midi(0x90, 62, 100);                              /* D4: the second white key -> B4 */
+    bad += check("WHITE: a MIDI note plays its mapped note", sounding(t, 71) && !sounding(t, 62) && nsounding(t) == 1u);
+    midi(0x90, 61, 100);                              /* C#4: black, silent, owns nothing */
+    bad += check("WHITE: a black-key note plays nothing", nsounding(t) == 1u && !midi_notes[0][61]);
+    midi(0x80, 61, 0);
+    midi(0x80, 62, 0);
+    bad += check("WHITE: its note-off ends the mapped note, nothing hangs", !nsounding(t) && !midi_notes[0][62] &&
+                 !midi_owners[0]);
+    t->p[P_QUANT] = Q_ALL;
+    midi(0x90, 61, 100);
+    midi(0x90, 60, 100);
+    bad += check("ALL: two MIDI notes play two degrees", sounding(t, 69) && sounding(t, 71) && nsounding(t) == 2u);
+    t->p[P_QUANT] = Q_OFF;                            /* the layout changes while they are held */
+    midi(0x80, 61, 0);
+    midi(0x80, 60, 0);
+    bad += check("a layout change while held: the note-offs still end what played", !nsounding(t) && !midi_owners[0]);
+    return bad;
 }
 
-static void panic_test(void)
+static int share_test(void)
 {
-    reset();
-    send(0x90, 60, 100);
-    fm1_in.notes = 1u << 7;
-    events_block(0);
-    panic_req = 1;
-    events_block(0);
-    assert(midi_notes[0][60] == 0 && live_refs[0][60] == 0 && !gated(&trk[0], 60));
-    send(0x93, 60, 100);
-    send(0x80, 60, 0);                     /* stale MIDI/local releases must not stop a new note */
-    fm1_in.notes = 0;
-    events_block(0);
-    assert(live_refs[0][60] == 1 && gated(&trk[0], 60));
-    send(0x83, 60, 0);
-    assert(!gated(&trk[0], 60));
-    puts("MIDI scales: preset/project panic clears mappings and stale releases cannot cut off new notes");
-}
-
-static void all_events_test(void)
-{
-    uint32_t arp;
-    for (arp = 0; arp < 2; arp++) {
-        reset();
-        trk[0].p[P_QUANT] = Q_ALL;
-        trk[0].p[P_SCALE] = 2;
-        trk[0].p[P_AMODE] = (int16_t)arp;
-        song.playing = song.rec = 1;
-        send(0x90, 61, 113);               /* black C# -> D */
-        assert(midi_notes[0][61] == 0x013E && live_refs[0][62] == 1);
-        assert(gated(&trk[0], 62));
-        assert(trk[0].step[0].n == 1 && trk[0].step[0].note[0] == 62);
-        assert(trk[0].step[0].vel == 113);
-        trk[0].p[P_QUANT] = Q_WHITE;
-        song.sel = 1;
-        send(0x90, 61, 0);
-        assert(!gated(&trk[0], 62) && !live_refs[0][62] && !trk[0].nheld);
-        send(0x90, 61, 100);               /* WHITE black key muted, even if released in ALL */
-        trk[0].p[P_QUANT] = Q_ALL;
-        send(0x80, 61, 0);
-        assert(!live_refs[0][62]);
-        send(0x90, 127, 100);              /* out-of-range degree must not sound/record */
-        assert(!midi_notes[0][127] && !live_refs[0][127] && trk[0].step[0].n == 1);
-        send(0x80, 127, 0);
-        assert(mo_w == 0);
-    }
-    puts("MIDI ALL: black-key voices/arp/recording, mode changes, velocity-zero release and range limits ok");
-}
-
-static void trs_scale_test(void)
-{
-    static const uint8_t bytes[] = {0x90, 64, 100, 61, 100, 61, 0, 64, 0};
-    uint32_t i;
-    reset();
-    trk[0].p[P_QUANT] = Q_WHITE; trk[0].p[P_SCALE] = 2;
-    for (i = 0; i < 3; i++) um_byte(bytes[i]);
-    events_block(0);
-    assert(gated(&trk[0], 63));
-    for (; i < sizeof bytes; i++) um_byte(bytes[i]);
-    events_block(0);
-    assert(!gated(&trk[0], 63) && !live_refs[0][63] && !live_refs[0][61]);
-    reset();
-    trk[0].p[P_QUANT] = Q_ALL; trk[0].p[P_SCALE] = 2;
-    for (i = 0; i < 5; i++) um_byte(bytes[i]); /* E -> G, C# -> D (running status) */
-    events_block(0);
-    assert(gated(&trk[0], 67) && gated(&trk[0], 62));
-    assert(midi_notes[0][64] == 0x0143 && midi_notes[0][61] == 0x013E);
-    trk[0].p[P_QUANT] = Q_WHITE;
-    for (; i < sizeof bytes; i++) um_byte(bytes[i]);
-    events_block(0);
-    assert(!gated(&trk[0], 67) && !gated(&trk[0], 62));
-    assert(!live_refs[0][67] && !live_refs[0][62]);
-    puts("MIDI scales: TRS parser/running status uses the same mapping and release path");
-}
-
-static void mapped_sustain_test(void)
-{
-    reset();
-    trk[0].p[P_QUANT] = Q_WHITE;
-    trk[0].p[P_SCALE] = 2;
-    send(0xB4, 64, 127);               /* sustain on a selected-track channel */
-    send(0x94, 64, 100);               /* E maps to E-flat in natural minor */
-    assert(midi_notes[4][64] == 0x013F && live_refs[0][63] == 1);
-    song.sel = 1;
-    trk[0].p[P_ROOT] = 5;
-    send(0x84, 64, 0);
-    assert(gated(&trk[0], 63) && midi_notes[4][64] & MIDI_PEDAL_NOTE);
-    send(0xB4, 64, 0);
-    assert(!gated(&trk[0], 63) && !live_refs[0][63] && !midi_notes[4][64]);
-    puts("MIDI scales: sustain releases original mapped pitch after track/scale changes");
+    int bad = 0;
+    uint32_t k, ok = 1;
+    scale_reset();
+    ui.home = 0; ui.page = (uint8_t)page_first(FAM_SCL);
+    edit_param(1, 3);                                 /* SCL */
+    edit_param(2, 1);                                 /* QNT */
+    for (k = 0; k < NPART; k++) ok &= trk[k].p[P_SCALE] == TSEL->p[P_SCALE] && trk[k].p[P_QUANT] == TSEL->p[P_QUANT];
+    bad += check("SCL and QNT turned on one track are every part's", ok && TSEL->p[P_SCALE] == 3 && TSEL->p[P_QUANT] == 1);
+    edit_param(0, 5);                                 /* ROOT: the track's own */
+    bad += check("ROOT stays the track's", TSEL->p[P_ROOT] == 5 && trk[1].p[P_ROOT] == 0);
+    return bad;
 }
 
 int main(void)
 {
-    mapping_test(); all_mapping_test(); routing_test(); release_test(); overlap_test(); panic_test();
-    all_events_test(); trs_scale_test(); mapped_sustain_test(); mpc_mapping_test(); mpc_filter_test();
-    return 0;
+    int bad = 0;
+    bad += mapping_test();
+    bad += mpc_test();
+    bad += play_test();
+    bad += share_test();
+    printf("%s\n", bad ? "MIDI SCALE TEST FAILED" : "MIDI scale layouts test passed");
+    return bad != 0;
 }

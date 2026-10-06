@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Melodee memory map.
+/* MELODEE memory map.
  * Code + constants execute in place from XIP (app.bin offset 0 = 0x02000120).
  * 0x01C00000..0x01C06000 holds .ram_text (code that must run while the flash
  * is busy: the flash driver); 0x01C06000..0x01C08000 stays for RAM-run debug.

@@ -16,6 +16,11 @@
 #define UA_RING 1024u
 #define UA_TARGET 512u
 #define UA_NOMINAL ((UA_RATE * 16384u) / 1000u)
+#ifdef __APPLE__
+#define UA_POOL                                 /* (the host tests: Mach-O has no such section) */
+#else
+#define UA_POOL __attribute__((section(".pool")))   /* the rings, 12 KiB: the pool (zeroed at boot), not RAM */
+#endif
 
 static struct {
     uint8_t play_alt, cap_alt, play_ready, cap_ready;
@@ -25,7 +30,7 @@ static struct {
     uint32_t rx_packets, tx_packets, missed_frames;
     uint32_t poll_max_ticks, service_max_ticks;
     int16_t play[UA_RING * 2u], cap[UA_RING * UA_CAP_CHANNELS];
-} ua;
+} ua UA_POOL;
 
 static int32_t ua_clip(int32_t x)
 {

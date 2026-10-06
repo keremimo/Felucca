@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Real render path: isolated stems, inserts, level, silent-block clearing,
- * and independence from monitor pan, sends and MASTER. */
+/* Real render path (fx.c mix_part -> track_capture -> usb_audio_stream.c ua_audio): Melodee In's four channels are
+ * the four tracks, each isolated, after DIST, the SLICER and LEVEL, independent of the monitor's pan, sends and
+ * MASTER; a silent block clears its channel. */
 #include <assert.h>
 #define MELODEE_USB_AUDIO 1
 #define main hostsim_main
@@ -29,15 +30,11 @@ static struct result render(uint32_t channel, int sliced, int variant)
         t->p[P_SLDEPTH] = 127;
         t->p[P_PAN] = variant == 1 ? -64 : variant == 2 ? 64 : 0;
         t->p[P_CHOR] = t->p[P_DLY] = t->p[P_REV] = variant == 1 ? 127 : 0;
-        song.g[G_DRREV] = variant == 1 ? 127 : 0;
         song.master_q12 = variant == 2 ? 0 : 4096;
-        if (variant == 3) {
+        if (variant == 3)
             t->p[P_LEVEL] = 0;
-            song.g[G_DRLVL] = 0;
-        }
-        if (channel < NPART) trk_note_on(t, 60, 100);
+        trk_note_on(t, 60, 100);
         for (uint32_t block = 0; block < 2048; block++) {
-            if (channel == TRK_DRUM && block % 256u == 0) drum_on(36, 100);
             mix_block(out, CTL);
             ua.cap_alt = 1;
             ua.cw = ua.cr = 0;
@@ -57,7 +54,6 @@ static struct result render(uint32_t channel, int sliced, int variant)
             }
         }
         memset(trk, 0, sizeof trk);
-        memset(&drums, 0, sizeof drums);
         memset(sl, 0, sizeof sl);
         mix_block(out, CTL);
         for (uint32_t i = 0; i < CTL * NTRK; i++) assert(track_capture[i] == 0);
@@ -88,6 +84,6 @@ int main(void)
             assert(render(ch, sliced, 3).energy == 0);
         }
     }
-    puts("USB track capture: synth 1/2/3 + drums, SLICER, level, pan/FX/master isolation, stale blocks: OK");
+    puts("USB track capture: tracks 1..4 isolated, SLICER, level, pan/FX/master isolation, stale blocks: OK");
     return 0;
 }

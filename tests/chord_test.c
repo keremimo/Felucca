@@ -1,162 +1,328 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
-/* Panel chord performance through the real panel, note router, editor and persistence. */
-#define MELODEE_UI_PREVIEW 1
-#include "seq_edit_test.c"
+ * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+/* Chord keys (firmware/src/chord.c; SCL > CHORD: CHRD, VOIC) against the real keyboard, MIDI IN, arp, recording
+ * and voice code: the diatonic triads and sevenths of several scales and roots as music theory has them, the
+ * fixed shapes, the voicings, at most 4 notes, the names, MONO plays the root, a key's or a MIDI note's release
+ * ends exactly the notes it started (CHRD / VOIC changed while held too), shared notes, live recording writes the
+ * chord into one step, the ARP gets the chord as held notes, QNT WHITE maps the key first, a kit (the DRUM engine,
+ * SAMPLE PERC) ignores CHRD, MIDI OUT of the keys, and OFF plays exactly as before.
+ * Run by tests/run_tests.sh (needs build/gen from one firmware build). */
+#define UI_TEST_NO_MAIN 1
+#include "ui_test.c"
 
-static int pitch_on(uint32_t track, uint32_t pitch)   /* a gated voice of the track plays it */
+static int gate_note(const track_t *t, uint32_t note)
 {
-    uint32_t i;
-    for (i = 0; i < NVOICE; i++)
-        if (trk[track].v[i].active && trk[track].v[i].gate && trk[track].v[i].stage != 4u &&
-            trk[track].v[i].note == pitch)
-            return 1;
+    for (uint32_t i = 0; i < NVOICE; i++) if (t->v[i].active && t->v[i].gate && t->v[i].note == note) return 1;
     return 0;
 }
-static void panel_notes(uint32_t keys)
+static uint32_t ngated(const track_t *t)
 {
-    key_frame(keys, 0);
-    events_block(0);
+    uint32_t i, n = 0;
+    for (i = 0; i < NVOICE; i++) n += t->v[i].active && t->v[i].gate;
+    return n;
 }
-static void voicing_test(void)
+static void reset(void)
 {
-    uint8_t got[4];
-    uint32_t mode, shape, root, inv, spread, n, i;
-    reset(16);
-    scale_setting_set(TSEL, P_SCALE, 1);
-    TSEL->p[P_CHMODE] = 1;
-    assert(chord_notes(TSEL, 60, got) == 3 && !memcmp(got, (uint8_t[]){60,64,67}, 3));
-    TSEL->p[P_CHMODE] = 2;
-    assert(chord_notes(TSEL, 62, got) == 4 && !memcmp(got, (uint8_t[]){62,65,69,72}, 4));
-    TSEL->p[P_CHMODE] = 3; TSEL->p[P_CHTYPE] = 7;
-    assert(chord_notes(TSEL, 60, got) == 4 && !memcmp(got, (uint8_t[]){60,64,67,71}, 4));
-    TSEL->p[P_CHTYPE] = 0; TSEL->p[P_CHINV] = 1;
-    assert(chord_notes(TSEL, 60, got) == 3 && !memcmp(got, (uint8_t[]){64,67,72}, 3));
-    TSEL->p[P_CHSPREAD] = 1;
-    assert(chord_notes(TSEL, 60, got) == 3 && !memcmp(got, (uint8_t[]){64,72,79}, 3));
-    TSEL->p[P_CHSPREAD] = 2;
-    assert(chord_notes(TSEL, 60, got) == 3 && !memcmp(got, (uint8_t[]){64,79,96}, 3));
-    for (mode = 0; mode < 4; mode++) for (shape = 0; shape < 10; shape++)
-        for (root = 0; root < 128; root++) for (inv = 0; inv < 4; inv++) for (spread = 0; spread < 3; spread++) {
-            TSEL->p[P_CHMODE] = mode; TSEL->p[P_CHTYPE] = shape;
-            TSEL->p[P_CHINV] = inv; TSEL->p[P_CHSPREAD] = spread;
-            n = chord_notes(TSEL, root, got);
-            assert(n <= 4);
-            for (i = 0; i < n; i++) assert(got[i] < 128 && (!i || got[i] > got[i-1]));
-            if (!mode) assert(n == 1 && got[0] == root);
-        }
-    assert(chord_notes(TSEL, KB_SILENT, got) == 0);
-    track_select(TRK_DRUM);
-    TSEL->p[P_CHMODE] = 3;
-    assert(chord_notes(TSEL, 36, got) == 1 && got[0] == 36);
-    puts("chords: scale triads/sevenths, fixed shapes, inversions, spreads, all MIDI bounds, drums bypass");
+    ui_power_on();
+    memset(kb_chn, 0, sizeof kb_chn); memset(mchord, 0, sizeof mchord); memset(chord_last, 0, sizeof chord_last);
+    fm1_in.notes = kb_prev = 0; mo_w = mo_r = 0; usb.config = 1;
+    trk[0].p[P_VOICE] = V_POLY; trk[0].p[P_SCALE] = 1; trk[0].p[P_ROOT] = 0;   /* C major, POLY */
+    events_block(CTL);
 }
-static void chord_lifecycle_test(void)
+/* the chord track 0 plays on note r: "n1 n2 n3 [n4]" compared with want (0-terminated) */
+static int chord_is(uint32_t r, const uint8_t *want)
 {
-    uint32_t before, i;
-    reset(16); go_home();
-    fm1_in.notes = kb_prev = 0;
-    mi_w = mi_r = mo_w = mo_r = 0;
-    transport_req = panic_req = 0; usb.config = 1;
-    TSEL->p[P_CHMODE] = 3; TSEL->p[P_VOICE] = V_POLY;
-    panel_notes(1u << 7);
-    assert(pitch_on(0,60) && pitch_on(0,64) && pitch_on(0,67) && mo_w == 3);
-    panel_notes((1u << 7) | (1u << 14));
-    assert(live_refs[0][67] == 2 && pitch_on(0,71) && pitch_on(0,74) && mo_w == 5);
+    uint8_t out[CHORD_MAX];
+    uint32_t n = chord_build(&trk[0], r, out), i;
+    for (i = 0; i < n; i++) if (want[i] != out[i]) return 0;
+    return i == CHORD_MAX || !want[i];
+}
+static int name_is(uint32_t r, const char *want)
+{
+    uint8_t out[CHORD_MAX];
+    int32_t root;
+    uint16_t mask;
+    char b[12];
+    chord_make(&trk[0], r, out, &root, &mask);
+    chord_name(b, (uint32_t)root, mask);
+    if (!str_eq(b, want)) printf("  name of %u: %s, want %s\n", r, b, want);
+    return str_eq(b, want);
+}
+static void midi(uint32_t st, uint32_t d1, uint32_t d2)
+{
+    midi_enqueue(st >> 4 | st << 8 | d1 << 16 | d2 << 24, 1);
+    events_block(CTL);
+}
+#define K_C4 7u                                   /* keys from F3 (0): C4 7, D4 9, E4 11, G4 14 */
+#define K_D4 9u
+#define K_E4 11u
+
+static int theory(void)
+{
+    int bad = 0, ok;
+    track_t *t = &trk[0];
+    static const char *const MAJ3[7] = {"C", "Dm", "Em", "F", "G", "Am", "Bdim"};
+    static const char *const MAJ7[7] = {"Cmaj7", "Dm7", "Em7", "Fmaj7", "G7", "Am7", "Bm7b5"};
+    static const uint8_t CMAJ[7] = {60, 62, 64, 65, 67, 69, 71};
+    uint32_t i;
+    reset();
+    t->p[P_CHRD] = CH_DIA3;
+    bad += check("C major DIA3 on D: D F A", chord_is(62, (const uint8_t[]){62, 65, 69, 0}));
+    bad += check("C major DIA3 on B: B D F (diminished)", chord_is(71, (const uint8_t[]){71, 74, 77, 0}));
+    t->p[P_CHRD] = CH_DIA7;
+    bad += check("C major DIA7 on G: G B D F", chord_is(67, (const uint8_t[]){67, 71, 74, 77}));
+    bad += check("C major DIA7 on C: C E G B", chord_is(60, (const uint8_t[]){60, 64, 67, 71}));
+    for (i = 0, ok = 1; i < 7u; i++) {
+        t->p[P_CHRD] = CH_DIA3; ok &= name_is(CMAJ[i], MAJ3[i]);
+        t->p[P_CHRD] = CH_DIA7; ok &= name_is(CMAJ[i], MAJ7[i]);
+    }
+    bad += check("C major: C Dm Em F G Am Bdim, Cmaj7 Dm7 Em7 Fmaj7 G7 Am7 Bm7b5", ok);
+    t->p[P_SCALE] = 2; t->p[P_ROOT] = 9; t->p[P_CHRD] = CH_DIA3;   /* A minor */
+    bad += check("A minor DIA3 on B: B D F", chord_is(71, (const uint8_t[]){71, 74, 77, 0}));
+    bad += check("A minor DIA3 on A: A C E (Am), on C: C E G, on E: E G B (Em)",
+                 chord_is(69, (const uint8_t[]){69, 72, 76, 0}) && chord_is(60, (const uint8_t[]){60, 64, 67, 0}) &&
+                 chord_is(64, (const uint8_t[]){64, 67, 71, 0}) && name_is(69, "Am") && name_is(64, "Em"));
+    t->p[P_SCALE] = 7;                                             /* A harmonic minor */
+    bad += check("A harmonic minor DIA3 on E: E G# B (E), on C: C E G# (Caug)",
+                 chord_is(64, (const uint8_t[]){64, 68, 71, 0}) && name_is(64, "E") &&
+                 chord_is(60, (const uint8_t[]){60, 64, 68, 0}) && name_is(60, "Caug"));
+    t->p[P_CHRD] = CH_DIA7;
+    bad += check("A harmonic minor DIA7 on E: E G# B D (E7), on G#: G# B D F (G#dim7), on A: AmM7",
+                 chord_is(64, (const uint8_t[]){64, 68, 71, 74}) && name_is(64, "E7") && name_is(68, "G#dim7") &&
+                 name_is(69, "AmM7"));
+    t->p[P_SCALE] = 1; t->p[P_ROOT] = 3;                           /* Eb major */
+    bad += check("Eb major DIA7 on Bb: Bb D F Ab (A#7)", chord_is(58, (const uint8_t[]){58, 62, 65, 68}) && name_is(58, "A#7"));
+    t->p[P_SCALE] = 3; t->p[P_ROOT] = 2; t->p[P_CHRD] = CH_DIA3;   /* D dorian */
+    bad += check("D dorian DIA3 on D: Dm, on G: G (the major IV)", name_is(62, "Dm") && name_is(67, "G") &&
+                 chord_is(67, (const uint8_t[]){67, 71, 74, 0}));
+    t->p[P_SCALE] = 1; t->p[P_ROOT] = 0;
+    bad += check("a key outside the scale: the scale note below (C# in C major: C)", chord_is(61, (const uint8_t[]){60, 64, 67, 0}));
+    t->p[P_SCALE] = 0; t->p[P_ROOT] = 7;                           /* CHR: the major scale of G */
+    bad += check("CHR: the major scale of ROOT (G: on A, Am; on F#, F#dim)", name_is(69, "Am") && name_is(66, "F#dim"));
+    t->p[P_SCALE] = 5; t->p[P_ROOT] = 0;                           /* C major pentatonic: every other note */
+    bad += check("pentatonic DIA3: in the scale (C E A: C6)", chord_is(60, (const uint8_t[]){60, 64, 69, 0}) && name_is(60, "C6"));
+    {   /* every scale, root, mode: every note in the scale */
+        uint32_t s, r, n, k, note;
+        uint8_t out[CHORD_MAX];
+        ok = 1;
+        for (s = 1; s <= (uint32_t)TP[P_SCALE].max; s++)
+            for (r = 0; r < 12u; r++)
+                for (note = 36; note < 96u; note++) {
+                    t->p[P_SCALE] = (int16_t)s; t->p[P_ROOT] = (int16_t)r;
+                    t->p[P_CHRD] = (int16_t)(note & 1u ? CH_DIA3 : CH_DIA7);
+                    n = chord_build(t, note, out);
+                    ok &= n == (note & 1u ? 3u : 4u);
+                    for (k = 0; k < n; k++)
+                        ok &= (scale_mask(t) >> ((out[k] + 120u - r) % 12u)) & 1u;
+                }
+        bad += check("DIA3 / DIA7 of every scale and root: 3 / 4 notes, every one in key", ok);
+    }
+    return bad;
+}
+
+static int shapes_voicings(void)
+{
+    int bad = 0, ok;
+    track_t *t = &trk[0];
+    reset();
+    t->p[P_CHRD] = CH_MAJ; bad += check("MAJ on C4: C E G", chord_is(60, (const uint8_t[]){60, 64, 67, 0}) && name_is(60, "C"));
+    t->p[P_CHRD] = CH_MIN; bad += check("MIN: C Eb G (Cm)", chord_is(60, (const uint8_t[]){60, 63, 67, 0}) && name_is(60, "Cm"));
+    t->p[P_CHRD] = CH_DOM7; bad += check("DOM7: C E G Bb (C7)", chord_is(60, (const uint8_t[]){60, 64, 67, 70}) && name_is(60, "C7"));
+    t->p[P_CHRD] = CH_MAJ7; bad += check("MAJ7: C E G B (Cmaj7)", chord_is(60, (const uint8_t[]){60, 64, 67, 71}) && name_is(60, "Cmaj7"));
+    t->p[P_CHRD] = CH_MIN7; bad += check("MIN7: C Eb G Bb (Cm7)", chord_is(60, (const uint8_t[]){60, 63, 67, 70}) && name_is(60, "Cm7"));
+    t->p[P_CHRD] = CH_SUS4; bad += check("SUS4: C F G (Csus4)", chord_is(60, (const uint8_t[]){60, 65, 67, 0}) && name_is(60, "Csus4"));
+    t->p[P_CHRD] = CH_POW; bad += check("POW: C G C (C5)", chord_is(60, (const uint8_t[]){60, 67, 72, 0}) && name_is(60, "C5"));
+    t->p[P_CHRD] = CH_MIN; t->p[P_SCALE] = 1;
+    bad += check("a fixed shape ignores the scale (MIN on D# in C major: D# F# A#)", chord_is(63, (const uint8_t[]){63, 66, 70, 0}));
+    t->p[P_CHRD] = CH_MAJ;
+    t->p[P_VOIC] = VC_OPEN; bad += check("OPEN: C G E (1-5-3)", chord_is(60, (const uint8_t[]){60, 67, 76, 0}));
+    t->p[P_VOIC] = VC_INV1; bad += check("INV1: E G C", chord_is(60, (const uint8_t[]){64, 67, 72, 0}));
+    t->p[P_VOIC] = VC_INV2; bad += check("INV2: G C E", chord_is(60, (const uint8_t[]){67, 72, 76, 0}));
+    t->p[P_VOIC] = VC_BASS; bad += check("+OCT: C3 C E G", chord_is(60, (const uint8_t[]){48, 60, 64, 67}));
+    t->p[P_CHRD] = CH_MAJ7;
+    bad += check("+OCT of a seventh: C3 C E B (the fifth dropped, 4 notes)", chord_is(60, (const uint8_t[]){48, 60, 64, 71}));
+    t->p[P_VOIC] = VC_OPEN; bad += check("OPEN seventh: C G B E", chord_is(60, (const uint8_t[]){60, 67, 71, 76}));
+    t->p[P_VOIC] = VC_INV1; bad += check("INV1 seventh: E G B C", chord_is(60, (const uint8_t[]){64, 67, 71, 72}));
+    t->p[P_VOIC] = VC_INV2; bad += check("INV2 seventh: G B C E", chord_is(60, (const uint8_t[]){67, 71, 72, 76}));
+    t->p[P_CHRD] = CH_POW; t->p[P_VOIC] = VC_INV1;
+    bad += check("INV1 of POW: G C (the doubled root once)", chord_is(60, (const uint8_t[]){67, 72, 0}));
+    {   /* every mode, voicing and note: 1..4 notes, ascending, each once, inside 0..127; the name fits */
+        uint32_t c, v, s, note, n, k;
+        uint8_t out[CHORD_MAX];
+        int32_t r;
+        uint16_t mask;
+        char b[12];
+        ok = 1;
+        for (s = 0; s <= (uint32_t)TP[P_SCALE].max; s++)
+            for (c = 1; c <= (uint32_t)TP[P_CHRD].max; c++)
+                for (v = 0; v <= (uint32_t)TP[P_VOIC].max; v++)
+                    for (note = 0; note < 128u; note++) {
+                        t->p[P_SCALE] = (int16_t)s; t->p[P_CHRD] = (int16_t)c; t->p[P_VOIC] = (int16_t)v;
+                        n = chord_make(t, note, out, &r, &mask);
+                        ok &= n >= 1u && n <= CHORD_MAX && (mask & 1u);
+                        for (k = 1; k < n; k++) ok &= out[k] > out[k - 1u];
+                        for (k = 0; k < n; k++) ok &= out[k] <= 127u;
+                        chord_name(b, (uint32_t)r, mask);
+                        ok &= str_len(b) >= 1u && str_len(b) <= 7u;
+                    }
+        bad += check("every scale x CHRD x VOIC x note: 1..4 notes, ascending, once each, 0..127, a name", ok);
+    }
+    t->p[P_CHRD] = CH_OFF;
+    bad += check("OFF: the note alone", chord_is(61, (const uint8_t[]){61, 0}));
+    return bad;
+}
+
+static int keys(void)
+{
+    int bad = 0;
+    track_t *t = &trk[0];
+    uint32_t before;
+    reset();
+    t->p[P_CHRD] = CH_DIA3;
+    key_down(K_D4);
+    bad += check("a key plays its chord (D4: D F A), MIDI OUT the three", gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69) &&
+                 ngated(t) == 3u && mo_w == 3u && last_note == 62);
+    bad += check("  chord_last: Dm for the CHORD page", chord_last[0].root == 62 && chord_last[0].n == 3u);
+    t->p[P_CHRD] = CH_MIN7; t->p[P_VOIC] = VC_BASS;               /* changed while held */
+    key_up(K_D4);
+    bad += check("its release ends exactly those (CHRD / VOIC changed meanwhile), MIDI OUT their note-offs",
+                 !ngated(t) && mo_w == 6u && ((midi_out_q[5] >> 8) & 0xF0u) == 0x80u);
+    t->p[P_CHRD] = CH_DIA3; t->p[P_VOIC] = VC_CLOSE;
+    mo_w = mo_r = 0;
+    key_down(K_C4); key_down(K_E4);                                /* C E G and E G B: E and G shared */
     before = mo_w;
-    panel_notes(1u << 14);
-    assert(!pitch_on(0,60) && !pitch_on(0,64) && pitch_on(0,67) && mo_w == before + 2);
-    for (i = before; i < mo_w; i++) assert(((midi_out_q[i % MOQ] >> 16) & 127u) != 67);
-    trk[0].p[P_CHMODE] = 0; trk[0].p[P_CHINV] = 2; trk[0].p[P_ROOT] = 4;
-    track_select(1);
-    panel_notes(0);
-    assert(!pitch_on(0,67) && !pitch_on(0,71) && !pitch_on(0,74) && mo_w == 10);
-    for (i = 0; i < 128; i++) assert(live_refs[0][i] == 0);
-    track_select(0); TSEL->p[P_ROOT] = 0; TSEL->p[P_CHMODE] = 3; TSEL->p[P_CHINV] = 0;
-    midi_frame(0x90, 60, 100, 0);
-    assert(pitch_on(0,60) && !pitch_on(0,64) && !pitch_on(0,67));
-    midi_frame(0x80, 60, 0, 0);
-    panel_notes(1u << 7);
+    bad += check("two chords: the shared notes sound once (C E G B)", ngated(t) == 4u && gate_note(t, 71) && before == 4u);
+    key_up(K_C4);
+    bad += check("  C up: C ends, E G stay for the E key", !gate_note(t, 60) && gate_note(t, 64) && gate_note(t, 67) && gate_note(t, 71));
+    key_up(K_E4);
+    bad += check("  E up: nothing left, MIDI OUT balanced", !ngated(t) && mo_w == 8u);
+    t->p[P_VOICE] = V_MONO;
+    key_down(K_C4 + 1u);                                           /* C#: DIA snaps to C */
+    bad += check("MONO: the root alone (C# in C major: C)", ngated(t) == 1u && gate_note(t, 60));
+    t->p[P_VOICE] = V_POLY;
+    key_up(K_C4 + 1u);
+    bad += check("  released (MONO switched off meanwhile)", !ngated(t));
+    t->p[P_VOICE] = V_LEGATO;
+    key_down(K_E4);
+    bad += check("LEGATO: the root alone (E)", ngated(t) == 1u && gate_note(t, 64));
+    key_up(K_E4);
+    t->p[P_VOICE] = V_POLY;
+    t->p[P_QUANT] = 2;                                             /* WHITE in A minor: D4 is the 4th degree */
+    t->p[P_SCALE] = 2; t->p[P_ROOT] = 9;
+    key_down(K_D4);                                                /* WHITE: C4 = A4 (the root), D4 = B4 */
+    bad += check("QNT WHITE: the key mapped first (A minor, D4 -> B4), then its chord B D F",
+                 kb_note[K_D4] == 71 && gate_note(t, 71) && gate_note(t, 74) && gate_note(t, 77));
+    key_up(K_D4);
+    bad += check("  released", !ngated(t));
+    t->p[P_CHRD] = CH_OFF; t->p[P_QUANT] = 0;
     before = mo_w;
-    panic_req = 1;
-    events_block(0);
-    assert(mo_w == before + 3 && !kb_chord_n[7] && !pitch_on(0,60));
-    panel_notes(0);
-    assert(mo_w == before + 3);
-    puts("chords: overlapping ownership, MIDI out, settings/track changes, incoming MIDI and panic releases");
+    key_down(K_C4);
+    bad += check("OFF: one note, as before", ngated(t) == 1u && gate_note(t, 60) && mo_w == before + 1u);
+    key_up(K_C4);
+    return bad;
 }
-static void chord_midi_burst_test(void)
+
+static int arp_rec(void)
 {
-    uint8_t expected[128] = {0}, voicing[4];
-    uint32_t on[128] = {0}, off[128] = {0}, k, i, n, total = 0, start;
-    reset(16); go_home();
-    usb.config = 1; mo_r = mo_w = MOQ - 7; start = mo_w;
-    fm1_in.notes = kb_prev = 0;
-    TSEL->p[P_CHMODE] = 3; TSEL->p[P_CHTYPE] = 7;
-    TSEL->p[P_CHSPREAD] = 2; TSEL->p[P_VOICE] = V_POLY;
-    for (k = 0; k < 27; k++) {
-        n = chord_notes(TSEL, kb_map(TSEL, k), voicing);
-        for (i = 0; i < n; i++) expected[voicing[i]] = 1;
-    }
-    for (i = 0; i < 128; i++) total += expected[i];
-    assert(total > 64); /* This dense voicing exceeded the original output ring. */
-    panel_notes((1u << 27) - 1u);
-    panel_notes(0);     /* Both edges arrive before the host drains, across ring wrap. */
-    assert(mo_w - start == 2 * total);
-    for (i = start; i < mo_w; i++) {
-        uint32_t packet = midi_out_q[i % MOQ], note = (packet >> 16) & 127u;
-        if (((packet >> 8) & 0xF0u) == 0x90u) on[note]++;
-        else if (((packet >> 8) & 0xF0u) == 0x80u) off[note]++;
-        else assert(0);
-    }
-    for (i = 0; i < 128; i++) assert(on[i] == expected[i] && off[i] == expected[i]);
-    puts("chords: dense 27-key MIDI burst, shared-pitch releases and output ring wrap");
+    int bad = 0;
+    track_t *t = &trk[0];
+    uint32_t i;
+    reset();
+    t->p[P_CHRD] = CH_DIA7;
+    t->p[P_AMODE] = 1;
+    key_down(K_C4);
+    bad += check("ARP: one key, the chord as held notes (C E G B)", t->nheld == 4u && t->held[0] == 60 && t->held[1] == 64 &&
+                 t->held[2] == 67 && t->held[3] == 71);
+    key_up(K_C4);
+    bad += check("  key up: nothing held", !t->nheld && !t->arp_phys);
+    t->p[P_AMODE] = 0;
+    for (i = 0; i < NSTEP; i++) t->step[i] = (step_t){{0}, 0, ST_REST, 0, 0};
+    t->p[P_CHRD] = CH_DIA3;
+    song.rec = 1; song.playing = 1;
+    t->seq_idx = 0; t->seq_pos = 0;
+    key_down(K_D4);
+    bad += check("live recording: the chord into one step (D F A)", t->step[0].n == 3u && t->step[0].time == ST_NOTE &&
+                 t->step[0].note[0] == 62 && t->step[0].note[1] == 65 && t->step[0].note[2] == 69);
+    key_up(K_D4);
+    t->p[P_CHRD] = CH_MAJ7; t->p[P_VOIC] = VC_BASS;
+    t->seq_idx = 4;
+    key_down(K_C4);
+    bad += check("  a 4-note voicing: 4 notes in the step (the most a step holds)", t->step[4].n == 4u && t->step[4].note[0] == 48);
+    key_up(K_C4);
+    song.rec = 0; song.playing = 0;
+    t->p[P_VOICE] = V_MONO; t->p[P_CHRD] = CH_DIA3; t->p[P_VOIC] = VC_CLOSE;
+    song.rec = 1; song.playing = 1; t->seq_idx = 8;
+    key_down(K_E4);
+    bad += check("  MONO records its root alone", t->step[8].n == 1u && t->step[8].note[0] == 64);
+    key_up(K_E4);
+    song.rec = 0; song.playing = 0;
+    return bad;
 }
-static void chord_editor_persistence_test(void)
+
+static int midi_in(void)
 {
-    int16_t shape;
-    reset(16);
-    page_go(page_named("CHORD"));
-    TSEL->p[P_VOICE] = V_MONO;
-    edit_param(0, 3);
-    assert(TSEL->p[P_CHMODE] == 3 && TSEL->p[P_VOICE] == V_POLY);
-    TSEL->p[P_CHMODE] = 2; shape = TSEL->p[P_CHTYPE];
-    knob_frame(1, 1);                       /* scale modes: the scale picks the quality */
-    assert(TSEL->p[P_CHTYPE] == shape && !strcmp(ui.msg, "QUALITY FOLLOWS SCALE"));
-    TSEL->p[P_CHMODE] = 3; knob_frame(1, 1);
-    assert(TSEL->p[P_CHTYPE] > shape);
-    ui.force = 1; ui_draw();
-    TSEL->p[P_CHTYPE] = 8; TSEL->p[P_CHINV] = 1; TSEL->p[P_CHSPREAD] = 1;
-    apply_preset(4);
-    assert(TSEL->p[P_CHMODE] == 3 && TSEL->p[P_CHTYPE] == 8 && TSEL->p[P_VOICE] == V_POLY);
-    page_go(page_named("STEP"));
-    key_frame(1u << 7, 0);
-    assert(TSEL->step[0].n == 4 && !memcmp(TSEL->step[0].note, (uint8_t[]){63,70,79,84}, 4));
-    key_frame(0, 0);
-    project_save(0);
-    TSEL->p[P_CHMODE] = 0; TSEL->p[P_CHTYPE] = 0;
-    project_load(0);
-    assert(TSEL->p[P_CHMODE] == 3 && TSEL->p[P_CHTYPE] == 8 && TSEL->step[0].n == 4);
-    template_save(); TSEL->p[P_CHMODE] = 0; template_load();
-    assert(TSEL->p[P_CHMODE] == 3 && seq_is_empty(TSEL));
-    {
-        tmpl_v1_t old;
-        uint32_t t, i;
-        memset(&old, 0, sizeof old); old.magic = TMPL_MAGIC_V1; old.size = sizeof old; old.sel = 2; old.fm6_has = 4;
-        old.fm6[2][8] = 91; old.fm6_on[2] = 63; old.fm6_fn[2][3] = 12;
-        for (t = 0; t < NTRK; t++) for (i = 0; i < PROJ_NP_V5; i++) old.t[t].p[i] = (int16_t)(t * 100 + i);
-        assert(template_import(&old, sizeof old) && template_used() && tmpl.sel == 2 && tmpl.fm6[2][8] == 91 && tmpl.fm6_fn[2][3] == 12);
-        for (t = 0; t < NTRK; t++) {
-            assert(tmpl.t[t].p[P_CHMODE] == 0 && tmpl.t[t].p[P_CHINV] == 0 && tmpl.t[t].p[P_E0] == t * 100 + 50);
-            assert(!memcmp(tmpl.t[t].p, old.t[t].p, 50 * sizeof(int16_t)));
-        }
-        old.size--; assert(!template_import(&old, sizeof old));
-    }
-    puts("chords: poly activation, scale-led quality, preset retention, STEP voicing, project/template roundtrip and TMP1 migration");
+    int bad = 0;
+    track_t *t = &trk[0];
+    uint32_t i, free = 1;
+    reset();
+    t->p[P_CHRD] = CH_DIA3;
+    midi(0x90, 62, 100);
+    bad += check("MIDI IN: a note plays its chord (D F A)", gate_note(t, 62) && gate_note(t, 65) && gate_note(t, 69) && ngated(t) == 3u);
+    t->p[P_CHRD] = CH_OFF;
+    midi(0x80, 62, 0);
+    for (i = 0; i < MCHORD_N; i++) free &= !mchord[i].id;
+    bad += check("  its note-off ends the chord (CHRD OFF meanwhile), the table empty", !ngated(t) && free);
+    t->p[P_CHRD] = CH_DIA3;
+    midi(0x90, 60, 100); key_down(K_E4);                           /* MIDI C E G, key E G B */
+    bad += check("MIDI and a key share notes: C E G B once each", ngated(t) == 4u);
+    midi(0x80, 60, 0);
+    bad += check("  MIDI C off: C ends, E G stay for the key", !gate_note(t, 60) && gate_note(t, 64) && gate_note(t, 67));
+    key_up(K_E4);
+    bad += check("  key up: nothing left", !ngated(t));
+    midi(0xB0, 64, 127); midi(0x90, 65, 100); midi(0x80, 65, 0);
+    bad += check("pedal: the chord (F A C) held after its note-off", gate_note(t, 65) && gate_note(t, 69) && gate_note(t, 72));
+    midi(0xB0, 64, 0);
+    bad += check("  pedal up: released", !ngated(t));
+    for (i = 0; i < MCHORD_N + 2u; i++) midi(0x90, 36 + i, 100);   /* more chords than the table holds */
+    for (i = 0, free = 1; i < 2u; i++) free &= gate_note(t, 36 + MCHORD_N + i);   /* (the last two: their root alone) */
+    for (i = 0; i < MCHORD_N + 2u; i++) midi(0x80, 36 + i, 0);
+    bad += check("a full chord table: further notes play alone; all end", free && !ngated(t) && !t->nmono);
+    midi(0x90, 62, 100); midi(0xB0, 120, 0);
+    for (i = 0, free = 1; i < MCHORD_N; i++) free &= !mchord[i].id;
+    bad += check("All Sound Off forgets the track's MIDI chords", free && !ngated(t));
+    return bad;
 }
+
+static int kits(void)
+{
+    int bad = 0;
+    track_t *d = &trk[3];
+    uint8_t out[CHORD_MAX];
+    reset();
+    song.sel = 3;                                                  /* the DRUM track */
+    d->p[P_CHRD] = CH_DIA7;
+    key_down(K_C4);
+    bad += check("DRUM: CHRD ignored (one hit per key)", chord_build(d, 36, out) == 1u && out[0] == 36 &&
+                 kb_chn[K_C4] == 1u && mo_w == 1u);
+    key_up(K_C4);
+    midi(0x93, 38, 100);
+    bad += check("  MIDI IN on the DRUM track: one hit, no chord kept", !mchord[0].id);
+    midi(0x83, 38, 0);
+    song.sel = 0;
+    trk[0].eng_req = trk[0].engine = 4;                             /* SAMPLE PERC: the GM kit */
+    trk[0].p[P_CHRD] = CH_DIA3;
+    if (smp_perc_set() >= 0) {
+        trk[0].p[P_E0] = (int16_t)smp_perc_set();
+        bad += check("SAMPLE PERC (a kit): CHRD ignored", chord_kit(&trk[0]) && chord_build(&trk[0], 38, out) == 1u);
+    }
+    trk[0].p[P_E0] = 0;
+    bad += check("SAMPLE with a melodic set: chords", !chord_kit(&trk[0]) && chord_build(&trk[0], 60, out) == 3u);
+    return bad;
+}
+
 int main(void)
 {
-    voicing_test(); chord_lifecycle_test(); chord_midi_burst_test(); chord_editor_persistence_test();
-    puts("CHORD TEST PASSED");
-    return 0;
+    int bad = theory() + shapes_voicings() + keys() + arp_rec() + midi_in() + kits();
+    printf("%s\n", bad ? "CHORD TEST FAILED" : "chord keys test passed");
+    return bad != 0;
 }

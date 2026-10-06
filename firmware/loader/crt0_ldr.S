@@ -7,8 +7,7 @@
 	.globl _start
 _start:
 	goto 1f
-	.ascii "FELUCCA-LOADER-1"	/* 16 bytes: Melodee recognises its loader in a package by this; Felucca's
-					   name, so firmware from before the rename takes Melodee packages */
+	.ascii "FELUCCA-LOADER-1"	/* 16 bytes: Melodee recognises its loader in a package by this */
 	.balign 2
 1:	cli
 	sp = _stack_top

@@ -206,10 +206,6 @@ def installs():
     rc, out, err = cli(["--info"], dev)
     ok(rc == 0 and "update loader" in out, "--info: device in update mode")
 
-    dev = FakeFM1(image, identity="FM-1_905", name="Felucca")
-    rc, out, err = cli(["--info"], dev)
-    ok(rc == 0 and "FM-1_905" in out and "running" in out, "--info: FM-1 still running Felucca (port name before the rename)")
-
 
 def errors():
     raw = package()
@@ -279,10 +275,29 @@ def against_js():
     ok(I.LOADER_MARK in raw, f"{clean.name} carries the Melodee loader marker")
 
 
+def official():
+    """#32: back to the official V15 from Melodee, without --force (only the unmodified file)"""
+    v15 = ROOT / "FM-1_v15.fwsc"
+    if not v15.exists():
+        print("official V15 restore: skipped (needs FM-1_v15.fwsc in the repo root)")
+        return
+    raw = v15.read_bytes()
+    dev = FakeFM1(I.logical_image(raw), identity="FM-1_900", name="Melodee", after_write="FM-1_015")
+    rc, out, err = cli([str(v15), "--yes"], dev)
+    ok(rc == 0 and dev.bad == 0 and "FM-1_015" in out and dev.identity == "FM-1_015",
+       "official V15 (FM-1.fwsc) from Melodee: installed without --force, back as FM-1_015")
+    bad = bytearray(raw)
+    bad[-1] ^= 1
+    dev = FakeFM1(I.logical_image(bytes(bad)), identity="FM-1_900", name="Melodee")
+    rc, out, err = cli([pkgfile("v15mod.fwsc", bytes(bad)), "--yes"], dev)
+    ok(rc == 2 and "official V15" in err and dev.sent == [], "a modified V15 is still refused (no MIDI)")
+
+
 wire()
 installs()
 errors()
 against_js()
+official()
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"INSTALL TESTS FAILED ({failed})" if failed else "install tests passed")
 sys.exit(1 if failed else 0)

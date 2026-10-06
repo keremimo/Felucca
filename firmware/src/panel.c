@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Physical panel: which matrix button / encoder carries which printed label.
- * The default table can be overridden by HARDWARE CALIBRATION (hold OCT- and
- * OCT+ while powering on), which asks for each label in turn. The learned
- * table lives in .noinit and, with MELODEE_FLASH, in flash with the settings
- * (project.c). */
+ * The matrix ids are known, the printed labels are not, so
+ * the mapping is a table with a best guess, overridable by HARDWARE CALIBRATION
+ * (hold OCT- and OCT+ while powering on): MELODEE asks for each label in turn.
+ * The learned table lives in .noinit and, with MELODEE_FLASH, in flash with
+ * the settings (project.c); read it back with `fm1t memr` to bake it in. */
 enum { B_FX, B_SCL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC,
        B_OCTDN, B_OCTUP, NB };
 enum { EN_SELECT, EN_ALGO, EN_PRESET, EN_K1, EN_K2, EN_K3, EN_K4, NE };
@@ -24,18 +25,23 @@ panel_t panel __attribute__((section(".noinit")));
 
 static const panel_t PANEL_DEFAULT = {
     PANEL_MAGIC,
-    {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1},   /* PLAY = 12, REC = 13 */
-    {0, 1, 6, 2, 3, 4, 5},                           /* SELECT = enc 0, ALGORITHM = enc 1, PRESETS = enc 6 */
+    {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 0, 1},   /* PLAY = 12, REC = 13 (measured on hardware) */
+    {0, 1, 6, 2, 3, 4, 5},                           /* SELECT = enc 0, ALGORITHM = enc 1, PRESETS = enc 6 (printed labels) */
     {1, 1, 1, 1, 1, 1, 1},
 };
 
 static void panel_init(void)                     /* also after a flash load: ids are used as array indexes and shifts */
 {
-    uint32_t i, ok = panel.magic == PANEL_MAGIC;
-    for (i = 0; ok && i < NB; i++)
-        ok = panel.btn[i] < 14u;
-    for (i = 0; ok && i < NE; i++)
-        ok = panel.enc[i] < 7u && (panel.dir[i] == 1 || panel.dir[i] == -1);
+    uint32_t i, buttons = 0, encoders = 0, ok = panel.magic == PANEL_MAGIC;
+    for (i = 0; ok && i < NB; i++) {
+        ok = panel.btn[i] < NB && !(buttons & (1u << panel.btn[i]));
+        if (ok) buttons |= 1u << panel.btn[i];
+    }
+    for (i = 0; ok && i < NE; i++) {
+        ok = panel.enc[i] < NE && !(encoders & (1u << panel.enc[i])) &&
+             (panel.dir[i] == 1 || panel.dir[i] == -1);
+        if (ok) encoders |= 1u << panel.enc[i];
+    }
     if (!ok)
         panel = PANEL_DEFAULT;
 }
@@ -49,74 +55,52 @@ static uint32_t panel_btn_of(uint32_t matrix_id)        /* label of a matrix but
     return NB;
 }
 
-static void panel_led(uint32_t label, int on) { fm1_led_key(panel.btn[label], on); }
-
 /* steps of a role, + = clockwise */
 static int32_t panel_enc(uint32_t role)
 {
     return fm1_enc_take(panel.enc[role]) * panel.dir[role];
 }
 
-/* user settings that survive a reset */
+/* Keep the retained settings layout fixed. palette: the index into UI_PALETTES (SET3 held an index
+ * into the 20 palettes of earlier firmware) */
 #define SETTINGS_MAGIC 0x53455434u              /* "SET4" */
-enum { KEYS_OFF, KEYS_LOW, KEYS_MID, KEYS_HIGH, KEYS_FULL, KEYS_N };   /* idle key LEDs (menu KEYS) */
-#define KEYS_DARK 0x80u         /* settings.keys flag, GLO > LIGHTS KEYS OFF: no layout, no button glow; the level stays */
-static const char *const KEYS_NAME[KEYS_N] = {"OFF", "LOW", "MID", "HIGH", "FULL"};
-/* the GLO > GLOBAL and DRUMS values, kept on the device as last used: power-on restores them
- * (glo_restore), a BOOT project or the template loaded then brings its own. BPM and SWG are the
- * project's (SEQ > TEMPO): their slots stay empty (GLO_GONE), so a record saved while they were
- * kept still puts CLK .. REV back where they belong */
-#define GLO_GONE 0xFFu
-static const uint8_t GLO_KEPT[] = {GLO_GONE, GLO_GONE, G_CLOCK, G_TUNE, G_DRCH, G_DRLVL, G_DRREV};
-#define NGLO_KEPT (sizeof GLO_KEPT)
-struct {
-    uint32_t magic, palette, lowcut, zoom;
-    uint32_t usb_off;                          /* USB audio devices switched off: UA_OFF_OUT | UA_OFF_IN */
-    uint32_t keys;                             /* KEYS_*: playable keys not sounding; | KEYS_DARK */
-    uint32_t boot;                             /* project slot + 1 loaded at power-on, 0 = none (SAVE > PROJECT) */
-    int16_t glo[8];                            /* song.g[GLO_KEPT[i]] (ui_input.c set_save); one spare */
-} settings __attribute__((section(".noinit")));
-_Static_assert(NGLO_KEPT <= sizeof settings.glo / sizeof settings.glo[0], "GLO_KEPT fits settings.glo");
+#define SETTINGS_MAGIC_OLD 0x53455433u          /* "SET3" */
+struct { uint32_t magic, palette, lowcut, zoom; } settings __attribute__((section(".noinit")));
 
-static int settings_save(void);               /* project.c: flash copy (MELODEE_FLASH), 0 = ok */
+static void settings_save(void);              /* project.c: flash copy (MELODEE_FLASH) */
 
-static void glo_defaults(void)
+/* HOLD (menu): how long a button is held before its layer opens (ui_input.c). Saved in the settings record's
+ * retired bold field as HOLD_TAG | index; any other value there (0 or 1 from older firmware) is the default */
+#define HOLD_TAG 0x484C4400u
+#define HOLD_DEF 1u
+static const uint16_t HOLD_MS[4] = {300, 400, 500, 600};
+static uint8_t settings_hold = HOLD_DEF;
+
+/* LIGHTS (menu): OFF the keys light only while they sound or are pressed, the buttons while engaged (as Felucca 1.0);
+ * LOW .. FULL the keys that play something glow at that level, in the scale with QNT OFF, and the idle buttons at 1/4
+ * (ui_input.c ui_leds). Saved in the settings' ext block */
+enum { LIGHTS_OFF, LIGHTS_LOW, LIGHTS_MID, LIGHTS_HIGH, LIGHTS_FULL, LIGHTS_N };
+static const char *const LIGHTS_NAME[LIGHTS_N] = {"OFF", "LOW", "MID", "HIGH", "FULL"};
+static uint8_t settings_lights = LIGHTS_MID;
+static uint32_t hold_from_stored(uint32_t v) { return (v & ~3u) == HOLD_TAG ? v & 3u : HOLD_DEF; }
+static uint32_t hold_to_stored(uint32_t old, uint32_t i)
 {
-    uint32_t i;
-    for (i = 0; i < NGLO_KEPT; i++)
-        settings.glo[i] = GLO_KEPT[i] == GLO_GONE ? 0 : GP[GLO_KEPT[i]].def;
+    return i % 4u != HOLD_DEF ? HOLD_TAG | (i & 3u) : old > 1u ? 0u : old;
 }
-
-static void glo_restore(void)                  /* power-on, after the defaults (melodee_init) */
-{
-    uint32_t i;
-    for (i = 0; i < NGLO_KEPT; i++)
-        if (GLO_KEPT[i] != GLO_GONE) {
-            const param_desc_t *d = &GP[GLO_KEPT[i]];
-            song.g[GLO_KEPT[i]] = settings.glo[i] = (int16_t)clamp(settings.glo[i], d->min, d->max);
-        }
-}
+static int hold_stored_ok(uint32_t v) { return v <= 1u || (v & ~3u) == HOLD_TAG; }
 
 static void settings_init(void)
 {
+    if (settings.magic == SETTINGS_MAGIC_OLD && settings.palette < 20u) {
+        settings.magic = SETTINGS_MAGIC;
+        settings.palette = palette_from_stored(settings.palette);
+    }
     if (settings.magic != SETTINGS_MAGIC || settings.palette >= NPALETTES) {
         settings.magic = SETTINGS_MAGIC;
-        settings.palette = PAL_STUDIO;
+        settings.palette = UI_MONO_INDEX;      /* MONO (default) */
         settings.lowcut = 0;
-        settings.zoom = 1;                     /* show the touched value on new installations */
-        settings.usb_off = 0;                  /* both USB audio devices on */
-        settings.keys = KEYS_MID;
-        settings.boot = 0;
-        glo_defaults();
+        settings.zoom = 0;                     /* large readout of the touched value: off */
     }
-    if ((settings.keys & ~KEYS_DARK) >= KEYS_N)   /* a .noinit copy from before KEYS */
-        settings.keys = KEYS_MID;
-    if (settings.boot > 4u)                    /* ... or from before BOOT */
-        settings.boot = 0;
     palette_set(settings.palette);
-    fx_lowcut = (uint8_t)(settings.lowcut != 0);
-#if MELODEE_USB_AUDIO
-    settings.usb_off &= UA_OFF_OUT | UA_OFF_IN;
-    ua_off = ua_off_want = (uint8_t)settings.usb_off;   /* before usb_start: the host sees only these */
-#endif
+    fx_lowcut = (uint8_t)(settings.lowcut % 3u);
 }

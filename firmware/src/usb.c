@@ -1,21 +1,32 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* USB full-speed device on USB0: a class-compliant USB-MIDI interface.
- * All SIE traffic happens in usb_poll(), called from the TIMER5 ISR (2 kHz,
- * up to 4 kHz in USB audio mode),
- * so INDEX is never shared and no USB IRQ is needed. MIDI in goes to a ring
- * the audio ISR drains; MIDI out comes from a ring the audio ISR fills.
- * SysEx F0 22 24 35 7D F7 (soft key) asks the main loop to enter UBOOT.
- * VID 0x1209 / PID 0x0001 is the pid.codes test id.
+/* USB full-speed device on USB0: a
+ * class-compliant USB-MIDI interface. All SIE traffic happens in one place,
+ * usb_poll(), called from the TIMER5 ISR at 2 kHz, so INDEX is never shared
+ * and no USB IRQ is needed. MIDI in goes to a ring the audio ISR drains;
+ * MIDI out (the panel keys) comes from a ring the audio ISR fills.
+ * SysEx F0 22 24 35 7D F7 (the stock soft key, tools/fm1_softkey.py) asks
+ * the main loop to enter UBOOT. VID 0x1209 / PID 0x0001 is the pid.codes
+ * TEST id: fine for the bench, must be replaced before any release.
  * MELODEE_CDC=1 adds a CDC-ACM serial function (IAD composite: EP2 notify,
  * EP3 bulk data) for the console in console.c.
- * MELODEE_USB_AUDIO=1 instead adds two UAC1 functions, a stereo output device
- * (EP2 OUT, explicit feedback on EP3) and a separate four-track input device
- * (EP2 IN); TIMER5 must outrank audio rendering. Either can be left out of the
- * configuration (ua_off, GLO > SYSTEM); usb_replug makes the host see the change. */
+ * MELODEE_USB_AUDIO=1 instead adds two UAC1 functions (usb_audio.c), a stereo
+ * output device "Melodee Out" (EP2 OUT, explicit feedback on EP3) and a separate
+ * four-track input device "Melodee In" (EP2 IN), 16 or 24 bit at 44.1 kHz.
+ * Their endpoints are served from the TIMER5 ISR by elapsed time (ua_service,
+ * main.c), nested in the render too; usb_poll never runs nested, so the two
+ * never interleave. Either can be left out of the configuration (ua_off, the
+ * menu's USB AUDIO); usb_replug makes the host see the change. The update
+ * loader leaves both off: MIDI only. */
 #include "../hal/fm1_usb.h"   /* registers; relative, so the loader and the host tests find it too */
-#if !MELODEE_LOADER
-static volatile uint32_t fm1_ms;  /* TIMER4-based milliseconds, updated by TIMER5 in main.c */
+#ifndef MELODEE_CDC
+#define MELODEE_CDC 0
+#endif
+#ifndef MELODEE_USB_AUDIO
+#define MELODEE_USB_AUDIO 0
+#endif
+#if MELODEE_USB_AUDIO && MELODEE_CDC
+#error "MELODEE_USB_AUDIO and MELODEE_CDC share EP2 / EP3: build one of them"
 #endif
 enum { S_FADDR = 0, S_POWER = 1, S_INTRTX1 = 2, S_INTRTX2 = 3, S_INTRRX1 = 4, S_INTRRX2 = 5, S_INTRUSB = 6,
        S_INTRTX1E = 7, S_INTRTX2E = 8, S_INTRRX1E = 9, S_INTRRX2E = 10, S_INTRUSBE = 11, S_FRAME1 = 12,
@@ -49,14 +60,15 @@ static struct {
     const uint8_t *e0_src;
     uint16_t e0_left;
     uint32_t resets, setups, rx_pkts, tx_pkts, sof_seen, timeouts, no_sof;
-    uint32_t suspends, max_gap, retries, frame_stalls;
+    uint32_t suspends, max_gap, retries, frame_stalls;   /* diagnostics: suspend events, longest run of polls without SOF */
     uint16_t frame, frame_same;  /* last SOF frame number and how long it has not moved (x 10 ms) */
     uint8_t detached;            /* usb_detach() was called: no retry */
-    uint32_t retry_ms;           /* last usb_start from usb_retry, or usb_replug */
+    uint32_t retry_ms;           /* usb_retry's last attempt (usb_replug sets it) */
     volatile uint8_t suspended;  /* bus idle > 3 ms (unplugged or host asleep): the UI hides "USB" */
     uint8_t last_setup[8];
     uint8_t sysex[16];
     uint8_t sx_len, sx_on;
+    uint8_t rx_pend;             /* EP1 OUT packet seen, not yet taken (the MIDI ring was too full) */
     volatile uint8_t uboot_req;
     volatile uint8_t ota_req;    /* F0 22 24 35 7F F7: M-UPGRADE upgrade command (MELODEE_OTA) */
 } usb;
@@ -76,66 +88,66 @@ static volatile uint32_t so_w, so_r;
 
 /* MIDI rings: 4-byte USB-MIDI event packets */
 #define MQ 64u
-/* A panel scan can release and press 27 four-note voicings before USB drains
- * the ring. Keep room for that complete burst; input timing stays independent. */
-#define MOQ 256u
-static uint32_t midi_in_q[MQ], midi_out_q[MOQ];
-static uint32_t midi_in_ms[MQ];                 /* arrival time for 24 PPQN clock */
-static uint8_t midi_in_src[MQ];                 /* 1 USB, 2 TRS */
+static uint32_t midi_in_q[MQ], midi_out_q[MQ];
+static uint32_t midi_in_ms[MQ];
+static uint8_t midi_in_source[MQ];                    /* 1 USB, 2 TRS */
+static volatile uint32_t fm1_ms;                    /* also declared by core.h; parser-only host tests */
 static volatile uint32_t mi_w, mi_r, mo_w, mo_r;
+static volatile uint8_t midi_in_overflow;               /* audio ISR discards a broken stream and releases notes */
 
-static int midi_in_enqueue(uint32_t pkt, uint32_t source, uint32_t ms)
+static int midi_enqueue(uint32_t pkt, uint32_t source)
 {
-    if (mi_w - mi_r >= MQ)
+    uint32_t at = mi_w % MQ;
+    if (midi_in_overflow)
         return 0;
-    midi_in_q[mi_w % MQ] = pkt;
-    midi_in_ms[mi_w % MQ] = ms;
-    midi_in_src[mi_w % MQ] = (uint8_t)source;
+    if (mi_w - mi_r >= MQ) {
+        midi_in_overflow = 1;
+        return 0;
+    }
+    midi_in_q[at] = pkt;
+    midi_in_ms[at] = fm1_ms;
+    midi_in_source[at] = (uint8_t)source;
     RING_PUBLISH();
     mi_w++;
     return 1;
 }
 
-static void usb_midi_rx_packet(uint32_t pkt, uint32_t ms)
-{
-    uint32_t cin = pkt & 15u, status = (pkt >> 8) & 0xFFu;
-    if ((cin >= 8u && cin <= 0xEu) ||
-        (cin == 0xFu && (status == 0xF8u || status == 0xFAu ||
-                         status == 0xFBu || status == 0xFCu)))
-        midi_in_enqueue(pkt, 1u, ms);
-}
-
 static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 {
-    if (usb.config && mo_w - mo_r < MOQ) {
-        midi_out_q[mo_w % MOQ] = pkt;
+    if (usb.config && mo_w - mo_r < MQ) {
+        midi_out_q[mo_w % MQ] = pkt;
         RING_PUBLISH();
         mo_w++;
     }
 }
 
 /* ------------------------------------------------------- descriptors --- */
+/* interfaces: 0 audio control, 1 MIDI streaming, then CDC's two, or the USB audio functions' four (usb_audio_desc.h).
+ * bcdDevice: 3.00 MIDI, 3.01 with CDC, 3.06 with USB audio (hosts cache descriptors per version) */
 #if MELODEE_USB_AUDIO
 #include "usb_audio_stream.c"
+#define CFG_LEN 411
 static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x06, 0x03,
                                      1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.06: native 44.1 kHz only */
 static const uint8_t CFG_DESC[] = {
-    9, 2, 0x9B, 0x01, 6, 1, 0, 0x80, 50,               /* 411 bytes, six interfaces */
+    9, 2, 0x9B, 0x01, 6, 1, 0, 0x80, 50,                /* 411 bytes, six interfaces */
     8, 0x0B, 0, 2, 1, 1, 0, 0,                          /* IAD: MIDI (IF 0-1) */
 #elif MELODEE_CDC
+#define CFG_LEN 175
 static const uint8_t DEV_DESC[18] = {18, 1, 0x00, 0x02, 0xEF, 0x02, 0x01, 64, 0x09, 0x12, 0x01, 0x00, 0x01, 0x03,
                                      1, 2, 0, 1};        /* misc/IAD, bcdDevice 3.01 */
-static const uint8_t CFG_DESC[175] = {
+static const uint8_t CFG_DESC[] = {
     9, 2, 175, 0, 4, 1, 0, 0x80, 50,
     8, 0x0B, 0, 2, 1, 1, 0, 0,                          /* IAD: MIDI (IF 0-1) */
 #else
+#define CFG_LEN 101
 #ifndef MELODEE_USB_PID
 #define MELODEE_USB_PID 0x0001   /* the update loader is 0x0002 */
 #endif
 static const uint8_t DEV_DESC[18] = {18, 1, 0x10, 0x01, 0, 0, 0, 64, 0x09, 0x12, MELODEE_USB_PID & 0xFF,
                                      MELODEE_USB_PID >> 8, 0x00, 0x03,
                                      1, 2, 0, 1};
-static const uint8_t CFG_DESC[101] = {
+static const uint8_t CFG_DESC[] = {
     9, 2, 101, 0, 2, 1, 0, 0x80, 50,
 #endif
     9, 4, 0, 0, 0, 1, 1, 0, 0,
@@ -166,6 +178,7 @@ static const uint8_t CFG_DESC[101] = {
 #include "usb_audio_desc.h"
 #endif
 };
+typedef char cfg_len_ok[sizeof CFG_DESC == CFG_LEN ? 1 : -1];
 static const uint8_t STR0[4] = {4, 3, 0x09, 0x04};
 static const uint8_t STR1[] = {26, 3, 'E', 0, 'l', 0, 'l', 0, 'i', 0, 'c', 0, ' ', 0, 'S', 0, 't', 0, 'u', 0, 'd', 0,
                                'i', 0, 'o', 0};
@@ -179,7 +192,7 @@ static const uint8_t STR2[] = {16, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e
 static const uint8_t STR3[] = {24, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0, 'O', 0, 'u', 0,
                                't', 0};
 static const uint8_t STR4[] = {22, 3, 'M', 0, 'e', 0, 'l', 0, 'o', 0, 'd', 0, 'e', 0, 'e', 0, ' ', 0, 'I', 0, 'n', 0};
-static uint8_t ua_cfg[sizeof CFG_DESC];              /* the configuration as sent (usb_audio.c ua_cfg_build) */
+static uint8_t ua_cfg[sizeof CFG_DESC];                 /* the configuration as sent (usb_audio.c ua_cfg_build) */
 static uint16_t ua_cfg_len;
 #endif
 
@@ -346,22 +359,22 @@ static void ep0_service(void)
     if (csr & 0x04u) {                                  /* SentStall */
         sie_wr(S_CSR0, 0);
         usb.e0_tx = 0;
-#if MELODEE_USB_AUDIO
-        ua_rate_pending = 0;
-#endif
 #if MELODEE_CDC
         cdc.e0_rx = 0;
+#endif
+#if MELODEE_USB_AUDIO
+        ua_rate_pending = 0;
 #endif
         return;
     }
     if (csr & 0x10u) {                                  /* SetupEnd: the host abandoned the transfer */
         sie_wr(S_CSR0, 0x80);
         usb.e0_tx = 0;
-#if MELODEE_USB_AUDIO
-        ua_rate_pending = 0;
-#endif
 #if MELODEE_CDC
         cdc.e0_rx = 0;                                  /* else the next SETUP is taken as line coding */
+#endif
+#if MELODEE_USB_AUDIO
+        ua_rate_pending = 0;
 #endif
     }
     if (usb.e0_tx) {
@@ -372,13 +385,6 @@ static void ep0_service(void)
     if (!(csr & 0x01u))
         return;
     fm1_usb_rx_sync();
-#if MELODEE_USB_AUDIO
-    if (ua_rate_pending) {
-        if (ua_control_data(ep0buf, sie_rd(S_COUNT0)))
-            goto ack;
-        goto stall;
-    }
-#endif
 #if MELODEE_CDC
     if (cdc.e0_rx) {                                    /* SET_LINE_CODING data stage */
         uint32_t n = sie_rd(S_COUNT0);
@@ -386,6 +392,13 @@ static void ep0_service(void)
             cdc.line[i] = ep0buf[i];
         cdc.e0_rx = 0;
         goto ack;
+    }
+#endif
+#if MELODEE_USB_AUDIO
+    if (ua_rate_pending) {                              /* SET_CUR sampling frequency: its data stage */
+        if (ua_control_data(ep0buf, sie_rd(S_COUNT0)))
+            goto ack;
+        goto stall;
     }
 #endif
     for (i = 0; i < 8u; i++)
@@ -439,7 +452,7 @@ static void ep0_service(void)
     case 0x8200:
         e0_send(zero2, 2, wlength);
         return;
-    case 0x010B:                                        /* SET_INTERFACE */
+    case 0x010B:                                        /* SET_INTERFACE: alt 0 (1, 2 for the audio streams) */
 #if MELODEE_USB_AUDIO
         if (wlength || s[5] || !usb.config || s[4] >= ua_nif)
             goto stall;
@@ -468,6 +481,10 @@ static void ep0_service(void)
         uint32_t ep = s[4] & 0x0Fu, last = 3u;
 #else
         uint32_t ep = s[4] & 0x0Fu, last = 1u;
+#endif
+#if MELODEE_USB_AUDIO
+        if (wvalue == 0 && (s[4] == 0x02u || s[4] == 0x82u || s[4] == 0x83u))
+            goto ack;                                   /* isochronous: no halt, no toggle */
 #endif
         if (wvalue != 0 || ep > last)
             goto stall;                                 /* not an endpoint we have */
@@ -515,8 +532,17 @@ static void sysex_byte(uint8_t b)
 {
     static const uint8_t UBOOT_KEY[6] = {0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7};
 #ifdef FM6_RX
-    fm6_sx_byte(b);                                     /* DX7 voices, banks, parameter changes (eng_fm6.c) */
+    fm6_sx_byte(b);                                    /* DX7 voices, banks, parameter changes (eng_fm6.c) */
 #endif
+    if (b >= 0xF8u)
+        return;                                        /* realtime may occur anywhere in SysEx */
+    if ((b & 0x80u) && b != 0xF0u && b != 0xF7u) {
+        usb.sx_on = 0;
+#if MELODEE_OTA
+        sx_collect = 0;
+#endif
+        return;                                        /* another status aborts the unfinished frame */
+    }
     if (b == 0xF0) {
         usb.sx_on = 1;
         usb.sx_len = 0;
@@ -558,43 +584,71 @@ static void sysex_byte(uint8_t b)
     }
 }
 
-/* one USB-MIDI event packet from the host. SysEx comes as CIN 4..7, but a host may also send a
- * byte of it as CIN 0xF (single byte): macOS does so inside a long dump, where its packet lists
- * split, and a DX7 bank then lost that byte. Real-time bytes stay with the parser. */
-static void usb_midi_rx(uint32_t pkt, uint32_t ms)
+/* one USB-MIDI event packet. SysEx comes as CIN 4..7, but a host may also send a byte of it as CIN 0xF (single
+ * byte): macOS does so inside a long dump, where its packet lists split, and a DX7 bank then lost that byte.
+ * Real-time bytes stay with the parser below. */
+static void midi_in_event(uint32_t pkt)
 {
-    uint32_t cin = pkt & 15u, b = (pkt >> 8) & 0xFFu, k, nb;
-    if (cin >= 4u && cin <= 7u) {                       /* SysEx */
-        nb = cin == 4u || cin == 7u ? 3u : cin == 6u ? 2u : 1u;
+    uint32_t cin = pkt & 15u, st = (pkt >> 8) & 0xFFu;
+    if (cin >= 4u && cin <= 7u) {
+        uint32_t k, nb = cin == 4u || cin == 7u ? 3u : cin == 6u ? 2u : 1u;
         for (k = 0; k < nb; k++)
             sysex_byte((uint8_t)(pkt >> (8u * (k + 1u))));
-    } else if (cin == 0xFu && b < 0xF8u && (usb.sx_on || b == 0xF0u)) {
-        sysex_byte((uint8_t)b);
-    } else {
-        usb_midi_rx_packet(pkt, ms);
+        return;
+    }
+    if (cin == 0xFu && st < 0xF8u && (usb.sx_on || st == 0xF0u)) {
+        sysex_byte((uint8_t)st);
+        return;
+    }
+    if (st >= 0x80u && st < 0xF8u) {
+        usb.sx_on = 0;                                 /* channel/system common also ends SysEx */
+#if MELODEE_OTA
+        sx_collect = 0;
+#endif
+    }
+    if (cin == 0xFu && (st == 0xF8u || st == 0xFAu || st == 0xFBu || st == 0xFCu)) {
+        midi_enqueue(0xFu | st << 8, 1u);
+        return;
+    }
+    if (cin >= 8u && cin <= 0xEu && (st >> 4) == cin && !((pkt >> 16) & 0x80u) &&
+        ((cin == 0xCu || cin == 0xDu) || !(pkt & 0x80000000u))) {
+        midi_enqueue(pkt, 1u);
     }
 }
 
-static void ep1_rx(void)
+/* one EP1 OUT packet (<= 16 events) into the MIDI ring, or 0: fewer than 16 + 8 slots free, so the packet
+ * stays (the host is NAKed) and is retried next poll; a burst never overflows the ring (that panics), and
+ * 8 slots stay for TRS MIDI, which shares the ring and cannot wait (31250 baud: about 3 messages a half).
+ * The update loader never drains the ring (it wants SysEx only): no back-pressure there. */
+#define EP1_ROOM (16u + 8u)
+static int ep1_take(const uint8_t *b, uint32_t n)
 {
-    uint32_t csr, n, i;
+    uint32_t i;
+#ifndef MELODEE_LOADER
+    if (MQ - (mi_w - mi_r) < EP1_ROOM)
+        return 0;
+#endif
+    for (i = 0; i + 3u < n; i += 4u)
+        midi_in_event((uint32_t)b[i] | (uint32_t)b[i + 1] << 8 | (uint32_t)b[i + 2] << 16 | (uint32_t)b[i + 3] << 24);
+    return 1;
+}
+
+static void ep1_rx(void)                                /* leaves the packet (NAK) while the ring is too full */
+{
+    uint32_t csr, n;
     sie_wr(S_INDEX, 1);
     csr = sie_rd(S_RXCSR1) | (sie_rd(S_RXCSR2) << 8);
-    if (!(csr & 1u))
+    if (!(csr & 1u)) {
+        usb.rx_pend = 0;
         return;
+    }
     n = sie_rd(S_RXCOUNT1) | (sie_rd(S_RXCOUNT2) << 8);
     if (n > 64u)
         n = 64u;
     fm1_usb_rx_sync();
-    for (i = 0; i + 3u < n; i += 4u) {
-        uint32_t pkt = (uint32_t)ep1rx[i] | (uint32_t)ep1rx[i + 1] << 8 | (uint32_t)ep1rx[i + 2] << 16 |
-                       (uint32_t)ep1rx[i + 3] << 24;
-#if MELODEE_LOADER
-        usb_midi_rx(pkt, 0);
-#else
-        usb_midi_rx(pkt, fm1_ms);
-#endif
-    }
+    if (!ep1_take(ep1rx, n))
+        return;                                         /* rx_pend stays: retried next poll */
+    usb.rx_pend = 0;
     usb.rx_pkts++;
     csr = (csr & ~0x164u) | 0x10u;
     sie_wr(S_RXCSR1, csr & 0xFFu);
@@ -679,7 +733,7 @@ static void ep1_tx(void)
 #endif
         uint32_t pkt;
         RING_PUBLISH();                                 /* the audio ISR (producer) can preempt us: */
-        pkt = midi_out_q[mo_r % MOQ];                   /* slot read strictly between the index checks */
+        pkt = midi_out_q[mo_r % MQ];                    /* slot read strictly between the index checks */
         ep1tx[n] = (uint8_t)pkt;
         ep1tx[n + 1] = (uint8_t)(pkt >> 8);
         ep1tx[n + 2] = (uint8_t)(pkt >> 16);
@@ -741,13 +795,13 @@ static void ep3_tx(void)                                /* <= 63 bytes per packe
 }
 #endif
 
-static void usb_poll(void)                              /* TIMER5 ISR */
+static void usb_poll(void)                              /* TIMER5 ISR, 2 kHz */
 {
     uint32_t iu, it, ir;
     if (!usb.up)
         return;
-    if (fm1_usb_sof_take()) {                           /* SOF pending: not a reliable "host is there", */
-                                                        /* it keeps firing with the cable out */
+    if (fm1_usb_sof_take()) {                           /* SOF pending: NOT a reliable "host is there" */
+                                                        /* (it keeps firing with the cable out) */
         usb.sof_seen++;
         usb.no_sof = 0;
     } else if (++usb.no_sof > usb.max_gap) {
@@ -755,7 +809,7 @@ static void usb_poll(void)                              /* TIMER5 ISR */
     }
     if (usb.config) {                                   /* the frame number only advances with a real host */
         static uint32_t tick;
-        if (++tick >= 20u) {                            /* periodic liveness check, <= 10 ms */
+        if (++tick >= 20u) {                            /* every 20 polls = 10 ms */
             uint16_t f;
             tick = 0;
             f = (uint16_t)(sie_rd(S_FRAME1) | (sie_rd(S_FRAME2) & 7u) << 8);
@@ -763,7 +817,7 @@ static void usb_poll(void)                              /* TIMER5 ISR */
                 usb.frame = f;
                 usb.frame_same = 0;
                 usb.suspended = 0;
-            } else if (++usb.frame_same >= 10u && !usb.suspended) {   /* repeatedly frozen: unplugged / host asleep */
+            } else if (++usb.frame_same >= 10u && !usb.suspended) {   /* 100 ms frozen: unplugged / host asleep */
                 usb.suspended = 1;
                 usb.frame_stalls++;
             }
@@ -799,6 +853,7 @@ static void usb_poll(void)                              /* TIMER5 ISR */
 #endif
         usb.e0_tx = 0;
         usb.has_pend_addr = 0;
+        usb.rx_pend = 0;
 #if MELODEE_CDC
         cdc.dtr = 0;
         cdc.e0_rx = 0;
@@ -811,10 +866,9 @@ static void usb_poll(void)                              /* TIMER5 ISR */
     }
     if (it & 0x01u)
         ep0_service();
-#if MELODEE_USB_AUDIO
-    ua_hw_poll();                                       /* deadline traffic before MIDI */
-#endif
     if (ir & 0x02u)
+        usb.rx_pend = 1;
+    if (usb.rx_pend)                                    /* not every poll: 3 SIE round trips each */
         ep1_rx();
     if (usb.config)
         ep1_tx();
@@ -864,9 +918,9 @@ static void usb_retry(uint32_t now_ms)
     usb_start();
 }
 
-/* Main loop: leave the bus for a second (usb_retry attaches again), so the
- * host sees an unplug and reads a changed configuration afresh. Stopping
- * TIMER5's polling first leaves the SIE to this context. */
+#if MELODEE_USB_AUDIO
+/* Main loop: leave the bus for a second (usb_retry attaches again), so the host sees an unplug and reads a changed
+ * configuration afresh. usb.up = 0 first: TIMER5 (usb_poll, ua_service) leaves the SIE to this context. */
 static void usb_replug(uint32_t now_ms)
 {
     if (usb.detached)
@@ -878,10 +932,8 @@ static void usb_replug(uint32_t now_ms)
     usb.retry_ms = now_ms;
 }
 
-#if MELODEE_USB_AUDIO
-/* GLO > SYSTEM switches an audio device on or off (main loop). The host gets
- * the new configuration once the knob has rested for 0.6 s, so turning
- * through OFF and back costs no replug. ua_off_apply: 1 = replugged. */
+/* the menu's USB AUDIO switches a device on or off (main loop). The host gets the new configuration once the
+ * knob has rested for 0.6 s, so turning through OFF and back costs no replug. ua_off_apply: 1 = replugged. */
 static void ua_off_set(uint32_t bit, int on, uint32_t now_ms)
 {
     uint8_t want = (uint8_t)(on ? ua_off_want & ~bit : ua_off_want | bit);
@@ -898,6 +950,13 @@ static int ua_off_apply(uint32_t now_ms)
     ua_off = ua_off_want;
     usb_replug(now_ms);
     return 1;
+}
+
+/* TIMER5 (main.c), every 250 us at most and nested in the render too: the isochronous endpoints */
+static void ua_service(void)
+{
+    if (usb.up)
+        ua_hw_poll();
 }
 #endif
 

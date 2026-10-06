@@ -12,7 +12,7 @@
  * 4. OFF is transparent (the signal untouched), STUT repeats what the live step played.
  * 5. cost: instructions per sample of the mix, 4 SLICERs on against off (proc_pid_rusage).
  * Demos (WAV, 44.1 kHz) into DEMO_DIR: dry / gated / stuttered versions of a pad, the acid line, the
- * drums, and the song. */
+ * drums (track 4: SAMPLE PERC), and the song. */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -174,7 +174,7 @@ static void song_setup(void)
     static const uint8_t ACIDF[16] = {1, 0, 2, 0, 0, 0, 1, 2, 0, 0, 1, 0, 0, 2, 0, 1};
     static const uint8_t AM[4] = {57, 60, 64, 67}, FMI[4] = {53, 57, 60, 64};
     static const uint8_t LEAD[12] = {76, 0, 0, 79, 0, 0, 81, 0, 79, 0, 76, 0};
-    track_t *t1 = &trk[0], *t2 = &trk[1], *t3 = &trk[2], *td = TDRUM;
+    track_t *t1 = &trk[0], *t2 = &trk[1], *t3 = &trk[2], *td = &trk[3];
     uint32_t i;
     host_tracks_init();
     memset(sl, 0, sizeof sl);
@@ -182,6 +182,7 @@ static void song_setup(void)
     host_preset(t1, 0, 4);
     host_preset(t2, 1, 5);
     host_preset(t3, 3, 0);
+    host_legacy_sample_perc(td);                   /* saved SAMPLE PERC sound */
     for (i = 0; i < 16u; i++) {
         uint8_t n = ACID[i];
         put_step(t1, i, n ? 1u : 0u, &n, n ? ST_NOTE : ST_REST, ACIDF[i]);
@@ -332,12 +333,8 @@ static void demo_song(const char *dir, const char *name, const int16_t (*s)[4], 
     song_setup();
     for (k = 0; k < NTRK; k++) {
         set_slicer(&trk[k], s[k][0], s[k][1], s[k][2], s[k][3]);
-        if (solo && k + 1u != solo) {
-            if (k == TRK_DRUM)
-                song.g[G_DRLVL] = 0;
-            else
-                trk[k].p[P_LEVEL] = 0;
-        }
+        if (solo && k + 1u != solo)
+            trk[k].p[P_LEVEL] = 0;
     }
     transport_req = 1;
     wav_hdr(w, frames);

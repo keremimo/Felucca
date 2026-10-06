@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* I2S output (ALNK0 -> external codec) and the audio ISR: each half buffer is
- * rendered in blocks of CTL samples by mix_block (fx.c: events -> each synth part
- * -> dist -> level / pan -> sends -> drums -> buses -> master), then scaled to 24-bit stereo. */
+/* I2S output (ALNK0 -> external codec) and the
+ * audio ISR: per half buffer, blocks of CTL samples: mix_block (fx.c: events ->
+ * each synth part -> dist -> level / pan -> sends -> buses -> master) -> 24-bit stereo. */
 /* registers: hal/fm1_audio.h */
 #define HALF_WORDS (HALF_FRAMES * 2u)
-#define OUT_SHIFT 7               /* Q15 -> 24-bit, -6 dBFS ceiling */
+#define DAC_TICKS 544u            /* TIMER4 ticks per I2S frame (24 MHz / 44,117.6 Hz) */
+#define CPU_AVG (4096u / HALF_FRAMES)   /* halves the load meter averages: ~93 ms whatever the half */
+#define OUT_SHIFT 7               /* Q15 -> 24-bit, -6 dBFS ceiling (M0f ran clean at -18 dBFS) */
 
 static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(4)));
 
@@ -18,6 +20,8 @@ struct melodee_dbg {
     uint32_t prev_stage, prev_page, prev_home, prev_rst, prev_frames;   /* as found at boot */
 } melodee_dbg __attribute__((section(".noinit")));
 static volatile uint32_t audio_halves, audio_max_us;
+static volatile uint32_t t5_nested_ticks;              /* TIMER4 ticks TIMER5 spent nested in this ISR (main.c) */
+static uint32_t audio_cpu_rem;                         /* keep the fractional IIR step: no low-load bias */
 #define SCOPE_N 512u
 static int16_t scope_buf[SCOPE_N];
 static uint32_t scope_w;
@@ -27,8 +31,9 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
     uint32_t i;
     mix_block(out, n);
 #if MELODEE_USB_AUDIO
-    /* TIMER5 outranks rendering in audio mode. Serialize only the short PCM
-     * copy, including stream resets/alt changes, not the synth/FX work. */
+    /* the USB audio rings (usb_audio_stream.c): the track stems in, Melodee Out's playback into the output.
+     * TIMER5 serves the endpoints nested in this render (main.c): only this short copy goes without IRQs,
+     * stream resets and alternate changes included, not the synth and FX work */
     fm1_irq_off();
     if (usb.up && usb.config && !usb.suspended)
         ua_audio(out, track_capture, n, song.master_q12);
@@ -42,17 +47,27 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
     }
 }
 
-/* overload: a half that took > 85 % of its time sheds one voice before the
- * next one, over all parts: the quietest releasing voice fades out over the next
- * block (voice_kill), else the oldest held one goes into its release (stopped by
- * a later shed if still needed). The only held voice is never touched, so a dense
- * chord on a heavy engine thins out instead of starving the CPU. */
+/* Overload: two halves in a row above 85 % (the render plus TIMER5 nested in it), fade one voice over the
+ * next block, and one more each half while it lasts. Keep each part's
+ * lowest POLY note and MONO / LEGATO / UNISON lead, as the shared budget does. */
 static volatile uint8_t shed_req;
+static uint8_t shed_over;                              /* bit k: the half k halves ago was over 85 % */
+#define SHED_TICKS ((HALF_FRAMES * 1000000u / FS) * 85u / 100u * FM1_TICKS_PER_US)   /* 85 % of a half */
 static uint32_t shed_count;
+
+/* end of a half: all = its ticks, TIMER5 nested in it included -> the render alone in us. The deadline sees
+ * both; shed after 2 overloaded halves in a row (out of line: keeps the ISR's render loops as they were) */
+static __attribute__((noinline)) uint32_t shed_check(uint32_t all)
+{
+    shed_over = (uint8_t)(shed_over << 1 | (all > SHED_TICKS));
+    if ((shed_over & 3u) == 3u)
+        shed_req = 1;
+    return (all - t5_nested_ticks) / FM1_TICKS_PER_US;
+}
 
 static void shed_voice(void)
 {
-    uint32_t p, i, ngate = 0;
+    uint32_t p, i;
     voice_t *best = 0;
     for (p = 0; p < NPART; p++)
         for (i = 0; i < NVOICE; i++) {
@@ -65,28 +80,33 @@ static void shed_voice(void)
         shed_count++;
         return;
     }
-    for (p = 0; p < NPART; p++)
+    for (p = 0; p < NPART; p++) {
+        const track_t *t = &trk[p];
+        uint32_t mode = trk_vmode(t), low = mode == V_POLY ? lowest_held(t) : 0u;
         for (i = 0; i < NVOICE; i++) {
             voice_t *v = &trk[p].v[i];
-            if (v->active && v->gate) {
-                ngate++;
+            if (v->active && v->gate && v->stage != 4u &&
+                ((mode == V_POLY && i != low) || (mode != V_POLY && i > 0u))) {
                 if (!best || v->age < best->age)
                     best = v;
             }
         }
-    if (ngate > 1u) {
-        best->gate = 0;
-        best->stage = 3;
+    }
+    if (best) {
+        voice_kill(best);
         shed_count++;
     }
 }
 
 void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) */
 {
-    uint8_t p = fm1_audio_pending();
-    uint32_t t0 = fm1_ticks();
+    uint8_t p;
+    uint32_t t0;
+    melodee_dbg.in_audio = 1;                   /* first: TIMER5 nests from here on (main.c) */
+    p = fm1_audio_pending();
+    t0 = fm1_ticks();
+    t5_nested_ticks = 0;
     fm1_audio_ack_aux(p);
-    melodee_dbg.in_audio = 1;
     if (p & FM1_AUDIO_HALF) {
         uint32_t half = fm1_audio_free_half(), b, us;
         int32_t *o = &abuf[half * HALF_WORDS];
@@ -94,16 +114,22 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
             shed_req = 0;
             shed_voice();
         }
-        for (b = 0; b < HALF_FRAMES; b += CTL)
+        for (b = 0; b < HALF_FRAMES; b += CTL) {
+#ifdef FM1_INPUT_LAT
+            kb_out_tick = t0 + (HALF_FRAMES + b) * DAC_TICKS;   /* when this block plays (seq.c kb_lat) */
+#endif
             audio_block(o + 2u * b, CTL);
+        }
         fm1_audio_ack_half();
         audio_halves++;
-        us = (fm1_ticks() - t0) / FM1_TICKS_PER_US;
+        us = shed_check(fm1_ticks() - t0);
         if (us > audio_max_us)
             audio_max_us = us;
-        if (us * 100u > (HALF_FRAMES * 1000000u / FS) * 85u)
-            shed_req = 1;
-        song.cpu_q8 = (song.cpu_q8 * 15u + (us * 256u) / (HALF_FRAMES * 1000000u / FS)) / 16u;
+        {
+            uint32_t load = song.cpu_q8 * (CPU_AVG - 1u) + (us * 256u) / (HALF_FRAMES * 1000000u / FS) + audio_cpu_rem;
+            song.cpu_q8 = load / CPU_AVG;
+            audio_cpu_rem = load % CPU_AVG;
+        }
         if (fm1_audio_free_half() != half)
             melodee_dbg.late++;                         /* the DMA moved on while we rendered */
         melodee_dbg.halves++;
@@ -116,7 +142,7 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
 }
 extern void isr_alnk0(void);
 
-static void audio_init(void)                   /* hal/fm1_audio.h */
+static void audio_init(void)                   /* codec and ALNK0 bring-up (fm1_audio.h) */
 {
     uint32_t i;
     for (i = 0; i < 2u * HALF_WORDS; i++)

@@ -14,7 +14,7 @@ FIELDS = (
     'poll_max_us', 'service_max_us', 'audio_late', 'feedback_q14',
     'audio_max_us', 'cpu_q8',
 )
-HEADER = [0x7D, 0x46, 0x4C, 33]
+HEADER = [0x7D, 0x46, 0x4C, 72]
 
 
 def snapshot(incoming, outgoing, window=False):
@@ -30,7 +30,7 @@ def snapshot(incoming, outgoing, window=False):
             return {field: sum(data[1 + i * 5 + j] << (7 * j) for j in range(5))
                     for i, field in enumerate(FIELDS)}
         time.sleep(0.005)
-    raise TimeoutError('No USB audio diagnostics reply; requires an audio build with command 33')
+    raise TimeoutError('No USB audio diagnostics reply; requires a USB audio build (editor command 72)')
 
 
 def main():

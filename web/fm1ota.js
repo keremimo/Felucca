@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 //
-// The FM-1 USB-MIDI update protocol (M-UPGRADE compatible) over WebMIDI.
-// Step 1: the running firmware reads parts of the package and stages the update
-// loader. Step 2: the loader reads the whole image and writes it. In both steps
-// the device sends cmd 0x30 read requests on the logical image and we answer.
+// The FM-1 USB-MIDI update protocol over WebMIDI (after tools/fm1_install.py).
+// Step 1: the running firmware (official
+// or Melodee) reads parts of the package and stages the update loader. Step 2:
+// the loader reads the whole image and writes it. Both steps are "the device
+// asks, we answer": cmd 0x30 read requests on the logical image.
 
 const HS_QUERY = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7];
 const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
@@ -119,7 +120,7 @@ export class Updater {
     for (const input of this.access.inputs.values()) {
       if (input.state === "disconnected") continue;
       if (!/fm-1|melodee|felucca|ota|composite|sinco|usb-midi/i.test(input.name || "")) continue;   // never probe other gear
-      const output = outs.find((o) => o.name === input.name) || (outs.length === 1 ? outs[0] : null);
+      const output = outs.find((o) => o.name === input.name && o.state !== "disconnected");
       if (!output) continue;
       try { await input.open(); await output.open(); } catch (_) { continue; }
       const link = new Link(input, output);
@@ -184,7 +185,7 @@ export class Updater {
     if (!s1.finished) throw fail(s1.lost ? "lost" : "stopped", `the device ${s1.lost ? "was disconnected" : "stopped"} after ${s1.served} requests: nothing was written`);
     step("loader");
     await sleep(3000);
-    const ota = await this.waitFor(IS_OTA, 30000);
+    const ota = await this.waitFor((id) => id.model === "ota-" + model, 30000);
     if (!ota) throw fail("noloader", "the update loader did not appear. Replug the USB cable and press Install again: the device stays in update mode until it is finished.");
     const s2 = await this.write(ota, image, step);
     if (!s2.finished) throw fail(s2.lost ? "lost" : "stopped", `the loader ${s2.lost ? "was disconnected" : "stopped"} after ${s2.served} requests. Replug and press Install again to resume.`);
@@ -208,9 +209,22 @@ export class Updater {
   }
 
   // resume: the device is already in update mode (loader) -> true when the write finished
-  async resume(image, onStep) {
-    const ota = await this.find(IS_OTA);
+  async resume(image, onStep, product = null) {
+    const model = product && product.split("_")[0];
+    const ota = await this.find((id) => model ? id.model === "ota-" + model : IS_OTA(id));
     if (!ota) return false;
-    return (await this.write(ota, image, onStep || (() => {}))).finished;
+    const step = onStep || (() => {});
+    const result = await this.write(ota, image, step);
+    if (!result.finished) return false;
+    if (product) {
+      step("reboot");
+      await sleep(3000);
+      const back = await this.waitFor((id) => id.model === model, 40000);
+      if (!back) throw fail("noreturn", "The FM-1 did not return after resuming the write.");
+      back.link.close();
+      if (back.id.text !== product) throw fail("mismatch", "The FM-1 reports a different firmware after resuming.", back.id.text);
+      step("done", back.id.text);
+    }
+    return true;
   }
 }

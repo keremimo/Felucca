@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* FM6 factory voices (VOICE R01..): Melodee's own DX7 voices; SEND puts any of them out
+/* FM6 factory voices (PTCH F9..F24): Melodee's own DX7 voices; SEND puts any of them out
  * as a DX7 single-voice dump.
  *
  * OP(EG rates 1-4, EG levels 1-4, key level scaling: break point, left / right depth,
@@ -143,10 +143,6 @@ static const fm6_rom_t FM6_ROM[] = {
 };
 #define FM6_NROM (sizeof FM6_ROM / sizeof FM6_ROM[0])
 
-/* the DX7 init voice (INIT on the STORE page): OP1 alone, every envelope open */
-static const fm6_rom_t FM6_INIT =
-    VOICE(OP(99, 99, 99, 99, 99, 99, 99, 0, 39, 0, 0, 0, 0, 0, 0, 0, 99, 1, 0, 0), OP_OFF, OP_OFF, OP_OFF, OP_OFF,
-          OP_OFF, PEG_FLAT, 1, 0, 1, LFO(35, 0, 0, 0, 1, 0, 0), "INIT VOICE");
 #undef OP
 #undef OPX
 #undef OP_OFF

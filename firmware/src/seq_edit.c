@@ -1,15 +1,9 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
-/* Note lengths use ordinary NOTE + TIE steps: no project or protocol changes.
- * These helpers run in the UI; playback keeps using the existing ties. */
-static int step_on(const step_t *st) { return st->time == ST_NOTE && st->n; }
-
-static void step_clear(step_t *st)
-{
-    st->n = 0;
-    st->time = ST_REST;
-    st->flags = 0;
-    st->vel = 0;
-}
+/* SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
+/* A note's length on SEQ > STEP (ui_input.c): its onset step and the TIE steps after it, as the sequencer plays
+ * them: no project or protocol changes. ENV + SELECT resizes it, SCL + SELECT moves it, FX or EDIT deletes it with its
+ * ties. Hold keys or MIDI notes, turn SELECT, then release to advance past the note. Wraps over the pattern's loop (LEN). UI only;
+ * the caller keeps an edit whole for the audio ISR (seq_undo.c). A note: a NOTE step with notes (ui.c step_on) */
 
 static uint32_t step_pattern_len(const track_t *t)
 {

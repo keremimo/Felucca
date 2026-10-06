@@ -17,7 +17,7 @@
  * Power loss during 3: the record is still there, the SPL runs the loader
  * again on the next power-on and the host can resume.
  *
- * Hooks from the platform (loader.c, tests/ldr_test.c):
+ * Hooks from the platform (loader.c, ldr_test.c):
  *   ldr_fread(off, p, n)  ldr_erase(off)  ldr_prog(off, p, n)   flash, 0 = ok
  *   ldr_record_clear()    forget the RAM update record
  *   ldr_progress(done, total)
