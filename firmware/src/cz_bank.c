@@ -62,7 +62,7 @@ static void cz_bank_poll(void)
         uint8_t raw[CZ_BYTES];int ok=1;
         if(!t->p[P_E1])cz_patch_init(raw);
         else ok=cz_user_bank_read && !cz_user_bank_read((uint32_t)t->p[P_E0],(uint32_t)t->p[P_E1]-1u,raw);
-        if(ok){fm1_irq_off();memcpy(cz_patch[k].raw,raw,CZ_BYTES);panic_req|=(uint8_t)(1u<<k);fm1_irq_on();}
+        if(ok){fm1_irq_off();memcpy(cz_patch[k].raw,raw,CZ_BYTES);panic_req|=(uint8_t)(1u<<k);fm1_irq_on();cz_compare_drop(k);}
         cz_user_pick[k]=(uint16_t)pick;
     }
 }

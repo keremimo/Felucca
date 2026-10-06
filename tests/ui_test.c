@@ -2232,6 +2232,112 @@ static int engine_cycle(const char *const *want, uint32_t n)   /* EDIT tapped fr
     }
     return ok;
 }
+/* CZ-1: every value of the native Casio tone on its own page (cz_edit.h), knob edits written into the
+ * 144 bytes; an edit leaves the bytes it does not encode verbatim; SUS stays before END; the TOOLS
+ * page copies a line, compares with the tone as loaded, names the tone */
+static int test_cz1_pages(void)
+{
+    static const char *const CYC[] = {"EDIT 1", "EDIT 2", "CZ TOOLS", "CZ LINE", "CZ DETUNE", "CZ VIBRATO",
+        "CZ WINDOW", "CZ1 WAVE", "CZ1 TOUCH",
+        "C1 PIT R1-4", "C1 PIT R5-8", "C1 PIT L1-4", "C1 PIT L5-8", "C1 PIT POINT",
+        "C1 WAV R1-4", "C1 WAV R5-8", "C1 WAV L1-4", "C1 WAV L5-8", "C1 WAV POINT",
+        "C1 AMP R1-4", "C1 AMP R5-8", "C1 AMP L1-4", "C1 AMP L5-8", "C1 AMP POINT",
+        "CZ2 WAVE", "CZ2 TOUCH",
+        "C2 PIT R1-4", "C2 PIT R5-8", "C2 PIT L1-4", "C2 PIT L5-8", "C2 PIT POINT",
+        "C2 WAV R1-4", "C2 WAV R5-8", "C2 WAV L1-4", "C2 WAV L5-8", "C2 WAV POINT",
+        "C2 AMP R1-4", "C2 AMP R5-8", "C2 AMP L1-4", "C2 AMP L5-8", "C2 AMP POINT",
+        "VOICE", "VOICE 2", "EDIT 1"};
+    uint8_t p[LCZ_PACKED], q[LCZ_PACKED], raw[CZ_BYTES], before[CZ_BYTES];
+    uint32_t tr, id, v, i, ok = 1, sane = 1, kept = 1;
+    int bad = 0;
+    ui_power_on();
+    stop_transport();
+    tr = song.sel % NTRK;
+    set_engine_of(TSEL, ENGI_CZ);
+    frame();
+    bad += check("CZ-1 EDIT cycle: EDIT 1 EDIT 2, 39 tone pages, VOICE VOICE 2", engine_cycle(CYC, NELEM(CYC)));
+    /* every value, every setting: what is put reads back; the others stay (END's level, a SUS past END aside) */
+    for (id = 0; id < LCZ_NP; id++) {
+        if (!CZ_PD[id].label)
+            continue;
+        for (v = (uint32_t)CZ_PD[id].min; v <= (uint32_t)CZ_PD[id].max; v++) {
+            cz_patch_init(cz_patch[tr].raw);
+            cz_ed_decode(p, cz_patch[tr].raw);
+            if (!cz_ed_put(tr, id, v, raw)) {           /* no change: already that, or END's level / SUS */
+                uint32_t k = id - LCZ_EBASE(0, 0), e = LCZ_EBASE(0, 0) + k / 18u * 18u;
+                ok &= p[id] == v || (id >= LCZ_EBASE(0, 0) && id < LCZ_OLD_NP &&
+                                     (k % 18u == 16u || (k % 18u >= 8u && k % 18u < 16u && id - e - 8u == p[e + 17u])));
+                continue;
+            }
+            sane &= cz_patch_valid(raw);
+            cz_ed_decode(q, raw);
+            if (id < LCZ_EBASE(0, 0) || id >= LCZ_OLD_NP || (id - LCZ_EBASE(0, 0)) % 18u != 16u) {   /* (SUS: below) */
+                if (id >= LCZ_EBASE(0, 0) && id < LCZ_OLD_NP && (id - LCZ_EBASE(0, 0)) % 18u >= 8u &&
+                    (id - LCZ_EBASE(0, 0)) % 18u < 16u) {
+                    uint32_t e = LCZ_EBASE(0, 0) + (id - LCZ_EBASE(0, 0)) / 18u * 18u;
+                    if (id - e - 8u == q[e + 17u]) continue;   /* END's own level: always 0 */
+                }
+                ok &= q[id] == v;
+            }
+            for (i = 0; i < LCZ_PACKED; i++)
+                if (i != id && q[i] != p[i] && !(i >= LCZ_EBASE(0, 0) && i < LCZ_OLD_NP &&
+                                                 (i - LCZ_EBASE(0, 0)) % 18u >= 8u))
+                    ok = 0;
+        }
+    }
+    bad += check("CZ-1 every panel value round-trips through the native bytes, alone", ok);
+    bad += check("CZ-1 every edit leaves a valid native tone", sane);
+    /* an imported tone: rates off Melodee's 0..99 grid stay exact unless their own value is turned */
+    cz_patch_init(cz_patch[tr].raw);
+    for (i = 0; i < 8u; i++) cz_patch[tr].raw[CZ_ENV_BASE[0][1] + 2u * i] = (uint8_t)(13u + 7u * i);
+    memcpy(before, cz_patch[tr].raw, CZ_BYTES);
+    if (cz_ed_put(tr, LCZ_EBASE(0, 0) + 9u, 40u, raw))     /* C1 PIT L2 */
+        for (i = 0; i < 8u; i++) kept &= raw[CZ_ENV_BASE[0][1] + 2u * i] == before[CZ_ENV_BASE[0][1] + 2u * i];
+    else
+        kept = 0;
+    for (i = 0; i < 128u; i++)
+        if (raw[i] != before[i] && (i < CZ_ENV_BASE[0][0] - 1u || i > CZ_ENV_BASE[0][0] + 15u)) kept = 0;
+    bad += check("CZ-1 an edit rewrites its own envelope only; imported rates elsewhere stay verbatim", kept);
+    /* the knobs: CZ DETUNE FINE up 5 -> 5; C1 AMP POINT SUS past END -> "-", back down -> END - 1 */
+    cz_patch_init(cz_patch[tr].raw);
+    cz_track_accept(TSEL);
+    go_title("CZ DETUNE");
+    turn(EN_K4, 5);
+    cz_ed_decode(p, cz_patch[tr].raw);
+    bad += check("CZ-1 CZ DETUNE KNOB 4 turns FINE in the track's tone", p[LCZ_FINE] == 5u);
+    go_title("C1 AMP POINT");
+    cz_ed_decode(p, cz_patch[tr].raw);
+    id = LCZ_EBASE(0, 2) + 16u;
+    for (i = 0; i < 12u && p[id] != 8u; i++) { turn(EN_K1, 1); cz_ed_decode(p, cz_patch[tr].raw); }
+    ok = p[id] == 8u;
+    turn(EN_K1, -1);
+    cz_ed_decode(p, cz_patch[tr].raw);
+    bad += check("CZ-1 SUS turned past END shows -, turned back lands before END",
+                 ok && p[id + 1u] && p[id] == p[id + 1u] - 1u);
+    /* TOOLS: COMP swaps with the tone before the edits, 1 > 2 copies line 1 over line 2 */
+    go_title("CZ TOOLS");
+    memcpy(before, cz_patch[tr].raw, CZ_BYTES);
+    turn(EN_K4, 1);
+    press(B_OCTUP);
+    cz_ed_decode(p, cz_patch[tr].raw);
+    ok = p[LCZ_FINE] == 0u;
+    turn(EN_K4, 1);
+    press(B_OCTUP);
+    bad += check("CZ-1 TOOLS COMP: the tone as loaded, then the edit again",
+                 ok && !memcmp(before, cz_patch[tr].raw, CZ_BYTES));
+    cz_patch[tr].raw[14] = 0xA0;                         /* line 1: DBL SINE */
+    turn(EN_K2, 1);
+    press(B_OCTUP);
+    bad += check("CZ-1 TOOLS 1 > 2: line 2 is line 1's block, MOD stays line 1's",
+                 !memcmp(cz_patch[tr].raw + 71, cz_patch[tr].raw + 14, 57) && (cz_patch[tr].raw[72] & 0x38u) == 0u);
+    turn(EN_K1, 1);
+    press(B_OCTUP);
+    ok = name_on() && nm.kind == NK_CZ_NAME && str_eq(nm.s, "INIT");
+    name_close();
+    bad += check("CZ-1 TOOLS NAME opens the tone's 16-character name", ok);
+    return bad;
+}
+
 static int test_edit_cycle(void)
 {
     static const char *const CYC_A[] = {"EDIT 1", "EDIT 2", "VOICE", "VOICE 2", "EDIT 1"};
@@ -3820,6 +3926,7 @@ int main(void)
     bad += test_layer();
     bad += test_name();
     bad += test_edit_cycle();
+    bad += test_cz1_pages();
     bad += test_fm6_pages();
     bad += test_boot_template();
     bad += test_key_lights();

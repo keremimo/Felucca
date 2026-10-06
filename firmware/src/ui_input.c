@@ -491,6 +491,17 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max));
     *vp = (int16_t)v;
+    if (pg->scope == SC_CZ1) {                           /* (a copy of the tone's value: written back there) */
+        uint8_t raw[CZ_BYTES];
+        uint32_t tr = song.sel % NTRK;
+        if (cz_ed_put(tr, pg->id[slot], (uint32_t)v, raw)) {
+            cz_compare_take(tr);
+            fm1_irq_off();
+            memcpy(cz_patch[tr].raw, raw, 128u);
+            fm1_irq_on();
+        }
+        return;
+    }
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* (a copy of FM6's value: written back there) */
         fm6_page_put(pg, slot, v);
         return;
@@ -510,6 +521,34 @@ static void edit_param(uint32_t slot, int32_t steps)
         scale_share(TSEL);
 }
 
+/* CZ TOOLS 1 > 2 / 2 > 1: line src's wave, window, key follow, level, velocity and envelopes over the other
+ * line (Casio's 57-byte line block); MOD stays line 1's. Undoable as a sound load */
+static void cz_line_copy(track_t *t, uint32_t src)
+{
+    uint8_t *b = cz_patch[trk_index(t)].raw;
+    uint32_t s = src ? 71u : 14u, d = src ? 14u : 71u, mod = b[d + 1u] & 0x38u;
+    cz_compare_take(trk_index(t));
+    load_begin(t, UNDO_SOUND);
+    fm1_irq_off();
+    memcpy(b + d, b + s, 57u);
+    b[d + 1u] = (uint8_t)((b[d + 1u] & ~0x38u) | mod);
+    fm1_irq_on();
+    load_end(t);
+}
+
+/* CZ TOOLS COMP: the tone before the first edit and the edited one change places; 0 = nothing edited */
+static int cz_compare_swap(uint32_t tr)
+{
+    cz_patch_t x = cz_patch[tr % NTRK];
+    if (cz_compare_tr != tr % NTRK + 1u)
+        return 0;
+    fm1_irq_off();
+    cz_patch[tr % NTRK] = cz_compare;
+    fm1_irq_on();
+    cz_compare = x;
+    return 1;
+}
+
 /* OCT+ on an action page: the picked action. A load stays picked (browse and load again); the others
  * are dropped once done. Flash writes only while stopped; over the user's data: the dialog */
 static void act_do(void)
@@ -517,6 +556,21 @@ static void act_do(void)
     uint32_t c = act_col(), id, k = (uint32_t)song.g[G_SLOT] - 1u;
     if (!c--)
         return;
+    if (cur_page()->graph == GR_CZTOOLS) {               /* CZ-1: NAME, copy a line over the other, COMPARE */
+        uint32_t tr = song.sel % NTRK;
+        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+        if (c == 0u) {
+            name_open(NK_CZ_NAME, tr);
+        } else if (c < 3u) {
+            cz_line_copy(TSEL, c == 1u ? 0u : 1u);
+            ui_message(c == 1u ? "LINE 1 > 2" : "LINE 2 > 1");
+        } else {
+            ui_message(cz_compare_swap(tr) ? "COMPARE / EDIT" : "NO EDITS");
+        }
+        ui.act = 0;
+        ui.force = 1;
+        return;
+    }
     if (cur_page()->graph == GR_MOTION) {
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
         confirm_open(CF_CLEAR_MOTION, song.sel);

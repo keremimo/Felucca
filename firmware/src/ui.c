@@ -134,6 +134,8 @@ static int page_visible(uint32_t i)
 {
     if (PAGES[i].scope == SC_CZ)
         return TSEL->eng_req == 2u && TSEL->p[P_E7] == 1;
+    if (PAGES[i].scope == SC_CZ1)
+        return TSEL->eng_req == ENGI_CZ;               /* CZ-1's tone: every panel value */
     if (PAGES[i].id[0] == P_MPCDEG && PAGES[i].scope == SC_TRACK)
         return TSEL->p[P_QUANT] == Q_MPC;
     if (PAGES[i].scope == SC_FM6 || PAGES[i].scope == SC_FMOP)
@@ -1059,6 +1061,8 @@ static uint32_t act_cols(void)                   /* the columns that are actions
         return slice_page_ok() ? 12u : 0u;       /* SPLIT JOIN (a SLICE track only) */
     if (pg->graph == GR_FMSTORE)
         return 14u;                              /* STORE SEND INIT */
+    if (pg->graph == GR_CZTOOLS)
+        return 15u;                              /* NAME 1>2 2>1 COMP */
     if (pg->scope == SC_GLOBAL)
         for (c = 0; c < 4u; c++)
             if (go_id(pg->id[c]))
@@ -1092,6 +1096,8 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
         return c == 3u ? "JOIN" : "SPLIT";
     if (cur_page()->graph == GR_FMSTORE)
         return c == 1u ? "STORE" : c == 2u ? "SEND" : "INIT";
+    if (cur_page()->graph == GR_CZTOOLS)
+        return CZ_ACTIONS[c & 3u].label;
     return id == G_CLRSEQ ? "CLEAR" : id == G_INITSND ? "INIT" : id == G_LOAD ? "LOAD" : "SAVE";
 }
 
@@ -1118,6 +1124,8 @@ static int act_ready(void)
 #endif
     if (cur_page()->graph == GR_FMSTORE)
         return c != 1u || !song.playing;             /* STORE writes flash: stopped */
+    if (cur_page()->graph == GR_CZTOOLS)
+        return !chain_busy();
     id = cur_page()->id[c & 3u];
     if (id == G_LOAD && song.g[G_SLOT] == PROJ_TMPL)
         return template_used();

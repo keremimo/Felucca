@@ -5,7 +5,17 @@
 static int (*cz_user_bank_read)(uint32_t,uint32_t,uint8_t *);
 static uint16_t cz_user_pick[NTRK];
 static const char *const N_CZ_BANK[]={"A","B","C","D","E","F","G","H"};
-static void cz_track_accept(track_t *t){cz_user_pick[(uint32_t)(t-trk)%NTRK]=(uint16_t)(t->p[P_E0]*17+t->p[P_E1]);}
+/* COMP (the CZ TOOLS page): one track's tone as it was before its first edit, swapped with the
+ * edited one. One copy (pool space): the first edit takes it, a tone loaded on that track drops it */
+static cz_patch_t cz_compare __attribute__((section(".pool")));
+static uint8_t cz_compare_tr;                    /* the track + 1 whose tone cz_compare holds; 0 none */
+static void cz_compare_drop(uint32_t tr){if(cz_compare_tr==tr%NTRK+1u)cz_compare_tr=0;}
+static void cz_compare_take(uint32_t tr)
+{
+    if(cz_compare_tr==tr%NTRK+1u)return;
+    cz_compare=cz_patch[tr%NTRK];cz_compare_tr=(uint8_t)(tr%NTRK+1u);
+}
+static void cz_track_accept(track_t *t){uint32_t tr=(uint32_t)(t-trk)%NTRK;cz_user_pick[tr]=(uint16_t)(t->p[P_E0]*17+t->p[P_E1]);cz_compare_drop(tr);}
 static void cz_bank_poll(void);
 static int cz_native_done(track_t *t, voice_t *v)
 {
