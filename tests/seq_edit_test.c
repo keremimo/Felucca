@@ -239,14 +239,15 @@ static int test_step_modifiers(void)
     hold(B_SAVE);
     bad += check("one SCL-held movement gesture is one undo", step_note_length(t, 4) == 4 && ui.cursor == 4);
     history_key(B_OCTUP);
-    cursor_set(7); frame(); press(B_FX);
-    bad += check("FX deletes a selected note and all ties, advances from its onset", !step_on(&t->step[6]) && t->step[7].time == ST_REST && ui.cursor == 7 && cur_page()->graph == GR_ROLL);
-    fm1_in.buttons |= 1u << panel.btn[B_FX]; host_pressed |= 1u << panel.btn[B_FX]; frame();
-    press(B_OCTDN); fm1_in.buttons &= ~(1u << panel.btn[B_FX]); frame();
-    bad += check("FX then OCT- undoes without deletion, navigation or octave shift", step_note_length(t, 6) == 4 && ui.cursor == 7 && !song.octave && cur_page()->graph == GR_ROLL);
-    fm1_in.buttons |= 1u << panel.btn[B_OCTUP]; host_pressed |= 1u << panel.btn[B_OCTUP]; frame();
-    press(B_FX); fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]); frame();
-    bad += check("OCT+ then FX redoes, either modifier order works", !step_on(&t->step[6]) && ui.cursor == 7 && !song.octave && cur_page()->graph == GR_ROLL);
+    cursor_set(7); frame(); press(B_EDIT);
+    bad += check("EDIT deletes a selected note and all ties, advances from its onset", !step_on(&t->step[6]) && t->step[7].time == ST_REST && ui.cursor == 7 && cur_page()->graph == GR_ROLL);
+    history_key(B_OCTDN);
+    bad += check("SAVE + OCT- undoes the delete without navigation or octave shift", step_note_length(t, 6) == 4 && ui.cursor == 7 && !song.octave && cur_page()->graph == GR_ROLL);
+    history_key(B_OCTUP);
+    bad += check("SAVE + OCT+ redoes it", !step_on(&t->step[6]) && ui.cursor == 7 && !song.octave && cur_page()->graph == GR_ROLL);
+    put_note(t, 7, 62, 1); frame(); press(B_FX);
+    bad += check("FX tapped on STEP: its page, the note stays (EDIT deletes)", step_on(&t->step[7]) && cur_page()->fam == FAM_FX);
+    t = edit_setup(); cursor_set(7); frame();
     press(B_OCTDN); press(B_OCTUP);
     bad += check("plain STEP OCT taps move the cursor instead of shifting octave", ui.cursor == 7 && !song.octave);
 
