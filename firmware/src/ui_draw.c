@@ -700,8 +700,9 @@ static void draw_columns(void)
         } else {
             param_format(d, *vp, val, &unit);
         }
-        draw_column(c, d->label, val, unit, VAL(c), d->fmt == F_ENUM && d->max < 2 ? -1 : RATIO(d, *vp),
-                    param_icon(d, *vp));
+        draw_column(c, d->label, val, unit, cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
+                    !cz_ed_active(cz_patch[song.sel % NTRK].raw, cur_page()->id[c]) ? T_DIM : VAL(c),
+                    d->fmt == F_ENUM && d->max < 2 ? -1 : RATIO(d, *vp), param_icon(d, *vp));
     }
 }
 

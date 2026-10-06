@@ -69,6 +69,32 @@ static __attribute__((noinline)) void cz_ed_decode(uint8_t *p,const uint8_t *d)
     memcpy(p+LCZ_NP,d+128,CZ_NAME_LEN);
 }
 
+/* 0: panel value id has no effect on the tone d as it is (cz_native_render reads it so): its card is drawn
+ * dim (ui_draw.c). Line 2's own values sound in LINE2 and 1+2' (1+1' copies line 1), line 1's in all but
+ * LINE2; DETUNE and MOD act on line 2; SIGN on a detune; vibrato WAVE RATE DELAY need a DEPTH. An envelope
+ * runs its steps up to END: rates to END's (the release to 0), levels before END's, a SUS before END */
+static int cz_ed_active(const uint8_t *d, uint32_t id)
+{
+    uint32_t ls = d[0] & 3u, line, k, e, end;
+    if (id == LCZ_SIGN)
+        return ls && ((d[2] >> 2) || d[3]);
+    if ((id >= LCZ_DOCT && id <= LCZ_FINE) || id == LCZ_MOD)
+        return ls != 0u;
+    if (id == LCZ_VWAVE || id == LCZ_VRATE || id == LCZ_VDELAY)
+        return d[11] != 0u;
+    if (id < LCZ_GLOBALS || id >= LCZ_NP)
+        return 1;
+    line = id >= LCZ_WIN(0) ? id - LCZ_WIN(0) : id < LCZ_EBASE(0, 0) ? (id - LCZ_GLOBALS) / 8u : (id - LCZ_EBASE(0, 0)) / 54u;
+    if (line ? ls != 1u && ls != 3u : ls == 1u)
+        return 0;
+    if (id < LCZ_EBASE(0, 0) || id >= LCZ_OLD_NP)
+        return 1;
+    k = (id - LCZ_EBASE(0, 0)) % 18u;
+    e = (id - LCZ_EBASE(0, 0)) / 18u % 3u;
+    end = d[(line ? 71u : 14u) + (e == 2u ? 6u : e == 1u ? 23u : 40u)] & 7u;
+    return k < 8u ? k <= end : k < 16u ? k - 8u < end : k == 16u ? end != 0u : 1;
+}
+
 static int16_t cz_ed_cell[4];                    /* the shown values (page_desc): copies */
 
 static const param_desc_t *cz_ed_desc(uint32_t tr,uint32_t id,uint32_t slot,int16_t **valp)

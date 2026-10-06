@@ -110,7 +110,9 @@ static __attribute__((noinline)) int32_t cz_native_vibrato(cz_voice_t *c, const 
     else if (b[4] & 4u) wave = x-32768;
     else wave = x < 32768 ? -32768 : 32767;
     uint32_t depth = (uint32_t)b[12] | (uint32_t)b[13] << 8;
-    return (wave * (int32_t)depth) >> 19;              /* 1/16-semitone pitch */
+    /* 1/16-semitone pitch, toward zero: DEPTH 0 is machine depth 1 (Casio p. 85), which must not bend
+     * the negative half of the wave down a step */
+    return (wave * (int32_t)depth) / (1 << 19);
 }
 static __attribute__((noinline)) void cz_native_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {

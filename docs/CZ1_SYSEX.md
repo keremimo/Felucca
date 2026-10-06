@@ -71,6 +71,21 @@ B C-1..D-8, C E-1..F-8, D G-1..H-8 (16 a bank, in the CZ-1's order); E–H start
 (even emptied) keeps yours; a backup carries only saved banks, so restoring one without a bank brings
 the factory tones back. PRESETS 1–64 load the same tones (BANK / PTCH follow) whatever the banks hold.
 
+## Device pages: dim values
+
+The CZ-1 EDIT pages show every panel value of the tone; a value drawn dim (grey) has no effect on the tone as it
+is, exactly as the CZ plays it:
+
+- line 2's own values sound only in LINE2 and 1+2' (1+1' plays line 1's values twice); line 1's not in LINE2
+- DETUNE (SIGN, OCT, NOTE, FINE) and MOD act on line 2 (SIGN only on a nonzero detune)
+- vibrato WAVE, RATE and DELAY need a DEPTH above 0
+- an envelope runs its steps up to END: the rates up to END's (the release to 0), the levels before END
+  (END's own level is always 0), and SUS needs a step before END
+
+Velocity amounts (V.PIT, V.WAV, V.AMP) follow MIDI note velocity; the FM-1's keys play at a fixed velocity.
+`tests/cz1_knob_test.c` renders every value at its minimum and maximum: all change a tone that uses every
+part of the CZ, and every dim one leaves INIT, factory tones and a LINE2 tone bit for bit.
+
 These tones have no sustain point in several DCA envelopes (BELLS, SITAR, JET ROAR): as on the CZ, the
 whole envelope plays regardless of the key, so such notes ring long after release.
 
