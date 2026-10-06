@@ -13,7 +13,7 @@
   web/make_site.py build/melodee-X.Y.fwsc X.Y OUT_DIR
 
 The package must be one made by tools/fm1pkg_make.py (Melodee's own loader, no vendor files).
-Its identity (FM-1_9xx) is read from the package; the device must report it after
+Its identity (FM-1_9xx, FM-1_9xxx from 0.10) is read from the package; the device must report it after
 the install.
 """
 import json
@@ -40,8 +40,8 @@ def main(pkg, version, out):
     pkg, out = Path(pkg), Path(out)
     raw = pkg.read_bytes()
     product = product_of(raw)
-    if not re.fullmatch(r"FM-1_9\d\d", product):
-        raise SystemExit(f"{pkg}: identity {product!r} is not a Melodee package (FM-1_9xx)")
+    if not re.fullmatch(r"FM-1_9\d{2,3}", product):
+        raise SystemExit(f"{pkg}: identity {product!r} is not a Melodee package (FM-1_9xx or FM-1_9xxx)")
     if b"FELUCCA-LOADER-1" not in raw:              # Melodee loader marker: never publish a package with vendor files
         raise SystemExit(f"{pkg}: no Melodee loader in it; the site ships only fm1pkg_make.py packages "
                          "(a package patched from an official one carries vendor files)")

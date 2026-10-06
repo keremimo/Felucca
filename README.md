@@ -4,10 +4,11 @@
 
 **TL;DR:** connect your FM-1 to a computer by USB, open the
 [web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
-No extra hardware is needed. Beta: use at your own risk; M-VAVE's own updater or the installer's
+No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the installer's
 **Return to official V15** takes you back to the official firmware.
 
-Multi-engine synthesizer firmware for the M-VAVE FM-1.
+Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.10**
+([what's new](#whats-new-in-010)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -18,6 +19,33 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 0.10
+
+Melodee 0.10 is built on Felucca 1.0: its screen design, quick layers, sequencer and file formats.
+On top of Felucca 1.0 it adds:
+
+- **FM6** renders DX7 voices sample for sample as Dexed, with up to 16 voices, operator pages on the
+  device and DX7 SysEx import. Each track keeps its own function settings (MODERN / MARK I / OPL,
+  pitch bend, portamento and controllers), saved with the project
+- **KIT 808** on the DRUM engine: TR-808 circuit models on the eight lanes
+- **USB audio:** Melodee Out plays the computer through the FM-1, Melodee In records the four tracks
+  as separate channels; each can be switched off
+- **Patterns:** eight banks per track, with songs that pick a bank for each track
+- **Step editing:** set a note's length while its key is held, resize it with ENV, move it with SCL,
+  delete it with EDIT, and undo or redo up to eight edits; MIDI step entry; live recording onto the
+  playing step, with the cursor following it
+- **Startup:** a BOOT project loaded at power-on and a template for new projects; CLK, TUNE, MIDI and
+  ROUT kept between starts
+- **Panel:** HOME names the notes and chords you play; key lights for the scale and the sounding
+  notes (the menu's LIGHTS); REC + PLAY records at once and REC held opens the MIXER; SAVE + REC
+  saves the project to its slot; BPM and swing on SEQ > TEMPO, saved with the project
+- **MIDI:** a DRUM channel (10 by default) for the first DRUM track; QNT ALL and MPC pad layouts that
+  incoming MIDI follows too; a more reliable TRS input; GLO > SYSTEM shows the input's activity
+
+**Upgrading from an earlier Melodee:** device data starts fresh. Projects, settings, templates and
+user presets saved by earlier Melodee versions are not imported, and the user sample slots are gone
+(see [Startup and compatibility](#startup-and-compatibility)). Felucca 1.0 projects load.
 
 ## Features
 
@@ -61,8 +89,7 @@ runs Felucca.
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
   GLO > SYSTEM KNOB 1 shows the USB or the TRS input's status (RX while it receives; both always play)
 - **Web:** editor for every parameter (with a 6-operator FM patch editor), step grid, mixer,
-  preset library, sample upload and recording with trim; full backup and restore; return to the
-  official firmware
+  preset library and FM6 bank; full backup and restore; return to the official firmware
 
 ## Controls
 
@@ -148,19 +175,20 @@ In the order the device lists them:
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track edited in the
   web editor or on the device; operator frequency, levels, envelopes and scaling, pitch envelope,
   LFO, STORE and DX7 SysEx; an algorithm chart on screen. PRESETS selects the operator on operator
-  pages. MODERN / MARK I / OPL and the FM6 function/controller settings are global; patches are per track
+  pages. Each track keeps its own patch and function settings (MODERN / MARK I / OPL, pitch bend,
+  portamento, wheel, foot, breath and aftertouch), saved with the project and the template
 - **PHASE**: phase distortion (ported from CrispyZebra)
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
-- **SAMPLE**: multisampled instruments, a GM percussion set and 3 user sample slots
+- **SAMPLE**: multisampled instruments and a GM percussion set
 - **VOICE**: formant oscillator, sung vowels
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
 - **GRAIN**: granular textures from the built-in samples
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
-- **SLICE**: a drum break or your own sample cut into slices, one per key; set the slices by hand
-  on the SLICES page
-- **DRUM**: an 8-lane kit of Felucca's own drum voices on the General MIDI key map
+- **SLICE**: the built-in drum break cut into slices, one per key
+- **DRUM**: an 8-lane kit of Felucca's own drum voices on the General MIDI key map; **KIT 808**
+  plays TR-808 circuit models instead
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them.
