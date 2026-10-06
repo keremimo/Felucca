@@ -44,6 +44,7 @@
     <p><label><span data-t="stockFile"></span><br><input id="stock-file" type="file" accept=".fwsc"></label></p>
     <p><button id="stock-go" disabled data-t="stockGo"></button></p>
     <p class="small" data-t="stockBackup"></p>
+    <p class="small"><label><input id="stock-skip-backup" type="checkbox"> <span data-t="stockSkipBackup"></span></label></p>
     <p class="small"><label><input id="stock-recovery" type="checkbox"> <span data-t="stockRecovery"></span></label></p>
   </details>
   <progress id="bar" max="100" value="0"></progress>
@@ -734,11 +735,14 @@ const TEXT = {
     beta: "Melodee 1.0 は実地テスト版です。不具合は GitHub で知らせてください。このカスタムファームウェアを使ったことで FM-1 が壊れたり不具合が起きたりしても、作者は一切の責任を負いません。自己責任でお使いください。",
     back: "M-VAVEから公式FM-1 V15を取得し、未変更のFM-1.fwscを選んでください。ファイルはこのブラウザ内で検証し、サーバーへ送りません。",
     stockTitle: "公式V15に戻す", stockFile: "公式FM-1.fwsc", stockGo: "バックアップして公式V15へ戻す",
-    stockBackup: "現在の曲・保存曲・音色バンク・サンプル・設定を先に保存します。全体バックアップ非対応版は、Melodeeを更新してから行ってください。復元はMelodeeを再インストールしてエディタから行います。",
+    stockBackup: "現在の曲・保存曲・音色バンク・サンプル・設定を先に保存します。バックアップできない場合は、Melodeeを更新するか、データ消失を了承してバックアップを省略できます。復元はMelodeeを再インストールしてエディタから行います。",
+    stockSkipBackup: "バックアップを省略する（Melodeeの曲・音色・設定が失われる可能性があります）",
+    stockGoNoBackup: "バックアップせず公式V15へ戻す",
+    stockConfirmNoBackup: "バックアップを作成せず公式V15へ戻します。Melodeeの曲・音色・設定が失われる可能性があり、バックアップなしでは復元できません。続けますか？",
     stockRecovery: "更新中断の再開：全体バックアップはすでにパソコンへ保存済み",
     stockValid: "公式V15を確認しました", stockConfirm: "全体バックアップファイルをパソコンに保存できましたか？ 続けると公式V15へ戻します。Melodeeの曲は公式V15では開けません。",
-    stockNeedBackup: "書き込みモードからはバックアップできません。保存済みバックアップがある場合だけ、更新中断の再開にチェックしてください。",
-    stockUnsupported: "このMelodeeは全体バックアップに未対応です。先に最新版をインストールしてください。",
+    stockNeedBackup: "書き込みモードからはバックアップできません。保存済みバックアップがある場合は更新中断の再開にチェックするか、データ消失を了承してバックアップを省略してください。",
+    stockUnsupported: "このMelodeeは全体バックアップに未対応です。先に最新版をインストールするか、データ消失を了承して「バックアップを省略する」を選び、もう一度押してください。",
     backup: "全体バックアップ保存中 ", stockError: "公式ファイルを確認できません: ",
     nomidi: "このブラウザでは使えません。Chrome か Edge で開いてください。", loadfail: "読み込めませんでした: ",
     start: "開始します", verify: "確認中", loader: "書き込みモードに切り替え中", write: "書き込み中",
@@ -765,11 +769,14 @@ const TEXT = {
     beta: "Melodee 1.0 is a field-testing release; please report problems on GitHub. The author accepts no responsibility if your FM-1 is damaged or misbehaves because of this custom firmware. Use it at your own risk.",
     back: "Get official FM-1 V15 from M-VAVE and select the unmodified FM-1.fwsc. The browser validates it locally; it is not sent to a server.",
     stockTitle: "Return to official V15", stockFile: "Official FM-1.fwsc", stockGo: "Back up and return to official V15",
-    stockBackup: "Current music, saved music, sound banks, samples and settings are saved first. Older firmware needs a Melodee update for complete backups. To restore an archive later, reinstall Melodee and use the editor.",
+    stockBackup: "Current music, saved music, sound banks, samples and settings are saved first. If backups are unavailable, update Melodee or choose to skip the backup and accept possible data loss. To restore an archive later, reinstall Melodee and use the editor.",
+    stockSkipBackup: "Skip backup (Melodee music, sounds and settings may be lost)",
+    stockGoNoBackup: "Return to official V15 without backup",
+    stockConfirmNoBackup: "Return to official V15 without creating a backup? Melodee music, sounds and settings may be lost and cannot be restored without a backup. Continue?",
     stockRecovery: "Resume an interrupted update: I already saved a complete backup to this computer",
     stockValid: "Official V15 verified", stockConfirm: "Has the complete backup file been saved to this computer? Continue to return to official V15. Official V15 cannot open Melodee music.",
-    stockNeedBackup: "An update loader cannot export a backup. Only select resume if you already saved a complete backup.",
-    stockUnsupported: "This Melodee does not support complete backups. Install the current Melodee first.",
+    stockNeedBackup: "An update loader cannot export a backup. Select resume if you already saved a complete backup, or choose Skip backup to continue and accept possible data loss.",
+    stockUnsupported: "This Melodee does not support complete backups. Install the current Melodee first, or select Skip backup to accept possible data loss and try again.",
     backup: "Saving complete backup ", stockError: "Cannot validate official firmware: ",
     nomidi: "This browser cannot do it. Open the page in Chrome or Edge.", loadfail: "Could not load: ",
     start: "Starting", verify: "Verifying", loader: "Switching to update mode", write: "Writing",
@@ -794,10 +801,12 @@ function applyLang() {
   document.documentElement.lang = lang;
   document.querySelectorAll("[data-t]").forEach((e) => { e.textContent = t(e.dataset.t); });
   $("lang").textContent = t("other");
+  $("stock-go").textContent = t($("stock-skip-backup").checked ? "stockGoNoBackup" : "stockGo");
   if (lastKey) $("status").textContent = t(lastKey) + lastArg;
 }
 $("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
 applyLang();
+$("stock-skip-backup").addEventListener("change", applyLang);
 const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; };
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
@@ -805,7 +814,7 @@ let image = null;
 const meta = {"version": "0.10", "product": "FM-1_9010", "pkg": "../../firmware/melodee-0.10.fwsc"};
 
 let writing = false, stock = null, stockFileEpoch = 0;
-const lockInstaller = (on) => { writing = on; $("go").disabled = on || !image; $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; };
+const lockInstaller = (on) => { writing = on; $("go").disabled = on || !image; $("stock-go").disabled = on || !stock; $("stock-file").disabled = on; $("stock-recovery").disabled = on; $("stock-skip-backup").disabled = on; };
 window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = t("leave"); } });
 
 (async () => {
@@ -881,7 +890,7 @@ function archiveInfo(a) {
 }
 $("stock-go").addEventListener("click", async () => {
   if (!stock || writing) return;
-  const selected = stock; lockInstaller(true);
+  const selected = stock, skipBackup = $("stock-skip-backup").checked; lockInstaller(true);
   let link = null;
   try {
     let midi;
@@ -891,20 +900,22 @@ $("stock-go").addEventListener("click", async () => {
     const loader = await up.find(id => id.model === "ota-FM-1");
     if (loader) {
       loader.link.close();
-      if (!$("stock-recovery").checked) { sayK("stockNeedBackup"); return; }
-      if (!confirm(t("stockConfirm"))) return;
+      if (!skipBackup && !$("stock-recovery").checked) { sayK("stockNeedBackup"); return; }
+      if (!confirm(t(skipBackup ? "stockConfirmNoBackup" : "stockConfirm"))) return;
       sayK(await up.resume(selected.image, step, selected.product) ? "done" : "stopped");
     } else {
       const device = await up.find(id => id.model === "FM-1");
       if (!device) { sayK("notfound"); return; }
       const input = device.link.input, output = device.link.output; device.link.close();
-      link = new BackupConnection(input, output);
-      const info = archiveInfo(await link.request([1,[]]));
-      if (!info.supported) { sayK("stockUnsupported"); return; }
-      const archive = await captureBackup((r,o) => link.request(r,o), info.version,
-        (done,total) => sayK("backup", `${Math.round(done / Math.max(1,total) * 100)}%`));
-      saveArchive(archive); link.close(); link = null;
-      if (!confirm(t("stockConfirm"))) return;
+      if (!skipBackup) {
+        link = new BackupConnection(input, output);
+        const info = archiveInfo(await link.request([1,[]]));
+        if (!info.supported) { sayK("stockUnsupported"); return; }
+        const archive = await captureBackup((r,o) => link.request(r,o), info.version,
+          (done,total) => sayK("backup", `${Math.round(done / Math.max(1,total) * 100)}%`));
+        saveArchive(archive); link.close(); link = null;
+      }
+      if (!confirm(t(skipBackup ? "stockConfirmNoBackup" : "stockConfirm"))) return;
       await up.install(selected.image, selected.product, step);
     }
   } catch (e) {
