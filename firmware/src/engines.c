@@ -23,6 +23,8 @@
 #include "eng_slice.c"
 #endif
 
+#include "eng_cz1.c"
+
 /* the engines' runtime state of a part. A part renders one engine at a time (an engine switch fades the old one
  * out first, voice.c engine_block), so their states share one block per part, cleared at every switch: an engine
  * finds its state as at power-on (the pool section is zeroed at boot). The patch of a part (FM6's) is not in here */
@@ -32,6 +34,7 @@ static union {
     drum_lane_t drum[DV_NLANE];
     drw_part_t wheel;
     fm6_part_t fm6;
+    cz_part_t cz1;
 #if MELODEE_SLICE
     slc_rb_t slice;
 #endif
@@ -44,6 +47,7 @@ static fm6_part_t *fm6_part(uint32_t part) { return &eng_state[part % NPART].fm6
 #if MELODEE_SLICE
 static int16_t (*slc_rbuf(uint32_t part))[SLC_RB] { return eng_state[part % NPART].slice; }
 #endif
+static inline __attribute__((always_inline)) cz_part_t *cz_part(uint32_t tr) { return &eng_state[tr%NTRK].cz1; }
 static void eng_state_clear(uint32_t part)
 {
     if (part < NPART)
@@ -70,8 +74,11 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_NOISE,                  /* 11 */
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
 #if MELODEE_SLICE
-    &ENG_SLICE,                  /* 13 (MELODEE_SLICE=0 builds without it) */
+    &ENG_SLICE,                  /* 13 */
+#else
+    &ENG_PHASE,                  /* reserved without SLICE; never selectable */
 #endif
+    &ENG_CZ1, /* 14: the unreleased OBXF prototype is not part of next */
 };
 
 /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
@@ -83,6 +90,7 @@ static inline uint32_t eng_idx(uint32_t e) { return e < NENGINES ? e : 0u; }
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     0,                           /* ANALOG */
     12,                          /* FM6 */
+    14,                          /* CZ-1 */
 #if MELODEE_FM4
     1,                           /* DIGITAL */
 #endif
@@ -96,7 +104,7 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 
 /* the engines one can pick (engine 1 only with MELODEE_FM4), in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
-static int eng_ok(uint32_t e) { return e < NENGINES && (MELODEE_FM4 || e != ENGI_DIGITAL); }
+static int eng_ok(uint32_t e) { return e < NENGINES && (MELODEE_FM4 || e != ENGI_DIGITAL) && (MELODEE_SLICE || e != 13u); }
 static uint32_t eng_vis(uint32_t n) { return ENGINE_ORDER[n % NENG_SHOWN]; }
 static uint32_t eng_rank(uint32_t e)
 {

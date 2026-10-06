@@ -491,6 +491,10 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max));
     *vp = (int16_t)v;
+    if(pg->scope==SC_CZ1){
+        cz_page_put(song.sel%NTRK,pg->id[slot],(uint32_t)v);
+        return;
+    }
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* (a copy of FM6's value: written back there) */
         fm6_page_put(pg, slot, v);
         return;
@@ -517,6 +521,23 @@ static void act_do(void)
     uint32_t c = act_col(), id, k = (uint32_t)song.g[G_SLOT] - 1u;
     if (!c--)
         return;
+    if(cur_page()->graph==GR_CZTOOLS){
+        if(chain_busy()){ui_message("STOP TO EDIT");return;}
+        uint32_t tr=song.sel%NTRK;
+        if(c==0u)name_open(NK_CZ_NAME,tr);
+        else if(c<3u){
+            uint32_t src=c==1u?0u:1u,dst=1u-src;
+            load_begin(TSEL,UNDO_SOUND);fm1_irq_off();
+            cz_patch[tr][CZ_WIN(dst)]=cz_patch[tr][CZ_WIN(src)];
+            memcpy(cz_patch[tr]+CZ_LBASE(dst),cz_patch[tr]+CZ_LBASE(src),8u);
+            memcpy(cz_patch[tr]+CZ_EBASE(dst,0),cz_patch[tr]+CZ_EBASE(src,0),54u);
+            fm1_irq_on();load_end(TSEL);ui_message(c==1u?"LINE 1 > 2":"LINE 2 > 1");
+        }else{
+            fm1_irq_off();for(uint32_t j=0;j<CZ_PACKED;j++){uint8_t v=cz_patch[tr][j];cz_patch[tr][j]=cz_compare[tr][j];cz_compare[tr][j]=v;}fm1_irq_on();
+            ui_message("COMPARE / EDIT");
+        }
+        ui.act=0;ui.force=1;return;
+    }
     if (cur_page()->graph == GR_MOTION) {
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
         confirm_open(CF_CLEAR_MOTION, song.sel);
@@ -929,6 +950,7 @@ static void ui_input(void)
     } else {
         ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
     }
+    cz_poll();
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
 #if !MELODEE_FM4
     for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */

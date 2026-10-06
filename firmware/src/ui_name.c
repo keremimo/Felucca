@@ -19,7 +19,7 @@
  *   KNOB 1       the cursor; KNOB 2 the character at the cursor (SPACE A..Z 0..9 - . _ / # +; at the end: a new one).
  *   LEDs         every key that types or edits is lit; the key whose letters are being cycled blinks.
  * Spaces at either end are dropped when it is written; an empty name: USER the automatic one, PROJECT none. */
-enum { NK_NONE, NK_USER_SAVE, NK_USER_RENAME, NK_PROJ_SAVE, NK_PROJ_RENAME };
+enum { NK_NONE, NK_USER_SAVE, NK_USER_RENAME, NK_PROJ_SAVE, NK_PROJ_RENAME, NK_CZ_NAME };
 #define NM_LEN 12u
 #define NM_TAP_MS 800u                                 /* multi-tap: the next letter within this */
 #define NM_REP_MS 450u                                 /* a held arrow / DELETE repeats after this, */
@@ -39,10 +39,11 @@ static struct {
     uint8_t rep;                                       /* the key (+ 1) of a held arrow / DELETE, 0 none */
     uint32_t t, rep_t;                                 /* fm1_ms of the last tap; of the next repeat */
     uint32_t sig;                                      /* drawn-state cache */
-    char s[NM_LEN + 1u];
-    char ph[NM_LEN + 1u];                              /* what an empty name saves as / shows ("PROJECT A") */
+    char s[CZ_NAME + 1u];
+    char ph[CZ_NAME + 1u];                              /* what an empty name saves as / shows ("PROJECT A") */
 } nm __attribute__((section(".pool")));                /* (zero-initialised; main loop only: off the audio code's .bss) */
 
+static uint32_t name_limit(void){return nm.kind==NK_CZ_NAME?CZ_NAME:NM_LEN;}
 static int name_on(void) { return nm.kind != NK_NONE; }
 static void name_close(void)
 {
@@ -75,12 +76,16 @@ static uint32_t nm_black(uint32_t k)                   /* black key k's function
 
 static void name_open(uint32_t kind, uint32_t slot)
 {
-    char b[16];
+    char b[CZ_NAME+1u];
     nm.kind = (uint8_t)kind;
     nm.slot = (uint8_t)slot;
     nm.num = nm.key = nm.rep = 0;
     b[0] = 0;
-    if (kind == NK_USER_SAVE || kind == NK_USER_RENAME) {
+    if(kind==NK_CZ_NAME){
+        memcpy(b,cz_patch[slot]+CZ_NP,CZ_NAME);b[CZ_NAME]=0;
+        for(uint32_t k=CZ_NAME;k && b[k-1]==' ';k--)b[k-1]=0;
+        str_cpy(nm.ph,"CZ TONE",sizeof nm.ph);
+    }else if (kind == NK_USER_SAVE || kind == NK_USER_RENAME) {
         uint32_t e = kind == NK_USER_RENAME ? up_engine(slot) : TSEL->eng_req;
         up_auto_name(nm.ph, e, slot);
         if (kind == NK_USER_RENAME)
@@ -127,7 +132,7 @@ static void nm_commit(void)                            /* the letter being cycle
 static int nm_insert(char c)                           /* at the cursor (it stays on it); 0 = full */
 {
     uint32_t i;
-    if (nm.len >= NM_LEN) {
+    if (nm.len >= name_limit()) {
         ui_message("NAME FULL");
         return 0;
     }
@@ -208,7 +213,7 @@ static void nm_knob(uint32_t k, int32_t s)             /* KNOB 1 the cursor, KNO
 /* OCT+: the name (spaces at its ends dropped) is written; the screen stays while that is refused (playing) */
 static void name_ok(void)
 {
-    char b[NM_LEN + 1u];
+    char b[CZ_NAME + 1u];
     uint32_t a = 0, z;
     nm_commit();
     for (z = nm.len; z && nm.s[z - 1u] == ' '; z--)
@@ -222,6 +227,9 @@ static void name_ok(void)
         return;
     }
     switch (nm.kind) {
+    case NK_CZ_NAME:
+        memset(cz_patch[nm.slot]+CZ_NP,' ',CZ_NAME);memcpy(cz_patch[nm.slot]+CZ_NP,b,str_len(b));
+        ui_message("TONE NAMED");break;
     case NK_USER_SAVE:
         up_ui_named(2, nm.slot, b);
         break;
@@ -297,6 +305,7 @@ static uint32_t name_leds(void)
 static void nm_title(char *b)
 {
     str_cpy(b, nm.kind == NK_USER_SAVE || nm.kind == NK_PROJ_SAVE ? "SAVE " : "NAME ", 8);
+    if(nm.kind==NK_CZ_NAME){str_cpy(b,"NAME CZ TONE",24);return;}
     if (nm.kind <= NK_USER_RENAME)
         up_slot_label(b + 5, nm.slot);
     else
@@ -311,22 +320,24 @@ static void nm_draw_field(void)
     nm_title(b);
     cv_text_on(9, 2, &AF_S, b, T_MID, T_SURF);
     fmt_int(b, nm.len);
-    str_cpy(b + str_len(b), "/12", 4);
-    cv_text_r(231, 2, &AF_S, b, nm.len >= NM_LEN ? T_ACCENT : T_DIM, T_SURF);
+    str_cpy(b + str_len(b), nm.kind==NK_CZ_NAME?"/16":"/12", 4);
+    cv_text_r(231, 2, &AF_S, b, nm.len >= name_limit() ? T_ACCENT : T_DIM, T_SURF);
+    uint32_t first=nm.kind==NK_CZ_NAME && nm.cur>=NM_LEN ? nm.cur-NM_LEN+1u:0u;
     for (i = 0; i < NM_LEN; i++) {
+        uint32_t at=first+i;
         int32_t x = NM_CX(i);
-        char c[2] = {empty ? nm.ph[i] : i < nm.len ? nm.s[i] : 0, 0};
+        char c[2] = {empty ? nm.ph[i] : at < nm.len ? nm.s[at] : 0, 0};
         uint16_t bg = T_SURF, fg = empty ? T_DIM : T_TEXT;
-        if (i == nm.cur && nm.key) {                   /* the letter being cycled */
+        if (at == nm.cur && nm.key) {                   /* the letter being cycled */
             cv_rrect(x, 18, 18, 22, 3, T_THEME, T_SURF);
             bg = T_THEME;
             fg = T_INK;
-        } else if (i == nm.cur) {                      /* the cursor: a box */
+        } else if (at == nm.cur) {                      /* the cursor: a box */
             cv_rrect(x, 18, 18, 22, 4, T_ACCENT, T_SURF);
             cv_rrect(x + 2, 20, 14, 18, 2, T_SURF, T_ACCENT);
         }
-        if (!c[0] || (c[0] == ' ' && i >= nm.len)) {
-            if (i != nm.cur)
+        if (!c[0] || (c[0] == ' ' && at >= nm.len)) {
+            if (at != nm.cur)
                 cv_rrect(x + 4, 37, 10, 2, 1, T_RAISE, T_SURF);   /* an empty cell */
         } else if (c[0] == ' ') {
             cv_rect(x + 8, 28, 2, 2, bg == T_THEME ? T_INK : T_DIM);   /* a space */
@@ -334,7 +345,7 @@ static void nm_draw_field(void)
             cv_text_on(x + 9 - text_w(&AF_M, c) / 2, 20, &AF_M, c, fg, bg);
         }
     }
-    if (nm.cur >= NM_LEN)                              /* full, the cursor past the end: a bar */
+    if (nm.cur-first >= NM_LEN)                              /* full, the cursor past the end: a bar */
         cv_rrect(NM_CX(NM_LEN) + 1, 18, 3, 22, 1, T_ACCENT, T_SURF);
     cv_blit(0, Y_LABEL);
 }

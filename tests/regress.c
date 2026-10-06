@@ -896,10 +896,12 @@ static int chk_hang(char *msg, uint32_t n)
     uint32_t keys = 0, k, c, ev = 0, round;
     char who[96] = "";
     int bad = 0;
-    for (round = 0; round < 3u && !bad; round++) {
+    for (round = 0; round < 4u && !bad; round++) {
         host_tracks_init();
         for (k = 0; k < NPART; k++) {
-            host_preset(&trk[k], rnd(NENGINES), rnd(4));
+            /* Retain the pre-CZ random stream; the fourth round covers CZ on every part. */
+            uint32_t engine=rnd(ENGI_CZ1),preset=rnd(4);
+            host_preset(&trk[k],round==3u?ENGI_CZ1:engine,preset);
             trk[k].p[P_VOICE] = (int16_t)rnd(4);
             trk[k].p[P_AMODE] = rnd(3) == 0 ? (int16_t)(1 + rnd(4)) : 0;
             trk[k].p[P_AHOLD] = 0;
@@ -952,7 +954,7 @@ static int chk_hang(char *msg, uint32_t n)
         }
     }
     snprintf(msg, n, "%u random MIDI / key events on ch 1-4, 5, 10, 16 and the keys, track selection changing, "
-             "3 rounds: %s", ev, bad ? who : "no gate left on, every voice free");
+             "4 rounds (including all-CZ): %s", ev, bad ? who : "no gate left on, every voice free");
     return !bad;
 }
 

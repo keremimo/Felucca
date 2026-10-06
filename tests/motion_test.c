@@ -18,7 +18,7 @@ static int motion_recording(void)
     project_t q; project_store_t packed;
     project_capture(&q);
     bad += check("project snapshot saves base + independent events while sounding", q.t[0].p[P_REV] == 23 && q.motion.event[0].value == 110 &&
-        proj_pack(&packed, &q) && sizeof packed == 3584u);
+        proj_pack(&packed, &q) && sizeof packed == PROJ_STORE_SIZE);
     seq_stop();
     bad += check("stop before another step restores the original parameter", t->p[P_REV] == 23);
     seq_start(); seq_tick(t, CTL);
@@ -77,7 +77,7 @@ static int compact_project(void)
     motion_set_event(t, 3, P_REV, 110);
     project_t before, after; project_store_t packed, corrupt;
     project_capture(&before);
-    bad += check("FUN8 fits the retained and flash extent", sizeof(proj_slot) == 4u * 3584u && proj_pack(&packed, &before));
+    bad += check("FUN8 fits the retained and flash extent", sizeof(proj_slot) == 4u * PROJ_STORE_SIZE && proj_pack(&packed, &before));
     fm6_fn[0][FN_PTIME] = 33;                            /* (FM6 functions: in the FBK9 around FUN8, not in FUN8) */
     project_capture(&before);
     {
@@ -85,7 +85,7 @@ static int compact_project(void)
         bad += check("FBK9 keeps the tracks' FM6 function settings", bank_pack(fbk, &before, 1) &&
                      bank_valid(fbk, sizeof fbk) && proj_scratch.fm6_fn_ok && proj_scratch.fm6_fn[0][FN_PTIME] == 33u);
     }
-    proj_fn_none(&before);
+    proj_fn_none(&before); proj_pack(&packed,&before);
     bad += check("FUN8 round trip preserves signed values/FM params/probability/motion", proj_import(&after, &packed, sizeof packed) &&
         !memcmp(&before, &after, sizeof before));
     corrupt = packed; corrupt.raw[112] ^= 1u;
@@ -119,7 +119,7 @@ static int compact_project(void)
  * values at 81..88, motion ids from 81 on for E0..E7 (m: its events as that firmware numbered them) */
 static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_store_t *m)
 {
-    uint8_t *b = out->raw; uint32_t pos = 68u, t, i, magic = PROJ_MAGIC, size = PROJ_STORE_SIZE, sum;
+    uint8_t *b = out->raw; uint32_t pos = 68u, t, i, magic = PROJ_MAGIC_V7, size = 3388u, sum;
     memset(out, 0, sizeof *out); memcpy(b, &magic, 4); memcpy(b + 4, &size, 4);
     memcpy(b + 8, q->g, sizeof q->g); b[62] = q->sel; b[63] = q->parts; b[64] = q->phys; b[66] = 89;
     for (t = 0; t < NTRK; t++) {
@@ -134,7 +134,7 @@ static void pack_fun7_89(project_store_t *out, const project_t *q, const motion_
     }
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
     memcpy(b + pos, m, sizeof *m);
-    sum = proj_hash(b, PROJ_STORE_SIZE - 4u); memcpy(b + PROJ_STORE_SIZE - 4u, &sum, 4);
+    sum = proj_hash(b, size - 4u); memcpy(b + size - 4u, &sum, 4);
 }
 static int fun7_89(void)
 {

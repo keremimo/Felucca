@@ -101,3 +101,12 @@ by those owners, nor by Hügelton Instruments.
 ## Radio
 
 Melodee never enables the Bluetooth / Wi-Fi radio of the hardware.
+
+CZ-1 (`eng_cz1.c`, `cz1_tables.h`) is GPL-3.0-only. The phase-distortion
+oscillator reuses Melodee's CrispyZebra-derived core. Envelope timing fits and
+DCO level mapping were informed by fpbrault and the GPL-3.0-only cosmo-pd contributors
+(`https://github.com/fpbrault/cosmo-pd`, revision
+`e3c1acbc22b95e976d8d260b5e3ca6c724133f30`). Hardware waveform/window facts and
+provisional calibration use Michael Rickard's Kasploosh CZ-1 measurements
+(`https://www.kasploosh.com/cz/11800-spelunking/`); external recordings are downloaded
+only into the ignored build directory. Included presets are newly authored.

@@ -41,7 +41,7 @@ async function editorMock() {
   inp.onmidimessage = (e) => link.receive(e.data);
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
-  ok(info.nengines === 14 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "SLICE"
+  ok(info.nengines === 15 && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "SLICE"
  && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.engines[9] === "PHYS" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === 92 && info.pe0 === 84 && info.engines[4] === "SAMPLE",
     "editor: INFO");
   let descs = 0;
@@ -134,8 +134,8 @@ async function editorMock() {
   ok(!prefs.favorites[info.nengines][31] && !E.devicePresetRows(info, names, prefs).some((r) => r.user), "editor: erased slot disappears and loses star");
   {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, DRUM last, "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "ANALOG,FM6,PHASE,LOFI,SAMPLE,VOICE,TRIO,WHEEL,GRAIN,PHYS,NOISE,SLICE,DRUM" &&
-       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines)[12] === 10,
+    ok(shown.join() === "ANALOG,FM6,CZ-1,PHASE,LOFI,SAMPLE,VOICE,TRIO,WHEEL,GRAIN,PHYS,NOISE,SLICE,DRUM" &&
+       E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines)[13] === 10,
        "editor: engines listed FM6 second, DRUM last (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
     m.state.favorites[10][0] = m.state.favorites[12][0] = true;
@@ -507,11 +507,30 @@ async function editorLibrarian() {
   rc = await E.bank.store(rq, 13, "");
   ok(rc === 0 && (await E.bank.get(rq, info, 13)).name === `${info.engines[d4.engine]} 14`, "librarian: UP_STORE with no name -> automatic name");
 
+  { /* A CZ tone needs its six native envelopes beyond the common parameters. */
+    await rq(E.req.set(1,20,14));
+    const tone=E.parse[E.CMD.CZ_GET](await rq(E.req.czGet(0))).cz1;
+    tone[39+8]=22;tone[23]=7;tone[24]=7;tone[147]=5;tone[148]=7;
+    ok(tone.length===165,"CZ native format exposes independent windows");
+    ok(E.parse[E.CMD.CZ_PUT](await rq(E.req.czPut(0,tone))).rc===0,"CZ native PUT accepts a complete tone");
+    const {patch}=await E.capturePatch(rq,info,"CZ TONE");
+    ok(eq(patch.cz1,tone),"CZ capture preserves the native tone");
+    const ctxCZ={keys,engines:info.engines,firmware:info.version,pe0:info.pe0};
+    const fileCZ=E.libraryFile("library",[patch],ctxCZ),backCZ=E.readLibraryFile(fileCZ,ctxCZ).patches[0];
+    ok(eq(backCZ.cz1,tone),"CZ library file keeps every envelope and name byte");
+    const rcCZ=await E.bank.put(rq,15,patch),savedCZ=await E.bank.get(rq,info,15);
+    ok(rcCZ===0&&eq(savedCZ.cz1,tone),"CZ UP_PUT / UP_GET retain all native bytes");
+    const oldTone=[...tone.slice(0,147),...tone.slice(149)];oldTone[23]=7;oldTone[24]=2;oldTone[31]=3;
+    const legacyCZ=E.readLibraryFile(E.libraryFile("library",[{...patch,cz1:oldTone}],ctxCZ),ctxCZ).patches[0];
+    ok(legacyCZ.cz1.length===165&&legacyCZ.cz1[23]===6&&legacyCZ.cz1[24]===2&&legacyCZ.cz1[31]===4&&legacyCZ.cz1[147]===3,"CZ old libraries upgrade panel waves and shared windows");
+    await E.auditionPatch(rq,info,backCZ);
+    ok(eq(E.parse[E.CMD.CZ_GET](await rq(E.req.czGet(0))).cz1,tone),"CZ library audition restores the native tone");
+  }
   /* library files */
   const ctx = { keys, engines: info.engines, firmware: info.version, pe0: info.pe0 };
   const pts = [cap, { ...bass, engineName: info.engines[bass.engine], tags: ["bass", "device"] }];
   const file = JSON.parse(JSON.stringify(E.libraryFile("library", pts, ctx)));
-  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 92 && file.paramLabels.length === 92 && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" && file.paramLabels[83] === "DEG" && file.engines.length === 14,
+  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 92 && file.paramLabels.length === 92 && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" && file.paramLabels[83] === "DEG" && file.engines.length === 15,
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
   ok(back.patches.length === 2 && !back.skipped && eq(back.patches[0].p, cap.p) && eq(back.patches[1].p, bass.p)

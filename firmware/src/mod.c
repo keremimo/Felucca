@@ -231,12 +231,17 @@ static __attribute__((noinline)) void mod_midi(track_t *t, uint32_t st, uint32_t
             t->breath = (uint8_t)d2;
         else if (d1 == 4u)
             t->foot = (uint8_t)d2;
-        else if (d1 == 65u)
+        else if (d1 == 65u) {
             t->porta = (uint8_t)(d2 >= 64u);
-        else if (d1 == 5u)
-            fm6_fn_set((uint32_t)(t - trk), FN_PTIME, (int32_t)d2);   /* FM6's portamento time (the track's) */
-        else if (d1 == 121u)
+            if(t->eng_req==ENGI_CZ1)cz_patch[cz_tr(t)][CZ_PORTON]=t->porta;
+        } else if (d1 == 5u) {
+            if(t->eng_req==ENGI_CZ1)cz_patch[cz_tr(t)][CZ_PORTTIME]=(uint8_t)(d2*99u/127u);
+            else fm6_fn_set((uint32_t)(t - trk), FN_PTIME, (int32_t)d2);
+        }   /* FM6's portamento time (the track's) */
+        else if (d1 == 121u) {
             t->mw = t->at = t->ex_off = t->breath = t->foot = t->porta = 0;
+            if(t->eng_req==ENGI_CZ1)cz_patch[cz_tr(t)][CZ_PORTON]=0;
+        }
     }
 }
 

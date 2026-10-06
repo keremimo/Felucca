@@ -89,3 +89,12 @@ cpu/SLICE/01_STUTTER 1008
 cpu/mix/idle 286
 cpu/mix/idle_drums 478
 cpu/mix/3parts_full_drums 1561
+cpu/CZ-1/00_INIT 1929
+cpu/CZ-1/01_CZ_BRASS 1953
+cpu/CZ-1/02_CZ_STRINGS 1949
+cpu/CZ-1/03_CZ_BELL 1772
+cpu/CZ-1/04_CZ_BASS 316
+cpu/CZ-1/05_CZ_ORGAN 2023
+cpu/CZ-1/06_CZ_RESO 2735
+cpu/CZ-1/07_CZ_RING 1930
+cpu/CZ-1/08_CZ_NOISE 1969

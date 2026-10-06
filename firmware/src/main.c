@@ -2,6 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MELODEE boot and main loop. Boot order: WDT first, boot-loop guard, fatal vectors,
  * guards; then LCD, input (TIMER5 IRQ, 10 kHz), audio (ALNK0 IRQ). */
+extern uint32_t _dsp_start[], _dsp_end[], _dsp_load[];
 extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
 extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
 
@@ -116,6 +117,7 @@ static void melodee_init(void)
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
     undo_depth++;                             /* (no undo copy of the power-on loads) */
+    cz_init();
     fm6_init();                               /* every track's FM6 patch: the init voice */
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
@@ -240,6 +242,7 @@ static void fm1_main(void)
                 fm1_enter_uboot();
             }
         }
+        cz_service();
         fm6_service();                                  /* DX7 SysEx for FM6, a pending FM6 settings save */
 #if MELODEE_OTA
         ed_service();                                   /* web editor SysEx */
@@ -317,6 +320,7 @@ void fm1_cstart(void)
         *d = *s;
     for (s = _rt_load, d = _rt_start; d < _rt_end; s++, d++)
         *d = *s;                                /* flash driver code that must run from RAM */
+    for(s=_dsp_load,d=_dsp_start;d<_dsp_end;s++,d++)*d=*s;
     fm1_mailbox_clear();
     fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);
     fm1_boot.p3_rst = (uint8_t)p3;

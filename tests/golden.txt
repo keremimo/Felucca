@@ -104,3 +104,12 @@ sends/ANALOG/dist 1ff75ac225e918e0
 song/4track_mix c0eb8b34bd646fb0
 slicer/gate/ANALOG_ACID 07581a19222c2474
 slicer/song_gate_stut b006b86a3876babc
+preset/CZ-1/00_INIT 004c36bd9f9734f0
+preset/CZ-1/01_CZ_BRASS ec08a3d1c2f584ec
+preset/CZ-1/02_CZ_STRINGS 4862ec91b0100c98
+preset/CZ-1/03_CZ_BELL f805e04a03b45a48
+preset/CZ-1/04_CZ_BASS 9d5aa497172433ec
+preset/CZ-1/05_CZ_ORGAN 4b47a0945a9e2d8c
+preset/CZ-1/06_CZ_RESO dca99466f70c9c94
+preset/CZ-1/07_CZ_RING d2e1e66d0d0dd514
+preset/CZ-1/08_CZ_NOISE 944be45b2fc526ec
