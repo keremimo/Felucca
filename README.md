@@ -68,7 +68,7 @@ runs Felucca.
 
 ![FM-1 controls](docs/panel.jpg)
 
-- **SELECT** turns the pages of the open section (both ways) and moves the cursor on STEP; **MASTER** the
+- **SELECT** turns the pages of the open section (both ways), on STEP too (KNOB 1 moves its cursor); **MASTER** the
   volume, **ALGORITHM** picks the track (T1–T4) and **PRESETS** its sound. **KNOB 1–4** edit the four columns
   of the page
 - **BPM** and the song's **SWG** are on **SEQ > TEMPO**: the project's, saved and loaded with it (power-on: the
@@ -77,7 +77,7 @@ runs Felucca.
   HOME returns home
 - **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the song,
   REC the MIXER.
-  When editing synth steps, SCL (with ENV) uses the editing controls below; FX keeps its layer
+  When editing synth steps, SCL and EDIT use the editing controls below instead; FX keeps its layer
 - PLAY starts and stops all four tracks; REC arms the selected track, on every page (and starts the
   transport when it is stopped); **REC + PLAY** arms it and starts recording in one gesture
 - OCT− / OCT+ shift the octave (both: reset). On action pages, in dialogs and the menu, OCT+ does it
@@ -111,14 +111,14 @@ NOTE / TIE / REST, and KNOB 4 sets accent and slide. On a synth track:
   track is armed and playing: the cursor stops following the play head while ENV or SCL is held, and
   OCT− / OCT+ keep shifting the octave while you record live.
 - Tap **EDIT** to delete the selected note and its ties. A DRUM grid EDIT clears just that step.
-- Hold **SAVE** to undo the last manual edit. With **SAVE** down, **OCT−** undoes and **OCT+**
+- Hold **SAVE** to undo the last manual edit. With **EDIT** or **SAVE** down, **OCT−** undoes and **OCT+**
   redoes, up to eight edits. A held entry or move counts as one edit. A new edit clears redo;
   recording, loading another pattern, changing track or pattern length, or external step edits start
   a fresh history. With no manual edit to undo, held SAVE retains the sound/pattern-load undo.
 
 Using SELECT consumes the ENV/SCL page tap; a tap without an edit still opens that page. A final
 SELECT turn arriving with the key or modifier release is included. With no note or editing modifier
-held, SELECT moves the cursor. PRESETS continues to browse sounds on HOME and PRESETS,
+held, SELECT turns the pages; KNOB 1 moves the cursor. PRESETS continues to browse sounds on HOME and PRESETS,
 and selects FM6 operators on their pages.
 
 Armed live recording writes the step currently playing, and the STEP cursor follows it. The DRUM

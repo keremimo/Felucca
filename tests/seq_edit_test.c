@@ -223,8 +223,12 @@ static int test_step_modifiers(void)
     host_enc[panel.enc[EN_SELECT]] += 2 * panel.dir[EN_SELECT]; midi_note_event(0, 65, 0); frame();
     bad += check("final SELECT detent on MIDI release sets length before advancing", step_note_length(t, 4) == 3 && ui.cursor == 7);
     turn(EN_SELECT, 1);
-    bad += check("SELECT without a held entry or modifier moves the cursor (the BPM is SEQ > TEMPO's)",
-                 ui.cursor == 8 && song.g[G_BPM] == bpm);
+    {
+        int paged = cur_page()->graph != GR_ROLL && ui.cursor == 7;
+        turn(EN_SELECT, -1); turn(EN_K1, 1);
+        bad += check("SELECT without a held entry or modifier turns the page, KNOB 1 moves the cursor (BPM untouched)",
+                     paged && cur_page()->graph == GR_ROLL && ui.cursor == 8 && song.g[G_BPM] == bpm);
+    }
     cursor_set(4); frame(); step_t before[NSTEP]; memcpy(before, t->step, sizeof before);
     turn(EN_PRESET, 10);
     bad += check("PRESETS has no STEP editing role", !memcmp(before, t->step, sizeof before) && ui.cursor == 4);
@@ -241,10 +245,12 @@ static int test_step_modifiers(void)
     history_key(B_OCTUP);
     cursor_set(7); frame(); press(B_EDIT);
     bad += check("EDIT deletes a selected note and all ties, advances from its onset", !step_on(&t->step[6]) && t->step[7].time == ST_REST && ui.cursor == 7 && cur_page()->graph == GR_ROLL);
-    history_key(B_OCTDN);
-    bad += check("SAVE + OCT- undoes the delete without navigation or octave shift", step_note_length(t, 6) == 4 && ui.cursor == 7 && !song.octave && cur_page()->graph == GR_ROLL);
-    history_key(B_OCTUP);
-    bad += check("SAVE + OCT+ redoes it", !step_on(&t->step[6]) && ui.cursor == 7 && !song.octave && cur_page()->graph == GR_ROLL);
+    fm1_in.buttons |= 1u << panel.btn[B_EDIT]; host_pressed |= 1u << panel.btn[B_EDIT]; frame();
+    press(B_OCTDN); fm1_in.buttons &= ~(1u << panel.btn[B_EDIT]); frame();
+    bad += check("EDIT then OCT- undoes without deletion, navigation or octave shift", step_note_length(t, 6) == 4 && ui.cursor == 7 && !song.octave && cur_page()->graph == GR_ROLL && !ui.ly);
+    fm1_in.buttons |= 1u << panel.btn[B_OCTUP]; host_pressed |= 1u << panel.btn[B_OCTUP]; frame();
+    press(B_EDIT); fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]); frame();
+    bad += check("OCT+ then EDIT redoes, either order works", !step_on(&t->step[6]) && ui.cursor == 7 && !song.octave && cur_page()->graph == GR_ROLL);
     put_note(t, 7, 62, 1); frame(); press(B_FX);
     bad += check("FX tapped on STEP: its page, the note stays (EDIT deletes)", step_on(&t->step[7]) && cur_page()->fam == FAM_FX);
     t = edit_setup(); cursor_set(7); frame();

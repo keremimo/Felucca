@@ -635,14 +635,19 @@ static uint32_t oct_taps(uint32_t pressed, int here)
  * the last one) become the cursor step; releasing all keys moves on. With CHRD on a key
  * writes what it sounds, as live recording does: POLY its chord, MONO the chord's root */
 static int step_page(void) { return !ui.home && cur_page()->scope == SC_STEP; }   /* SEQ > STEP, CHANCE */
-/* ENV / SCL held on STEP: their note gestures (SELECT resizes, moves), armed and playing too (EDIT deletes: page_tap) */
+/* ENV / SCL / EDIT held on STEP: their note gestures (SELECT resizes, moves; EDIT + OCT-/+ undoes, redoes; EDIT tapped
+ * deletes), armed and playing too. EDIT's quick layer: off the synth STEP */
 static int step_modifier_context(void)
 {
     return step_page() && !drum_track(TSEL) && !ui.menu && !ui.confirm && !ui.ly && !name_on();
 }
 /* .. and OCT taps move the cursor, but not while recording live: the keys played need the octave buttons then */
 static int step_oct_context(void) { return step_modifier_context() && !live_rec_sel(); }
-static uint32_t step_modifier_mask(void) { return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]); }
+static uint32_t step_modifier_mask(void)                /* (EDIT: STEP only, not CHANCE) */
+{
+    return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) |
+           (cur_page()->graph == GR_ROLL ? 1u << panel.btn[B_EDIT] : 0u);
+}
 
 static void step_length_edit(int32_t delta)
 {
@@ -843,18 +848,17 @@ static void page_tap(uint32_t b)
         open_global();                                  /* MIXER -> GLOBAL -> SYSTEM -> MIXER */
         return;
     }
-    if (b == B_EDIT && song.seq_mode && !ui.home && cur_page()->graph == GR_ROLL) {   /* STEP: EDIT clears the step */
-        if (chain_busy()) {
-            ui_message("STOP TO EDIT");
-        } else if (!drum_track(TSEL)) {
-            step_delete_edit();                         /* the note with its ties */
-        } else {
-            fm1_irq_off();
+    if (b == B_EDIT && song.seq_mode && !ui.home && cur_page()->graph == GR_ROLL) {   /* the DRUM grid: EDIT clears
+                                                         * the step (synth STEP: a step modifier, ui_input) */
+        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+        fm1_irq_off();
+        if (drum_track(TSEL))
             step_clear(&TSEL->step[ui.cursor]);
-            fm1_irq_on();
-            cursor_set(ui.cursor + 1);
-            ui_message("STEP CLEARED");
-        }
+        else
+            step_delete(TSEL, ui.cursor);
+        fm1_irq_on();
+        cursor_set(ui.cursor + 1);
+        ui_message("STEP CLEARED");
         return;
     }
     if (b == B_EDIT && !ui.home && (cur_page()->graph == GR_USER || cur_page()->graph == GR_SLOTS)) {
@@ -1147,7 +1151,7 @@ static void ui_input(void)
                     ui_message(b == B_OCTUP ? "NOTHING TO REDO" : "NOTHING TO UNDO");
                 break;
             }
-            if (step_oct_context())                    /* STEP OCT taps: the cursor (below) */
+            if (step_oct_context())                    /* STEP OCT taps: the cursor; EDIT consumes them below */
                 break;
             if ((fm1_in.buttons & both) == both)
                 song.octave = 0;
@@ -1210,7 +1214,7 @@ static void ui_input(void)
     }
     if ((s = panel_enc(EN_ALGO)) != 0)             /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
-    if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT: pages, the STEP cursor; with SEQ / a step key: below */
+    if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT: pages; with SEQ / a step key / ENV / SCL: below */
         uint32_t env = 1u << panel.btn[B_ENV], scl = 1u << panel.btn[B_SCL];
         if (pattern_keys_on()) {
             ui.seq_t0 |= 2u;
@@ -1218,10 +1222,8 @@ static void ui_input(void)
             if (pattern_request(TSEL, (uint32_t)clamp((int32_t)from + s, 0, NPAT - 1u))) ui_message("STOP SONG TO SWITCH");
             ui.force = 1;
         } else if (step_gesture(s)) {                   /* ENV / SCL / a key held: the note's length, its place */
-        } else if (!ui.home && cur_page()->scope == SC_STEP) {   /* STEP, CHANCE: the cursor */
-            cursor_set((int32_t)ui.cursor + s);
-            ui.force = 1;
-        } else if (!ui.home) {                          /* elsewhere the section's pages (BPM: SEQ > TEMPO) */
+        } else if (!ui.home) {                          /* the section's pages (BPM: SEQ > TEMPO; the STEP cursor:
+                                                         * KNOB 1) */
             page_scroll(s);
         }
     }
@@ -1248,13 +1250,33 @@ static void ui_input(void)
         }
     }
     if (step_modifier_context()) {
+        uint32_t ed = 1u << panel.btn[B_EDIT], octmask = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
+        uint32_t combo_oct = (ui.step_mods & ed) ? fm1_in.buttons & octmask : 0;
+        if (combo_oct && ((pressed & octmask) || (pressed & ed))) {   /* EDIT + OCT-: undo, OCT+: redo */
+            uint32_t dir = ((combo_oct >> panel.btn[B_OCTDN]) & 1u) | (((combo_oct >> panel.btn[B_OCTUP]) & 1u) << 1);
+            ui.step_used |= (uint16_t)ed;
+            ui.step_oct_used |= (uint8_t)dir;
+            if (chain_busy()) ui_message("STOP TO UNDO");
+            else if (dir == 3u) ui_message("USE ONE OCT BUTTON");
+            else {
+                step_history_end();                    /* include an edit received in this same frame */
+                if (!step_history_apply(dir == 2u)) ui_message(dir == 2u ? "NOTHING TO REDO" : "NOTHING TO UNDO");
+            }
+        }
         seq_entry_finish();                             /* final SELECT detent precedes key release */
         uint32_t released = ui.step_mods & ~fm1_in.buttons;
         for (k = 0; k < 14u; k++) if ((released >> k) & 1u) {
             uint32_t bit = 1u << k;
             ui.step_mods &= (uint16_t)~bit;
-            if (!(ui.step_used & bit))
-                open_family(panel_btn_of(k) == B_ENV ? FAM_ENV : FAM_SCL);
+            if (!(ui.step_used & bit)) {
+                b = panel_btn_of(k);
+                if (b != B_EDIT)
+                    open_family(b == B_ENV ? FAM_ENV : FAM_SCL);
+                else if (chain_busy())
+                    ui_message("STOP TO EDIT");
+                else
+                    step_delete_edit();                 /* EDIT tapped: the note with its ties */
+            }
             ui.step_used &= (uint16_t)~bit;
         }
         if (step_oct_context()) {
