@@ -152,6 +152,8 @@ async function editorMock() {
   ok(pending.rc === 4 && pending.on && pending.engine === 0, "editor: queued favorite response is applied while waiting for STOP");
   const names = [];
   for (let e = 0; e < info.nengines; e++) names.push(E.parse[E.CMD.NAMES](await rq(E.req.names(e))).names);
+  const cut = E.parse[E.CMD.NAMES]([15, 4, 65, 0, 66, 0, 67]);   /* 0.11: CZ-1's names overran the 600-byte reply */
+  ok(cut.names.join() === "A,B,PRESET 3,PRESET 4" && !cut.titles.length, "editor: a NAMES reply cut short keeps its whole names");
   let prefs = await E.readDevicePreferences(rq, info, names);
   ok(info.uiCaps === 9 && prefs.palettes.length === 8 && prefs.palettes[0] === "MONO" && prefs.palettes.includes("HI-CON"),
      "editor: preference capabilities (palette, favorites) and palette names");

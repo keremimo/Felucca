@@ -21,7 +21,7 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT,                               /* v6: song chain */
        ED_AUDIO_STATS = 72, ED_PATTERN, ED_BANK_SONG };                                       /* USB audio diagnostics (68..71: FM6, editor_fm6.c) */
 
-static uint8_t ed_out[600];
+static uint8_t ed_out[1024];                        /* the longest: NAMES of CZ-1 (65 presets), 662 B */
 static uint32_t ed_n;
 
 static void ed_begin(uint32_t cmd)

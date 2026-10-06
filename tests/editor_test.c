@@ -505,9 +505,25 @@ static int cz_dedicated_banks(void)
     request(ED_BACKUP_LIST,a,0);bad+=check("full backups include all eight CZ user banks",host_wire[7]==17);
     return bad;
 }
+static int names_whole(void)
+{
+    int bad = 0;
+    reset();
+    for (uint32_t e = 0; e < NENGINES; e++) {   /* 0.11 cut CZ-1's 65 names at a 600-byte reply */
+        uint8_t a[1] = {(uint8_t)e};
+        uint32_t n = request(ED_NAMES, a, 1), i = 7, k, want = ENGINES[e]->npresets + 2u;
+        for (k = 0; k < want && i < n; k++)
+            while (i < n && host_wire[i++]) ;
+        if (n < 8u || host_wire[6] != ENGINES[e]->npresets || k != want || i != n - 1u || host_wire[n - 1u] != 0xF7) {
+            printf("editor: NAMES of %s: %u bytes, cut short\n", ENGINES[e]->name, n);
+            bad = 1;
+        }
+    }
+    return check("NAMES of every engine carries all its presets and both titles", !bad);
+}
 int main(void)
 {
-    int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() +
+    int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

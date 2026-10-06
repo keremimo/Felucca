@@ -595,7 +595,9 @@ const parse = {
     const r = new Reader(a);
     const o = { engine: r.b(), names: [] };
     const n = r.b();
-    for (let i = 0; i < n; i++) o.names.push(r.s());
+    /* firmware 0.11 cut CZ-1's 65 names at its 600-byte reply: keep the whole ones, number the rest */
+    try { for (let i = 0; i < n; i++) o.names.push(r.s()); } catch (e) { /* short reply */ }
+    for (let i = o.names.length; i < n; i++) o.names.push(`PRESET ${i + 1}`);
     o.titles = [];
     try { o.titles.push(r.s(), r.s()); } catch (e) { o.titles = []; }   /* older firmware: no page titles */
     return o;
