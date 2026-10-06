@@ -49,7 +49,7 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
-PRODUCT = "FM-1_900"                # package identity; release builds are FM-1_9XY
+PRODUCT = "FM-1_900"                # package identity; release builds are FM-1_9XY (0.10: FM-1_9010)
 VERSION = None                      # MELODEE_VERSION for release builds (default: firmware/src/melodee.c)
 
 
@@ -320,10 +320,10 @@ def main():
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     name = "melodee.fwsc"
-    if a.release:                   # one digit each: the identity has room for two
-        m = re.fullmatch(r"(\d)\.(\d)(-[A-Za-z0-9]+)?", a.release)
+    if a.release:                   # X one digit, Y one or two (0.10: FM-1_9010, apart from 1.0's FM-1_910)
+        m = re.fullmatch(r"(\d)\.(\d{1,2})(-[A-Za-z0-9]+)?", a.release)
         if not m:
-            raise SystemExit(f"--release {a.release}: use X.Y or X.Y-suffix, one digit each")
+            raise SystemExit(f"--release {a.release}: use X.Y or X.Y-suffix (X one digit, Y one or two)")
         PRODUCT = "FM-1_9" + m[1] + m[2]
         VERSION = "v" + a.release.lower()      # e.g. v1.0, v1.1-rc1
         name = f"melodee-{a.release}.fwsc"
