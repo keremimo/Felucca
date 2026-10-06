@@ -929,6 +929,7 @@ static void ui_input(void)
     } else {
         ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
     }
+    cz_bank_poll();
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
 #if !MELODEE_FM4
     for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */

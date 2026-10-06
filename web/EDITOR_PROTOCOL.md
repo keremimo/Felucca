@@ -687,3 +687,14 @@ DRUM now has one factory preset, **808 KIT** (index 0); KIT's stored value stays
 Older custom KIT values render the 808. No 909 is included.
 
 OBXF is removed from synthesis, presets, editing and patch storage. Engine 14 stays reserved.
+
+### Dedicated CZ banks
+
+INFO appends bank count 8 and slots per bank 16 after the native CZ tone tag.
+Command 77 takes a bank index (0–7); reply is bank, rc, bank-name NUL, then 16
+pairs of used-byte and tone-name NUL. CZ_GET target 2 reads bank slot index
+`bank * 16 + slot`. CZ_PUT target 2 is refused; bank writes use bounded atomic
+BACKUP_PUT objects 9–16. Each CZBK object is 2332 bytes: LE magic 0x42435A43,
+u16 version 1, u16 slot count 16, u32 used mask, 16 bank-name bytes, then 16
+144-byte native tones. Unused slots are zero. Full-backup inventory has 17
+objects; earlier 9-object and sample-era inventories are still accepted.

@@ -2,14 +2,21 @@
 /* Full native Casio tone over the editor transport, nibble-packed, low first.
  * 75 GET / 76 PUT. target 0: track; target 1: ordinary user preset slot.
  * Native slots use UP_VER_CZ, so their existing A/B store is atomic. */
-enum { ED_CZ_GET = 75, ED_CZ_PUT = 76 };
+enum { ED_CZ_GET = 75, ED_CZ_PUT = 76, ED_CZ_BANK = 77 };
 static int ed_cz_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
 {
+    if(cmd==ED_CZ_BANK){
+        uint32_t k=n?a[0]:127u;cz_bank_t *b=n==1?cz_bank_load(k):0;ed_b(k);ed_b(b?0:1);
+        if(b){ed_str(b->name,16);for(uint32_t i=0;i<16;i++){ed_b((b->used>>i)&1u);char name[17]={0};if((b->used>>i)&1u)for(uint32_t j=0;j<16;j++)name[j]=b->tone[i].raw[128+j]>=32 && b->tone[i].raw[128+j]<=126?(char)b->tone[i].raw[128+j]:' ';ed_str(name,16);}}
+        return 1;
+    }
     if (cmd != ED_CZ_GET && cmd != ED_CZ_PUT) return 0;
     uint32_t target = n ? a[0] : 127u, index = n > 1u ? a[1] : 127u, rc = 0;
     uint8_t raw[CZ_BYTES];
-    if (target > 1u || index >= (target ? UP_SLOTS : NTRK)) rc = 1;
+    if (target > 2u || index >= (target == 2u ? 128u : target ? UP_SLOTS : NTRK) || (target==2u && cmd==ED_CZ_PUT)) rc = 1;
     if (!rc && cmd == ED_CZ_GET) {
+        if(target==2u)rc=cz_bank_get(index/16u,index%16u,raw)?2u:0u;
+        else
         if (n != 2u) rc = 1;
         else if (!target) memcpy(raw, cz_patch[index].raw, CZ_BYTES);
         else if (up_used(index) && up_rec(index)->ver == UP_VER_CZ) memcpy(raw, up_rec(index)->packed, CZ_BYTES);
@@ -42,7 +49,7 @@ static int ed_cz_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
             fm1_irq_off();
             memcpy(cz_patch[index].raw,raw,CZ_BYTES); t->eng_req=ENGI_CZ;
             for (uint32_t i=0;i<P_COUNT;i++) if (!param_kept(i)) t->p[i]=param_desc_of(ENGI_CZ,i)->def;
-            t->p[P_E7]=CZ_NATIVE; t->preset=0; t->user=0;
+            t->p[P_E7]=CZ_NATIVE; t->preset=0; t->user=0; cz_track_accept(t);
             fm1_irq_on();
             load_end(t); sync_reload=1; ui.force=1;
         }

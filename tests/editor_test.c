@@ -113,14 +113,14 @@ static int preferences(void)
     uint32_t n = request(ED_INFO, a, 0);
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
-        host_wire[n - 24] == 0 && host_wire[n - 23] == 0x55 &&
-        host_wire[n - 22] == 1 && host_wire[n - 21] == 9 &&
-        host_wire[n - 20] == 0x4d && host_wire[n - 19] == 1 &&
-        host_wire[n - 18] == MOTION_MAX && host_wire[n - 17] == 1 &&
-        host_wire[n - 16] == 0x42 && host_wire[n - 15] == 1 && host_wire[n - 14] == 3 &&
-        host_wire[n - 13] == 0x50 && host_wire[n - 12] == 1 && host_wire[n - 11] == NPAT && host_wire[n - 10] == CHAIN_ROWS &&
-        host_wire[n - 9] == 0x46 && host_wire[n - 8] == 1 && host_wire[n - 7] == FM6_NFAC &&
-        host_wire[n - 6] == FM6_BANK_N && host_wire[n-5]==0x43 && host_wire[n-4]==1 && host_wire[n-3]==16 && host_wire[n-2]==1);
+        host_wire[n - 26] == 0 && host_wire[n - 25] == 0x55 &&
+        host_wire[n - 24] == 1 && host_wire[n - 23] == 9 &&
+        host_wire[n - 22] == 0x4d && host_wire[n - 21] == 1 &&
+        host_wire[n - 20] == MOTION_MAX && host_wire[n - 19] == 1 &&
+        host_wire[n - 18] == 0x42 && host_wire[n - 17] == 1 && host_wire[n - 16] == 3 &&
+        host_wire[n - 15] == 0x50 && host_wire[n - 14] == 1 && host_wire[n - 13] == NPAT && host_wire[n - 12] == CHAIN_ROWS &&
+        host_wire[n - 11] == 0x46 && host_wire[n - 10] == 1 && host_wire[n - 9] == FM6_NFAC &&
+        host_wire[n - 8] == FM6_BANK_N && host_wire[n-7]==0x43 && host_wire[n-6]==1 && host_wire[n-5]==16 && host_wire[n-4]==1 && host_wire[n-3]==8 && host_wire[n-2]==16);
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].bg);
@@ -413,7 +413,7 @@ static int bank_protocol(void)
 static int cz_native_protocol(void)
 {
     int bad=0; uint8_t raw[CZ_BYTES],a[322]; reset();cz_init();
-    cz_patch_init(raw);raw[20]=0x37;raw[17]=0x42;raw[14]=0xE0;raw[15]=0xDE;
+    cz_patch_init(raw);raw[20]=0x37;raw[16]=0x42;raw[17]=17;raw[14]=0xE0;raw[15]=0xDE;
     for(uint32_t k=0;k<8;k++){raw[21+2*k]=(uint8_t)(k*15);raw[22+2*k]=(uint8_t)(k*17);}raw[28]|=128;
     a[0]=0;a[1]=2;for(uint32_t i=0;i<CZ_BYTES;i++){a[2+2*i]=raw[i]&15;a[3+2*i]=raw[i]>>4;}
     request(ED_CZ_PUT,a,290);
@@ -433,10 +433,35 @@ static int cz_native_protocol(void)
     bad+=check("native tone bytes and mode survive a saved template",restored && trk[1].p[P_E7]==CZ_NATIVE && !memcmp(cz_patch[1].raw,raw,CZ_BYTES));
     return bad;
 }
+static int cz_dedicated_banks(void)
+{
+    int bad=0;reset();cz_init();cz_bank_boot();cz_bank_t bank;
+    for(uint32_t k=0;k<8;k++){
+        cz_bank_empty(&bank,k);bank.used=0x8001u;cz_patch_init(bank.tone[0].raw);cz_patch_init(bank.tone[15].raw);
+        bank.tone[0].raw[128]=(uint8_t)('A'+k);bank.tone[15].raw[128]=(uint8_t)('a'+k);
+        memcpy(ED_BK_RAW,&bank,sizeof bank);ed_bk_id=(uint8_t)(9+k);ed_bk_len=ed_bk_pos=sizeof bank;ed_bk_crc=st_crc32(&bank,sizeof bank);
+        bad+=check("CZ dedicated bank commits through bounded backup transfer",!ed_bk_commit());
+    }
+    for(uint32_t k=0;k<8;k++){
+        uint8_t args[2]={2,(uint8_t)(16*k+15)};request(ED_CZ_GET,args,2);
+        bad+=check("CZ banks remain independent with complete raw tones",!host_wire[7] && (host_wire[264]|host_wire[265]<<4)==('a'+k));
+    }
+    uint8_t a[1]={7};request(ED_CZ_BANK,a,1);
+    bad+=check("CZ bank list names all 16 dedicated slots",host_wire[5]==7 && !host_wire[6] && !memcmp(host_wire+7,"BANK H",6));
+    host_preset(&trk[0],ENGI_CZ,0);trk[0].p[P_E0]=7;trk[0].p[P_E1]=16;cz_bank_poll();
+    bad+=check("device BANK and PTCH knobs load stored native tone",cz_patch[0].raw[128]=='h' && trk[0].eng_req==ENGI_CZ);
+    uint8_t previous=cz_patch[0].raw[128];trk[0].p[P_E1]=2;cz_bank_poll();
+    bad+=check("empty CZ bank slot leaves playing tone intact",cz_patch[0].raw[128]==previous);
+    cz_bank_t keep=*cz_bank_load(7);bank=keep;bank.tone[0].raw[0]=255;
+    memcpy(ED_BK_RAW,&bank,sizeof bank);ed_bk_id=16;ed_bk_len=ed_bk_pos=sizeof bank;ed_bk_crc=st_crc32(&bank,sizeof bank);
+    bad+=check("invalid native bank rejected before replacing saved tones",ed_bk_commit()==2 && !memcmp(cz_bank_load(7),&keep,sizeof keep));
+    request(ED_BACKUP_LIST,a,0);bad+=check("full backups include all eight CZ user banks",host_wire[7]==17);
+    return bad;
+}
 int main(void)
 {
     int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() +
-              fm6_patches() + user_preset_roundtrip() + cz_native_protocol();
+              fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

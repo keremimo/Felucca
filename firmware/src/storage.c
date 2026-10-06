@@ -23,7 +23,7 @@
  * Existing flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..): settings 0xFC000, projects 0x97000..0x9EFFF,
  * user sample slots 0xA0000..0xDBFFF (sample_data.c), user preset banks 0xDC000..0xDFFFF (upreset.c), the FM6
  * patch bank (fm6_bank.c): copy A 0x9F000, copy B 0xFE000 (the two free sectors) */
-enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_BANK0, OBJ_COUNT = OBJ_BANK0 + 4 };
+enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_BANK0, OBJ_CZBANK0 = OBJ_BANK0 + 4, OBJ_COUNT = OBJ_CZBANK0 + 8 };
 
 typedef struct {
     uint32_t magic;
@@ -54,6 +54,8 @@ static uint32_t st_crc32(const void *p, uint32_t n)   /* zlib CRC-32, 4 bits per
 
 static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy A (0) / B (1) */
 {
+    if (obj >= OBJ_CZBANK0)
+        return 0xC8000u + (obj - OBJ_CZBANK0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj >= OBJ_BANK0)
         return 0xA0000u + (obj - OBJ_BANK0) * 10u * ST_SECTOR + copy * 5u * ST_SECTOR;
     if (obj == OBJ_SETTINGS)
@@ -65,7 +67,7 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
     return 0x97000u + (obj - OBJ_PROJECT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
 }
 
-static uint32_t st_capacity(uint32_t obj) { return obj >= OBJ_BANK0 ? 5u * ST_SECTOR - ST_PAYLOAD_OFF : ST_PAYLOAD_MAX; }
+static uint32_t st_capacity(uint32_t obj) { return obj >= OBJ_BANK0 && obj < OBJ_CZBANK0 ? 5u * ST_SECTOR - ST_PAYLOAD_OFF : ST_PAYLOAD_MAX; }
 
 static uint8_t st_buf[256] __attribute__((aligned(4)));
 
@@ -142,7 +144,7 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     seq = cur < 0 ? 0u : h.seq;
     base = st_sector(obj, cur == 0 ? 1u : 0u);       /* write the other copy */
     uint32_t crc = st_crc32(src, len);
-    uint32_t extent = obj >= OBJ_BANK0 ? 5u * ST_SECTOR : ST_SECTOR;
+    uint32_t extent = obj >= OBJ_BANK0 && obj < OBJ_CZBANK0 ? 5u * ST_SECTOR : ST_SECTOR;
     for (off = 0; off < extent; off += ST_SECTOR)
         if ((rc = st_erase(base + off)) != 0) return rc;
     for (off = 0; off < len; off += sizeof st_buf) {

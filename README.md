@@ -199,7 +199,10 @@ LINK/SPLIT controls and six factory presets.
 **Native CZ-1 SysEx**: choose CZ-1 in the web editor, then **CZ-1 native patches → Import .syx**.
 Select a tone from the imported bank and **Send to track**. **Read track** retrieves its original tone;
 **Export .syx** writes a CZ-1-compatible tone. **Add to library** and the library's device-bank upload
-save native tones. Both lines have separate eight-point DCO/DCW/DCA envelopes, including sustain,
+save native tones. CZ-1 also has eight dedicated banks of 16 tones (128 slots),
+with named banks, complete .syx bank import/export and persistent device storage.
+BANK / PTCH on the device choose bank A–H and slot 1–16 (0 initializes a tone).
+Full backups include these banks. Both lines have separate eight-point DCO/DCW/DCA envelopes, including sustain,
 end points, velocity sensitivity and key follow. The original 144-byte CZ-1 tone survives user presets,
 projects, templates and library export; it is not reduced to common ADSR values. Compatible 128-byte
 CZ tones are accepted with CZ-1 defaults for fields they lack. See [format and fidelity notes](docs/CZ1_SYSEX.md).

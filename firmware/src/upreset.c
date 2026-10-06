@@ -227,6 +227,7 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
         v[i] = (int16_t)clamp(v[i], param_desc_of(r->engine, i)->min, param_desc_of(r->engine, i)->max);
 }
 
+#include "cz_bank.c"
 #include "fm6_bank.c"                          /* the FM6 patch bank: the same kind of store */
 
 static void up_boot(void)                      /* persist_boot: the banks from flash */
@@ -237,6 +238,7 @@ static void up_boot(void)                      /* persist_boot: the banks from f
         up_bank_check(b, flash_ok ? st_load(OBJ_UPRESET0 + b, &up_bank[b], sizeof up_bank[b]) : -1);
 #endif
     fm6_bank_boot();
+    cz_bank_boot();
 #ifdef MELODEE_FAVORITES
     for (uint32_t k = 0; k < UP_SLOTS; k++)
         if (!up_used(k)) favorite_set(NENGINES, k, 0);
@@ -408,6 +410,7 @@ static int up_load(uint32_t k)
                 t->p[i] = v[i];
         t->preset = 0;
         if (r->ver == UP_VER_CZ) memcpy(cz_patch[song.sel % NTRK].raw, r->packed, CZ_BYTES);
+        cz_track_accept(t);
         fm1_irq_on();
         fm6_track_loaded(t);                            /* FM6: a user preset holds the PTCH and the macros */
     }

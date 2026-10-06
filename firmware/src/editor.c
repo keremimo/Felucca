@@ -407,7 +407,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x42); ed_b(1); ed_b(3); /* bounded full-backup read + restore */
         ed_b(0x50); ed_b(1); ed_b(NPAT); ed_b(CHAIN_ROWS);     /* bank controls: 73/74 */
         ed_b(0x46); ed_b(1); ed_b(FM6_NFAC); ed_b(FM6_BANK_N);   /* FM6 patches: cmds 68..71 */
-        ed_b(0x43); ed_b(1); ed_b(CZ_BYTES & 127u); ed_b(CZ_BYTES >> 7); /* native CZ: 75/76 */
+        ed_b(0x43); ed_b(1); ed_b(CZ_BYTES & 127u); ed_b(CZ_BYTES >> 7); ed_b(CZ_BANK_N); ed_b(CZ_BANK_SLOTS); /* native CZ + banks: 75..77 */
         break;
     case ED_GET:
     case ED_SET:

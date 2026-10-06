@@ -571,7 +571,7 @@ static void undo_swap(void)
         fm6_set_patch(tr, undo.fm6);
         fm6_slot[tr] = undo.fm6_slot;             /* (fm6_poll: the patch stays) */
         memcpy(undo.fm6, v, FP_SIZE);
-        { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = undo.cz; undo.cz = cp; }
+        { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = undo.cz; undo.cz = cp; cz_track_accept(t); }
         undo.fm6_slot = sl;
 
     }
@@ -797,6 +797,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
     cz_factory_loaded(t);
+    cz_track_accept(t);
     fm6_track_loaded(t);                              /* FM6: the preset's patch (its PTCH) */
     load_end(t);
 }

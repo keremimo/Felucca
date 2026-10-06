@@ -211,7 +211,7 @@ int main(void)
     reset();
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
     bad += check("LIST captures the runtime: 12 objects (the FM6 bank: id 8), runtime 3584 B (FUN8) with its CRC",
-                 list(0, &len, &crc) == 0 && rep[2] == 9u && len == BANK_STORE_SIZE &&
+                 list(0, &len, &crc) == 0 && rep[2] == 17u && len == BANK_STORE_SIZE &&
                  crc == st_crc32(ED_BK_RAW, len));
     bad += check("an empty project slot lists as length 0", list(2, &len, &crc) == 0 && len == 0);
     bad += check("GET of the runtime copy", get(0, 0, 64) == 0);

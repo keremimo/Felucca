@@ -31,11 +31,11 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6,
-   FM4, fromDigital, CZ, czLibraryPatch })`,
+   FM4, fromDigital, CZ, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 async function czTests() {
-  const b=E.CZ.init();E.CZ.setName(b,"EIGHT POINT TEST");b[20]=0x37;b[17]=0x42;b[19]=5;
+  const b=E.CZ.init();E.CZ.setName(b,"EIGHT POINT TEST");b[20]=0x37;b[16]=0x42;b[17]=17;b[18]=5;b[19]=83;
   for(let k=0;k<8;k++){b[21+2*k]=(k*15)&127;b[22+2*k+1-1]=(k*17)&127;}b[28]|=128;
   // Include uncommon native wave pairs and untouched raw rate encodings.
   b[14]=0xE0;b[15]=0xDE;
@@ -59,6 +59,18 @@ async function czTests() {
   ok(await E.bank.put(rq,8,pt)===0,"CZ: upload to user preset bank");const saved=await E.bank.get(rq,info,8);ok(eq(saved.cz,b),"CZ: user preset bank returns all 144 tone bytes");
   const ctx={keys:Array.from({length:92},(_,i)=>`P${i}`),pe0:84,engines:info.engines};const lib=E.libraryFile("library",[captured.patch],ctx);const imported=E.readLibraryFile(lib,ctx);ok(eq(imported.patches[0].cz,b),"CZ: library JSON round trip retains native bytes");
   let calls=0;try{await E.auditionPatch(async()=>{calls++;}, {...info,cz:false},pt);}catch{}ok(!calls,"CZ: unsupported firmware is rejected before changing sound");
+  ok(info.czBanks===8,"CZ: eight dedicated device banks advertised");
+  const tones=Array.from({length:16},(_,i)=>{const t=b.slice();E.CZ.setName(t,`TONE ${i+1}`);return t;});
+  await E.czBankUpload(rq,0,{name:"FIRST BANK",tones});await E.czBankUpload(rq,7,{name:"LAST BANK",tones:[b]});
+  const first=await E.czBankRead(rq,0),last=await E.czBankRead(rq,7);
+  ok(first.name==="FIRST BANK" && eq(first.tones[15],tones[15]) && eq(last.tones[0],b) && !last.tones[1],"CZ: independent named banks retain all native bytes and empty slots");
+  const before=Array.from(m.state.czbanks[0]);let writes=0;
+  try{await E.czBankUpload(async(...args)=>{writes++;return rq(...args);},0,{name:"BAD",tones:[b.slice(0,128)]});}catch{}
+  ok(!writes && eq(before,Array.from(m.state.czbanks[0])),"CZ: invalid bank refused before any write");
+  let chunks=0;try{await E.czBankUpload(async(r,o)=>{if(r[1][0]===1 && ++chunks===3)throw Error("Disconnected");return rq(r,o);},0,{name:"CUT SHORT",tones:[b]});}catch{}
+  ok(eq(before,Array.from(m.state.czbanks[0])),"CZ: interrupted bank upload keeps previously committed bank");
+  const exported=first.tones.flatMap(t=>Array.from(E.CZ.sysex(t)));const again=E.CZ.read(exported);
+  ok(again.voices.length===16 && eq(again.voices[15].raw,tones[15]),"CZ: dedicated bank exports a complete reusable .syx bank");
   link.close();m.close?.();
 }
 await czTests();

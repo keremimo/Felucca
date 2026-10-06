@@ -197,5 +197,8 @@ int main(void)
         bad += check("bank project CRC fallback covers its final sector",st_load(OBJ_BANK0,back,sizeof back)==sizeof back && !memcmp(back,first,sizeof back));
     }
     printf("%s\n", bad ? "STORAGE TEST FAILED" : "storage test passed");
+    bad += check("CZ banks have disjoint A/B sectors outside project and preset data",
+        st_sector(OBJ_CZBANK0,0)==0xC8000u && st_sector(OBJ_CZBANK0+7,1)+ST_SECTOR==0xD8000u &&
+        st_capacity(OBJ_CZBANK0)==ST_PAYLOAD_MAX && st_sector(OBJ_UPRESET0,0)==0xDC000u);
     return bad != 0;
 }

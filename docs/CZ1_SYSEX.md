@@ -49,3 +49,16 @@ Sources:
 - [Casio CZ-1 owner's manual](https://manuals.fdiskc.com/tree/Casio/Casio%20CZ-1%20Owners%20Manual.pdf), waveforms and rate/level envelope behavior.
 - [Devin Acker's uPD933 device model](https://github.com/mamedev/mame/blob/master/src/devices/sound/upd933.cpp), chip phase functions, envelope rate domains and logarithmic DCA; BSD-3-Clause.
 - [Michael Rickard's CZ-1 hardware investigation](https://www.kasploosh.com/cz/11800-spelunking/), hidden waveform/window combinations.
+
+## Dedicated user banks
+
+Eight named banks (A–H), each holding 16 native tones, are independent of the
+shared user presets and FM6 bank. In Sound choose CZ-1, import a .syx file, select
+a starting bank and press **Save imported bank(s)**. Files larger than 16 tones
+fill consecutive banks after checking capacity; replacing banks asks for confirmation.
+Each bank commits atomically. A multi-bank transfer commits banks individually,
+so an interrupted transfer may have saved earlier banks.
+
+Read, load, save, erase, rename and export controls operate on the selected bank.
+Full backups retain bank names, empty slots and every native tone byte. Device
+BANK and PTCH controls select A–H and 1–16; PTCH 0 selects INIT.

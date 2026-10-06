@@ -44,7 +44,7 @@ static __attribute__((noinline)) void cz_native_defs(track_t *t, voice_t *v, cz_
             /* Native DCA key-follow is rate scaling; higher keys run faster.
              * Keep raw key-follow and velocity bytes intact for recalibration. */
             if (e == 2u) {
-                uint32_t kf = b[17u + l*57u] & 15u;
+                uint32_t kf = b[16u + l*57u] & 15u;
                 uint32_t note = v->note > 36u ? v->note - 36u : 0u;
                 p->rate[k] += (uint32_t)(((uint64_t)p->rate[k] * kf * note) / 96u);
             }
@@ -99,7 +99,7 @@ static __attribute__((noinline)) int32_t cz_native_wave(const cz_hw_pd_t *b, uin
 }
 static __attribute__((noinline)) int32_t cz_native_vibrato(cz_voice_t *c, const uint8_t *b)
 {
-    uint32_t delay = (uint32_t)b[5] | (uint32_t)b[6] << 8, inc = (uint32_t)b[8] | (uint32_t)b[9] << 8;
+    uint32_t delay = (uint32_t)b[6] | (uint32_t)b[7] << 8, inc = (uint32_t)b[9] | (uint32_t)b[10] << 8;
     /* Approximate control clock; needs verification against a CZ-1. */
     c->vib_ticks++;
     if (c->vib_ticks < delay * FS / (200u*CTL)) return 0;
@@ -109,7 +109,7 @@ static __attribute__((noinline)) int32_t cz_native_vibrato(cz_voice_t *c, const 
     else if (b[4] & 8u) wave = x < 32768 ? x*2-32768 : 98303-x*2;
     else if (b[4] & 4u) wave = x-32768;
     else wave = x < 32768 ? -32768 : 32767;
-    uint32_t depth = (uint32_t)b[11] | (uint32_t)b[12] << 8;
+    uint32_t depth = (uint32_t)b[12] | (uint32_t)b[13] << 8;
     return (wave * (int32_t)depth) >> 19;              /* 1/16-semitone pitch */
 }
 static __attribute__((noinline)) void cz_native_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
@@ -124,7 +124,7 @@ static __attribute__((noinline)) void cz_native_render(track_t *t, voice_t *v, i
     for (uint32_t l=0;l<2u;l++) {
         uint32_t src = ls == 2u ? 0u : l, off = src*57u;
         if (src != l) memcpy(defs[l],defs[src],sizeof defs[l]);
-        uint32_t av = 15u-(b[20u+off]>>4), al = b[17u+off]>>4;
+        uint32_t av = 15u-(b[20u+off]>>4), al = b[16u+off]>>4;
         amp[l][0] = cz_native_amp(c->eg[l][2].level,al,av,v->vel);
         int32_t pitch = cz_env_tick(&c->eg[l][0],&defs[l][0],v->gate);
         int32_t depth = cz_env_tick(&c->eg[l][1],&defs[l][1],v->gate);
@@ -134,23 +134,23 @@ static __attribute__((noinline)) void cz_native_render(track_t *t, voice_t *v, i
         uint32_t pv = 15u-(b[54u+off]>>4), wv = 15u-(b[37u+off]>>4);
         pitch = mulq16(pitch, (127u*15u-(127u-v->vel)*pv)*65536u/(127u*15u));
         depth = mulq16(depth, (127u*15u-(127u-v->vel)*wv)*65536u/(127u*15u));
-        uint32_t kf = b[19u+off], kfnote = v->note > 36u ? v->note-36u : 0u;
+        uint32_t kf = b[18u+off], kfnote = v->note > 36u ? v->note-36u : 0u;
         depth = depth*96/(int32_t)(96u+kf*kfnote);
         int32_t det = l ? ((int32_t)b[3]*16+(b[2]>>2)*16/64)*(b[1] ? -1 : 1) : 0;
         int32_t nt = clamp(m->pitch16+oct+vib+(pitch>>13)+det,0,2047);
         inc[l] = pitch_inc((uint32_t)nt);
         inc[l] += (uint32_t)((int32_t)(inc[l]>>12)*m->fine);
-        uint32_t word = b[14u+off] | (uint32_t)b[15u+off]<<8;
+        uint32_t word = (uint32_t)b[14u+off]<<8 | b[15u+off];
         uint32_t dep = (uint32_t)clamp((depth>>14)+((m->cutoff+m->shape-(64<<8))>>5),0,1023);
         cz_native_pd(&pd[l],word,dep);
     }
     v->s[4] = c->eg[first][2].level >> 9;
-    uint32_t modulation = b[14]&0x28u;
+    uint32_t modulation = (b[15]>>3)&7u;
     for (uint32_t i=0;i<n;i++) {
         int32_t line[2] = {0,0};
         for (uint32_t l=first;l<=last;l++) {
             uint32_t old=ph[l], delta=inc[l];
-            if (l && (modulation&8u)) {
+            if (l && (modulation==3u)) {
                 c->noise ^= c->noise<<13; c->noise ^= c->noise>>17; c->noise ^= c->noise<<5;
                 if (c->noise&1u) delta = delta > 0x1428A2F9u ? 0x7FFFFFFFu : (delta>>8)*1625u;
             }
@@ -159,7 +159,7 @@ static __attribute__((noinline)) void cz_native_render(track_t *t, voice_t *v, i
             dc[l]+=raw-(dc[l]>>10); raw=(raw-(dc[l]>>10))>>1;
             line[l]=mulq15(raw,amp[l][0]+((step[l]*(int32_t)i)>>8));
         }
-        int32_t sample=first==last ? line[first] : (modulation&32u) ? mulq15(line[0],line[1])*2 : (line[0]+line[1])>>1;
+        int32_t sample=first==last ? line[first] : (modulation==4u) ? mulq15(line[0],line[1])*2 : (line[0]+line[1])>>1;
         out[i]+=voice_amp(sample,m,i)*4;
     }
     v->ph[0]=ph[0];v->ph[1]=ph[1];v->s[0]=(int32_t)tg[0];v->s[1]=(int32_t)tg[1];v->s[2]=dc[0];v->s[3]=dc[1];

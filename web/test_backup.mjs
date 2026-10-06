@@ -102,5 +102,20 @@ const noSampleTarget = device([], { ids: bankIds });
 ok(await athrows(() => restoreBackup(noSampleTarget.request, sampleFile)) && !noSampleTarget.log.length,
   "backup: nonempty retired sample slots are refused before any write");
 
+const czIds = Array.from({length:17},(_,i)=>i);
+const czBank = new Uint8Array(2332), czView = new DataView(czBank.buffer);
+czView.setUint32(0,0x42435a43,true);czView.setUint16(4,1,true);czView.setUint16(6,16,true);czView.setUint32(8,1,true);
+czBank.set(new TextEncoder().encode("MY CZ BANK"),12);czBank[28+128]=65;
+const czFile=await captureBackup(device([...bankObjects,[9,czBank],[16,czBank.slice()]],{ids:czIds}).request,"CZ BANKS");
+ok(readBackup(czFile).objects.length===17,"backup: captures all eight dedicated CZ banks");
+const czTarget=device([],{ids:czIds});await restoreBackup(czTarget.request,czFile);
+ok(czTarget.log.at(-1)===0 && [9,16].every(id=>czTarget.objs.get(id).every((x,i)=>x===czBank[i])),"backup: native CZ banks restore byte-exact with live music last");
+const badBank=JSON.parse(JSON.stringify(czFile));const broken=czBank.slice();broken[0]^=1;
+badBank.objects[9]={...badBank.objects[9],crc:bkCrc(broken),data:Buffer.from(broken).toString("base64")};
+const protectedTarget=device([],{ids:czIds});
+ok(await athrows(()=>restoreBackup(protectedTarget.request,badBank)) && !protectedTarget.log.length,"backup: corrupt CZ bank refused before any writes");
+const oldToCz=device([[9,czBank]],{ids:czIds});await restoreBackup(oldToCz.request,bankFile);
+ok(!oldToCz.log.includes(9) && oldToCz.objs.get(9)===czBank,"backup: older archives preserve dedicated CZ banks absent from archive");
+
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
 process.exit(fails ? 1 : 0);

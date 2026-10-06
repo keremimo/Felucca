@@ -93,6 +93,18 @@ static void reset(void)
     irq_start_race = irq_races = 0;
 }
 
+static int cz_bank_persistence(void)
+{
+    int bad=0;reset();cz_bank_t bank;uint8_t raw[CZ_BYTES];
+    for(uint32_t k=0;k<8;k++){cz_bank_empty(&bank,k);bank.used=1;cz_patch_init(bank.tone[0].raw);bank.tone[0].raw[128]=(uint8_t)('A'+k);bad+=check("dedicated CZ bank writes its own A/B object",!st_save(OBJ_CZBANK0+k,&bank,sizeof bank));}
+    cz_bank_boot();for(uint32_t k=0;k<8;k++)bad+=check("CZ banks survive cache reset and boot",!cz_bank_get(k,0,raw)&&raw[128]=='A'+k);
+    bank=*cz_bank_load(1);bank.tone[0].raw[128]='X';fail_after=2;
+    bad+=check("interrupted CZ bank write reports failure",st_save(OBJ_CZBANK0+1,&bank,sizeof bank)!=0);
+    fail_after=-1;cz_bank_boot();
+    bad+=check("torn CZ bank write keeps previous committed tone",!cz_bank_get(1,0,raw)&&raw[128]=='B');
+    bad+=check("CZ bank writes leave neighbouring project objects untouched",st_sector(OBJ_BANK0+3,1)+5u*ST_SECTOR==st_sector(OBJ_CZBANK0,0));
+    return bad;
+}
 int main(void)
 {
     int bad = 0, ok;
@@ -324,6 +336,7 @@ int main(void)
     settings_save();
     bad += check("PLAY consumed before the settings snapshot defers the write",
                   irq_races == 3u && song.playing && !transport_req && persist_pending && erases == before);
+    bad += cz_bank_persistence();
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");
     return bad != 0;
 }

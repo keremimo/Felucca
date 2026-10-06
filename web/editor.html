@@ -200,6 +200,15 @@
       <p class="bar"><button id="czimport">Import .syx</button><input id="czfile" type="file" accept=".syx" hidden>
         <select id="czvoices" aria-label="Imported CZ patch"></select><button id="czread">Read track</button><button id="czsend">Send to track</button>
         <button id="czexport">Export .syx</button><button id="czlibrary">Add to library</button></p>
+      <div id="czbankpanel" hidden>
+        <h3>CZ-1 user banks</h3>
+        <p class="dim">Eight banks of 16 tones, stored on the FM-1. Larger imported files fill consecutive banks.</p>
+        <p class="bar"><label>Bank <select id="czbank"></select></label><label>Patch <select id="czslot"></select></label>
+          <button id="czbankrefresh">Refresh banks</button><button id="czbankload">Load patch</button>
+          <button id="czbankstore">Save tone</button><button id="czbankerase">Erase patch</button></p>
+        <p class="bar"><label>Bank name <input id="czbankname" maxlength="16"></label>
+          <button id="czbankrename">Rename bank</button><button id="czbanksave">Save imported bank(s)</button><button id="czbankexport">Export bank .syx</button></p>
+      </div>
       <div id="czcontrols"></div>
     </div>
     <div class="groups" id="groups"></div>
@@ -365,7 +374,7 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   TRACK_PARAM: 31, TRACK_CHANGED: 32, SONG: 33, PATTERN: 73, BANK_SONG: 74,
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
-  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76 };
+  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
 /* Native CZ-1 tones: the original 144 bytes, not the common parameter array. */
@@ -373,7 +382,7 @@ const CZ = {
   BYTES: 144, ENV: [[55,38,21],[112,95,78]], END: [[54,37,20],[111,94,77]],
   valid(b) { return Array.isArray(b) && b.length === 144 && b.every(x => Number.isInteger(x) && x >= 0 && x <= 255)
     && !(b[0] & 240) && (b[0] >> 2) <= 2 && b[1] <= 1 && !(b[2] & 3) && b[3] <= 47
-    && [0,57].every(o => (b[17+o]&15) <= 9 && (b[17+o]>>4) <= 14 && b[19+o] <= 9)
+    && [0,57].every(o => (b[16+o]&15) <= 9 && (b[16+o]>>4) <= 14 && b[18+o] <= 9)
     && CZ.END.flat().every(i => !(b[i]&8)); },
   nibbles(b) { if (!CZ.valid(b)) throw new Error("Invalid CZ tone"); return b.flatMap(x => [x&15,x>>4]); },
   bytes(n) { if (n.length !== 288 || n.some(x => !Number.isInteger(x) || x < 0 || x > 15)) throw new Error("Invalid CZ tone nibbles");
@@ -402,8 +411,8 @@ const CZ = {
       if(![256,288].includes(nib.length) || nib.some(x=>x>15))throw new Error("Invalid CZ tone length or nibble");
       const raw=Array.from({length:nib.length/2},(_,k)=>nib[2*k]|nib[2*k+1]<<4);
       if(raw.length===128) {
-        const kf=[0,25,51,78,106,134,163,193,223,255];
-        for(const o of [0,57]) { raw[17+o]&=15; raw[18+o]=kf[Math.min(9,raw[19+o])]; for(const x of [20,37,54])raw[x+o]|=240; }
+        const kf=[0,31,44,57,70,83,96,111,146,255];
+        for(const o of [0,57]) { raw[16+o]&=15; raw[19+o]=kf[Math.min(9,raw[18+o])]; for(const x of [20,37,54])raw[x+o]|=240; }
         raw.push(...Array(16).fill(32)); CZ.setName(raw,filename.replace(/\.[^.]+$/,"")+(voices.length?" "+(voices.length+1):""));
       }
       if(!CZ.valid(raw))throw new Error("Invalid CZ tone parameters");
@@ -492,6 +501,7 @@ class Reader {
 }
 
 const parse = {
+  [CMD.CZ_BANK](a) { const r=new Reader(a),o={bank:r.b(),rc:r.b()};if(!o.rc){o.name=r.s();o.slots=Array.from({length:16},()=>({used:!!r.b(),name:r.s()}));}return o; },
   [CMD.CZ_GET](a) { if (a.length<3) throw new Error("Short CZ reply"); const r={target:a[0],index:a[1],rc:a[2]}; if(!r.rc)r.raw=CZ.bytes(a.slice(3));else if(a.length!==3)throw new Error("Invalid CZ reply");return r; },
   [CMD.CZ_PUT](a) { if(a.length!==3)throw new Error("Invalid CZ reply");return {target:a[0],index:a[1],rc:a[2]}; },
   [CMD.INFO](a) {
@@ -515,6 +525,7 @@ const parse = {
     o.patterns = o.motionMax && o.backupCaps && trailer[11] === 0x50 && trailer[12] === 1 && trailer[13] === 8 ? 8 : 0;
     if (o.patterns) o.chainRows = trailer[14] === 16 ? 16 : 0;
     o.cz = !!o.motionMax && [12,15,19].some(p=>trailer[p]===0x43 && trailer[p+1]===1 && (trailer[p+2]|trailer[p+3]<<7)===CZ.BYTES);
+    o.czBanks=o.cz && [12,15,19].some(p=>trailer[p]===0x43 && trailer[p+4]===8 && trailer[p+5]===16)?8:0;
     return o;
   },
   [CMD.UI_STATE](a) {
@@ -663,6 +674,7 @@ const parse = {
 function upName(s) { return String(s ?? "").replace(/[^\x20-\x7E]/g, "").trim().slice(0, UP.NAME_MAX) || "PATCH"; }
 
 const req = {
+  czBank: bank => [CMD.CZ_BANK,[bank]],
   czGet: (target,index) => [CMD.CZ_GET,[target,index]],
   czPut: (target,index,raw,pattern=null) => [CMD.CZ_PUT,[target,index,...CZ.nibbles(raw),...(pattern?Array.from({length:16},(_,i)=>patNorm(...(pattern[i]||[0,0]))).flat():[])]],
   uiState: () => [CMD.UI_STATE, []],
@@ -753,6 +765,7 @@ function replyMatches(cmd, args, a) {
     case CMD.SMP_WRITE: return a[0] === args[0] && a[1] === args[1] && a[2] === args[2] && a[3] === args[3];
     case CMD.BANK_SONG: case CMD.SONG: return a[0] === args[0];
     case CMD.PATTERN: return a[0] === args[0] && a[1] === args[1];
+    case CMD.CZ_BANK: return a[0]===args[0];
     case CMD.CZ_GET: case CMD.CZ_PUT: case CMD.FM6_GET: case CMD.FM6_PUT: return a[0] === args[0] && a[1] === args[1];
     case CMD.FM6_ERASE: return a[0] === args[0];
     case CMD.PROJECT: return a[0] === args[0] && a[1] === args[1];
@@ -1310,6 +1323,33 @@ async function capturePatch(rq, info, name) {
     grid: drum ? gridFromSteps(steps) : null }), dump, steps };
 }
 
+/* Dedicated CZ user banks: eight atomic A/B objects, ids 9..16. */
+function czBankEncode({name,tones}) {
+  if(tones.length>16 || !name || !/^[ -~]{1,16}$/.test(name))throw Error("Invalid CZ bank");
+  const bytes=new Uint8Array(2332),v=new DataView(bytes.buffer);v.setUint32(0,0x42435a43,true);v.setUint16(4,1,true);v.setUint16(6,16,true);
+  Array.from(name).forEach((c,i)=>bytes[12+i]=c.charCodeAt(0));let used=0;
+  tones.forEach((raw,i)=>{if(raw){if(!CZ.valid(Array.from(raw)))throw Error("Invalid CZ tone");used|=1<<i;bytes.set(raw,28+i*144);}});v.setUint32(8,used,true);return bytes;
+}
+function czBankDecode(data) {
+  const bytes=new Uint8Array(data);if(bytes.length!==2332)throw Error("Invalid CZ bank size");const v=new DataView(bytes.buffer),used=v.getUint32(8,true);
+  if(v.getUint32(0,true)!==0x42435a43||v.getUint16(4,true)!==1||v.getUint16(6,true)!==16||used>>>16)throw Error("Invalid CZ bank");
+  const names=Array.from(bytes.slice(12,28));if(!names[0]||names.some(x=>x>126||x>0&&x<32))throw Error("Invalid CZ bank name");
+  const name=String.fromCharCode(...names).replace(/\0/g,"");const tones=Array.from({length:16},(_,i)=>used>>i&1?Array.from(bytes.slice(28+i*144,28+(i+1)*144)):null);
+  if(tones.some(x=>x&&!CZ.valid(x)))throw Error("Invalid CZ tone");return {name,tones};
+}
+function czBkNumber(a,off=0){return (a[off]|a[off+1]<<7|a[off+2]<<14|a[off+3]<<21|a[off+4]<<28)>>>0;}
+function czBkU32(n){return Array.from({length:5},(_,i)=>n>>>(7*i)&127);}
+function czBkPack(bytes){const a=[];for(let i=0;i<bytes.length;i+=7){const c=Array.from(bytes.slice(i,i+7));a.push(c.reduce((m,b,j)=>m|(b>>7)<<j,0),...c.map(x=>x&127));}return a;}
+function czBkUnpack(a){const b=[];for(let i=0;i<a.length;){const m=a[i++],n=Math.min(7,a.length-i);if(m>>n)throw Error("Invalid packed bytes");for(let j=0;j<n;j++)b.push(a[i++]|((m>>j)&1)<<7);}return b;}
+async function czBankUpload(rq,index,bank){
+  if(!Number.isInteger(index)||index<0||index>=8)throw Error("Invalid CZ bank number");const bytes=czBankEncode(bank),id=9+index;
+  const put=async a=>{const r=await rq([CMD.BACKUP_PUT,a],{timeout:4000,retries:0});if(r[2])throw Error(r[2]===3?"Stop playback before saving CZ banks":"CZ bank write failed");};
+  await put([0,id,...czBkU32(bytes.length),...czBkU32(crc32(bytes))]);
+  try{for(let i=0;i<bytes.length;i+=256)await put([1,id,...czBkU32(i),...czBkPack(bytes.slice(i,i+256))]);await put([2,id]);}
+  catch(e){await put([3,id]).catch(()=>{});throw e;}
+}
+async function czBankRead(rq,index){const r=parse[CMD.CZ_BANK](await rq(req.czBank(index)));if(r.rc)throw Error("Cannot read CZ bank");const tones=[];for(let i=0;i<16;i++){if(r.slots[i].used){const p=parse[CMD.CZ_GET](await rq(req.czGet(2,index*16+i)));if(p.rc)throw Error("Cannot read CZ tone");tones.push(p.raw);}else tones.push(null);}return {name:r.name,tones};}
+
 /* the track's own parameters, which no sound load changes (ui.c param_kept): LEVEL, the ARP and ARP 2 pages,
    SCL, LEN DIV SWING GATE (17..32), PAN, MUTE, the SLICER (45..48); with P_E0 83 the chord keys CHRD VOIC (81, 82:
    E0 E1 of the 89-parameter firmware); with P_E0 84 the MPC degree (83: E0 of 1.0) */
@@ -1826,7 +1866,7 @@ function makeMockDevice(opt = {}) {
         P("TUBULAR", [0, 0, 0, 0, 0, 0, 0, 23], [0, 0, 127, 0], 0)] },
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
-    {name:"CZ-1",titles:["CZ-1","TONE"],edit:[...Array(7).fill(NONE),D("TONE",F.INT,2,2,2)],
+    {name:"CZ-1",titles:["CZ-1","TONE"],edit:[E("BANK",["A","B","C","D","E","F","G","H"],0),D("PTCH",F.INT,0,16,0),...Array(5).fill(NONE),D("TONE",F.INT,2,2,2)],
       presets:[P("INIT TONE",[0,0,0,0,0,0,0,2],[0,70,127,60],0,1)]},
   ];
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_BANK = 32;
@@ -1863,6 +1903,7 @@ function makeMockDevice(opt = {}) {
     step: Array.from({ length: NSTEP }, () => ({ chance: 100, n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 })) });
   const st = {
     tracks: [0, 1, 2, 3].map(newTrack), sel: 0, rec: 0,
+    czbanks:Array.from({length:8},(_,i)=>czBankEncode({name:`BANK ${String.fromCharCode(65+i)}`,tones:[]})),
     g: GP.map((d) => d.def),
     slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
     smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, name: "", len: 0, next: SMP.DATA_OFF })),
@@ -2099,9 +2140,23 @@ function makeMockDevice(opt = {}) {
         m.events.forEach(e => {b(e.step);b(e.param);v(e.value);});
         break;
       }
+      case CMD.CZ_BANK: {
+        const k=a[0];let bk;try{if(a.length!==1||k>=8)throw Error();bk=czBankDecode(st.czbanks[k]);}catch{}b(k);b(bk?0:1);
+        if(bk){s(bk.name);bk.tones.forEach(raw=>{b(raw?1:0);s(raw?CZ.name(raw):"");});}break;
+      }
+      case CMD.BACKUP_PUT: {
+        const [op,id]=a;let rc=0;
+        if(id<9||id>16||op>3)rc=1;
+        else if(op===0){const len=czBkNumber(a,2),crc=czBkNumber(a,7);if(a.length!==12||len!==2332)rc=1;else st.czstage={id,len,crc,bytes:[]};}
+        else if(!st.czstage||st.czstage.id!==id)rc=5;
+        else if(op===3)st.czstage=null;
+        else if(op===1){const off=czBkNumber(a,2),part=czBkUnpack(a.slice(7));if(off!==st.czstage.bytes.length||off+part.length>2332)rc=1;else st.czstage.bytes.push(...part);}
+        else {const x=st.czstage;try{if(x.bytes.length!==x.len||crc32(x.bytes)!==x.crc)throw Error();czBankDecode(x.bytes);st.czbanks[id-9]=new Uint8Array(x.bytes);}catch{rc=2;}st.czstage=null;}
+        b(op);b(id);b(rc);break;
+      }
       case CMD.CZ_GET: case CMD.CZ_PUT: {
-        const [target,index]=a;let rc=target>1||index>=(target?NB:NTRK)?1:0,raw;
-        if(!rc && cmd===CMD.CZ_GET) { if(a.length!==2)rc=1;else {raw=target?st.bank[index]?.cz:st.tracks[index].cz;if(!raw)rc=2;} }
+        const [target,index]=a;let rc=target>2||index>=(target===2?128:target?NB:NTRK)||(target===2&&cmd===CMD.CZ_PUT)?1:0,raw;
+        if(!rc && cmd===CMD.CZ_GET) { if(a.length!==2)rc=1;else {raw=target===2?czBankDecode(st.czbanks[Math.floor(index/16)]).tones[index%16]:target?st.bank[index]?.cz:st.tracks[index].cz;if(!raw)rc=2;} }
         if(!rc && cmd===CMD.CZ_PUT) {
           try {if(![290,322].includes(a.length))throw Error();raw=CZ.bytes(a.slice(2,290));}catch{rc=1;}
           if(!rc) {if(target) {const pt=czLibraryPatch({name:CZ.name(raw),raw},{pe0:P_E0,pcount:P_COUNT});pt.p=TP.map(d=>d.def).concat(Array(8).fill(0));pt.p[P_E0+7]=2;if(a.length===322)pt.pattern=Array.from({length:16},(_,i)=>a.slice(290+2*i,292+2*i));st.bank[index]=pt;}
@@ -2115,7 +2170,7 @@ function makeMockDevice(opt = {}) {
         if (!opt.legacy) b(NTRK);
         if (!opt.legacy && !opt.v3 && !opt.v5) {
           b(16);
-          if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(FM6_BANK); b(0x43); b(1); b(16); b(1); } }
+          if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(FM6_BANK); b(0x43); b(1); b(16); b(1); b(8); b(16); } }
         }
         break;
       case CMD.GET: case CMD.SET: {
@@ -3139,6 +3194,8 @@ function buildGroups() {
   }
   for (const [id, divs] of Object.entries(groups)) $(id).replaceChildren(...divs);
   $("czpanel").hidden = !dev.info.cz || dev.dump.engine!==15;
+  $("czbankpanel").hidden = !dev.info.czBanks;
+  if(dev.info.czBanks && !$("czbank").options.length)$("czbank").replaceChildren(...Array.from({length:8},(_,i)=>el("option",{value:i},`Bank ${String.fromCharCode(65+i)}`)));
 }
 
 function paramRow(s, id) {
@@ -4007,6 +4064,7 @@ setInterval(() => {
 }, 1000);
 
 /* ------------------------------------------------------------ files --- */
+let czImportName="IMPORTED";
 let czVoices=[{name:"INIT",raw:CZ.init()}],czTone=czVoices[0].raw.slice();
 function czRender() {
   const root=$("czcontrols");root.replaceChildren();
@@ -4015,10 +4073,10 @@ function czRender() {
   const name=el("input",{value:CZ.name(czTone),maxlength:16});name.addEventListener("change",()=>CZ.setName(czTone,name.value));
   root.append(el("p",{class:"bar"},el("label",{},"Name ",name),select("Lines",czTone[0]&3,["1","2","1 + 1","1 + 2"],v=>czTone[0]=(czTone[0]&12)|v),select("Octave",czTone[0]>>2,["Normal","+1","−1"],v=>czTone[0]=(czTone[0]&3)|(v<<2)),select("Detune",czTone[1],["+","−"],v=>czTone[1]=v),number("Semitones",czTone[3],0,47,v=>czTone[3]=v),number("Fine",czTone[2]>>2,0,63,v=>czTone[2]=v<<2)));
   for(let l=0;l<2;l++) {
-    const off=57*l,word=()=>czTone[14+off]|czTone[15+off]<<8,setWord=v=>{czTone[14+off]=v&255;czTone[15+off]=v>>8;};
+    const off=57*l,word=()=>czTone[14+off]<<8|czTone[15+off],setWord=v=>{czTone[14+off]=v>>8;czTone[15+off]=v&255;};
     const section=el("div",{class:"group"},el("h3",{},`Line ${l+1}`));
     const waves=["Saw","Square","Pulse","Silent","Double sine","Saw / pulse","Resonance","Double pulse"];
-    section.append(el("p",{class:"bar"},select("Wave 1",word()>>13,waves,v=>setWord((word()&8191)|(v<<13))),select("Wave 2",word()&512?(word()>>10&7)+1:0,["Off",...waves],v=>setWord((word()&~(512|7168))|(v?512|((v-1)<<10):0))),select("Window",word()>>6&7,["None","Saw","Triangle","Trapezoid","Pulse","Double saw 5","Double saw 6","Double saw 7"],v=>setWord((word()&~448)|(v<<6))),number("Level",15-(czTone[17+off]>>4),1,15,v=>czTone[17+off]=(czTone[17+off]&15)|((15-v)<<4)),number("DCA key follow",czTone[17+off]&15,0,9,v=>czTone[17+off]=(czTone[17+off]&240)|v),number("DCW key follow",czTone[19+off],0,9,v=>{czTone[19+off]=v;czTone[18+off]=[0,25,51,78,106,134,163,193,223,255][v];})));
+    section.append(el("p",{class:"bar"},select("Wave 1",word()>>13,waves,v=>setWord((word()&8191)|(v<<13))),select("Wave 2",word()&512?(word()>>10&7)+1:0,["Off",...waves],v=>setWord((word()&~(512|7168))|(v?512|((v-1)<<10):0))),select("Window",word()>>6&7,["None","Saw","Triangle","Trapezoid","Pulse","Double saw 5","Double saw 6","Double saw 7"],v=>setWord((word()&~448)|(v<<6))),number("Level",15-(czTone[16+off]>>4),1,15,v=>czTone[16+off]=(czTone[16+off]&15)|((15-v)<<4)),number("DCA key follow",czTone[16+off]&15,0,9,v=>{czTone[16+off]=(czTone[16+off]&240)|v;czTone[17+off]=[0,8,17,26,36,47,58,69,82,95][v];}),number("DCW key follow",czTone[18+off],0,9,v=>{czTone[18+off]=v;czTone[19+off]=[0,31,44,57,70,83,96,111,146,255][v];})));
     for(let e=0;e<3;e++) {
       const base=CZ.ENV[l][e],end=CZ.END[l][e],table=el("table"),tbody=el("tbody");table.append(el("thead",{},el("tr",{},... ["Point","Rate","Level"].map(x=>el("th",{},x)))),tbody);
       section.append(el("h3",{},["DCO · pitch","DCW · waveform","DCA · amplitude"][e]));
@@ -4028,15 +4086,25 @@ function czRender() {
       section.append(table);
     }root.append(section);
   }
-  root.append(el("p",{class:"bar"},select("Modulation",czTone[14]&8?2:czTone[14]&32?1:0,["Off","Ring","Noise"],v=>czTone[14]=(czTone[14]&~40)|(v===1?32:v===2?8:0))));
+  root.append(el("p",{class:"bar"},select("Modulation",(czTone[15]>>3&7)===3?2:(czTone[15]>>3&7)===4?1:0,["Off","Ring","Noise"],v=>czTone[15]=(czTone[15]&~56)|(v===1?32:v===2?24:0))));
 }
 $("czimport").addEventListener("click",()=>$("czfile").click());
-$("czfile").addEventListener("change",async()=>{const f=$("czfile").files[0];if(!f)return;try{czVoices=CZ.read(new Uint8Array(await f.arrayBuffer()),f.name).voices;$("czvoices").replaceChildren(...czVoices.map((v,i)=>el("option",{value:i},v.name)));czTone=czVoices[0].raw.slice();czRender();say(`Imported ${czVoices.length} CZ tones`);}catch(e){say(e.message);}finally{$("czfile").value="";}});
+$("czfile").addEventListener("change",async()=>{const f=$("czfile").files[0];if(!f)return;try{czImportName=f.name.replace(/\.[^.]+$/,"").replace(/[^ -~]/g," ").slice(0,16)||"IMPORTED";czVoices=CZ.read(new Uint8Array(await f.arrayBuffer()),f.name).voices;$("czvoices").replaceChildren(...czVoices.map((v,i)=>el("option",{value:i},v.name)));czTone=czVoices[0].raw.slice();czRender();say(`Imported ${czVoices.length} CZ tones`);}catch(e){say(e.message);}finally{$("czfile").value="";}});
 $("czvoices").addEventListener("change",()=>{czTone=czVoices[+$("czvoices").value].raw.slice();czRender();});
 $("czread").addEventListener("click",()=>op(async()=>{const r=parse[CMD.CZ_GET](await rq(req.czGet(0,dev.sel||0)));if(r.rc)throw Error("Cannot read CZ tone");czTone=r.raw;czRender();say("CZ tone read from track");}));
 $("czsend").addEventListener("click",()=>op(async()=>{const d=dev;const r=parse[CMD.CZ_PUT](await rq(req.czPut(0,d.sel||0,czTone)));if(r.rc)throw Error("CZ tone rejected");await afterSoundChange("ready",d);}));
 $("czexport").addEventListener("click",()=>downloadBytes(`${fileSlug(CZ.name(czTone))}.syx`,CZ.sysex(czTone)));
 $("czlibrary").addEventListener("click",()=>libAdd([czLibraryPatch({name:CZ.name(czTone),raw:czTone},dev?.info||{})]).then(()=>say("CZ tone added to library")).catch(e=>say(e.message)));
+async function czBankRefresh(){const k=+$("czbank").value;const r=parse[CMD.CZ_BANK](await rq(req.czBank(k)));if(r.rc)throw Error("Cannot read CZ bank");$("czbankname").value=r.name;$("czbank").options[k].text=`${String.fromCharCode(65+k)} · ${r.name}`;const picked=$("czslot").value;$("czslot").replaceChildren(...r.slots.map((p,i)=>el("option",{value:i},`${i+1}. ${p.used?p.name:"Empty"}`)));$("czslot").value=picked||0;}
+$("czbankrefresh").addEventListener("click",()=>op(czBankRefresh));
+$("czbank").addEventListener("change",()=>op(czBankRefresh));
+$("czbankload").addEventListener("click",()=>op(async()=>{const r=parse[CMD.CZ_GET](await rq(req.czGet(2,+$("czbank").value*16+ +$("czslot").value)));if(r.rc)throw Error("Empty CZ bank slot");czTone=r.raw;czRender();const d=dev,x=parse[CMD.CZ_PUT](await rq(req.czPut(0,d.sel||0,czTone)));if(x.rc)throw Error("Cannot load CZ tone");await afterSoundChange("ready",d);}));
+async function czBankEdit(edit){const k=+$("czbank").value,b=await czBankRead(rq,k);edit(b);await czBankUpload(rq,k,b);await czBankRefresh();say("CZ bank saved to device");}
+$("czbankstore").addEventListener("click",()=>op(()=>czBankEdit(b=>{b.tones[+$("czslot").value]=czTone.slice();})));
+$("czbankerase").addEventListener("click",()=>{if(confirm("Erase this CZ bank patch?"))op(()=>czBankEdit(b=>{b.tones[+$("czslot").value]=null;}));});
+$("czbankrename").addEventListener("click",()=>op(()=>czBankEdit(b=>{b.name=$("czbankname").value;})));
+$("czbanksave").addEventListener("click",()=>op(async()=>{const k=+$("czbank").value,n=Math.ceil(czVoices.length/16);if(k+n>8)throw Error("Not enough consecutive CZ banks; select an earlier bank");const banks=Array.from({length:n},(_,i)=>({name:(czImportName.slice(0,n>1?13:16)+(n>1?` ${i+1}`:"")),tones:czVoices.slice(i*16,(i+1)*16).map(v=>v.raw)}));banks.forEach(czBankEncode);if(!confirm(`Replace ${n} CZ bank(s) starting at ${String.fromCharCode(65+k)} with ${czVoices.length} imported tones?`))return;for(let i=0;i<n;i++){await czBankUpload(rq,k+i,banks[i]);say(`CZ bank ${i+1}/${n} saved`);}await czBankRefresh();}));
+$("czbankexport").addEventListener("click",()=>op(async()=>{const b=await czBankRead(rq,+$("czbank").value),raw=b.tones.filter(Boolean).flatMap(t=>Array.from(CZ.sysex(t)));if(!raw.length)throw Error("Empty CZ bank");downloadBytes(`${fileSlug(b.name)}.syx`,new Uint8Array(raw));}));
 czRender();
 
 $("savefile").addEventListener("click", () => op(async () => {

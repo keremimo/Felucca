@@ -8,7 +8,7 @@
 #ifndef ED_BK_FLASH_PTR
 #define ED_BK_FLASH_PTR(off) fm1_xip_ptr(off)
 #endif
-static const uint8_t ED_BK_IDS[9] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+static const uint8_t ED_BK_IDS[17] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16};
 #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
 #define ED_BK_MAX ((uint32_t)sizeof proj_wire_u)
 #define ED_BK_RAW ((uint8_t *)&proj_wire_u)  /* reuse the existing serialized main-loop scratch */
@@ -63,6 +63,7 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
         if (fm6_bank.magic == FM6_BANK_MAGIC) *len = sizeof fm6_bank;
         return (const uint8_t *)&fm6_bank;
     }
+    if(id>=9u && id<=16u){cz_bank_t *b=cz_bank_load(id-9u);*len=sizeof *b;return (const uint8_t *)b;}
     return 0;
 }
 static uint32_t ed_bk_capture(void)
@@ -143,6 +144,9 @@ static uint32_t ed_bk_commit(void)
     } else if (ed_bk_id == 8u) {
         if (ed_bk_len && (ed_bk_len != sizeof fm6_bank || !fm6_bank_valid((const fm6_bank_t *)raw))) return 2;
         obj = OBJ_FM6BANK;
+    } else if(ed_bk_id>=9u && ed_bk_id<=16u){
+        if(ed_bk_len && (ed_bk_len!=sizeof(cz_bank_t)||!cz_bank_valid((const cz_bank_t *)raw)))return 2;
+        obj=OBJ_CZBANK0+ed_bk_id-9u;
     } else return 1;
 #if MELODEE_FLASH
     if (!flash_ok || st_save(obj, raw, ed_bk_len)) return 4;
@@ -167,6 +171,8 @@ static uint32_t ed_bk_commit(void)
         fm6_bank_check((int)ed_bk_len);
         for (uint32_t t = 0; t < NTRK; t++)                /* tracks on PTCH B..: the restored patches (fm6_bank_put); */
             if (fm6_slot[t] >= FM6_NFAC) fm6_slot[t] = 0xFFu;   /* a factory patch, or the track's own, stays */
+    } else if(ed_bk_id>=9u){
+        cz_bank_import(ed_bk_id-9u,raw,ed_bk_len);
     } else {
         uint32_t b = ed_bk_id - 6u;
         memset(&up_bank[b], 0, sizeof up_bank[b]);
@@ -178,7 +184,7 @@ static uint32_t ed_bk_commit(void)
 }
 static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
 {
-    if (n < 2u || a[0] > 3u || a[1] > 8u) return 1;
+    if (n < 2u || a[0] > 3u || a[1] > 16u) return 1;
     if (ed_flash_stop()) return 3;
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
@@ -188,7 +194,8 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
              len != sizeof(persist_t) + TMPL_SIZE5 && len != sizeof(persist_t) + TMPL_SIZE6) ||
             (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != PROJ_STORE_V8 && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t)) ||
-            (a[1] == 8u && len && len != sizeof(fm6_bank_t))) return 1;
+            (a[1] == 8u && len && len != sizeof(fm6_bank_t)) ||
+            (a[1]>=9u && len && len!=sizeof(cz_bank_t))) return 1;
         ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;
         ed_bk_crc = ed_bk_r32(a + 7); ed_bk_pos = 0;
         ed_bk_usb = usb.resets; ed_bk_ms = fm1_ms;

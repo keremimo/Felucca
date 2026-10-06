@@ -15,7 +15,7 @@ static __attribute__((noinline)) int cz_patch_valid(const uint8_t *b)
     if ((b[0] & 0xF0u) || (b[0] >> 2) > 2u || b[1] > 1u || (b[2] & 3u) || b[3] > 47u) return 0;
     for (uint32_t l = 0; l < 2u; l++) {
         uint32_t off = l ? 57u : 0u;
-        if ((b[17u + off] & 15u) > 9u || (b[17u + off] >> 4) > 14u || b[19u + off] > 9u) return 0;
+        if ((b[16u + off] & 15u) > 9u || (b[16u + off] >> 4) > 14u || b[18u + off] > 9u) return 0;
         for (uint32_t e = 0; e < 3u; e++)
             if (b[CZ_ENV_END[l][e]] & 8u) return 0;
     }

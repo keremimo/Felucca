@@ -883,6 +883,7 @@ static int project_restore_runtime(const project_t *input)
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(p->fm6[k], v);
             cz_patch[k] = p->cz[k];
+            cz_track_accept(t);
             fm6_set_patch(k, v);
             fm6_slot[k] = (uint8_t)t->p[P_E7];
             memcpy(fm6_fn[k], p->fm6_fn_ok && fm6_fn_ok(p->fm6_fn[k]) ? p->fm6_fn[k] : FM6_FNDEF, FM6_NFN);
