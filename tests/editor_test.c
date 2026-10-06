@@ -60,6 +60,7 @@ static int st_prog(uint32_t off, const void *p, uint32_t n) { (void)off; (void)p
 static int st_erase(uint32_t off) { (void)off; return -1; }
 #include "../firmware/src/storage.c"
 #include "../firmware/src/editor.c"
+#include "../firmware/src/cz_store.c"
 
 static int check(const char *what, int ok)
 {
@@ -433,6 +434,52 @@ static int cz_native_protocol(void)
     bad+=check("native tone bytes and mode survive a saved template",restored && trk[1].p[P_E7]==CZ_NATIVE && !memcmp(cz_patch[1].raw,raw,CZ_BYTES));
     return bad;
 }
+static int cz_casio_sysex(void)
+{
+    int bad=0;reset();cz_init();trk[0].eng_req=ENGI_CZ;uint8_t raw[CZ_BYTES],frame[296],got[CZ_BYTES];cz_patch_init(raw);raw[16]=0x42;raw[17]=17;raw[18]=5;raw[19]=83;raw[128]='S';
+    const uint8_t head[]={0xf0,0x44,0,0,0x70,0x21,0x60};memcpy(frame,head,7);for(uint32_t j=0;j<CZ_BYTES;j++){frame[7+2*j]=raw[j]&15;frame[8+2*j]=raw[j]>>4;}frame[295]=0xf7;
+    for(uint32_t j=0;j<sizeof frame;j++)sysex_byte(frame[j]);cz_service();host_drain();
+    bad+=check("direct Casio MIDI SysEx preserves complete native tone",!memcmp(cz_patch[0].raw,raw,CZ_BYTES));memcpy(got,cz_patch[0].raw,CZ_BYTES);
+    frame[10]=16;for(uint32_t j=0;j<sizeof frame;j++)sysex_byte(frame[j]);cz_service();
+    bad+=check("invalid direct Casio SysEx leaves the native tone intact",!memcmp(cz_patch[0].raw,got,CZ_BYTES));
+    const uint8_t request[]={0xf0,0x44,0,0,0x70,0x11,0x60,0xf7};host_wire_n=0;for(uint32_t j=0;j<sizeof request;j++)sysex_byte(request[j]);cz_service();host_drain();
+    int same=host_wire_n==295 && host_wire[5]==0x30;for(uint32_t j=0;same && j<CZ_BYTES;j++)same=host_wire[6+2*j]==(raw[j]&15) && host_wire[7+2*j]==(raw[j]>>4);
+    bad+=check("direct Casio tone request exports exact native bytes",same);return bad;
+}
+
+static void legacy_cz_fixture(uint8_t *p)
+{
+    memset(p,0,LCZ_PACKED);memset(p+LCZ_NP,' ',16);memcpy(p+LCZ_NP,"MIGRATED",8);p[LCZ_OCT]=1;
+    for(uint32_t l=0;l<2;l++){p[LCZ_LBASE(l)+LCZ_LEVEL]=15;p[LCZ_LBASE(l)+LCZ_KW]=5;
+        for(uint32_t e=0;e<3;e++){uint32_t b=LCZ_EBASE(l,e);for(uint32_t j=0;j<8;j++)p[b+j]=99;p[b+8]=e?99:0;p[b+16]=0;p[b+17]=1;}}
+}
+static int cz_legacy_saved_sounds(void)
+{
+    int bad=0;reset();cz_init();uint8_t tone[LCZ_PACKED],native[CZ_BYTES];legacy_cz_fixture(tone);
+    bad+=check("earlier next CZ tone becomes documented native wire bytes",cz_legacy_tone(native,tone,sizeof tone) && native[18]==5 && native[19]==83 && native[128]=='M');
+    project_t q,r;project_capture(&q);project_store_t packed;proj_pack(&packed,&q);
+    uint8_t legacy[PROJ_LEGACY_CZ];memset(legacy,0,sizeof legacy);memcpy(legacy,packed.raw,PROJ_CZ_OFF);
+    uint32_t magic=0x46554E42u,size=sizeof legacy,sum;memcpy(legacy,&magic,4);memcpy(legacy+4,&size,4);
+    for(uint32_t k=0;k<NTRK;k++){memcpy(legacy+PROJ_CZ_OFF+k*LCZ_PACKED,tone,LCZ_PACKED);legacy[68u+k*(P_COUNT+2u+NSTEP*9u)+P_COUNT]=14;}
+    sum=proj_hash(legacy,sizeof legacy-4);memcpy(legacy+sizeof legacy-4,&sum,4);
+    bad+=check("earlier next FUNB project migrates CZ engine and full envelopes",proj_import_any(&r,legacy,sizeof legacy) && r.t[0].engine==ENGI_CZ && r.t[0].p[P_E7]==CZ_NATIVE && !memcmp(r.cz[0].raw,native,CZ_BYTES));
+    uint8_t full[BANK_SIZE9];bank_pack(full,&q,0);uint32_t oldExtra=BANK_EXTRA_OFF;
+    memmove(full+8u+sizeof legacy,full+8u+PROJ_STORE_SIZE,BANK_STORE_SIZE-8u-PROJ_STORE_SIZE-4u);
+    memcpy(full+8u,legacy,sizeof legacy);magic=0x434B4246u;size=BANK_SIZE_CZ_NEXT;memcpy(full,&magic,4);memcpy(full+4,&size,4);sum=proj_hash(full,size-4u);memcpy(full+size-4u,&sum,4);
+    bad+=check("earlier next FBKC pattern bank validates without losing timing",bank_valid(full,size));bank_upgrade(full);
+    bad+=check("normalized CZ pattern bank upgrades to native project format",bank_valid(full,BANK_STORE_SIZE) && proj_scratch.t[0].engine==ENGI_CZ && !memcmp(proj_scratch.cz[0].raw,native,CZ_BYTES));
+    uint8_t tpl[TMPL_CZ_NEXT];memset(tpl,0,sizeof tpl);memcpy(tpl,&tmpl,TMPL_SIZE6-8u);
+    for(uint32_t k=0;k<NTRK;k++){memcpy(tpl+TMPL_SIZE6-8u+k*LCZ_PACKED,tone,LCZ_PACKED);tpl[(2u*G_COUNT+2u)+k*sizeof(tmpl.t[0])]=14;}
+    size=sizeof tpl;magic=0x394C5054u;memcpy(tpl+size-8,&size,4);memcpy(tpl+size-4,&magic,4);
+    bad+=check("earlier next TPL9 template migrates native CZ tone",tmpl_take(tpl,sizeof tpl) && tmpl.t[0].engine==ENGI_CZ && !memcmp(tmpl.cz[0].raw,native,CZ_BYTES));
+    up_rec_t rec;memset(&rec,0,sizeof rec);rec.used=UP_USED;rec.engine=14;rec.ver=7;rec.np=P_COUNT;memcpy(rec.name,"OLD CZ",6);
+    uint32_t pos=0;for(uint32_t k=0;k<LCZ_PACKED;k++){uint32_t w=up_legacy_width(k);for(uint32_t j=0;j<w;j++,pos++){uint32_t at=pos>>3;uint8_t *p=at<144?rec.packed+at:rec.cz_extra+at-144;*p|=((tone[k]>>j)&1u)<<(pos&7);}}
+    for(uint32_t k=0;k<P_COUNT;k++){uint32_t val=(uint32_t)(TP[k].def-LCZ_PRESET_MIN[k]);if(k==P_REV)val=77;for(uint32_t j=0;j<LCZ_PRESET_WIDTH[k];j++,pos++){uint32_t at=pos>>3;uint8_t *p=at<144?rec.packed+at:rec.cz_extra+at-144;*p|=((val>>j)&1u)<<(pos&7);}}
+    uint8_t converted[CZ_BYTES];int16_t values[P_COUNT];up_values(&rec,values);
+    bad+=check("earlier next CZ preset retains native tone and effect settings",up_valid(&rec) && up_cz_raw(&rec,converted) && !memcmp(converted,native,CZ_BYTES) && values[P_REV]==77 && values[P_E7]==CZ_NATIVE);
+    return bad;
+}
+
 static int cz_dedicated_banks(void)
 {
     int bad=0;reset();cz_init();cz_bank_boot();cz_bank_t bank;
@@ -461,7 +508,7 @@ static int cz_dedicated_banks(void)
 int main(void)
 {
     int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() +
-              fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks();
+              fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

@@ -33,7 +33,8 @@
  * it needs nothing but core.h. */
 #define UP_PER_BANK 16u
 #include "cz_patch.h"
-#define UP_VER_CZ 6u                            /* native CZ-1 bytes in the 144-byte payload */
+#include "cz_legacy.h"
+#define UP_VER_CZ 8u                            /* native CZ-1 bytes in the 144-byte payload */
 #define UP_PMAX 72u                              /* room for P_COUNT to grow */
 #define UP_USED 0xA5u
 #define UP_VER 4u                                /* 2 since 1.0; 1 is read too (PHYS MODEL 2 was DUST) */
@@ -45,22 +46,39 @@ typedef struct {
     union { int16_t p[UP_PMAX]; uint8_t packed[UP_PMAX * 2u]; };
     uint8_t note[16], flags[16];                 /* note 0 = rest; flags 1 accent, 2 slide, 4 tie (UP_VER_GRID:
                                                   * lane hits, their accents) */
+    uint8_t cz_extra[46]; /* read compatibility with next's v6/v7 CZ records */
 } up_rec_t;
 typedef struct {
     uint32_t magic;
     uint16_t rsize, nslot;
     up_rec_t r[UP_PER_BANK];
 } up_bank_t;
-_Static_assert(sizeof(up_rec_t) == 192, "user preset record layout");
+_Static_assert(sizeof(up_rec_t) == 238, "user preset record layout");
 _Static_assert(P_COUNT <= UP_PMAX * 2u && P_COUNT < 128, "user preset record: P_COUNT");
 static up_bank_t up_bank[UP_SLOTS / UP_PER_BANK];
 
 static up_rec_t *up_rec(uint32_t k) { return &up_bank[k / UP_PER_BANK].r[k % UP_PER_BANK]; }
 
+#define UP_BANK_LEGACY_SIZE (8u+16u*192u)
+static int up_legacy_cz(const up_rec_t *r){return r->engine==14u && (r->ver==6u || r->ver==7u);}
+static int up_native_cz(const up_rec_t *r){return r->engine==ENGI_CZ && (r->ver==6u || r->ver==UP_VER_CZ);}
+static uint32_t up_legacy_bits(const up_rec_t *r,uint32_t pos,uint32_t n)
+{
+    uint32_t v=0;for(uint32_t i=0;i<n;i++){uint32_t k=(pos+i)>>3;uint8_t b=k<144u?r->packed[k]:r->cz_extra[k-144u];v|=((b>>((pos+i)&7u))&1u)<<i;}return v;
+}
+static uint32_t up_legacy_width(uint32_t k){uint32_t w=0,x=k<LCZ_NP?LCZ_MAX[k]:127u;do{w++;x>>=1;}while(x);return w;}
+static int up_cz_raw(const up_rec_t *r,uint8_t *raw)
+{
+    if(up_native_cz(r)){memcpy(raw,r->packed,CZ_BYTES);return cz_patch_valid(raw);}
+    if(!up_legacy_cz(r))return 0;
+    uint8_t p[LCZ_PACKED];uint32_t n=r->ver==6u?LCZ_OLD_PACKED:LCZ_PACKED,pos=0;
+    for(uint32_t k=0;k<n;k++){uint32_t w=k<(r->ver==6u?LCZ_OLD_NP:LCZ_NP)?up_legacy_width(k):7u;p[k]=(uint8_t)up_legacy_bits(r,pos,w);pos+=w;}
+    return cz_legacy_tone(raw,p,n);
+}
+static int up_bank_shape(uint32_t len,uint32_t rsize){return (len==sizeof(up_bank_t) && rsize==sizeof(up_rec_t)) || (len==UP_BANK_LEGACY_SIZE && rsize==192u);}
 static int up_valid(const up_rec_t *r)
 {
-    if (r->used == UP_USED && r->ver == UP_VER_CZ)
-        return r->engine == ENGI_CZ && r->np == P_COUNT && r->name[0] && cz_patch_valid(r->packed);
+    if (r->used == UP_USED && (up_native_cz(r) || up_legacy_cz(r))) { uint8_t raw[CZ_BYTES];return r->np==P_COUNT && r->name[0] && up_cz_raw(r,raw); }
     if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < NENGINES &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
     /* Pre-1.0 Melodee reused UPB1/version 1, but its MPC/chord ids and engine 9 mean different things.
@@ -73,7 +91,7 @@ static int up_valid(const up_rec_t *r)
 static int up_used(uint32_t k) { return k < UP_SLOTS && up_valid(up_rec(k)); }
 
 static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID; }
-static int16_t up_value(const up_rec_t *r, uint32_t k) { return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k]; }
+static int16_t up_value(const up_rec_t *r, uint32_t k) { if(up_legacy_cz(r)){uint32_t pos=r->ver==6u?977u:983u;for(uint32_t i=0;i<k;i++)pos+=LCZ_PRESET_WIDTH[i];return (int16_t)up_legacy_bits(r,pos,LCZ_PRESET_WIDTH[k])+LCZ_PRESET_MIN[k];} return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k]; }
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
     if (r->ver >= 4u) r->packed[k] = (uint8_t)(v + 64); else r->p[k] = v;
@@ -83,7 +101,7 @@ static void up_migrate(up_rec_t *r)
 {
     int16_t e[8]; uint32_t k;
     if (!up_valid(r)) return;
-    if (r->ver == UP_VER_CZ) return;
+    if (up_native_cz(r) || up_legacy_cz(r)) return;
     for (k = 0; k < 8u; k++) e[k] = up_value(r, r->np - 8u + k);
     if (drum_from_phys(r->engine, e)) {
         r->engine = ENGI_DRUM;
@@ -95,9 +113,10 @@ static void up_bank_check(uint32_t b, int len)  /* after loading bank b (len byt
 {
     up_bank_t *bk = &up_bank[b];
     uint32_t i;
-    if (len != (int)sizeof *bk || bk->magic != UP_BANK_MAGIC || bk->rsize != sizeof(up_rec_t) ||
+    if (!up_bank_shape((uint32_t)len,bk->rsize) || bk->magic != UP_BANK_MAGIC ||
         bk->nslot != UP_PER_BANK)
         memset(bk, 0, sizeof *bk);
+    if(len==UP_BANK_LEGACY_SIZE){for(i=UP_PER_BANK;i-- > 0;){uint8_t copy[192];memcpy(copy,(uint8_t *)bk+8u+i*192u,192);memset(&bk->r[i],0,sizeof(up_rec_t));memcpy(&bk->r[i],copy,192);}bk->rsize=sizeof(up_rec_t);}
     for (i = 0; i < UP_PER_BANK; i++)
         if (up_valid(&bk->r[i]))
             up_migrate(&bk->r[i]);
@@ -106,10 +125,11 @@ static void up_bank_check(uint32_t b, int len)  /* after loading bank b (len byt
 /* the record's values in today's P_* order (mapped by count, see above); def = the defaults */
 static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
 {
-    if (r->ver == UP_VER_CZ) { memcpy(out, def, P_COUNT * sizeof *out); out[P_E7] = CZ_NATIVE; return; }
+    if (up_native_cz(r)) { memcpy(out, def, P_COUNT * sizeof *out); out[P_E7] = CZ_NATIVE; return; }
     int16_t values[UP_PMAX * 2u];
     for (uint32_t i = 0; i < r->np && i < NELEM(values); i++) values[i] = up_value(r, i);
     params_by_count(out, values, r->np, def);
+    if(up_legacy_cz(r)){for(uint32_t i=P_E0;i<P_COUNT;i++)out[i]=def[i];out[P_E7]=CZ_NATIVE;}
 }
 
 static int up_name_ok(const uint8_t *s, uint32_t n)   /* 1..12 printable ASCII */
@@ -219,12 +239,12 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
     int16_t def[P_COUNT];
     uint32_t i;
     for (i = 0; i < P_COUNT; i++)
-        def[i] = param_desc_of(r->engine, i)->def;
+        def[i] = param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->def;
     up_params(r, v, def);
     if (r->ver == 1u && ENGINES[r->engine] == &ENG_PHYS)   /* (before 1.0: MODEL 2 was DUST) */
         phys_legacy(&v[P_E0]);
     for (i = 0; i < P_COUNT; i++)
-        v[i] = (int16_t)clamp(v[i], param_desc_of(r->engine, i)->min, param_desc_of(r->engine, i)->max);
+        v[i] = (int16_t)clamp(v[i], param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->min, param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->max);
 }
 
 #include "cz_bank.c"
@@ -404,12 +424,12 @@ static int up_load(uint32_t k)
 #endif
     {
         fm1_irq_off();                                  /* the audio ISR must not see half a sound */
-        t->eng_req = r->engine;
+        t->eng_req = up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine;
         for (i = 0; i < P_COUNT; i++)
             if (!param_kept(i))
                 t->p[i] = v[i];
         t->preset = 0;
-        if (r->ver == UP_VER_CZ) memcpy(cz_patch[song.sel % NTRK].raw, r->packed, CZ_BYTES);
+        if (up_native_cz(r)||up_legacy_cz(r))up_cz_raw(r,cz_patch[song.sel % NTRK].raw);
         cz_track_accept(t);
         fm1_irq_on();
         fm6_track_loaded(t);                            /* FM6: a user preset holds the PTCH and the macros */
@@ -470,7 +490,7 @@ static void up_pat_load(track_t *t, uint32_t k)
 }
 
 /* the engine a used slot's sound plays on (a DIGITAL record: FM6, without MELODEE_FM4) */
-static uint32_t up_engine(uint32_t k) { return eng_ok(up_rec(k)->engine) ? up_rec(k)->engine : ENGI_FM6; }
+static uint32_t up_engine(uint32_t k) { if(up_native_cz(up_rec(k))||up_legacy_cz(up_rec(k)))return ENGI_CZ; return eng_ok(up_rec(k)->engine) ? up_rec(k)->engine : ENGI_FM6; }
 
 static uint32_t up_count(void)                 /* used slots */
 {

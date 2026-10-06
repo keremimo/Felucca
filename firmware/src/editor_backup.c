@@ -129,16 +129,16 @@ static uint32_t ed_bk_commit(void)
             memcpy(&ts, t + tl - 8u, 4);
             memcpy(&tm, t + tl - 4u, 4);
         }
-        if (!(ed_bk_len == sizeof *p || ed_bk_len == sizeof ed_bk_set || (ed_bk_len == sizeof *p + TMPL_SIZE5 || ed_bk_len == sizeof *p + TMPL_SIZE6) ?
+        if (!(ed_bk_len == sizeof *p || ed_bk_len == sizeof ed_bk_set || (ed_bk_len==sizeof *p+TMPL_CZ_OLD || ed_bk_len==sizeof *p+TMPL_CZ_NEXT || ed_bk_len == sizeof *p + TMPL_SIZE5 || ed_bk_len == sizeof *p + TMPL_SIZE6) ?
               p->magic == PERSIST_MAGIC && p->ext.usb_off <= 3u && p->ext.boot <= 4u &&
-              (ed_bk_len == sizeof *p || (ts == tl && tm == (tl == TMPL_SIZE5 ? TMPL_MAGIC5 : tl == TMPL_SIZE6 ? TMPL_MAGIC6 : TMPL_MAGIC))) :
+              (ed_bk_len == sizeof *p || (ts == tl && tm == (tl==TMPL_CZ_OLD?0x384C5054u:tl==TMPL_CZ_NEXT?0x394C5054u:tl == TMPL_SIZE5 ? TMPL_MAGIC5 : tl == TMPL_SIZE6 ? TMPL_MAGIC6 : TMPL_MAGIC))) :
               ed_bk_len == PERSIST_LEN4 && p->magic == PERSIST_MAGIC4) || !palette_stored_ok(p->palette) ||
             p->lowcut > 2u || p->zoom > 1u || !hold_stored_ok(p->bold) || p->favorites.filter > 1u || !ed_bk_panel_valid(&p->panel)) return 2;
+        if(tl && ed_bk_len>sizeof *p && !tmpl_blob_valid(t,tl))return 2;
         obj = OBJ_SETTINGS;
     } else if (ed_bk_id == 6u || ed_bk_id == 7u) {
         const up_bank_t *p = (const up_bank_t *)raw;
-        if (ed_bk_len && (ed_bk_len != sizeof *p || p->magic != UP_BANK_MAGIC ||
-            p->rsize != sizeof(up_rec_t) || p->nslot != UP_PER_BANK)) return 2;
+        if (ed_bk_len && (!up_bank_shape(ed_bk_len,p->rsize) || p->magic != UP_BANK_MAGIC || p->nslot != UP_PER_BANK)) return 2;
         /* Unknown record versions remain inert bytes, preserving future/older bank data. */
         obj = OBJ_UPRESET0 + ed_bk_id - 6u;
     } else if (ed_bk_id == 8u) {
@@ -189,11 +189,11 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
-        if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != PROJ_STORE_V8 && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+        if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set &&
-             len != sizeof(persist_t) + TMPL_SIZE5 && len != sizeof(persist_t) + TMPL_SIZE6) ||
-            (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != PROJ_STORE_V8 && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
-            ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t)) ||
+             len != sizeof(persist_t)+TMPL_CZ_OLD && len != sizeof(persist_t)+TMPL_CZ_NEXT && len != sizeof(persist_t) + TMPL_SIZE5 && len != sizeof(persist_t) + TMPL_SIZE6) ||
+            (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+            ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t) && len!=UP_BANK_LEGACY_SIZE) ||
             (a[1] == 8u && len && len != sizeof(fm6_bank_t)) ||
             (a[1]>=9u && len && len!=sizeof(cz_bank_t))) return 1;
         ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;

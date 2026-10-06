@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Projects: four slots in NOR, each holding 32 independent pattern banks.
- * FBKB (pattern_store.c) contains the FUN10 sound/current-pattern record below.
+ * FBKD (pattern_store.c) contains the FUN10 sound/current-pattern record below.
  * Hardware retains only slot names/occupancy in RAM; full records use one
  * main-loop staging buffer. Host fixtures also provide a RAM storage backend.
  *
@@ -45,6 +45,9 @@
  *
  * Built on the Mac too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP) and engines.c. */
+#include "cz_legacy.h"
+#define PROJ_LEGACY_CZ_OLD 4236u
+#define PROJ_LEGACY_CZ 4244u
 #define PROJ_MAGIC_V8 0x46554E38u
 #define PROJ_MAGIC 0x46554E3Au                 /* FUN10: FUN8 + full native CZ tones */
 #define PROJ_MAGIC_V7 0x46554E37u              /* "FUN7": serialized (byte params, packed steps), chain, motion */
@@ -426,6 +429,7 @@ static int proj_fn_none(project_t *q)          /* a record without FM6 function 
 }
 static int proj_import_any(project_t *q, const void *b, int n)
 {
+    if((n==PROJ_LEGACY_CZ && ((const uint32_t *)b)[0]==0x46554E42u) || (n==PROJ_LEGACY_CZ_OLD && ((const uint32_t *)b)[0]==0x46554E41u))return proj_unpack(q,b,(uint32_t)n) && proj_fn_none(q);
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[0] == PROJ_MAGIC)
         return proj_unpack(q, b, PROJ_STORE_SIZE) && proj_fn_none(q);
     if (n == PROJ_STORE_V8 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V8)
@@ -550,9 +554,10 @@ static void proj_motion_ids(motion_store_t *m, uint32_t np)
 static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = st == PROJ_STORE_SIZE;
-    uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED - (v10 ? PROJ_CZ_BYTES : 0u);
+    uint32_t lc = st==PROJ_LEGACY_CZ?165u:st==PROJ_LEGACY_CZ_OLD?163u:0u;
+    uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED - (lc ? NTRK*lc : v10 ? PROJ_CZ_BYTES : 0u);
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
-    if (magic != (v7 ? PROJ_MAGIC_V7 : v10 ? PROJ_MAGIC : PROJ_MAGIC_V8) || size != st || sum != proj_hash(b, st - 4u) ||
+    if (magic != (lc ? (lc==165u?0x46554E42u:0x46554E41u) : v7 ? PROJ_MAGIC_V7 : v10 ? PROJ_MAGIC : PROJ_MAGIC_V8) || size != st || sum != proj_hash(b, st - 4u) ||
         np < 8u || np > P_COUNT || 68u + NTRK * (np + 2u + NSTEP * 9u) + sizeof q->chain + sizeof q->motion > end)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
@@ -587,7 +592,10 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
                 q->fm6[t][i] = b[end + t * FM6_PACKED + i] & 0x7Fu;
     }
     for (t = 0; t < NTRK; t++) {
-        if (v10) {
+        if(lc){
+            if(!cz_legacy_tone(q->cz[t].raw,b+PROJ_CZ_OFF+t*lc,lc))return 0;
+            if(q->t[t].engine==14u){q->t[t].engine=ENGI_CZ;q->t[t].preset=0;for(uint32_t k=P_E0;k<P_COUNT;k++)q->t[t].p[k]=param_desc_of(ENGI_CZ,k)->def;q->t[t].p[P_E7]=CZ_NATIVE;}
+        } else if (v10) {
             memcpy(q->cz[t].raw, b + PROJ_CZ_OFF + t*CZ_BYTES, CZ_BYTES);
             if (!cz_patch_valid(q->cz[t].raw)) return 0;
         } else { cz_patch_init(q->cz[t].raw); if (q->t[t].engine == ENGI_CZ && q->t[t].p[P_E7] == CZ_NATIVE) q->t[t].p[P_E7] = 0; }
@@ -940,7 +948,9 @@ static void project_load(uint32_t slot)
  * (set_rec, its size and magic last). P_COUNT, G_COUNT or FM6_PACKED changing changes it (the assert): convert. */
 #define TMPL_MAGIC6 0x364C5054u
 #define TMPL_SIZE6 (TMPL_SIZE5 + NTRK * FM6_NFN)
-#define TMPL_MAGIC 0x384C5054u                    /* "TPL8" (Melodee's before 1.0 had "TMP1" / "TMP2": not read) */
+#define TMPL_CZ_OLD (TMPL_SIZE6+NTRK*163u)
+#define TMPL_CZ_NEXT (TMPL_SIZE6+NTRK*165u)
+#define TMPL_MAGIC 0x414C5054u                    /* "TPLA" (Melodee's before 1.0 had "TMP1" / "TMP2": not read) */
 #define TMPL_MAGIC5 0x354C5054u                   /* "TPL5": without the function settings (tmpl_take) */
 #define TMPL_SIZE5 1320u
 typedef struct {
@@ -963,6 +973,16 @@ static uint8_t tmpl_dirty;                        /* saved in RAM, not yet in fl
 static int template_used(void) { return tmpl.magic == TMPL_MAGIC && tmpl.size == sizeof tmpl; }
 
 /* a stored template of len bytes -> tmpl: TPL6, or TPL5 (the function settings Dexed's); 0 = none (tmpl cleared) */
+/* Validate native/older tone tails before an archive replaces settings in flash. */
+static int tmpl_blob_valid(const uint8_t *b,uint32_t len)
+{
+    uint32_t size,magic,n=0;if(len<8u)return 0;memcpy(&size,b+len-8u,4);memcpy(&magic,b+len-4u,4);if(size!=len)return 0;
+    if((len==TMPL_SIZE5 && magic==TMPL_MAGIC5)||(len==TMPL_SIZE6 && magic==TMPL_MAGIC6))return 1;
+    if(len==sizeof tmpl && (magic==TMPL_MAGIC || magic==0x384C5054u))n=CZ_BYTES;
+    else if(len==TMPL_CZ_OLD && magic==0x384C5054u)n=163u;else if(len==TMPL_CZ_NEXT && magic==0x394C5054u)n=165u;else return 0;
+    for(uint32_t k=0;k<NTRK;k++){const uint8_t *p=b+TMPL_SIZE6-8u+k*n;uint8_t tone[CZ_BYTES];if(n==CZ_BYTES?!cz_patch_valid(p):!cz_legacy_tone(tone,p,n))return 0;}return 1;
+}
+
 static int tmpl_take(const uint8_t *b, uint32_t len)
 {
     uint32_t sz, mg, k;
@@ -971,7 +991,12 @@ static int tmpl_take(const uint8_t *b, uint32_t len)
         return 0;
     memcpy(&sz, b + len - 8u, 4);
     memcpy(&mg, b + len - 4u, 4);
-    if (len == sizeof tmpl && sz == len && mg == TMPL_MAGIC) {
+    if(sz==len && ((len==TMPL_CZ_OLD && mg==0x384C5054u) || (len==TMPL_CZ_NEXT && mg==0x394C5054u))){
+        uint32_t n=len==TMPL_CZ_OLD?163u:165u,off=TMPL_SIZE6-8u;memcpy(&tmpl,b,off);
+        for(k=0;k<NTRK;k++){if(!cz_legacy_tone(tmpl.cz[k].raw,b+off+k*n,n)){memset(&tmpl,0,sizeof tmpl);return 0;}if(tmpl.t[k].engine==14u){tmpl.t[k].engine=ENGI_CZ;tmpl.t[k].preset=0;for(uint32_t j=P_E0;j<P_COUNT;j++)tmpl.t[k].p[j]=param_desc_of(ENGI_CZ,j)->def;tmpl.t[k].p[P_E7]=CZ_NATIVE;}}
+        tmpl.magic=TMPL_MAGIC;tmpl.size=sizeof tmpl;return 1;
+    }
+    if (len == sizeof tmpl && sz == len && (mg == TMPL_MAGIC || mg==0x384C5054u)) {
         memcpy(&tmpl, b, sizeof tmpl);
         for (k = 0; k < NTRK; k++) {
             if (!cz_patch_valid(tmpl.cz[k].raw)) { memset(&tmpl, 0, sizeof tmpl); return 0; }
@@ -1154,13 +1179,13 @@ static void persist_boot(void)                    /* before settings_init / pane
     slc_store_boot();                              /* (the scans read each slot's stored slices) */
 #endif
     {   /* the settings, then a template if one follows them */
-        int n = st_load(OBJ_SETTINGS, &set_rec, sizeof set_rec), ns = n;
+        int n = st_load(OBJ_SETTINGS, &proj_wire_u, sizeof proj_wire_u), ns = n;
         if (n > (int)sizeof set_rec.p &&
-            tmpl_take((const uint8_t *)&set_rec + sizeof set_rec.p, (uint32_t)n - sizeof set_rec.p))
+            tmpl_take((const uint8_t *)&proj_wire_u + sizeof set_rec.p, (uint32_t)n - sizeof set_rec.p))
             ns = (int)sizeof set_rec.p;               /* (a TPL5 one: its next save writes TPL6) */
         memset(&p, 0, sizeof p);
         if (ns > 0)
-            memcpy(&p, &set_rec.p, (uint32_t)ns < sizeof p ? (uint32_t)ns : sizeof p);
+            memcpy(&p, &proj_wire_u, (uint32_t)ns < sizeof p ? (uint32_t)ns : sizeof p);
         if (settings_import(&p, ns))
             persist_saved = p;
     }

@@ -32,3 +32,21 @@ static const engine_t ENG_CZ = {
     .note_on = phase_note_on, .render = cz_native_render,
     .knob = {P_E0, P_E1, P_E7, P_E7},
 };
+
+/* USB interrupt only collects bytes; the main loop validates and publishes. */
+#define CZ_RX 296u
+static uint8_t cz_rx[CZ_RX],cz_rx_on,cz_rx_req,cz_rx_ready,cz_rx_go,cz_rx_abort;
+static uint16_t cz_rx_n;
+static void cz_sx_byte(uint8_t b)
+{
+    if(b>=0xf8)return;
+    if(b==0xf0){if(cz_rx_ready)return;cz_rx_on=1;cz_rx_n=0;cz_rx_req=cz_rx_go=0;}
+    if(!cz_rx_on||cz_rx_ready)return;
+    if((b&128)&&b!=0xf0&&b!=0xf7){cz_rx_on=cz_rx_req=cz_rx_go=0;cz_rx_abort=1;return;}
+    if(cz_rx_n>=CZ_RX){cz_rx_on=cz_rx_req=cz_rx_go=0;cz_rx_abort=1;return;}
+    cz_rx[cz_rx_n++]=b;
+    if(cz_rx_n==2&&b!=0x44){cz_rx_on=0;return;}
+    if(cz_rx_n==7 && cz_rx[2]==0 && cz_rx[3]==0 && (cz_rx[4]&0xf0)==0x70){RING_PUBLISH();cz_rx_req=1;}
+    if(cz_rx_n==9&&(cz_rx[5]==0x10||cz_rx[5]==0x11)&&cz_rx[7]==cz_rx[4]&&b==0x31){RING_PUBLISH();cz_rx_go=1;}
+    if(b==0xf7){cz_rx_on=0;RING_PUBLISH();cz_rx_ready=1;}
+}

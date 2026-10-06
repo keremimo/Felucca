@@ -557,7 +557,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             nm[i] = r->name[i];
         ed_b(a[0]);
         ed_b(u);
-        ed_b(u ? r->engine : 0u);
+        ed_b(u ? up_engine(a[0]) : 0u);
         ed_str(nm, 12);
         for (i = 0; i < P_COUNT; i++)
             ed_v(u ? v[i] : 0);

@@ -1194,6 +1194,20 @@ const patternUsed = (pat) => !!pat && pat.some((x) => x && x[0]);
 /* a DRUM track's first 16 steps -> a grid, as the firmware's UP_STORE stores one (its notes on their lanes) */
 const gridFromSteps = (steps) => Array.from({ length: UP.PAT }, (_, i) => (steps[i] ? [stepLanes(steps[i]), stepAccents(steps[i])] : [0, 0]));
 
+/* Read the earlier next librarian format once, then retain native wire bytes. */
+function czLegacyTone(old) {
+  if(!Array.isArray(old)||![163,165].includes(old.length)||old.some(x=>!Number.isInteger(x)||x<0||x>127))throw Error("Invalid older CZ patch");
+  let p=old.slice();if(p.length===163){p=[...old.slice(0,147),0,0,...old.slice(147)];const raw=[0,1,2,4,5,6,6,6];for(let l=0;l<2;l++){const b=23+l*8,w=old[b],w2=old[b+1];if(w>7||w2>8||(w>=5&&w2>=6))throw Error("Invalid older CZ waves");p[147+l]=w>=5?w-4:w2>=6?w2-5:0;p[b]=raw[w];p[b+1]=w2?raw[w2-1]+1:0;}}
+  const max=[3,2,2,1,3,11,60,3,99,99,99,12,99,99,15,1,1,1,99,1,48,99,1,7,8,9,9,15,15,15,15,7,8,9,9,15,15,15,15,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,8,7,7,7];if(p.slice(0,149).some((x,i)=>x>max[i])||p.slice(149).some(x=>x<32||x>126))throw Error("Invalid older CZ parameters");
+  const d=Array(144).fill(0);d[0]=([0,1,3,2][p[0]])|([2,0,1][p[2]]<<2);d[1]=p[3];d[2]=(p[6]+(p[6]?Math.floor((p[6]-1)/15):0))<<2;d[3]=p[4]*12+p[5];d[4]=[8,4,32,2][p[7]];
+  const vdata=(n,kind)=>{const group=n<32?0:Math.floor((n-16)/16),step=1<<group;if(kind===1)return [32,1120,2272,4576,9184,18400][group]+32*step*(n-(group?16+16*group:0));const v=group?((n-16-16*group)*step+((17<<group)-1)):n;return kind===2?(n===99?768:v+step):v;};
+  for(let j=0;j<3;j++){const n=p[[10,8,9][j]],v=vdata(n,j);d[5+j*3]=n;d[6+j*3]=v&255;d[7+j*3]=v>>8;}
+  for(let l=0;l<2;l++){const b=23+l*8,o=l?71:14,w1=p[b],w2=p[b+1],win=p[147+l];if(!p[b+4])throw Error("Invalid older CZ level");d[o]=w1<<5|(w2?(w2-1)<<2|2:0)|win>>2;d[o+1]=(win&3)<<6|(l?0:p[1]===1?32:p[1]===2?24:0);d[o+2]=p[b+3]|(15-p[b+4])<<4;d[o+3]=[0,8,17,26,36,47,58,69,82,95][p[b+3]];d[o+4]=p[b+2];d[o+5]=[0,31,44,57,70,83,96,111,146,255][p[b+2]];
+    for(let e=0;e<3;e++){const base=39+(l*3+e)*18,end=p[base+17],sus=p[base+16],off=o+[40,23,6][e];if(sus!==8&&sus>end||p[base+8+end])throw Error("Invalid older CZ envelope");d[off]=end|(15-p[b+5+e])<<4;let prev=0;for(let k=0;k<8;k++){const v=p[base+8+k];d[off+1+2*k]=Math.floor(p[base+k]*(e===0?127:119)/99)+(e===1?8:0)|(v<prev?128:0);d[off+2+2*k]=(e===0?v+(v>63?4:0):e===1?Math.floor(v*127/99):v?v+28:0)|(sus===k?128:0);prev=v;}}
+  }
+  d.splice(128,16,...p.slice(149));if(!CZ.valid(d))throw Error("Invalid migrated CZ tone");return d;
+}
+
 function cleanPatch(pt) {
   const now = new Date().toISOString();
   const pat = Array.isArray(pt.pattern) && pt.pattern.length
@@ -1212,6 +1226,7 @@ function cleanPatch(pt) {
     created: pt.created || now, modified: pt.modified || pt.created || now,
   };
   if (Number.isInteger(pt.slot)) o.slot = pt.slot;
+  if(pt.cz1!=null){o.cz=czLegacyTone(pt.cz1);o.engine=15;o.engineName="CZ-1";const pe=o.p.length-8;for(let k=0;k<8;k++)o.p[pe+k]=null;o.p[pe+7]=2;}
   if (pt.cz != null) { if(!CZ.valid(pt.cz))throw new Error("Invalid native CZ patch");o.cz=pt.cz.slice(); }
   if (Array.isArray(pt.fm6) && pt.fm6.length === FM6.PACKED) o.fm6 = pt.fm6.map((x) => (x | 0) & 127);   /* (a converted */
   if (Array.isArray(pt.fm4)) o.fm4 = pt.fm4.map((v) => (Number.isFinite(v) ? Math.round(v) : null));    /* DIGITAL sound) */
@@ -1262,7 +1277,7 @@ function readLibraryFile(obj, ctx) {
     const p = ctx.keys && ctx.pe0 && obj.p.length !== ctx.keys.length ? tailParams(obj.p, ctx.keys.length, ctx.pe0)
       : obj.p.slice(0, ctx.keys ? ctx.keys.length : obj.p.length);
     const pt = fm4({ name: obj.presetName || obj.engineName || "PATCH", engine: e, engineName: obj.engineName, p,
-      cz:obj.cz, pattern: Array.isArray(obj.steps) ? patternFromSteps(obj.steps) : null, tags: ["file"] }, obj.engineName,
+      cz:obj.cz, cz1:obj.cz1, pattern: Array.isArray(obj.steps) ? patternFromSteps(obj.steps) : null, tags: ["file"] }, obj.engineName,
       ctx.keys && ctx.pe0 ? ctx.pe0 : p.length - 8);
     return pt ? { patches: [cleanPatch(pt)], skipped: 0, keys: null } : { patches: [], skipped: 1, keys: null };
   }
@@ -3196,6 +3211,7 @@ function buildGroups() {
   $("czpanel").hidden = !dev.info.cz || dev.dump.engine!==15;
   $("czbankpanel").hidden = !dev.info.czBanks;
   if(dev.info.czBanks && !$("czbank").options.length)$("czbank").replaceChildren(...Array.from({length:8},(_,i)=>el("option",{value:i},`Bank ${String.fromCharCode(65+i)}`)));
+  if(dev.info.czBanks && dev.dump.engine===15)czBankRefresh().catch(e=>say(e.message));
 }
 
 function paramRow(s, id) {
@@ -4098,7 +4114,7 @@ $("czlibrary").addEventListener("click",()=>libAdd([czLibraryPatch({name:CZ.name
 async function czBankRefresh(){const k=+$("czbank").value;const r=parse[CMD.CZ_BANK](await rq(req.czBank(k)));if(r.rc)throw Error("Cannot read CZ bank");$("czbankname").value=r.name;$("czbank").options[k].text=`${String.fromCharCode(65+k)} · ${r.name}`;const picked=$("czslot").value;$("czslot").replaceChildren(...r.slots.map((p,i)=>el("option",{value:i},`${i+1}. ${p.used?p.name:"Empty"}`)));$("czslot").value=picked||0;}
 $("czbankrefresh").addEventListener("click",()=>op(czBankRefresh));
 $("czbank").addEventListener("change",()=>op(czBankRefresh));
-$("czbankload").addEventListener("click",()=>op(async()=>{const r=parse[CMD.CZ_GET](await rq(req.czGet(2,+$("czbank").value*16+ +$("czslot").value)));if(r.rc)throw Error("Empty CZ bank slot");czTone=r.raw;czRender();const d=dev,x=parse[CMD.CZ_PUT](await rq(req.czPut(0,d.sel||0,czTone)));if(x.rc)throw Error("Cannot load CZ tone");await afterSoundChange("ready",d);}));
+$("czbankload").addEventListener("click",()=>op(async()=>{const r=parse[CMD.CZ_GET](await rq(req.czGet(2,+$("czbank").value*16+ +$("czslot").value)));if(r.rc)throw Error("Empty CZ bank slot");czTone=r.raw;czRender();const d=dev,x=parse[CMD.CZ_PUT](await rq(req.czPut(0,d.sel||0,czTone)));if(x.rc)throw Error("Cannot load CZ tone");await rq(req.set(0,d.info.pe0,+$("czbank").value));await rq(req.set(0,d.info.pe0+1,+$("czslot").value+1));await afterSoundChange("ready",d);}));
 async function czBankEdit(edit){const k=+$("czbank").value,b=await czBankRead(rq,k);edit(b);await czBankUpload(rq,k,b);await czBankRefresh();say("CZ bank saved to device");}
 $("czbankstore").addEventListener("click",()=>op(()=>czBankEdit(b=>{b.tones[+$("czslot").value]=czTone.slice();})));
 $("czbankerase").addEventListener("click",()=>{if(confirm("Erase this CZ bank patch?"))op(()=>czBankEdit(b=>{b.tones[+$("czslot").value]=null;}));});

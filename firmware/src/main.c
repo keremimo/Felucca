@@ -242,6 +242,7 @@ static void fm1_main(void)
                 fm1_enter_uboot();
             }
         }
+        cz_service();
         fm6_service();                                  /* DX7 SysEx for FM6, a pending FM6 settings save */
 #if MELODEE_OTA
         ed_service();                                   /* web editor SysEx */

@@ -51,6 +51,7 @@ static void cz_bank_import(uint32_t k,const uint8_t *raw,uint32_t len)
     (void)raw;(void)len;
 #endif
     cz_bank_cached=255;
+    for(uint32_t t=0;t<NTRK;t++)if(trk[t].eng_req==ENGI_CZ && (uint32_t)trk[t].p[P_E0]==k && trk[t].p[P_E1])cz_user_pick[t]=65535u;
 }
 
 static void cz_bank_poll(void)

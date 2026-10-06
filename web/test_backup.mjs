@@ -110,6 +110,9 @@ const czFile=await captureBackup(device([...bankObjects,[9,czBank],[16,czBank.sl
 ok(readBackup(czFile).objects.length===17,"backup: captures all eight dedicated CZ banks");
 const czTarget=device([],{ids:czIds});await restoreBackup(czTarget.request,czFile);
 ok(czTarget.log.at(-1)===0 && [9,16].every(id=>czTarget.objs.get(id).every((x,i)=>x===czBank[i])),"backup: native CZ banks restore byte-exact with live music last");
+const nextBackup=JSON.parse(JSON.stringify(bankFile));nextBackup.objects[0].size=19092;const nextRaw=rnd(19092,14);nextBackup.objects[0].crc=bkCrc(nextRaw);nextBackup.objects[0].data=Buffer.from(nextRaw).toString("base64");
+const nextTarget=device([],{ids:czIds,runtimeSize:19008});await restoreBackup(nextTarget.request,nextBackup);
+ok(nextTarget.log.at(-1)===0,"backup: previous next CZ bank format reaches firmware migration");
 const badBank=JSON.parse(JSON.stringify(czFile));const broken=czBank.slice();broken[0]^=1;
 badBank.objects[9]={...badBank.objects[9],crc:bkCrc(broken),data:Buffer.from(broken).toString("base64")};
 const protectedTarget=device([],{ids:czIds});

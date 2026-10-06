@@ -6,6 +6,8 @@
 [web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
 No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the installer's
 **Return to official V15** takes you back to the official firmware.
+It saves a complete backup first. If your firmware cannot export one, you can select
+**Skip backup** and confirm that Melodee music, sounds and settings may be lost.
 
 Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.10**
 ([what's new](#whats-new-in-010)).
@@ -158,7 +160,7 @@ projects, with empty patterns. BOOT OFF uses the template when one is saved. CLK
 and ROUT persist between starts; loading a project or template applies its own settings. DRUM is the
 device's own setting.
 
-Projects use the FBKB format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
+Projects use the FBKD format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
 projects load into pattern 1; their old project-based SONG rows are cleared. Pre-1.0 Melodee's
 multi-pattern projects/settings/templates and incompatible 58/62-parameter user presets are not imported.
 User sample slots USR1–3 and sample uploads are removed; their flash space now stores projects.

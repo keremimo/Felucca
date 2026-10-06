@@ -119,7 +119,7 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
   const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
   const supported = bkManifest(await ask([BACKUP_CMD.LIST, []]));
   const liveSize = supported.find(o => o.id === 0)?.size || 0;
-  if (archive.objects[0].size > liveSize) throw new Error("This backup needs firmware with eight pattern banks");
+  if (archive.objects[0].size > liveSize && !(liveSize>=19008 && [19084,19092,20224].includes(archive.objects[0].size))) throw new Error("This backup needs firmware with eight pattern banks");
   for (const o of archive.objects) if (!supported.some(x => x.id === o.id) && o.size) throw new Error("This firmware does not support a nonempty object in this backup");
   const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
   // Restore live music last. Other objects commit individually; a disconnect can leave a partial restore.

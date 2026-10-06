@@ -2,7 +2,7 @@
 
 The web editor accepts Casio `.syx` tone and concatenated bank files. Choose
 CZ-1 in Sound, import the file in **CZ-1 native patches**, select its tone and
-send it to the selected track. Reading/exporting a native tone preserves its
+send it to the selected track. Direct Casio MIDI tone dump/read requests are supported too. Reading/exporting a native tone preserves its
 original bytes. The library accepts `.syx` too, including before connecting a
 device. Native tones require firmware advertising the CZ capability.
 
@@ -24,11 +24,11 @@ tones only, missing CZ-1 line levels, velocity and name are initialized and the
 DCW key-follow table is translated. Native 144-byte tones are retained verbatim.
 
 Editor commands 75/76 transfer raw tones to tracks or ordinary preset slots.
-Preset version 6 stores all 144 tone bytes in the existing fixed-size record;
+Preset version 8 stores all 144 tone bytes;
 its pattern and browser name remain separate. These compact preset records
 store the native tone, not additional Felucca effect/modulation controls.
 Projects and templates store both the native tone and all ordinary controls.
-FUN10 / FBKB / TPL8 add native tones and continue to read deployed FUN8/FBK9/TPL6 and earlier formats.
+FUN10 / FBKD / TPLA add native tones and continue to read deployed FUN8/FBK9/TPL6 and earlier formats.
 Native tone names remain 16 bytes even though the preset browser shows 12.
 
 Playback uses 11-bit phase functions and logarithmic amplitude derived from
@@ -62,3 +62,5 @@ so an interrupted transfer may have saved earlier banks.
 Read, load, save, erase, rename and export controls operate on the selected bank.
 Full backups retain bank names, empty slots and every native tone byte. Device
 BANK and PTCH controls select A–H and 1–16; PTCH 0 selects INIT.
+
+Earlier next FUNA/FUNB, FBKB/FBKC and TPL8/TPL9 CZ sounds are migrated to raw native tones; common sound settings and patterns are retained.

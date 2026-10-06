@@ -90,6 +90,7 @@
 #endif
 #include "upreset.c"             /* user presets (RAM mirror; flash with MELODEE_FLASH) */
 #include "project.c"
+#include "cz_store.c"
 #include "fm6_store.c"            /* FM6: DX7 SysEx, the STORE page (the bank: fm6_bank.c) */
 #if MELODEE_OTA
 #include "ota.c"

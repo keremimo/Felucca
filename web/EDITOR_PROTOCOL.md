@@ -243,7 +243,7 @@ OCT+ executes the selected action, OCT- goes back. SAVE over a used slot asks
 presets.
 
 **Flash** (`firmware/src/upreset.c`): two storage objects (`OBJ_UPRESET0/1`, A/B sector pairs at
-0xDC000..0xDFFFF), 16 records of 192 bytes each, behind a bank header (magic "UPB1", record size,
+0xDC000..0xDFFFF), 16 records of 238 bytes each (192-byte legacy records migrate on load), behind a bank header (magic "UPB1", record size,
 slot count; a mismatch reads as an empty bank). A record keeps its layout version (versions 1..5 are read; another: empty)
 and the P_COUNT it was stored with; another count is mapped by count (last 8 values = P_E0..P_E7, the
 first ones = P_LEVEL.. in order, missing ones = defaults). Versions 4 (a note pattern) and 5 (a drum grid)
@@ -679,8 +679,8 @@ Invalid lengths, nibble values and native synthesis parameters are rejected befo
 changing the track or flash. An unused/non-native preset GET returns an error.
 Track PUT selects engine 15 (CZ-1), native tone marker 2, resets the ordinary sound controls to
 neutral defaults, and preserves the track's musical/routing settings.
-Preset record version 6 preserves the full native bytes in the fixed 192-byte record.
-FUN10 projects (4160 bytes), FBKB pattern banks (19008 bytes) and TPL8 templates preserve each track's native
+Preset record version 8 preserves all native bytes in a 238-byte record. Earlier 192-byte banks and next’s v6/v7 CZ records remain readable.
+FUN10 projects (4160 bytes), FBKD pattern banks (19008 bytes) and TPLA templates preserve each track's native
 tone; older formats remain readable. See [native tones](../docs/CZ1_SYSEX.md).
 
 DRUM now has one factory preset, **808 KIT** (index 0); KIT's stored value stays 4.
@@ -698,3 +698,5 @@ BACKUP_PUT objects 9–16. Each CZBK object is 2332 bytes: LE magic 0x42435A43,
 u16 version 1, u16 slot count 16, u32 used mask, 16 bank-name bytes, then 16
 144-byte native tones. Unused slots are zero. Full-backup inventory has 17
 objects; earlier 9-object and sample-era inventories are still accepted.
+
+Earlier next FUNA/FUNB, FBKB/FBKC and TPL8/TPL9 CZ sounds are migrated to raw native tones; common sound settings and patterns are retained.

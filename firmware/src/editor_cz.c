@@ -15,11 +15,11 @@ static int ed_cz_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
     uint8_t raw[CZ_BYTES];
     if (target > 2u || index >= (target == 2u ? 128u : target ? UP_SLOTS : NTRK) || (target==2u && cmd==ED_CZ_PUT)) rc = 1;
     if (!rc && cmd == ED_CZ_GET) {
-        if(target==2u)rc=cz_bank_get(index/16u,index%16u,raw)?2u:0u;
+        if(n!=2u)rc=1;else if(target==2u)rc=cz_bank_get(index/16u,index%16u,raw)?2u:0u;
         else
         if (n != 2u) rc = 1;
         else if (!target) memcpy(raw, cz_patch[index].raw, CZ_BYTES);
-        else if (up_used(index) && up_rec(index)->ver == UP_VER_CZ) memcpy(raw, up_rec(index)->packed, CZ_BYTES);
+        else if (up_used(index) && up_cz_raw(up_rec(index),raw)) { /* complete native tone */ }
         else rc = 2;
     }
     if (!rc && cmd == ED_CZ_PUT) {
