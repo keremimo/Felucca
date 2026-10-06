@@ -30,7 +30,7 @@
 #define MELODEE_ID "FM-1_900"    /* package identity (build.py: the .fwsc marker string) */
 #endif
 #ifndef MELODEE_VERSION
-#define MELODEE_VERSION "v0.10"  /* shown in the menu, the console and the editor; build.py --release X.Y */
+#define MELODEE_VERSION "v0.10 18:05"  /* shown in the menu, the console and the editor; build.py --release X.Y */
 #endif
 #if MELODEE_OTA && !MELODEE_FLASH
 #error "MELODEE_OTA needs MELODEE_FLASH"
@@ -90,6 +90,7 @@
 #endif
 #include "upreset.c"             /* user presets (RAM mirror; flash with MELODEE_FLASH) */
 #include "project.c"
+#include "cz1_store.c"
 #include "fm6_store.c"            /* FM6: DX7 SysEx, the STORE page (the bank: fm6_bank.c) */
 #if MELODEE_OTA
 #include "ota.c"

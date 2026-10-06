@@ -60,6 +60,7 @@ static int st_prog(uint32_t off, const void *p, uint32_t n) { (void)off; (void)p
 static int st_erase(uint32_t off) { (void)off; return -1; }
 #include "../firmware/src/storage.c"
 #include "../firmware/src/editor.c"
+#include "../firmware/src/cz1_store.c"
 
 static int check(const char *what, int ok)
 {
@@ -71,7 +72,7 @@ static void reset(void)
     uint32_t t, i;
     memset(&song, 0, sizeof song); memset(trk, 0, sizeof trk);
     memset(&chain, 0, sizeof chain); chain_defaults(&chain_config);
-    pattern_init();
+    pattern_init(); cz_init();
     memset(&ed_w, 0, sizeof ed_w); memset(&ui, 0, sizeof ui);
     memset(&favorites, 0, sizeof favorites); memset(&settings, 0, sizeof settings); settings_init();
     memset(proj_slot, 0, sizeof proj_slot); memset(up_bank, 0, sizeof up_bank);
@@ -457,10 +458,63 @@ static int bank_protocol(void)
     bad += check("sample inventory advertises zero user slots", host_wire[5]==0);
     return bad;
 }
+static void cz_sysex_feed(const uint8_t *p,uint32_t n){for(uint32_t j=0;j<n;j++)sysex_byte(p[j]);cz_service();host_drain();}
+static int cz_sysex_protocol(void)
+{
+    int bad=0;reset();set_engine_of(&trk[0],ENGI_CZ1);apply_preset_to(&trk[0],0);
+    uint8_t data[144],frame[296],tone[CZ_PACKED],got[CZ_PACKED];
+    cz_default(tone,2);memcpy(tone+CZ_NP,"SYSEX ROUND TRIP",16);tone[CZ_LBASE(0)+CZ_VP]=15;tone[CZ_LBASE(1)+CZ_VW]=4;tone[CZ_LBASE(0)]=3;tone[CZ_WIN(0)]=5;tone[CZ_LBASE(1)]=7;tone[CZ_LBASE(1)+1]=7;tone[CZ_WIN(1)]=7;
+    cz_sx_encode(tone,data,1);uint8_t h[]={0xf0,0x44,0,0,0x70,0x21,0x60};memcpy(frame,h,7);
+    for(uint32_t j=0;j<144;j++){frame[7+2*j]=data[j]&15;frame[8+2*j]=data[j]>>4;}frame[295]=0xf7;
+    cz_sysex_feed(frame,296);
+    bad+=check("CZ-1 framed dump applies full native tone atomically",!memcmp(tone,cz_patch[0],CZ_PACKED));
+    memcpy(got,cz_patch[0],CZ_PACKED);frame[10]=16;cz_sysex_feed(frame,296);
+    bad+=check("CZ-1 malformed nibble leaves the tone untouched",!memcmp(got,cz_patch[0],CZ_PACKED));frame[10]=data[1]>>4;
+    int prefixes=1;for(uint32_t n=7;n<295;n++){cz_sysex_feed(frame,n);uint8_t end=0xf7;cz_sysex_feed(&end,1);prefixes&=!memcmp(got,cz_patch[0],CZ_PACKED);}
+    bad+=check("CZ-1 every short dump leaves the tone untouched",prefixes);
+    uint8_t read[]={0xf0,0x44,0,0,0x70,0x11,0x60,0xf7};host_wire_n=0;cz_sysex_feed(read,8);
+    bad+=check("CZ-1 framed edit-buffer request replies with 144-byte tone",host_wire_n==295&&host_wire[5]==0x30&&host_wire[294]==0xf7);
+    host_wire_n=0;cz_sysex_feed(read,7);
+    bad+=check("CZ-1 open request sends handshake without closing SysEx",host_wire_n==6&&host_wire[5]==0x30&&(sx_out_q[(so_w-1)%SXQ]&15)==4);
+    uint8_t go[]={0x70,0x31};cz_sysex_feed(go,2);
+    bad+=check("CZ-1 handshake continuation sends the full native tone",host_wire_n==295&&host_wire[294]==0xf7);
+    uint8_t end=0xf7;cz_sysex_feed(&end,1);
+    host_wire_n=0;cz_sysex_feed(frame,7);cz_sysex_feed(frame+7,289);
+    bad+=check("CZ-1 receive handshake closes its acknowledgement",host_wire_n==7&&host_wire[6]==0xf7&&!memcmp(tone,cz_patch[0],CZ_PACKED));
+    uint8_t fn[]={0xf0,0x44,0,0,0x70,0x40,12,0xf7};cz_sysex_feed(fn,8);
+    bad+=check("CZ-1 function SysEx edits bend range",cz_patch[0][CZ_BEND]==12);
+    host_wire_n=0;cz_sysex_feed(read,7);fm1_ms+=3001;cz_service();host_drain();
+    bad+=check("CZ-1 stalled handshake times out and closes SysEx",host_wire_n==7&&host_wire[6]==0xf7&&!cz_rx_on);
+    cz_sysex_feed(read,7);uint8_t abort=0x90;cz_sysex_feed(&abort,1);
+    bad+=check("CZ-1 other MIDI status aborts the pending transfer",!cz_rx_on&&!cz_handshake);
+
+    { uint8_t a[420],old[CZ_OLD_PACKED],decoded[CZ_PACKED];tone[CZ_BEND]=12;
+      a[0]=0;request(ED_CZ_GET,a,1);
+      bad+=check("CZ_GET exposes all 165 native bytes",host_wire_n==CZ_PACKED+8u&&!memcmp(host_wire+7,tone,CZ_PACKED));
+      memcpy(a+1,tone,CZ_PACKED);request(ED_CZ_PUT,a,CZ_PACKED+1u);
+      bad+=check("CZ_PUT accepts hidden carriers and independent windows",!host_wire[6]&&!memcmp(cz_patch[0],tone,CZ_PACKED));
+      a[1+CZ_WIN(0)]=8;request(ED_CZ_PUT,a,CZ_PACKED+1u);
+      bad+=check("invalid native window leaves the complete tone intact",host_wire[6]==1&&!memcmp(cz_patch[0],tone,CZ_PACKED));
+      cz_default(decoded,0);memcpy(old,decoded,147);memcpy(old+147,decoded+CZ_NP,16);old[23]=7;old[24]=2;cz_upgrade(decoded,old);
+      a[0]=0;memcpy(a+1,old,163);request(ED_CZ_PUT,a,164);
+      bad+=check("CZ_PUT migrates an older 163-byte panel tone",!host_wire[6]&&!memcmp(cz_patch[0],decoded,CZ_PACKED));
+      for(uint32_t version=1;version<=2;version++){
+        uint32_t n=0;a[n++]=31;a[n++]=ENGI_CZ1;a[n++]='C';a[n++]=0;
+        for(uint32_t k=0;k<P_COUNT;k++){uint32_t v=TP[k].def+8192;a[n++]=v&127;a[n++]=(v>>7)&127;}
+        memset(a+n,0,32);n+=32;a[n++]=0x43;a[n++]=version;
+        memcpy(a+n,version==1?old:tone,version==1?163:CZ_PACKED);n+=version==1?163:CZ_PACKED;
+        request(ED_UP_PUT,a,n);
+        bad+=check("CZ_UP_PUT accepts both extension versions",host_wire[6]!=1&&up_used(31));
+        a[0]=31;request(ED_UP_GET,a,1);
+        bad+=check("CZ_UP_GET emits version 2 with a complete native tone",host_wire[host_wire_n-CZ_PACKED-3u]==0x43&&host_wire[host_wire_n-CZ_PACKED-2u]==2&&!memcmp(host_wire+host_wire_n-CZ_PACKED-1u,version==1?decoded:tone,CZ_PACKED));
+      }
+    }
+    return bad;
+}
 int main(void)
 {
     int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() +
-              fm6_patches() + user_preset_roundtrip();
+              fm6_patches() + user_preset_roundtrip() + cz_sysex_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

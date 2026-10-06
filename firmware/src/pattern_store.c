@@ -1,24 +1,37 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* FBK9: a FUN8 sound/current-pattern record plus seven other banks per track,
+/* FBKC: a FUNB sound/current-pattern record plus seven other banks per track,
  * all bank timings, arrangement assignments and bounded motion bank tags.
- * Five sectors per A/B copy; the 20,224-byte record is validated in main-loop
+ * Five sectors per A/B copy; the 19,092-byte record is validated in main-loop
  * staging before any runtime state is replaced. */
-#define BANK_MAGIC 0x394B4246u
-#define BANK_STORE_SIZE 20224u
-#define BANK_ACTIVE_OFF (8u + PROJ_STORE_SIZE)
+/* FBKC stores the FUNB patches without growing the five-sector flash object. Its extra
+ * steps use exactly 64 bits: four 7-bit notes, n+5*time (4 bits), flags (2), velocity (7),
+ * hits/accents (8 each), probability (7). FBKB and FBK9 remain readable at their frozen offsets. */
+#define BANK_MAGIC9 0x394B4246u
+#define BANK_SIZE9 20224u
+#define BANK_MAGICB 0x424B4246u
+#define BANK_SIZEB 19084u
+#define BANK_MAGIC 0x434B4246u
+#define BANK_STORE_SIZE 19092u
+static uint32_t bank_v9,bank_vb;
+#define BANK_PROJ_SIZE (bank_v9 ? PROJ_STORE_V8 : bank_vb ? PROJ_STORE_VA : PROJ_STORE_SIZE)
+#define BANK_STEP_SIZE (bank_v9 ? 9u : 8u)
+#define BANK_ACTIVE_OFF (8u + BANK_PROJ_SIZE)
 #define BANK_EXTRA_OFF (BANK_ACTIVE_OFF + NTRK)
-#define BANK_TIMING_OFF (BANK_EXTRA_OFF + NTRK * (NPAT - 1u) * NSTEP * 9u)
+#define BANK_TIMING_OFF (BANK_EXTRA_OFF + NTRK * (NPAT - 1u) * NSTEP * BANK_STEP_SIZE)
 #define BANK_CHAIN_OFF (BANK_TIMING_OFF + NTRK * NPAT * 8u)
 #define BANK_MOTION_OFF (BANK_CHAIN_OFF + CHAIN_ROWS * NTRK)
-#define BANK_FN_OFF (BANK_MOTION_OFF + MOTION_MAX)   /* "FN61", then each track's FM6 function settings; 0: Dexed's */
+#define BANK_FN_OFF (BANK_MOTION_OFF + MOTION_MAX)
 #define BANK_FN_MAGIC 0x31364E46u
-_Static_assert(BANK_FN_OFF + 4u + NTRK * FM6_NFN <= BANK_STORE_SIZE - 4u, "bank project extent");
+_Static_assert(8u + PROJ_STORE_SIZE + NTRK + NTRK * (NPAT - 1u) * NSTEP * 8u +
+    NTRK * NPAT * 8u + CHAIN_ROWS * NTRK + MOTION_MAX + 4u + NTRK * FM6_NFN <= BANK_STORE_SIZE - 4u,
+    "bank project extent");
+static int bank_full(uint32_t n) { return n == BANK_STORE_SIZE || n == BANK_SIZE9 || n == BANK_SIZEB; }
 static void bank_checksum(uint8_t *raw)
 {
-    uint32_t sum = proj_hash(raw, BANK_STORE_SIZE - 4u);
-    memcpy(raw + BANK_STORE_SIZE - 4u, &sum, 4);
+    uint32_t sum = proj_hash(raw, (bank_v9 ? BANK_SIZE9 : bank_vb ? BANK_SIZEB : BANK_STORE_SIZE) - 4u);
+    memcpy(raw + (bank_v9 ? BANK_SIZE9 : bank_vb ? BANK_SIZEB : BANK_STORE_SIZE) - 4u, &sum, 4);
 }
-static int bank_step_unpack(step_t *s, const uint8_t *b)
+static int bank_step9_unpack(step_t *s, const uint8_t *b)
 {
     memcpy(s->note, b, 4); s->n = b[4] & 7u; s->time = (b[4] >> 3) & 3u; s->flags = (b[4] >> 5) & 3u;
     s->vel = b[5]; s->hit = b[6]; s->acc = b[7]; s->probability = b[8];
@@ -26,17 +39,43 @@ static int bank_step_unpack(step_t *s, const uint8_t *b)
     for (uint32_t j = 0; j < 4u; j++) if (s->note[j] > 127u) return 0;
     return 1;
 }
+/* Pack bits with only 32-bit shifts: pi32v2 has no 64-bit divide helpers. */
+static void bank_bits_put(uint8_t *b, uint32_t *pos, uint32_t v, uint32_t n)
+{
+    while (n--) { b[*pos >> 3] |= (uint8_t)((v & 1u) << (*pos & 7u)); v >>= 1; ++*pos; }
+}
+static uint32_t bank_bits_get(const uint8_t *b, uint32_t *pos, uint32_t n)
+{
+    uint32_t v = 0, i;
+    for (i = 0; i < n; i++, ++*pos) v |= (uint32_t)((b[*pos >> 3] >> (*pos & 7u)) & 1u) << i;
+    return v;
+}
+static int bank_step_unpack(step_t *s, const uint8_t *b)
+{
+    uint32_t pos = 0, i, meta;
+    if (bank_v9) return bank_step9_unpack(s, b);
+    for (i = 0; i < 4u; i++) s->note[i] = (uint8_t)bank_bits_get(b, &pos, 7u);
+    meta = bank_bits_get(b, &pos, 4u); s->n = meta % 5u; s->time = meta / 5u;
+    s->flags = (uint8_t)bank_bits_get(b, &pos, 2u); s->vel = (uint8_t)bank_bits_get(b, &pos, 7u);
+    s->hit = (uint8_t)bank_bits_get(b, &pos, 8u); s->acc = (uint8_t)bank_bits_get(b, &pos, 8u);
+    s->probability = (uint8_t)bank_bits_get(b, &pos, 7u);
+    return meta < 15u && s->probability <= 101u && !(s->acc & ~s->hit);
+}
 static int bank_step_pack(uint8_t *b, const step_t *s)
 {
     if (s->n > 4u || s->time > ST_REST || s->flags > 3u || s->vel > 127u || s->probability > 101u || (s->acc & ~s->hit)) return 0;
-    for (uint32_t j = 0; j < 4u; j++) { if (s->note[j] > 127u) return 0; b[j] = s->note[j]; }
-    b[4] = (uint8_t)(s->n | s->time << 3 | s->flags << 5);
-    b[5] = s->vel; b[6] = s->hit; b[7] = s->acc; b[8] = s->probability;
+    uint32_t pos = 0;
+    memset(b, 0, 8u);
+    for (uint32_t j = 0; j < 4u; j++) { if (s->note[j] > 127u) return 0; bank_bits_put(b, &pos, s->note[j], 7u); }
+    bank_bits_put(b, &pos, s->n + 5u * s->time, 4u); bank_bits_put(b, &pos, s->flags, 2u);
+    bank_bits_put(b, &pos, s->vel, 7u); bank_bits_put(b, &pos, s->hit, 8u);
+    bank_bits_put(b, &pos, s->acc, 8u); bank_bits_put(b, &pos, s->probability, 7u);
     return 1;
 }
 static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
 {
-    uint32_t magic = BANK_MAGIC, size = BANK_STORE_SIZE, pos = BANK_EXTRA_OFF, f = motion_guard();
+    uint32_t magic = BANK_MAGIC, size = BANK_STORE_SIZE, pos, f = motion_guard();
+    bank_v9 = bank_vb = 0; pos = BANK_EXTRA_OFF;
     memset(raw, 0, BANK_STORE_SIZE); memcpy(raw, &magic, 4); memcpy(raw + 4, &size, 4);
     if (!proj_pack((project_store_t *)(raw + 8u), q)) { motion_unguard(f); return 0; }
     for (uint32_t k = 0; k < NTRK; k++) {
@@ -50,7 +89,7 @@ static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
                 memcpy(raw + BANK_TIMING_OFF + (k * NPAT + b) * 8u + i * 2u, &v, 2);
             }
             if (b == active) continue;
-            for (uint32_t i = 0; i < NSTEP; i++, pos += 9u) {
+            for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) {
                 step_t empty = {{0},0,ST_REST};
                 if (!bank_step_pack(raw + pos, runtime ? &p->step[i] : &empty)) { motion_unguard(f); return 0; }
             }
@@ -72,11 +111,12 @@ static int bank_pack(uint8_t *raw, const project_t *q, int runtime)
 static uint8_t bank_import_tags[MOTION_MAX];
 static int bank_valid(const uint8_t *raw, uint32_t len)
 {
-    uint32_t magic, size, sum, pos = BANK_EXTRA_OFF;
-    if (len != BANK_STORE_SIZE) return 0;
+    uint32_t magic, size, sum, pos;
+    if (!bank_full(len)) return 0;
+    bank_v9 = len == BANK_SIZE9; bank_vb=len==BANK_SIZEB; pos = BANK_EXTRA_OFF;
     memcpy(&magic, raw, 4); memcpy(&size, raw + 4, 4); memcpy(&sum, raw + len - 4u, 4);
-    if (magic != BANK_MAGIC || size != len || sum != proj_hash(raw, len - 4u) ||
-        !proj_import_any(&proj_scratch, raw + 8u, PROJ_STORE_SIZE)) return 0;
+    if (magic != (bank_v9 ? BANK_MAGIC9 : bank_vb ? BANK_MAGICB : BANK_MAGIC) || size != len || sum != proj_hash(raw, len - 4u) ||
+        !proj_import_any(&proj_scratch, raw + 8u, BANK_PROJ_SIZE)) return 0;
     for (uint32_t k = 0; k < NTRK; k++) {
         if (raw[BANK_ACTIVE_OFF + k] >= NPAT) return 0;
         for (uint32_t b = 0; b < NPAT; b++) {
@@ -86,7 +126,7 @@ static int bank_valid(const uint8_t *raw, uint32_t len)
                 if (b == raw[BANK_ACTIVE_OFF + k] && v != proj_scratch.t[k].p[P_SLEN + i]) return 0;
             }
             if (b == raw[BANK_ACTIVE_OFF + k]) continue;
-            for (uint32_t i = 0; i < NSTEP; i++, pos += 9u) { step_t s; if (!bank_step_unpack(&s, raw + pos)) return 0; }
+            for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) { step_t s; if (!bank_step_unpack(&s, raw + pos)) return 0; }
         }
     }
     for (uint32_t i = 0; i < CHAIN_ROWS * NTRK; i++) if (raw[BANK_CHAIN_OFF + i] >= NPAT) return 0;
@@ -135,8 +175,34 @@ static void bank_restore(const uint8_t *raw)
             pattern_t *p = pattern_at(k, b);
             memcpy(p->timing, raw + BANK_TIMING_OFF + (k * NPAT + b) * 8u, sizeof p->timing);
             if (b == trk[k].pattern) memcpy(p->step, trk[k].step, sizeof p->step);
-            else for (uint32_t i = 0; i < NSTEP; i++, pos += 9u) bank_step_unpack(&p->step[i], raw + pos);
+            else for (uint32_t i = 0; i < NSTEP; i++, pos += BANK_STEP_SIZE) bank_step_unpack(&p->step[i], raw + pos);
         }
     }
     motion_unguard(f);
+}
+
+/* Upgrade a validated FBK9/FBKB in place, before re-saving/renaming/restoring an archive.
+ * Compact first at the old start, then slide the compact region to FUNB's end. */
+static void bank_upgrade(uint8_t *raw)
+{
+    uint32_t old_start, old_tail, old_fn, new_start, new_tail, new_fn;
+    if (!bank_v9&&!bank_vb) return;
+    uint32_t compact=bank_v9,old_active=BANK_ACTIVE_OFF;
+    old_start = BANK_EXTRA_OFF; old_tail = BANK_TIMING_OFF; old_fn = BANK_FN_OFF;
+    bank_v9 = bank_vb = 0; new_start = BANK_EXTRA_OFF; new_tail = BANK_TIMING_OFF; new_fn = BANK_FN_OFF;
+    uint8_t active[NTRK], tail[512];
+    memcpy(active, raw + old_active, sizeof active);
+    memcpy(tail, raw + old_tail, old_fn + 4u + NTRK * FM6_NFN - old_tail);
+    if(compact)for (uint32_t i = 0; i < NTRK * (NPAT - 1u) * NSTEP; i++) {
+        step_t st; bank_step9_unpack(&st, raw + old_start + i * 9u);
+        bank_step_pack(raw + old_start + i * 8u, &st);
+    }
+    for (uint32_t i = NTRK * (NPAT - 1u) * NSTEP * 8u; i-- > 0u;)
+        raw[new_start + i] = raw[old_start + i];
+    memcpy(raw + new_tail, tail, new_fn + 4u + NTRK * FM6_NFN - new_tail);
+    memcpy(raw + BANK_ACTIVE_OFF, active, sizeof active);
+    proj_pack((project_store_t *)(raw + 8u), &proj_scratch);
+    uint32_t magic = BANK_MAGIC, size = BANK_STORE_SIZE;
+    memcpy(raw, &magic, 4); memcpy(raw + 4u, &size, 4);
+    bank_checksum(raw);
 }

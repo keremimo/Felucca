@@ -364,7 +364,7 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   TRACK_PARAM: 31, TRACK_CHANGED: 32, SONG: 33, PATTERN: 73, BANK_SONG: 74,
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
-  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71 };
+  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
@@ -427,6 +427,20 @@ class Reader {
   s() { let s = ""; for (;;) { const c = this.b(); if (!c) return s; s += String.fromCharCode(c); } }
 }
 
+/* Early CZ libraries used panel wave numbers, without independent windows. */
+function nativeCZ(p) {
+  if (!Array.isArray(p) || !p.every(x=>Number.isInteger(x)&&x>=0&&x<128)) return null;
+  if (p.length===165) return p.slice();
+  if (p.length!==163) return null;
+  const q=[...p.slice(0,147),0,0,...p.slice(147)], raw=[0,1,2,4,5,6,6,6];
+  for(let l=0;l<2;l++) {
+    const b=23+l*8,w=p[b],w2=p[b+1];
+    if(w>7||w2>8||(w>=5&&w2>=6)) return null;
+    q[147+l]=w>=5?w-4:w2>=6?w2-5:0;
+    q[b]=raw[w];q[b+1]=w2?raw[w2-1]+1:0;
+  }
+  return q;
+}
 const parse = {
   [CMD.INFO](a) {
     const r = new Reader(a);
@@ -549,8 +563,11 @@ const parse = {
       o.grid = o.pattern.map(([h, c]) => { const x = r.b(), hit = h | (x & 1) << 7; return [hit, (c | (x & 2) << 6) & hit]; });
       o.pattern = null;
     }
+    if (((a.length-r.i===167&&a[r.i+1]===2)||(a.length-r.i===165&&a[r.i+1]===1))&&a[r.i]===0x43) o.cz1 = nativeCZ(a.slice(r.i+2));
     return o;
   },
+  [CMD.CZ_GET](a) { return {track:a[0], rc:a[1], cz1:a.slice(2)}; },
+  [CMD.CZ_PUT](a) { return {track:a[0], rc:a[1]}; },
   [CMD.UP_PUT](a) { return parse[CMD.SMP_BEGIN](a); },
   [CMD.UP_STORE](a) { return parse[CMD.SMP_BEGIN](a); },
   [CMD.UP_LOAD](a) { return parse[CMD.SMP_BEGIN](a); },
@@ -642,13 +659,15 @@ const req = {
   smpErase: (s) => [CMD.SMP_ERASE, [s & 0x7F]],
   smpInfo: () => [CMD.SMP_INFO, []],
   upList: (start, count) => [CMD.UP_LIST, [start & 0x7F, Math.max(1, Math.min(UP.LIST_MAX, count | 0))]],
+  czGet: (track) => [CMD.CZ_GET, [track]],
+  czPut: (track, tone) => [CMD.CZ_PUT, [track, ...tone]],
   upGet: (s) => [CMD.UP_GET, [s & 0x7F]],
   /* patch: {engine, name, p: P_COUNT values, pattern: 16 x [note, flags] or grid: 16 x [hit, acc] (v5: kind 1)} */
   upPut: (s, pt) => [CMD.UP_PUT, [s & 0x7F, pt.engine & 0x7F, ...strEnc(upName(pt.name)), ...pt.p.flatMap((v) => v14enc(v ?? 0)),
     ...(pt.grid
       ? [...Array.from({ length: UP.PAT }, (_, i) => hitsEnc(...(pt.grid[i] || [0, 0])).slice(0, 2)).flat(), 1,
          ...Array.from({ length: UP.PAT }, (_, i) => hitsEnc(...(pt.grid[i] || [0, 0]))[2])]
-      : Array.from({ length: UP.PAT }, (_, i) => { const x = (pt.pattern || [])[i] || [0, 0]; return [x[0] & 0x7F, x[1] & 7]; }).flat())]],
+      : Array.from({ length: UP.PAT }, (_, i) => { const x = (pt.pattern || [])[i] || [0, 0]; return [x[0] & 0x7F, x[1] & 7]; }).flat()), ...(pt.cz1 ? [0x43, 2, ...nativeCZ(pt.cz1)] : [])]],
   upStore: (s, name) => [CMD.UP_STORE, [s & 0x7F, ...strEnc(name ? upName(name) : "")]],   /* "": the device names it ("ANALOG 07") */
   upLoad: (s) => [CMD.UP_LOAD, [s & 0x7F]],
   upErase: (s) => [CMD.UP_ERASE, [s & 0x7F]],
@@ -1129,6 +1148,7 @@ function cleanPatch(pt) {
     tags: Array.isArray(pt.tags) ? [...new Set(pt.tags.map((x) => String(x).trim()).filter(Boolean))] : [],
     created: pt.created || now, modified: pt.modified || pt.created || now,
   };
+  if (nativeCZ(pt.cz1)) o.cz1 = nativeCZ(pt.cz1);
   if (Number.isInteger(pt.slot)) o.slot = pt.slot;
   if (Array.isArray(pt.fm6) && pt.fm6.length === FM6.PACKED) o.fm6 = pt.fm6.map((x) => (x | 0) & 127);   /* (a converted */
   if (Array.isArray(pt.fm4)) o.fm4 = pt.fm4.map((v) => (Number.isFinite(v) ? Math.round(v) : null));    /* DIGITAL sound) */
@@ -1146,6 +1166,7 @@ function libraryFile(kind, patches, ctx) {
       const o = { name: c.name, engine: c.engine, engineName: c.engineName || (ctx.engines || [])[c.engine] || "",
         params: c.p, pattern: c.pattern, tags: c.tags, created: c.created, modified: c.modified };
       if (c.grid) o.grid = c.grid;
+      if (c.cz1) o.cz1 = c.cz1;
       if (c.fm6) { o.fm6 = c.fm6; o.fm4 = c.fm4; }   /* a DIGITAL sound converted: its FM6 patch, the DIGITAL values */
       if (Number.isInteger(x.slot)) o.slot = x.slot;
       return o;
@@ -1226,7 +1247,9 @@ async function capturePatch(rq, info, name) {
   const steps = [];
   for (let i = 0; i < UP.PAT && i < info.nstep; i++) steps.push(parse[CMD.STEP_GET](await rq(req.stepGet(i))));
   const drum = info.engines[dump.engine] === "DRUM";   /* (a DRUM track that strikes a lane: its grid) */
-  return { patch: cleanPatch({ name, engine: dump.engine, engineName: info.engines[dump.engine], p: dump.p, pattern: patternFromSteps(steps),
+  let cz1;
+  if (info.engines[dump.engine] === "CZ-1") { const track = parse[CMD.TRACK](await rq(req.track())).sel; const tone = parse[CMD.CZ_GET](await rq(req.czGet(track))); if (tone.rc) throw new Error("CZ tone read failed"); cz1 = tone.cz1; }
+  return { patch: cleanPatch({ cz1, name, engine: dump.engine, engineName: info.engines[dump.engine], p: dump.p, pattern: patternFromSteps(steps),
     grid: drum ? gridFromSteps(steps) : null }), dump, steps };
 }
 
@@ -1252,6 +1275,7 @@ async function auditionPatch(rq, info, pt, opt = {}) {
     if (v == null || v === dump.p[i] || trackOwn(i, info.pe0)) continue;
     await rq(req.set(0, i, v));
   }
+  if (pt.cz1) { const track = opt.track ?? parse[CMD.TRACK](await rq(req.track())).sel; const r = parse[CMD.CZ_PUT](await rq(req.czPut(track, pt.cz1))); if (r.rc) throw new Error("CZ tone rejected"); }
   if (pt.fm6 && info.fm6)                         /* a converted DIGITAL sound: its own FM6 patch on the track */
     await rq(req.fm6Put(FM6.TARGET.TRACK, opt.track ?? 0, pt.fm6));
   return {};
@@ -1652,7 +1676,7 @@ function makeMockDevice(opt = {}) {
     E("MIDI", ["USB", "TRS"], 0), E("DRUM", ["OFF", ...Array.from({ length: 16 }, (_, i) => String(i + 1))], 10), E("ROUT", ["CH1-4", "SEL"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 5, 1), E("BOOT", ["OFF", "A", "B", "C", "D"], 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
-      "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "SLICE"], 0), E("SET", NGO, 0),
+      "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "SLICE", "CZ-1"], 0), E("SET", NGO, 0),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     E("TYPE", ["ROOM", "SPRING"], 0),               /* G_RTYPE (id 24, was G_DRCH): the reverb's model */
     D("-", F.INT, 0, 0, 0), D("-", F.INT, 0, 0, 0),   /* G_DRLVL, G_DRREV: inert since 1.0 */
@@ -1754,6 +1778,8 @@ function makeMockDevice(opt = {}) {
         E("DIV", ["4", "8", "16", "32", "AUTO", "MAN"], 2), D("START", F.INT, 0, 31, 0), D("PTCH", F.SEMI, -24, 24, 0),
         E("MODE", ["ONE", "GATE", "LOOP"], 0), E("REV", ["OFF", "ON"], 0), D("DCAY", F.TIME, 0, 127, 127), D("TONE", F.INT, 0, 127, 127)],
       presets: [P("CHOP", [0, 2, 0, 0, 0, 0, 127, 127], [0, 127, 127, 30], 0, 9), P("STUTTER", [0, 1, 0, 0, 1, 0, 90, 110], [0, 127, 127, 12], 0, 10)] },
+    { name: "CZ-1", titles: ["TONE", "ENVELOPE"], edit: [D("DCW", F.BIPCT, -64, 63, 0), D("LEVEL", F.BIPCT, -64, 63, 0), D("ATK", F.INT, -64, 63, 0), D("DEC", F.INT, -64, 63, 0), D("REL", F.INT, -64, 63, 0), D("DTN", F.BIPCT, -64, 63, 0), D("VIB", F.BIPCT, -64, 63, 0), E("PTCH", ["INIT", "CZ BRASS", "CZ STRINGS", "CZ BELL", "CZ BASS", "CZ ORGAN", "CZ RESO", "CZ RING", "CZ NOISE"], 0)],
+      presets: ["INIT", "CZ BRASS", "CZ STRINGS", "CZ BELL", "CZ BASS", "CZ ORGAN", "CZ RESO", "CZ RING", "CZ NOISE"].map((n, i) => P(n, [0,0,0,0,0,0,0,i], [0,0,127,40])) },
   ];
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_BANK = 32;
   /* factory PATTERNS[] (engines.c; the device loads them from SEQ > PATTERNS, presets only suggest one): absolute
@@ -1783,7 +1809,8 @@ function makeMockDevice(opt = {}) {
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
   const NTRK = 4;
-  const newTrack = () => ({ engine: 0, preset: 0, fm6: FM6.INIT_PK.slice(),
+  const newCZ = () => { const p = Array(165).fill(0); p[0]=2;p[2]=1;for(let l=0;l<2;l++){p[23+l*8+4]=15;for(let e=0;e<3;e++){const b=39+(l*3+e)*18;p[b]=p[b+1]=p[b+2]=70;p[b+8]=e?99:0;p[b+9]=e?80:0;p[b+16]=1;p[b+17]=2;}}p.splice(149,16,...Array.from("INIT            ",c=>c.charCodeAt(0))); return p; };
+  const newTrack = () => ({ cz1: newCZ(), engine: 0, preset: 0, fm6: FM6.INIT_PK.slice(),
     p: TP.map((d) => d.def).concat(new Array(8).fill(0)),
     motion: {on: true, events: []},
     step: Array.from({ length: NSTEP }, () => ({ chance: 100, n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 })) });
@@ -1859,7 +1886,7 @@ function makeMockDevice(opt = {}) {
   const snapshot = (name) => {                   /* (upreset.c up_store: a DRUM track that strikes a lane: its grid) */
     const grid = isDrum() ? gridFromSteps(st.step) : null;
     return patternUsed(grid) ? { engine: st.engine, name, p: st.p.slice(), pattern: null, grid }
-      : { engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null };
+      : { engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null, ...(st.engine===14?{cz1:st.tracks[st.sel].cz1.slice()}:{}) };
   };
   const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); };
   function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3)] */
@@ -1905,6 +1932,10 @@ function makeMockDevice(opt = {}) {
         for (let i = start; i < start + n; i++) { const u = st.bank[i]; b(u ? 1 : 0); b(u ? u.engine : 0); s(u ? u.name : ""); }
         break;
       }
+      case CMD.CZ_GET: case CMD.CZ_PUT: {
+        b(a[0]); const rc = a[0] >= st.tracks.length || (cmd === CMD.CZ_PUT && (!nativeCZ(a.slice(1)))); b(rc?1:0);
+        if (!rc) { if (cmd === CMD.CZ_PUT) st.tracks[a[0]].cz1=nativeCZ(a.slice(1)); else st.tracks[a[0]].cz1.forEach(b); } break;
+      }
       case CMD.UP_GET: {
         if (a.length < 1 || a[0] >= NB) return null;
         const u = st.bank[a[0]];
@@ -1918,6 +1949,7 @@ function makeMockDevice(opt = {}) {
           for (let i = 0; i < UP.PAT; i++) { const x = u ? u.pattern[i] : [0, 0]; b(x[0]); b(x[1]); }
           b(0);
         }
+        if(u && u.cz1) {b(0x43);b(2);u.cz1.forEach(b);}
         break;
       }
       case CMD.UP_PUT: {
@@ -1926,11 +1958,12 @@ function makeMockDevice(opt = {}) {
         let rc = 0;
         try {
           const slot = r.b(), engine = r.b(), name = r.s(), p = [], raw = [];
-          let pattern = null, grid = null;
+          let pattern = null, grid = null, cz1 = null;
           for (let i = 0; i < P_COUNT; i++) p.push(r.v());
           for (let i = 0; i < UP.PAT; i++) raw.push([r.b(), r.b()]);
           const tail = a.length - r.i;
-          if (tail !== 0 && (tail !== 1 + UP.PAT || a[r.i] > 1)) throw new Error("bad preset extension");
+          if (engine === 14) { if(!((tail===167&&a[r.i+1]===2)||(tail===165&&a[r.i+1]===1))||a[r.i]!==0x43||!nativeCZ(a.slice(r.i+2))) throw new Error("bad CZ extension"); cz1=nativeCZ(a.slice(r.i+2)); }
+          else if (tail !== 0 && (tail !== 1 + UP.PAT || a[r.i] > 1)) throw new Error("bad preset extension");
           if (tail && a[r.i] === 1) {              /* kind 1: a complete drum grid */
             r.b();
             grid = raw.map(([h, c]) => { const x = r.b(), hit = h | (x & 1) << 7; return [hit, (c | (x & 2) << 6) & hit]; });
@@ -1939,7 +1972,7 @@ function makeMockDevice(opt = {}) {
           else {
             const saved = st.engine;                /* values clamped to the ranges of that engine */
             st.engine = engine;
-            st.bank[slot] = { engine, name, p: p.map((x, i) => { const d = desc(0, i); return clamp(x, d.min, d.max); }), pattern, grid };
+            st.bank[slot] = { engine, name, p: p.map((x, i) => { const d = desc(0, i); return clamp(x, d.min, d.max); }), pattern, grid, cz1 };
             st.engine = saved;
           }
         } catch (e) { rc = 1; }
@@ -1961,7 +1994,7 @@ function makeMockDevice(opt = {}) {
           const own = st.p.slice();                 /* parameters (TRACK_OWN: mix, ARP, SCL, LEN.., SLICER) stay */
           const p = u.p.map((x, i) => (trackOwn(i, P_E0) ? own[i] : x));
           if (u.engine === 1) fm4Apply(p);          /* a DIGITAL record (kept as it is): FM6 */
-          else { st.engine = u.engine; st.preset = 0; st.p = p; }
+          else { st.engine = u.engine; st.preset = 0; st.p = p; if(u.cz1) st.tracks[st.sel].cz1=u.cz1.slice(); }
         }
         b(a[0]); b(u ? 0 : 1);
         break;
@@ -2348,7 +2381,7 @@ function aliasOf(names, i) { const k = names ? names.indexOf(names[i]) : -1; ret
 /* the order the device shows its engines in (src/engines.c ENGINE_ORDER): the lists here follow it, the protocol keeps
    the engine numbers. engineOrder(names): the indices of names in that order, "-" (a reserved number) left out; a name
    the list does not know (another firmware) follows in index order */
-const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS", "NOISE",
+const ENGINE_ORDER = ["ANALOG", "FM6", "CZ-1", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS", "NOISE",
   "SLICE", "DRUM"];
 function engineOrder(names) {
   const rank = (n) => { const k = ENGINE_ORDER.indexOf(n); return k < 0 ? ENGINE_ORDER.length : k; };

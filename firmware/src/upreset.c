@@ -31,6 +31,7 @@
  *
  * With -DUP_HOST (host test) only the part above #ifndef UP_HOST is built;
  * it needs nothing but core.h. */
+#include "cz1_patch.h"
 #define UP_PER_BANK 16u
 #define UP_PMAX 72u                              /* room for P_COUNT to grow */
 #define UP_USED 0xA5u
@@ -43,25 +44,61 @@ typedef struct {
     union { int16_t p[UP_PMAX]; uint8_t packed[UP_PMAX * 2u]; };
     uint8_t note[16], flags[16];                 /* note 0 = rest; flags 1 accent, 2 slide, 4 tie (UP_VER_GRID:
                                                   * lane hits, their accents) */
+    uint8_t cz_extra[46];                 /* v6/7: compact CZ tone + common parameters; unchanged record extent */
 } up_rec_t;
 typedef struct {
     uint32_t magic;
     uint16_t rsize, nslot;
     up_rec_t r[UP_PER_BANK];
 } up_bank_t;
-_Static_assert(sizeof(up_rec_t) == 192, "user preset record layout");
+_Static_assert(sizeof(up_rec_t) == 238, "user preset record layout");
 _Static_assert(P_COUNT <= UP_PMAX * 2u && P_COUNT < 128, "user preset record: P_COUNT");
 static up_bank_t up_bank[UP_SLOTS / UP_PER_BANK];
 
 static up_rec_t *up_rec(uint32_t k) { return &up_bank[k / UP_PER_BANK].r[k % UP_PER_BANK]; }
 
+#define UP_VER_CZ_OLD 6u
+#define UP_VER_CZ 7u
+static int up_is_cz(const up_rec_t *r){return r->ver==UP_VER_CZ||r->ver==UP_VER_CZ_OLD;}
+#define UP_BANK_LEGACY_SIZE (8u + UP_PER_BANK * 192u)
+_Static_assert(P_COUNT == 92u && CZ_COMPACT_BITS + 528u <= 190u * 8u, "CZ preset bit layout");
+static uint8_t *up_cz_byte(up_rec_t *r,uint32_t n) { return n<144u ? &r->packed[n] : &r->cz_extra[n-144u]; }
+static uint32_t up_cz_bits(const up_rec_t *r,uint32_t pos,uint32_t n)
+{
+    uint32_t v=0;
+    for(uint32_t i=0;i<n;i++){uint32_t b=(pos+i)>>3;uint8_t x=b<144u?r->packed[b]:r->cz_extra[b-144u];v|=(uint32_t)((x>>((pos+i)&7u))&1u)<<i;}
+    return v;
+}
+static void up_cz_put_bits(up_rec_t *r,uint32_t pos,uint32_t n,uint32_t v)
+{
+    for(uint32_t i=0;i<n;i++){uint8_t *b=up_cz_byte(r,(pos+i)>>3),mask=(uint8_t)(1u<<((pos+i)&7u));*b=(uint8_t)((*b&~mask)|((v>>i&1u)?mask:0));}
+}
+static uint32_t up_cz_width(uint32_t k) { uint32_t w=0,x=k<CZ_NP?CZ_MAX[k]:127u;do{w++;x>>=1;}while(x);return w; }
+static void up_cz_decode(const up_rec_t *r,uint8_t *p)
+{
+    uint32_t pos=0;
+    if(r->ver==UP_VER_CZ_OLD){
+        uint8_t old[CZ_OLD_PACKED];
+        for(uint32_t k=0;k<CZ_OLD_PACKED;k++){uint32_t w=k<CZ_OLD_NP?up_cz_width(k):7u;old[k]=(uint8_t)up_cz_bits(r,pos,w);pos+=w;}
+        if(!cz_upgrade(p,old))memset(p,0,CZ_PACKED);
+    }else for(uint32_t k=0;k<CZ_PACKED;k++){uint32_t w=up_cz_width(k);p[k]=(uint8_t)up_cz_bits(r,pos,w);pos+=w;}
+
+}
+static void up_cz_encode(up_rec_t *r,const uint8_t *p)
+{
+    uint32_t pos=0;
+    for(uint32_t k=0;k<CZ_PACKED;k++){uint32_t w=up_cz_width(k);up_cz_put_bits(r,pos,w,p[k]);pos+=w;}
+}
+
+static uint32_t up_cz_param_pos(const up_rec_t *r,uint32_t k){uint32_t pos=r->ver==UP_VER_CZ_OLD?977u:CZ_COMPACT_BITS;for(uint32_t i=0;i<k;i++)pos+=CZ_PRESET_WIDTH[i];return pos;}
 static int up_valid(const up_rec_t *r)
 {
-    if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < NENGINES &&
+    if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_CZ && r->engine < NENGINES &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
     /* Pre-1.0 Melodee reused UPB1/version 1, but its MPC/chord ids and engine 9 mean different things.
      * Fresh-start policy: preserve the bytes while treating these fork layouts as empty. */
     if (r->ver == 1u && (r->np == 58u || r->np == 62u)) return 0;
+    if(up_is_cz(r)){uint8_t p[CZ_PACKED];if(r->engine!=ENGI_CZ1||r->np!=92u)return 0;up_cz_decode(r,p);return cz_valid(p);}
     if (r->ver >= 4u) for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
     return 1;
 }
@@ -69,10 +106,11 @@ static int up_valid(const up_rec_t *r)
 static int up_used(uint32_t k) { return k < UP_SLOTS && up_valid(up_rec(k)); }
 
 static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID; }
-static int16_t up_value(const up_rec_t *r, uint32_t k) { return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k]; }
+static int16_t up_value(const up_rec_t *r, uint32_t k) { return up_is_cz(r) ? (int16_t)up_cz_bits(r,up_cz_param_pos(r,k),CZ_PRESET_WIDTH[k])+CZ_PRESET_MIN[k] : r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k]; }
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
-    if (r->ver >= 4u) r->packed[k] = (uint8_t)(v + 64); else r->p[k] = v;
+    if(up_is_cz(r))up_cz_put_bits(r,up_cz_param_pos(r,k),CZ_PRESET_WIDTH[k],(uint32_t)(v-CZ_PRESET_MIN[k]));
+    else if (r->ver >= 4u) r->packed[k] = (uint8_t)(v + 64); else r->p[k] = v;
 }
 /* Legacy PHYS drums map through decoded parameters, not their disk representation. */
 static void up_migrate(up_rec_t *r)
@@ -90,6 +128,11 @@ static void up_bank_check(uint32_t b, int len)  /* after loading bank b (len byt
 {
     up_bank_t *bk = &up_bank[b];
     uint32_t i;
+    if(len==(int)UP_BANK_LEGACY_SIZE && bk->magic==UP_BANK_MAGIC && bk->rsize==192u && bk->nslot==UP_PER_BANK){
+        uint8_t *raw=(uint8_t *)bk;
+        for(i=UP_PER_BANK;i-- >0u;){for(uint32_t k=192u;k-- >0u;)((uint8_t *)&bk->r[i])[k]=raw[8u+i*192u+k];memset(bk->r[i].cz_extra,0,46u);}
+        bk->rsize=sizeof(up_rec_t);len=sizeof *bk;
+    }
     if (len != (int)sizeof *bk || bk->magic != UP_BANK_MAGIC || bk->rsize != sizeof(up_rec_t) ||
         bk->nslot != UP_PER_BANK)
         memset(bk, 0, sizeof *bk);
@@ -170,7 +213,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     k = 3u + n;                                  /* after the name's 0 */
     end = k + 2u * P_COUNT + 32u;
     if (a[0] >= UP_SLOTS || a[1] >= NENGINES || 2u + n >= na || !up_name_ok(a + 2, n) ||
-        (na != end && (na != end + 17u || a[end] > 1u)))
+        (a[1]==ENGI_CZ1 ? (!((na==end+2u+CZ_PACKED&&a[end+1]==2u)||(na==end+2u+CZ_OLD_PACKED&&a[end+1]==1u)) || a[end]!=0x43u) : (na != end && (na != end + 17u || a[end] > 1u))))
         return 1;
     up_rec_t staged, *target = r;
     r = &staged;
@@ -201,6 +244,14 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
         r->note[i] = a[k];
         r->flags[i] = a[k + 1];
         up_pat_norm(&r->note[i], &r->flags[i]);
+    }
+    if(r->engine==ENGI_CZ1){
+        uint8_t tone[CZ_PACKED];
+        if(a[k+1]==1u){if(!cz_upgrade(tone,a+k+2u))return 1;}
+        else {memcpy(tone,a+k+2u,CZ_PACKED);if(!cz_valid(tone))return 1;}
+        int16_t values[P_COUNT];for(i=0;i<P_COUNT;i++){values[i]=up_value(r,i);if(values[i]<CZ_PRESET_MIN[i]||values[i]>CZ_PRESET_MAX[i])return 1;}
+        r->ver=UP_VER_CZ;memset(r->packed,0,sizeof r->packed);memset(r->cz_extra,0,sizeof r->cz_extra);
+        up_cz_encode(r,tone);for(i=0;i<P_COUNT;i++)up_set_value(r,i,values[i]);
     }
     up_migrate(r);                               /* (an editor of before the DRUM engine) */
     *target = *r;
@@ -336,6 +387,7 @@ static int up_store(uint32_t k, const char *name)
     r.ver = UP_VER;
     r.engine = TSEL->eng_req;
     r.np = P_COUNT;
+    if(r.engine==ENGI_CZ1){r.ver=UP_VER_CZ;up_cz_encode(&r,cz_patch[trk_index(TSEL)]);}
     up_set_name(&r, k, name);
     for (i = 0; i < P_COUNT; i++)
         up_set_value(&r, i, motion_base_value(TSEL, i));
@@ -397,6 +449,7 @@ static int up_load(uint32_t k)
             if (!param_kept(i))
                 t->p[i] = v[i];
         t->preset = 0;
+        if(r->engine==ENGI_CZ1){up_cz_decode(r,cz_patch[trk_index(t)]);cz_accept_patch(trk_index(t));cz_slot[trk_index(t)]=(uint8_t)t->p[P_E7];}
         fm1_irq_on();
         fm6_track_loaded(t);                            /* FM6: a user preset holds the PTCH and the macros */
     }

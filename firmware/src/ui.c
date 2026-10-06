@@ -134,6 +134,7 @@ static int page_visible(uint32_t i)
 {
     if (PAGES[i].id[0] == P_MPCDEG && PAGES[i].scope == SC_TRACK)
         return TSEL->p[P_QUANT] == Q_MPC;
+    if(PAGES[i].scope==SC_CZ1)return TSEL->eng_req==ENGI_CZ1;
     if (PAGES[i].scope == SC_FM6 || PAGES[i].scope == SC_FMOP)
         return TSEL->eng_req == ENGI_FM6;              /* FM6's patch, operators and functions */
 #if MELODEE_SLICE
@@ -419,6 +420,7 @@ static struct {
     uint8_t eng, preset, user, patn;
     uint8_t fm6_slot;            /* the track's FM6 patch and its PTCH slot (eng_fm6.c): an edited or a project's */
     uint8_t fm6[FP_SIZE + 1u];   /* patch is the track's own, not PTCH's factory one */
+    uint8_t cz1[CZ_PACKED], cz1_slot;
     int16_t p[P_COUNT];
     step_t step[NSTEP];
     motion_store_t motion_backup; /* one track only, swaps with the shared event pool on undo */
@@ -445,6 +447,7 @@ static uint32_t track_sig(const track_t *t)      /* the sound (an FM6 track's pa
 {
     uint8_t id[3] = {t->eng_req, t->preset, t->user};
     uint32_t h = fnv(fnv(steps_sig(t), t->p, sizeof t->p), id, 3), k = trk_index(t);
+    h = fnv(h, cz_patch[k], CZ_PACKED);
     h = fnv(h, fm6_patch[k], sizeof fm6_patch[k]); /* (a patch the editor sent between two loads) */
     for (uint32_t j = 0; j < motion.count; j++)
         if ((motion.event[j].place >> 6) == k) h = fnv(h, &motion.event[j], sizeof motion.event[j]);
@@ -472,6 +475,7 @@ static void load_begin(track_t *t, uint32_t what)
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
     undo.fm6_slot = fm6_slot[i];
+    memcpy(undo.cz1, cz_patch[i], CZ_PACKED); undo.cz1_slot = cz_slot[i];
     undo.pat = pat_sig[i];
     undo.patn = pat_last[i];
     motion_snapshot_track(t, &undo.motion_backup);
@@ -567,6 +571,10 @@ static void undo_swap(void)
         fm6_slot[tr] = undo.fm6_slot;             /* (fm6_poll: the patch stays) */
         memcpy(undo.fm6, v, FP_SIZE);
         undo.fm6_slot = sl;
+        fm1_irq_off();
+        for (uint32_t j = 0; j < CZ_PACKED; j++) { uint8_t x = cz_patch[tr][j]; cz_patch[tr][j] = undo.cz1[j]; undo.cz1[j] = x; }
+        sl = cz_slot[tr]; cz_slot[tr] = undo.cz1_slot; undo.cz1_slot = sl;
+        fm1_irq_on();
     }
     undo.keep = 0;                                /* the next load copies the track as it is now */
     if (t == TSEL)
@@ -803,6 +811,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         for (i = 0; i < 4u; i++)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
+    cz_track_loaded(t,1);
     fm6_track_loaded(t);                              /* FM6: the preset's patch (its PTCH) */
     load_end(t);
 }
@@ -1051,6 +1060,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     uint32_t c, m = 0;
     if (ui.home)
         return 0;
+    if(pg->graph==GR_CZTOOLS)return 15u;
     if (pg->graph == GR_MOTION) return 8u;
     if (pg->graph == GR_TOOLS) return 15u;
     if (pg->graph == GR_SONG)
@@ -1081,6 +1091,7 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
 {
     static const char *const UP_GO[3] = {"LOAD", "ERASE", "SAVE"};
     uint32_t id = cur_page()->id[c & 3u];
+    if(cur_page()->graph==GR_CZTOOLS)return CZ_ACTIONS[c&3u].label;
     if (cur_page()->graph == GR_MOTION) return "CLEAR";
     if (cur_page()->graph == GR_TOOLS) {
         static const char *const actions[] = {"CLEAR", "INIT", "DELETE", "CLEAR"};
@@ -1106,6 +1117,7 @@ static int act_ready(void)
     uint32_t c = act_col(), s = song.sel, id;
     if (!c--)
         return 0;
+    if(cur_page()->graph==GR_CZTOOLS)return !chain_busy();
     if (cur_page()->graph == GR_MOTION) return !chain_busy() && motion_count(TSEL);
     if (cur_page()->graph == GR_TOOLS)                  /* one case per column: CLEAR PAT, INIT, DELETE ROW, CLEAR SONG */
         return !chain_busy() && (c == 0u ? !seq_is_empty(TSEL) || motion_count(TSEL) : c == 1u ? 1 :

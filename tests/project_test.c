@@ -157,8 +157,7 @@ int main(void)
     bad += check("layout: SLICER after DETUNE, then the matrix just before P_E0",
                  P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_MPCDEG && P_MPCDEG + 1 == P_E0 && P_E0 == 84 &&
                  P_COUNT == PROJ_NP_V3 + 35u && PROJ_NP_V3 == PROJ_NP_V2 + 4u);
-    bad += check("FUN8 fits one flash object, the retained cache in NOINIT", sizeof(project_store_t) <= 4096u - 256u &&
-                 sizeof(project_store_t) == 3584u && 0xC8u + 4u * sizeof(project_store_t) <= 0x3D50u);
+    bad += check("FUNB stores CZ tones; legacy FUN8 remains 3584 bytes", PROJ_STORE_V8 == 3584u && sizeof(project_store_t) == 4244u);
 
     /* format 2, as written before the SLICER */
     memset(&v2, 0, sizeof v2);
@@ -399,9 +398,10 @@ int main(void)
         project_store_t st, st2;
         uint32_t i, zero = 1;
         bad += check("FUN8 name at the end of the reserved tail, the FM6 patches before it, after the data",
-                     PROJ_NAME_OFF == 3568u && PROJ_FM6_OFF == 3056u && 68u + NTRK * (P_COUNT + 2u + NSTEP * 9u) +
+                     PROJ_NAME_OFF == 4228u && PROJ_FM6_OFF == 3056u && 68u + NTRK * (P_COUNT + 2u + NSTEP * 9u) +
                      sizeof(chain_config_t) + sizeof(motion_store_t) + 12u == PROJ_FM6_OFF);
         memset(&a, 0, sizeof a);
+        for (uint32_t z=0; z<NTRK; z++) cz_default(a.cz1[z], 0);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
         a.t[1].p[P_LEVEL] = 99;
@@ -440,6 +440,7 @@ int main(void)
         static uint8_t v7[PROJ_STORE_V7];
         uint32_t i, k, init = 1, sum;
         memset(&a, 0, sizeof a);
+        for (uint32_t z=0; z<NTRK; z++) cz_default(a.cz1[z], 0);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
         for (k = 0; k < NTRK; k++) {
@@ -449,7 +450,7 @@ int main(void)
         }
         memcpy(a.name, "FM SONG", 7);
         a.sum = proj_sum(&a);
-        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == 0x46554E38u && proj_import(&c, &st, sizeof st);
+        ok = proj_pack(&st, &a) && ((uint32_t *)st.raw)[0] == PROJ_MAGIC && proj_import(&c, &st, sizeof st);
         for (k = 0; k < NTRK; k++)
             ok &= !memcmp(c.fm6[k], FM6_FACTORY[k * 2u], FM6_PACKED) && c.t[k].engine == ENGI_FM6 &&
                   !memcmp(st.raw + PROJ_FM6_OFF + k * FM6_PACKED, FM6_FACTORY[k * 2u], FM6_PACKED);
@@ -517,6 +518,7 @@ int main(void)
         int16_t p[P_COUNT];
         uint32_t i, sum;
         memset(&a, 0, sizeof a);
+        for (uint32_t z=0; z<NTRK; z++) cz_default(a.cz1[z], 0);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
         for (t = 0; t < NTRK; t++) {

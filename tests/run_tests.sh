@@ -153,6 +153,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     fi
     $CC -O1 -w -Ibuild/gen -o "$OUT/settings_test" tests/settings_test.c
     run "settings: PER1..PER5 migration, palette ids and preference preservation" "$OUT/settings_test"
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/cz1_test" tests/cz1_test.c -lm
+    run "CZ-1 native waveforms, envelopes and eight voices" "$OUT/cz1_test"
     $CC -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/ui_test" tests/ui_test.c -lm
     run "UI: sounds keep steps, undo, recording, MIDI overflow, pending saves, panel recovery, drum grid, song chain, MONO gray" "$OUT/ui_test"
     $CC -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/seq_edit_test" tests/seq_edit_test.c -lm

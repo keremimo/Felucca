@@ -19,7 +19,7 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_TRACK_PARAM, ED_TRACK_CHANGED, ED_SONG,
        ED_UI_STATE, ED_UI_SET, ED_UI_PALETTES, ED_FAV_GET, ED_FAV_SET,
        ED_MOTION = 64, ED_BACKUP_LIST, ED_BACKUP_GET, ED_BACKUP_PUT,                               /* v6: song chain */
-       ED_AUDIO_STATS = 72, ED_PATTERN, ED_BANK_SONG };                                       /* USB audio diagnostics (68..71: FM6, editor_fm6.c) */
+       ED_AUDIO_STATS = 72, ED_PATTERN, ED_BANK_SONG, ED_CZ_GET, ED_CZ_PUT };                                       /* USB audio diagnostics (68..71: FM6, editor_fm6.c) */
 
 static uint8_t ed_out[600];
 static uint32_t ed_n;
@@ -375,9 +375,22 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
+    case ED_CZ_GET: /* CZ-1 track patch GET: track -> track, rc, native patch + name */
+        ed_b(na?a[0]:127);ed_b(na!=1u||a[0]>=NTRK?1u:0u);
+        if(na==1u&&a[0]<NTRK)for(uint32_t j=0;j<CZ_PACKED;j++)ed_b(cz_patch[a[0]][j]);
+        break;
+    case ED_CZ_PUT: { /* CZ-1 PUT, validates before replacing any live state */
+        uint8_t tone[CZ_PACKED];uint32_t rc=1;
+        if(na&&a[0]<NTRK){
+            if(na==1u+CZ_PACKED){memcpy(tone,a+1,CZ_PACKED);rc=!cz_valid(tone);}
+            else if(na==1u+CZ_OLD_PACKED)rc=!cz_upgrade(tone,a+1);
+        }
+        if(!rc){fm1_irq_off();memcpy(cz_patch[a[0]],tone,CZ_PACKED);cz_accept_patch(a[0]);cz_slot[a[0]]=(uint8_t)trk[a[0]].p[P_E7];fm1_irq_on();ui.force=1;}
+        ed_b(na?a[0]:127);ed_b(rc);break;
+    }
 #if MELODEE_USB_AUDIO
     case ED_AUDIO_STATS: {                         /* [1: start new maxima] -> schema 2, then 20 counters (u35 each) */
-        uint32_t snapshot[20], k;
+        uint32_t snapshot[26]={0}, k, count=na&&(a[0]&2u)?26u:20u;
         fm1_irq_off();
         snapshot[0] = ua.play_alt;
         snapshot[1] = ua.cap_alt;
@@ -399,11 +412,17 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         snapshot[17] = ua_feedback();
         snapshot[18] = melodee_dbg.max_us;            /* render time, TIMER5 preemption included */
         snapshot[19] = song.cpu_q8;
+        if(count==26u) for(uint32_t tr=0;tr<NTRK;tr++)for(uint32_t v=0;v<NVOICE;v++){
+            snapshot[20]+=trk[tr].v[v].active&&trk[tr].v[v].stage!=4u;
+            snapshot[21]+=trk[tr].v[v].active&&trk[tr].v[v].gate;
+            if(trk[tr].engine==ENGI_CZ1){snapshot[22]+=trk[tr].v[v].active; snapshot[23]+=trk[tr].v[v].active&&trk[tr].v[v].gate;}
+        }
+        if(count==26u){snapshot[24]=shed_count;snapshot[25]=voice_kills;}
         if (na && (a[0] & 1u))
             ua.poll_max_ticks = ua.service_max_ticks = melodee_dbg.max_us = 0;
         fm1_irq_on();
-        ed_b(2);
-        for (i = 0; i < 20u; i++)
+        ed_b(count==26u?3u:2u);
+        for (i = 0; i < count; i++)
             for (k = 0; k < 5u; k++)
                 ed_b(snapshot[i] >> (7u * k));
         break;
@@ -648,6 +667,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(u && up_grid(r));                  /* kind: 1 = a drum grid, then bit 7 of each step's */
         for (i = 0; u && up_grid(r) && i < 16u; i++)   /* hits (bit 0) and accents (bit 1) */
             ed_b((uint32_t)(r->note[i] >> 7) | (uint32_t)(r->flags[i] >> 7) << 1);
+        if(u && up_is_cz(r)){uint8_t tone[CZ_PACKED];up_cz_decode(r,tone);ed_b(0x43);ed_b(2);for(i=0;i<CZ_PACKED;i++)ed_b(tone[i]);}
         break;
     }
     case ED_UP_PUT: {                                      /* slot, engine, name, values, pattern -> slot, rc */

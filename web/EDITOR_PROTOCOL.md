@@ -653,3 +653,21 @@ without it there is no answer. `tools/usb_audio_stats.py` reads them.
 | cmd | Request args | Reply args |
 | --- | --- | --- |
 | 72 AUDIO_STATS | — or 1 (start new maxima after this reply) | schema (2), then 20 counters, each 5 × 7 bits, LSB first: play alt, capture alt, play rate, capture rate (Hz), play fill, capture fill (frames), play underruns, play overruns, capture underruns, capture overruns, bad packets, packets received, packets sent, missed USB frames, longest gap between services (µs), longest service (µs), late renders, the feedback (10.14), longest render (µs), CPU (Q8) |
+
+
+### CZ-1 native tones (75/76)
+
+`CZ_GET` (75): `track` → `track, rc, tone[165]`. `CZ_PUT` (76):
+`track, tone[165]` → `track, rc`; validation completes before replacement.
+The existing 147 control offsets remain fixed, but WAVE1 now stores the raw
+carrier code (0..7) and WAVE2 stores OFF (0) or raw code + 1 (1..8).
+Bytes 147/148 store each line's independent window (0..7), and bytes 149..164
+store the 16 printable name characters. A 163-byte version-1 PUT is migrated
+from panel waveform numbers and implicit resonance windows.
+
+A CZ `UP_PUT` appends `43 02 tone[165]` after its pattern; `UP_GET` returns that
+extension after its existing pattern-kind byte. Older `43 01 tone[163]`
+extensions remain accepted and are converted. Native Casio tone frames retain
+their documented 128/144 logical-byte sizes and low-nibble-first transmission.
+The edit-buffer receiver/transmitter supports all eight native carriers and
+all eight window codes. Keyboard function settings are separate from tone dumps.

@@ -46,7 +46,10 @@ static const char *const N_ENGNAME[] = {"ANALOG", MELODEE_FM4 ? "DIGITAL" : "-",
                                              "DRUM", "NOISE", "FM6",
 #if MELODEE_SLICE
                                              "SLICE",
+#else
+                                             "-",
 #endif
+                                             "CZ-1",
 };
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
@@ -407,10 +410,10 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
        FAM_COUNT };
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
-       SC_FM6, SC_FMOP };                                 /* FM6: its patch, functions; operator fm6_opsel */
+       SC_FM6, SC_FMOP, SC_CZ1 };                                 /* FM6: its patch, functions; operator fm6_opsel */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHANCE, GR_MOTION, GR_CHORD, GR_SLICES,
-       GR_FMEG, GR_FMPEG, GR_FMSTORE };                   /* FM6: an operator's envelope, the pitch EG, STORE */
+       GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_CZTOOLS };                   /* FM6: an operator's envelope, the pitch EG, STORE */
 
 typedef struct {
     const char *title;
@@ -418,6 +421,17 @@ typedef struct {
     uint8_t id[4];               /* param ids; 0xFF = empty slot */
 } page_t;
 
+#include "cz1_params.h"
+static void cz_page_put(uint32_t tr,uint32_t id,uint32_t v)
+{
+    uint8_t *p=cz_patch[tr];p[id]=(uint8_t)v;
+    for(uint32_t l=0;l<2;l++){
+        uint32_t b;
+        for(uint32_t e=0;e<3;e++){b=CZ_EBASE(l,e);p[b+8+p[b+17]]=0;if(p[b+16]!=8 && p[b+16]>p[b+17])p[b+16]=8;}
+    }
+}
+static int16_t cz_cell[4];
+static const param_desc_t CZ_ACTIONS[4]={PD("NAME",F_INT,0,1,0),PD("1 > 2",F_INT,0,1,0),PD("2 > 1",F_INT,0,1,0),PD("COMP",F_INT,0,1,0)};
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
     {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* (P_ED_FX: nothing reads it) */
@@ -453,6 +467,48 @@ static const page_t PAGES[] = {
     {"FM PORTA", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_PMODE, FP_SIZE + FN_PTIME, FP_SIZE + FN_GLISS, FP_SIZE + FN_ENGINE}},
     {"FM WH/FT", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_MWR, FP_SIZE + FN_MWA, FP_SIZE + FN_FCR, FP_SIZE + FN_FCA}},
     {"FM BR/AT", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_BCR, FP_SIZE + FN_BCA, FP_SIZE + FN_ATR, FP_SIZE + FN_ATA}},
+    {"CZ TOOLS",FAM_EDIT,SC_CZ1,GR_CZTOOLS,{0,1,2,3}},
+    {"CZ LINE", FAM_EDIT, SC_CZ1, GR_NONE, {0,1,2,22}},
+    {"CZ DETUNE", FAM_EDIT, SC_CZ1, GR_NONE, {3,4,5,6}},
+    {"CZ VIBRATO", FAM_EDIT, SC_CZ1, GR_NONE, {7,8,9,10}},
+    {"CZ CONTROL", FAM_EDIT, SC_CZ1, GR_NONE, {11,12,13,14}},
+    {"CZ PORTA", FAM_EDIT, SC_CZ1, GR_NONE, {15,16,17,18}},
+    {"CZ GLIDE", FAM_EDIT, SC_CZ1, GR_NONE, {19,20,21,255}},
+    {"CZ WINDOW", FAM_EDIT, SC_CZ1, GR_NONE, {CZ_WIN(0),CZ_WIN(1),255,255}},
+    {"CZ1 WAVE", FAM_EDIT, SC_CZ1, GR_NONE, {23,24,25,26}},
+    {"CZ1 TOUCH", FAM_EDIT, SC_CZ1, GR_NONE, {27,28,29,30}},
+    {"C1 PIT R1-4", FAM_EDIT, SC_CZ1, GR_NONE, {39,40,41,42}},
+    {"C1 PIT R5-8", FAM_EDIT, SC_CZ1, GR_NONE, {43,44,45,46}},
+    {"C1 PIT L1-4", FAM_EDIT, SC_CZ1, GR_NONE, {47,48,49,50}},
+    {"C1 PIT L5-8", FAM_EDIT, SC_CZ1, GR_NONE, {51,52,53,54}},
+    {"C1 PIT POINT", FAM_EDIT, SC_CZ1, GR_NONE, {55,56,255,255}},
+    {"C1 WAV R1-4", FAM_EDIT, SC_CZ1, GR_NONE, {57,58,59,60}},
+    {"C1 WAV R5-8", FAM_EDIT, SC_CZ1, GR_NONE, {61,62,63,64}},
+    {"C1 WAV L1-4", FAM_EDIT, SC_CZ1, GR_NONE, {65,66,67,68}},
+    {"C1 WAV L5-8", FAM_EDIT, SC_CZ1, GR_NONE, {69,70,71,72}},
+    {"C1 WAV POINT", FAM_EDIT, SC_CZ1, GR_NONE, {73,74,255,255}},
+    {"C1 AMP R1-4", FAM_EDIT, SC_CZ1, GR_NONE, {75,76,77,78}},
+    {"C1 AMP R5-8", FAM_EDIT, SC_CZ1, GR_NONE, {79,80,81,82}},
+    {"C1 AMP L1-4", FAM_EDIT, SC_CZ1, GR_NONE, {83,84,85,86}},
+    {"C1 AMP L5-8", FAM_EDIT, SC_CZ1, GR_NONE, {87,88,89,90}},
+    {"C1 AMP POINT", FAM_EDIT, SC_CZ1, GR_NONE, {91,92,255,255}},
+    {"CZ2 WAVE", FAM_EDIT, SC_CZ1, GR_NONE, {31,32,33,34}},
+    {"CZ2 TOUCH", FAM_EDIT, SC_CZ1, GR_NONE, {35,36,37,38}},
+    {"C2 PIT R1-4", FAM_EDIT, SC_CZ1, GR_NONE, {93,94,95,96}},
+    {"C2 PIT R5-8", FAM_EDIT, SC_CZ1, GR_NONE, {97,98,99,100}},
+    {"C2 PIT L1-4", FAM_EDIT, SC_CZ1, GR_NONE, {101,102,103,104}},
+    {"C2 PIT L5-8", FAM_EDIT, SC_CZ1, GR_NONE, {105,106,107,108}},
+    {"C2 PIT POINT", FAM_EDIT, SC_CZ1, GR_NONE, {109,110,255,255}},
+    {"C2 WAV R1-4", FAM_EDIT, SC_CZ1, GR_NONE, {111,112,113,114}},
+    {"C2 WAV R5-8", FAM_EDIT, SC_CZ1, GR_NONE, {115,116,117,118}},
+    {"C2 WAV L1-4", FAM_EDIT, SC_CZ1, GR_NONE, {119,120,121,122}},
+    {"C2 WAV L5-8", FAM_EDIT, SC_CZ1, GR_NONE, {123,124,125,126}},
+    {"C2 WAV POINT", FAM_EDIT, SC_CZ1, GR_NONE, {127,128,255,255}},
+    {"C2 AMP R1-4", FAM_EDIT, SC_CZ1, GR_NONE, {129,130,131,132}},
+    {"C2 AMP R5-8", FAM_EDIT, SC_CZ1, GR_NONE, {133,134,135,136}},
+    {"C2 AMP L1-4", FAM_EDIT, SC_CZ1, GR_NONE, {137,138,139,140}},
+    {"C2 AMP L5-8", FAM_EDIT, SC_CZ1, GR_NONE, {141,142,143,144}},
+    {"C2 AMP POINT", FAM_EDIT, SC_CZ1, GR_NONE, {145,146,255,255}},
     {"OP1 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_REL}},
     {"OP2 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_REL}},
     {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
@@ -539,6 +595,11 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
+    if(pg->scope==SC_CZ1){
+        if(pg->graph==GR_CZTOOLS){cz_cell[slot]=0;*valp=&cz_cell[slot];return &CZ_ACTIONS[slot];}
+        *valp=0;if(id>=CZ_NP || TSEL->eng_req!=ENGI_CZ1)return 0;
+        cz_cell[slot]=cz_patch[song.sel%NTRK][id];*valp=&cz_cell[slot];return &CZ_PD[id];
+    }
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP)
         return fm6_page_desc(pg, slot, valp);
     if (id == 0xFFu) {
