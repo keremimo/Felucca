@@ -117,6 +117,7 @@ static void melodee_init(void)
         song.g[i] = GP[i].def;
     undo_depth++;                             /* (no undo copy of the power-on loads) */
     fm6_init();                               /* every track's FM6 patch: the init voice */
+    obxf_init();                              /* .. and its OBXF patch: OB-Xf's init patch */
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
         track_defaults(t);

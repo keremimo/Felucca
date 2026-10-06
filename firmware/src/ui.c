@@ -804,6 +804,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
     fm6_track_loaded(t);                              /* FM6: the preset's patch (its PTCH) */
+    obxf_track_loaded(t, 1);                          /* OBXF: the same, and the patch's voice mode */
     load_end(t);
 }
 

@@ -61,7 +61,8 @@ static void track_lfo_tick(track_t *t)
 /* voices the engine may use (POLY and UNISON): its cap, else NPOLY */
 static uint32_t trk_nvoice(const track_t *t)
 {
-    uint32_t c = ENGINES[t->engine]->poly;
+    const engine_t *e = ENGINES[t->engine];
+    uint32_t c = e->cap ? e->cap(t) : e->poly;
     return !c ? NPOLY : c < NVOICE ? c : NVOICE;
 }
 
@@ -72,7 +73,11 @@ static uint32_t trk_vmode(const track_t *t)
 }
 
 /* ------------------------------------------------- the shared voice budget --- */
-static uint32_t voice_units(const track_t *t) { return trk_nvoice(t) > NPOLY ? 1u : 2u; }
+static uint32_t voice_units(const track_t *t)
+{
+    const engine_t *e = ENGINES[t->engine];
+    return e->units ? e->units(t) : trk_nvoice(t) > NPOLY ? 1u : 2u;
+}
 
 static uint32_t voices_busy(void)                       /* budget units of all parts' sounding voices (not fading) */
 {
@@ -256,6 +261,7 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     uint32_t ph0 = v->ph[0], ph1 = v->ph[1], ph2 = v->ph[2];
     int32_t s0 = v->s[0], s1 = v->s[1], s4 = v->s[4], s5 = v->s[5], s6 = v->s[6], s7 = v->s[7];
     uint32_t keep = e->keep;
+    voice_was = (uint8_t)(!v->active ? 0u : v->gate ? 2u : 1u);
     v->note = (uint8_t)note;
     v->vel = (uint8_t)vel;
     v->gate = 1;

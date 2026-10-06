@@ -103,6 +103,7 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = (int16_t)(p->fx[i] ? p->fx[i] - 1 : FX_DEF[i]);
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
+    obxf_track_loaded(t, 1);                      /* OBXF: the same */
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 {
@@ -843,6 +844,7 @@ int main(int argc, char **argv)
         inst.p[P_SUS] = p->env[2]; inst.p[P_REL] = p->env[3]; inst.p[P_ED_FLT] = p->fenv;
     }
     fm6_track_loaded(&inst);                            /* FM6: the preset's patch */
+    obxf_track_loaded(&inst, 0);                        /* OBXF: the same */
     inst.p[P_VOICE] = (int16_t)mono;
     inst.p[P_CHOR] = argc > 5 ? atoi(argv[5]) : 24;      /* as melodee_init */
     inst.p[P_DLY] = argc > 5 ? atoi(argv[5]) : 28;

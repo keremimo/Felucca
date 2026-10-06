@@ -21,7 +21,24 @@
 #endif
 #if MELODEE_SLICE
 #include "eng_slice.c"
+#else
+static void slice_gone_note_on(struct track *t, voice_t *v) { (void)t; (void)v; }
+static void slice_gone_render(struct track *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+{
+    (void)t; (void)v; (void)out; (void)n; (void)m;
+}
+static const engine_t ENG_SLICE_GONE = {         /* 13 without MELODEE_SLICE: reserved, never offered (eng_ok) */
+    .name = "-",
+    .page_title = {"-", "-"},
+    .edit = {{"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
+             {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
+             {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}},
+    .note_on = slice_gone_note_on,
+    .render = slice_gone_render,
+    .knob = {P_E4, P_E5, P_E6, P_REL},
+};
 #endif
+#include "eng_obxf.c"           /* OBXF: OB-Xf's polysynth (obxf_core.c, float) */
 
 /* the engines' runtime state of a part. A part renders one engine at a time (an engine switch fades the old one
  * out first, voice.c engine_block), so their states share one block per part, cleared at every switch: an engine
@@ -32,6 +49,7 @@ static union {
     drum_lane_t drum[DV_NLANE];
     drw_part_t wheel;
     fm6_part_t fm6;
+    oxf_part_t obxf;
 #if MELODEE_SLICE
     slc_rb_t slice;
 #endif
@@ -41,6 +59,7 @@ static gr_part_t *gr_part_of(const track_t *t) { return &eng_state[(uint32_t)(t 
 static drum_lane_t *drum_kit_part(uint32_t part) { return eng_state[part % NPART].drum; }
 static drw_part_t *drw_of(const track_t *t) { return &eng_state[(uint32_t)(t - trk) % NPART].wheel; }
 static fm6_part_t *fm6_part(uint32_t part) { return &eng_state[part % NPART].fm6; }
+static oxf_part_t *obxf_part(uint32_t part) { return &eng_state[part % NPART].obxf; }
 #if MELODEE_SLICE
 static int16_t (*slc_rbuf(uint32_t part))[SLC_RB] { return eng_state[part % NPART].slice; }
 #endif
@@ -70,8 +89,11 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_NOISE,                  /* 11 */
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
 #if MELODEE_SLICE
-    &ENG_SLICE,                  /* 13 (MELODEE_SLICE=0 builds without it) */
+    &ENG_SLICE,                  /* 13 (ENGI_SLICE) */
+#else
+    &ENG_SLICE_GONE,             /* 13: reserved (MELODEE_SLICE=0 builds without SLICE) */
 #endif
+    &ENG_OBXF,                   /* 14 (ENGI_OBXF) */
 };
 
 /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
@@ -83,6 +105,7 @@ static inline uint32_t eng_idx(uint32_t e) { return e < NENGINES ? e : 0u; }
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     0,                           /* ANALOG */
     12,                          /* FM6 */
+    14,                          /* OBXF */
 #if MELODEE_FM4
     1,                           /* DIGITAL */
 #endif
@@ -96,7 +119,10 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 
 /* the engines one can pick (engine 1 only with MELODEE_FM4), in ENGINE_ORDER: eng_ok(e), the n-th of them
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
-static int eng_ok(uint32_t e) { return e < NENGINES && (MELODEE_FM4 || e != ENGI_DIGITAL); }
+static int eng_ok(uint32_t e)
+{
+    return e < NENGINES && (MELODEE_FM4 || e != ENGI_DIGITAL) && (MELODEE_SLICE || e != ENGI_SLICE);
+}
 static uint32_t eng_vis(uint32_t n) { return ENGINE_ORDER[n % NENG_SHOWN]; }
 static uint32_t eng_rank(uint32_t e)
 {

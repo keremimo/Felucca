@@ -24,10 +24,11 @@
 #define MELODEE_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
-#define NENGINES (13 + MELODEE_SLICE)   /* SLICE (13) comes last: the other engines keep their numbers */
+#define NENGINES 15               /* SLICE is 13 (a reserved number without MELODEE_SLICE), OBXF 14 */
 #define ENGI_DIGITAL 1u          /* reserved without MELODEE_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENGINES - !MELODEE_FM4)   /* the engines one can pick: PRESETS, the EDIT layer, the editor,
-                                                * in the display order of engines.c ENGINE_ORDER */
+#define NENG_SHOWN (NENGINES - !MELODEE_FM4 - !MELODEE_SLICE)   /* the engines one can pick: PRESETS, the EDIT
+                                                * layer, the editor, in the display order of engines.c ENGINE_ORDER */
+#define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -206,7 +207,14 @@ typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c 
     void (*mono_key)(struct track *t, uint32_t note);
     /* optional: the part's block after its voices (FM6: Dexed's DC filter); nr: voices rendered */
     void (*post)(struct track *t, int32_t *out, uint32_t n, uint32_t nr);
+    /* optional: the voice cap of the part now, instead of poly (OBXF: its patch's keys) */
+    uint32_t (*cap)(const struct track *t);
+    /* optional: the voice budget units one of its voices takes now (OBXF: 2 per voice of its unison) */
+    uint32_t (*units)(const struct track *t);
 } engine_t;
+/* voice_start: what the voice it starts did just before (0 free, 1 released, 2 its key down: a steal or a move);
+ * engine_t.note_on may read it (OBXF: a voice with its key down goes on, as OB-Xf's) */
+static uint8_t voice_was;
 
 /* ------------------------------------------------- tracks, the song --- */
 enum { ST_NOTE, ST_TIE, ST_REST };

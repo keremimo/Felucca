@@ -399,6 +399,7 @@ static int up_load(uint32_t k)
         t->preset = 0;
         fm1_irq_on();
         fm6_track_loaded(t);                            /* FM6: a user preset holds the PTCH and the macros */
+        obxf_track_loaded(t, 0);                        /* OBXF: the same (and its own voice mode) */
     }
     t->user = (uint8_t)(k + 1u);
     load_end(t);
