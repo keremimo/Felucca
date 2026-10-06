@@ -9,8 +9,8 @@ No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the i
 It saves a complete backup first. If your firmware cannot export one, you can select
 **Skip backup** and confirm that Melodee music, sounds and settings may be lost.
 
-Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.11**
-([what's new](#whats-new-in-011)).
+Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.11.1**
+([what's new](#whats-new-in-0111)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -21,6 +21,12 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 0.11.1
+
+- **Web editor connects again:** with 0.11 it stopped after "Reading" the parameters, because the
+  device cut the list of CZ-1's 65 preset names short. The device now sends the whole list, and the
+  editor also connects to an FM-1 that still runs 0.11 (the last CZ-1 presets show as numbers there)
 
 ## What's new in 0.11
 

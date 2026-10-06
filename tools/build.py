@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Build Melodee: the app, the update loader and an installable .fwsc package.
 
-  tools/build.py [--release X.Y[-suffix]]
+  tools/build.py [--release X.Y[.Z][-suffix]]
 
 Outputs in build/: melodee.bin (app), loader/ota.bin (update loader),
 melodee.fwsc (package). A release build (--release X.Y) writes melodee-X.Y.fwsc and a folder
@@ -49,7 +49,7 @@ SDK_SHA256 = {
     "cfg/eq_cfg_hw.bin": "41167491bffed4651750719c973d2758adeb9021a5670d02d6a53c85ed80ea7d",
 }
 
-PRODUCT = "FM-1_900"                # package identity; release builds are FM-1_9XY (0.10: FM-1_9010)
+PRODUCT = "FM-1_900"                # package identity; release builds are FM-1_9XY[Z] (0.10: FM-1_9010, 0.11.1: FM-1_90111)
 VERSION = None                      # MELODEE_VERSION for release builds (default: firmware/src/melodee.c)
 
 
@@ -318,15 +318,15 @@ def mmio_check():
 def main():
     global PRODUCT, VERSION
     ap = argparse.ArgumentParser()
-    ap.add_argument("--release", metavar="X.Y", help="release build: identity FM-1_9XY, version string vX.Y")
+    ap.add_argument("--release", metavar="X.Y[.Z]", help="release build: identity FM-1_9XY[Z], version string vX.Y[.Z]")
     ap.add_argument("--sdk", type=Path, help="JieLi AC79 SDK checkout (default: $AC79_SDK)")
     a = ap.parse_args()
     name = "melodee.fwsc"
-    if a.release:                   # X one digit, Y one or two (0.10: FM-1_9010, apart from 1.0's FM-1_910)
-        m = re.fullmatch(r"(\d)\.(\d{1,2})(-[A-Za-z0-9]+)?", a.release)
+    if a.release:                   # X one digit, Y one or two (0.10: FM-1_9010, apart from 1.0's FM-1_910),
+        m = re.fullmatch(r"(\d)\.(\d{1,2})(?:\.(\d))?(-[A-Za-z0-9]+)?", a.release)   # Z one (Y two with it)
         if not m:
-            raise SystemExit(f"--release {a.release}: use X.Y or X.Y-suffix (X one digit, Y one or two)")
-        PRODUCT = "FM-1_9" + m[1] + m[2]
+            raise SystemExit(f"--release {a.release}: use X.Y[.Z] or X.Y[.Z]-suffix (X one digit, Y one or two, Z one)")
+        PRODUCT = "FM-1_9" + m[1] + (m[2].zfill(2) + m[3] if m[3] else m[2])
         VERSION = "v" + a.release.lower()      # e.g. v1.0, v1.1-rc1
         name = f"melodee-{a.release}.fwsc"
     fm1pkg_make.SDK = a.sdk
