@@ -6,6 +6,8 @@
 [web installer](https://keremimo.github.io/melodee/) in Chrome or Edge, and press Install.
 No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the installer's
 **Return to official V15** takes you back to the official firmware.
+It saves a complete backup first. If your firmware cannot export one, you can select
+**Skip backup** and confirm that Melodee music, sounds and settings may be lost.
 
 Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.10**
 ([what's new](#whats-new-in-010)).

@@ -1253,6 +1253,81 @@ async function patternProtocol() {
   ids.forEach(id=>manifest.push(id,...B.bkU32(id===0?20224:id===1?604:0),...B.bkU32(0)));
   ok(B.bkManifest(manifest)[0].size===20224,"patterns: nine-object archives accept complete 32-bank projects");
 }
+async function stockRestore() {
+  const installer = readFileSync(join(HERE, "index_pkg.html"), "utf8");
+  const script = installer.match(/<script type="module">([\s\S]*?)<\/script>/)[1]
+    .replace("/*META*/", JSON.stringify({version:"0.10",product:"FM-1_9010",pkg:"test.fwsc"}));
+  async function run({skip = false, loader = false, recovery = false, supported = false, confirm = true, backupError = false} = {}) {
+    const calls = [], elements = new Map();
+    const element = (id) => {
+      if (!elements.has(id)) elements.set(id, {checked:false, disabled:false, textContent:"", value:0, listeners:{},
+        addEventListener(k, fn) { this.listeners[k] = fn; }});
+      return elements.get(id);
+    };
+    const info = [...Buffer.from("MELODEE 0.9"),0,0,92,0,64,84,4,
+      ...(supported ? [16,0x55,1,0,0x4d,1,64,1,0x42,1,1] : [])];
+    const context = vm.createContext({
+      navigator:{language:"en", requestMIDIAccess:async () => ({})},
+      document:{documentElement:{}, querySelectorAll:() => [], getElementById:element,
+        body:{append() {}}, createElement:() => ({click() { calls.push("save"); }, remove() {}})},
+      window:{addEventListener() {}},
+      fetch:async () => ({ok:true, arrayBuffer:async () => new ArrayBuffer(0)}),
+      productOf:() => "FM-1_9010", logicalImage:() => new Uint8Array(),
+      URL:{createObjectURL:() => "blob:test", revokeObjectURL() {}}, Blob, setTimeout:() => 0,
+      confirm:(message) => { calls.push("confirm"); calls.push(message); return confirm; },
+      Updater:class {
+        async find(filter) {
+          const id = {model:loader ? "ota-FM-1" : "FM-1"};
+          return filter(id) ? {link:{input:{},output:{},close() {}}} : null;
+        }
+        async install() { calls.push("install"); }
+        async resume() { calls.push("resume"); return true; }
+      },
+      BackupConnection:class {
+        constructor() { calls.push("backup-open"); }
+        async request() { calls.push("info"); return info; }
+        close() { calls.push("backup-close"); }
+      },
+      captureBackup:async () => { calls.push("backup"); if (backupError) throw new Error("Backup failed"); return {}; },
+    });
+    vm.runInContext(script, context);
+    await new Promise(resolve => setImmediate(resolve));
+    vm.runInContext('stock = {image:new Uint8Array(),product:"FM-1_015"};', context);
+    element("stock-skip-backup").checked = skip;
+    element("stock-recovery").checked = recovery;
+    element("stock-skip-backup").listeners.change();
+    const label = element("stock-go").textContent;
+    await element("stock-go").listeners.click();
+    return {calls, label, status:element("status").textContent, unlocked:!element("stock-skip-backup").disabled};
+  }
+  let r = await run();
+  ok(!r.calls.includes("install") && r.status.includes("select Skip backup") && r.calls.includes("backup-close") && r.unlocked,
+    "stock: unsupported backups block flashing by default, explain opt-out");
+  r = await run({skip:true});
+  ok(r.calls.includes("install") && !r.calls.includes("info") && !r.calls.includes("backup-open")
+    && r.calls.some(c => c.includes("without creating a backup")) && r.label.includes("without backup") && r.unlocked,
+    "stock: explicit skip bypasses backup protocol and confirms data loss");
+  r = await run({skip:true, confirm:false});
+  ok(!r.calls.includes("install") && !r.calls.includes("resume") && r.unlocked,
+    "stock: cancelling the no-backup confirmation never flashes");
+  r = await run({supported:true});
+  ok(r.calls.indexOf("backup") < r.calls.indexOf("save") && r.calls.indexOf("save") < r.calls.indexOf("confirm")
+    && r.calls.indexOf("confirm") < r.calls.indexOf("install") && r.label.startsWith("Back up"),
+    "stock: default flow saves the backup before confirmation and flashing");
+  r = await run({supported:true, backupError:true});
+  ok(!r.calls.includes("install") && !r.calls.includes("confirm") && r.calls.includes("backup-close") && r.unlocked,
+    "stock: a failed backup never silently falls through to flashing");
+  r = await run({loader:true});
+  ok(!r.calls.includes("resume") && r.status.includes("Skip backup"),
+    "stock: interrupted updates still require saved backup or explicit skip");
+  r = await run({loader:true, skip:true});
+  ok(r.calls.includes("resume") && r.calls.some(c => c.includes("without creating a backup")),
+    "stock: explicit skip can resume a loader after data-loss confirmation");
+  r = await run({loader:true, recovery:true});
+  ok(r.calls.includes("resume") && r.calls.some(c => c.includes("Has the complete backup")),
+    "stock: saved-backup recovery retains its existing confirmation");
+}
+await stockRestore();
 await patternProtocol();
 await editorMock();
 await editorSamplePresets();
