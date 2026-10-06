@@ -107,6 +107,9 @@ NOTE / TIE / REST, and KNOB 4 sets accent and slide. On a synth track:
 - Hold **ENV** and turn **SELECT** to resize an existing note, from its onset or any of its ties.
 - Hold **SCL** and turn **SELECT** to move the whole note, with its ties. Movement and lengthening
   stop before another note; both work across the pattern's loop.
+- **KNOB 1** does the same as SELECT while ENV, SCL or a key is held. These gestures also work while the
+  track is armed and playing: the cursor stops following the play head while ENV or SCL is held, and
+  OCT− / OCT+ keep shifting the octave while you record live. FX stays the performance layer then.
 - Tap **FX** or **EDIT** to delete the selected note and its ties. A DRUM grid EDIT clears just that step.
 - Hold **SAVE** to undo the last manual edit. With **FX** or **SAVE** down, **OCT−** undoes and **OCT+**
   redoes, up to eight edits. A held entry or move counts as one edit. A new edit clears redo;

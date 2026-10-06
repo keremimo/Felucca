@@ -63,7 +63,7 @@ static uint32_t layer_bits(void)
     for (l = LAYER_FX; l < LAYER_N; l++)
         m |= ly_bit(l);
     if (step_modifier_context())
-        m &= ~step_modifier_mask();                      /* synth STEP: FX/SCL are editing modifiers */
+        m &= ~step_modifier_mask();                      /* synth STEP: SCL, FX (not recording live) edit notes */
     return m;
 }
 static uint32_t layer_btn(void) { return LAYERS[ui.layer % LAYER_N].btn; }

@@ -635,13 +635,18 @@ static uint32_t oct_taps(uint32_t pressed, int here)
  * the last one) become the cursor step; releasing all keys moves on. With CHRD on a key
  * writes what it sounds, as live recording does: POLY its chord, MONO the chord's root */
 static int step_page(void) { return !ui.home && cur_page()->scope == SC_STEP; }   /* SEQ > STEP, CHANCE */
+/* ENV / SCL / FX held on STEP: their note gestures (SELECT resizes, moves; FX deletes); ENV and SCL armed and
+ * playing too */
 static int step_modifier_context(void)
 {
-    return step_page() && !drum_track(TSEL) && !ui.menu && !ui.confirm && !ui.ly && !name_on() && !live_rec_sel();
+    return step_page() && !drum_track(TSEL) && !ui.menu && !ui.confirm && !ui.ly && !name_on();
 }
+/* .. and OCT taps move the cursor, but not while recording live: the keys played need the octave buttons then */
+static int step_oct_context(void) { return step_modifier_context() && !live_rec_sel(); }
+/* recording live FX stays the performance layer (its effects on the keys played) */
 static uint32_t step_modifier_mask(void)
 {
-    return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) | (1u << panel.btn[B_FX]);
+    return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) | (live_rec_sel() ? 0u : 1u << panel.btn[B_FX]);
 }
 
 static void step_length_edit(int32_t delta)
@@ -883,6 +888,30 @@ static void ui_notices(void)
     }
 }
 
+/* SELECT or KNOB 1 turned on STEP with ENV held: the cursor's note longer / shorter; SCL held: it moves (ties, chord,
+ * velocity and all); a key or MIDI note held while entering: its length. 0: none of them held (the turn is the
+ * cursor's or the pages') */
+static int step_gesture(int32_t s)
+{
+    uint32_t env = 1u << panel.btn[B_ENV], scl = 1u << panel.btn[B_SCL];
+    if (!step_modifier_context() || !((ui.step_mods & (env | scl)) || ui.entry_open))
+        return 0;
+    ui.step_used |= (uint16_t)(ui.step_mods & (env | scl));
+    if (chain_busy()) {
+        ui_message("STOP TO EDIT");
+    } else if (ui.step_mods & env) {
+        ui.step_move = 1;
+        step_length_edit(s);
+    } else if (ui.step_mods & scl) {
+        ui.step_move = 1;
+        step_move_edit(s);
+    } else {
+        step_length_edit(s);
+    }
+    ui.force = 1;
+    return 1;
+}
+
 static void ui_input(void)
 {
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
@@ -891,11 +920,12 @@ static void ui_input(void)
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && !ui.confirm && !name_on());   /* held: MIXER */
     uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm);
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
-    uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || step_modifier_context());
+    uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || step_oct_context());
     uint32_t lay, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
-    if (step_modifier_context()) {
-        ui.step_mods |= (uint16_t)(pressed & step_modifier_mask());
+    if (step_modifier_context()) {                      /* (FX held as recording starts: dropped, no delete) */
+        ui.step_mods = (uint16_t)((ui.step_mods | pressed) & step_modifier_mask());
+        ui.step_used &= ui.step_mods;
     } else {
         ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
     }
@@ -1065,7 +1095,8 @@ static void ui_input(void)
     if (home == BT_TAP)                                 /* HOME acts on release: a hold opens the menu */
         go_home();
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
-    if (step_page() && live_rec_sel()) {                /* armed and playing: the cursor on the step recording */
+    if (step_page() && live_rec_sel() && !ui.step_mods) {   /* armed and playing: the cursor on the step recording
+                                                         * (not while ENV / SCL / FX are held: a note edit) */
         uint32_t idx = TSEL->seq_pos == 0x7FFFFFFFu ? 0u : TSEL->seq_idx;
         if (ui.cursor != idx)
             cursor_set((int32_t)idx);
@@ -1120,7 +1151,7 @@ static void ui_input(void)
                     ui_message(b == B_OCTUP ? "NOTHING TO REDO" : "NOTHING TO UNDO");
                 break;
             }
-            if (step_modifier_context())               /* STEP OCT taps: cursor; FX consumes them below */
+            if (step_oct_context())                    /* STEP OCT taps: cursor; FX consumes them below */
                 break;
             if ((fm1_in.buttons & both) == both)
                 song.octave = 0;
@@ -1190,19 +1221,7 @@ static void ui_input(void)
             uint32_t from = TSEL->pattern_next < NPAT ? TSEL->pattern_next : TSEL->pattern;
             if (pattern_request(TSEL, (uint32_t)clamp((int32_t)from + s, 0, NPAT - 1u))) ui_message("STOP SONG TO SWITCH");
             ui.force = 1;
-        } else if (step_modifier_context() && (ui.step_mods & (env | scl) || ui.entry_open)) {
-            ui.step_used |= (uint16_t)(ui.step_mods & (env | scl));
-            if (chain_busy()) {
-                ui_message("STOP TO EDIT");
-            } else if (ui.step_mods & env) {
-                ui.step_move = 1;
-                step_length_edit(s);
-            } else if (ui.step_mods & scl) {
-                ui.step_move = 1;
-                step_move_edit(s);
-            } else {
-                step_length_edit(s);
-            }
+        } else if (step_gesture(s)) {                   /* ENV / SCL / a key held: the note's length, its place */
         } else if (!ui.home && cur_page()->scope == SC_STEP) {   /* STEP, CHANCE: the cursor */
             cursor_set((int32_t)ui.cursor + s);
             ui.force = 1;
@@ -1214,6 +1233,8 @@ static void ui_input(void)
         const page_t *pg = cur_page();
         int16_t *hv;
         if ((s = panel_enc(EN_K1 + k)) == 0)
+            continue;
+        if (k == 0u && pg->graph == GR_ROLL && step_gesture(s))   /* KNOB 1 too, as SELECT (ENV / SCL / a key held) */
             continue;
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
@@ -1259,7 +1280,7 @@ static void ui_input(void)
             }
             ui.step_used &= (uint16_t)~bit;
         }
-        if (step_modifier_context()) {
+        if (step_oct_context()) {
             if (oct & ~ui.step_oct_used) cursor_set(ui.cursor + ((oct & 2u) ? 1 : -1));
             ui.step_oct_used &= (uint8_t)(((fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u) |
                                          (((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) << 1));

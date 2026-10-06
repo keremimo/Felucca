@@ -261,9 +261,72 @@ static int test_step_modifiers(void)
     return bad;
 }
 
+/* a button held for `pre` frames (past the 0.4 s of a layer), a knob turned by s, held `post` more, let go */
+static void held_turn(uint32_t b, uint32_t role, int32_t s, uint32_t pre, uint32_t post)
+{
+    uint32_t i;
+    fm1_in.buttons |= 1u << panel.btn[b]; host_pressed |= 1u << panel.btn[b];
+    for (i = 0; i < pre; i++) frame();
+    host_enc[panel.enc[role]] += s * panel.dir[role]; frame(); host_ticks += 200000u;
+    for (i = 0; i < post; i++) frame();
+    fm1_in.buttons &= ~(1u << panel.btn[b]); frame();
+}
+/* held as on the panel (0.5 s and more): ENV / SCL + SELECT or KNOB 1 edit the cursor's note, armed and playing too
+ * (the cursor stops following the play head while they are held); OCT shifts the octave while recording live */
+static int test_held_gestures(void)
+{
+    int bad = 0;
+    track_t *t = edit_setup();
+    put_note(t, 4, 60, 2); cursor_set(4); frame();
+    held_turn(B_ENV, EN_SELECT, 2, 30, 10);
+    bad += check("ENV held 0.5 s + SELECT: the note 2 -> 4 steps, STEP stays", step_note_length(t, 4) == 4 &&
+                 cur_page()->graph == GR_ROLL && !ui.ly);
+    held_turn(B_SCL, EN_SELECT, 2, 40, 10);
+    bad += check("SCL held 0.7 s + SELECT: the note moves 4 -> 6, no SCL layer or page", step_note_length(t, 6) == 4 &&
+                 !step_on(&t->step[4]) && ui.cursor == 6 && cur_page()->graph == GR_ROLL && !ui.ly);
+    held_turn(B_ENV, EN_K1, -1, 30, 10);
+    bad += check("ENV + KNOB 1: as SELECT (4 -> 3 steps)", step_note_length(t, 6) == 3 && ui.cursor == 6);
+    held_turn(B_SCL, EN_K1, -2, 30, 10);
+    bad += check("SCL + KNOB 1: as SELECT (6 -> 4)", step_note_length(t, 4) == 3 && ui.cursor == 4);
+    cursor_set(12); frame();
+    key_down(10); frame(); frame();
+    host_enc[panel.enc[EN_K1]] += 2 * panel.dir[EN_K1]; frame(); host_ticks += 200000u;
+    key_up(10); frame();
+    bad += check("a key held + KNOB 1: its length (3 steps), the cursor past it", step_note_length(t, 12) == 3 &&
+                 ui.cursor == 15);
+
+    t = edit_setup();
+    put_note(t, 4, 60, 2); cursor_set(4);
+    song.rec = 1u << song.sel; song.playing = 1; t->seq_idx = 4; frame();
+    held_turn(B_ENV, EN_SELECT, 2, 30, 10);
+    bad += check("armed and playing: ENV + SELECT still lengthens the note (2 -> 4)", step_note_length(t, 4) == 4 &&
+                 cur_page()->graph == GR_ROLL);
+    t->seq_idx = 4; frame();
+    fm1_in.buttons |= 1u << panel.btn[B_SCL]; host_pressed |= 1u << panel.btn[B_SCL]; frame();
+    t->seq_idx = 9; frame();
+    bad += check("  the cursor stays on the note while SCL is held (the play head moved on)", ui.cursor == 4);
+    host_enc[panel.enc[EN_SELECT]] += 2 * panel.dir[EN_SELECT]; frame();
+    fm1_in.buttons &= ~(1u << panel.btn[B_SCL]); frame(); frame();
+    bad += check("  .. and moves it (4 -> 6); let go, it follows the play head again", step_note_length(t, 6) == 4 &&
+                 ui.cursor == 9);
+    press(B_OCTUP);
+    bad += check("  OCT+ while recording live: the octave, not the cursor", song.octave == 1 && ui.cursor == 9);
+    put_note(t, 9, 64, 1);
+    fm1_in.buttons |= 1u << panel.btn[B_FX]; host_pressed |= 1u << panel.btn[B_FX]; frame(); frame();
+    {
+        uint32_t ly = ui.ly;
+        fm1_in.buttons &= ~(1u << panel.btn[B_FX]); frame();
+        bad += check("  FX while recording live: its performance layer, the note stays", ly == LAYER_FX &&
+                     step_on(&t->step[9]));
+    }
+    song.octave = 0; song.rec = 0; song.playing = 0;
+    return bad;
+}
+
 int main(void)
 {
-    int bad = test_note_edits() + test_entry_history() + test_midi_entry() + test_record_timing() + test_step_modifiers();
+    int bad = test_note_edits() + test_entry_history() + test_midi_entry() + test_record_timing() + test_step_modifiers() +
+              test_held_gestures();
     printf("sequencer editing: %s\n", bad ? "FAILED" : "all passed");
     return bad != 0;
 }
