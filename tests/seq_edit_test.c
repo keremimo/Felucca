@@ -223,7 +223,8 @@ static int test_step_modifiers(void)
     host_enc[panel.enc[EN_SELECT]] += 2 * panel.dir[EN_SELECT]; midi_note_event(0, 65, 0); frame();
     bad += check("final SELECT detent on MIDI release sets length before advancing", step_note_length(t, 4) == 3 && ui.cursor == 7);
     turn(EN_SELECT, 1);
-    bad += check("SELECT without a held entry or modifier keeps the 1.0 tempo control", song.g[G_BPM] > bpm);
+    bad += check("SELECT without a held entry or modifier moves the cursor (the BPM is SEQ > TEMPO's)",
+                 ui.cursor == 8 && song.g[G_BPM] == bpm);
     cursor_set(4); frame(); step_t before[NSTEP]; memcpy(before, t->step, sizeof before);
     turn(EN_PRESET, 10);
     bad += check("PRESETS has no STEP editing role", !memcmp(before, t->step, sizeof before) && ui.cursor == 4);

@@ -328,6 +328,22 @@ static void note_name(char *b, uint32_t n)
     fmt_int(b + str_len(b), (int32_t)(n / 12u) - 1);
 }
 
+/* SELECT: the open section's pages, both ways (wraps; pages the track does not show skipped) */
+static void page_scroll(int32_t dir)
+{
+    uint32_t fam = cur_page()->fam, n, i = ui.page;
+    for (n = 0; n < NPAGES; n++) {
+        i = (i + (dir > 0 ? 1u : NPAGES - 1u)) % NPAGES;
+        if (PAGES[i].fam == fam && page_visible(i))
+            break;
+    }
+    if (i == ui.page)
+        return;
+    ui.page = (uint8_t)i;
+    ui.fam_last[fam] = ui.page;
+    page_entered();
+}
+
 static void open_family(uint32_t fam)
 {
     if (!ui.home && cur_page()->fam == fam) {          /* same button again: next page */

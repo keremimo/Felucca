@@ -1183,7 +1183,7 @@ static void ui_input(void)
     }
     if ((s = panel_enc(EN_ALGO)) != 0)             /* ALGORITHM: the selected track, on every page */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
-    if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT knob = global tempo */
+    if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT: pages, the STEP cursor; with SEQ / a step key: below */
         uint32_t env = 1u << panel.btn[B_ENV], scl = 1u << panel.btn[B_SCL];
         if (pattern_keys_on()) {
             ui.seq_t0 |= 2u;
@@ -1203,9 +1203,11 @@ static void ui_input(void)
             } else {
                 step_length_edit(s);
             }
-        } else {
-            song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
-            ui.bpm_t = 40;
+        } else if (!ui.home && cur_page()->scope == SC_STEP) {   /* STEP, CHANCE: the cursor */
+            cursor_set((int32_t)ui.cursor + s);
+            ui.force = 1;
+        } else if (!ui.home) {                          /* elsewhere the section's pages (BPM: SEQ > TEMPO) */
+            page_scroll(s);
         }
     }
     for (k = 0; k < 4u; k++) {

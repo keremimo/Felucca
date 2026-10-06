@@ -1315,13 +1315,14 @@ static int test_mono_screens(void)
  * value strip, its last frame is the static render; unchanged digits stay; the direction follows the sign; a
  * change mid-roll retargets; a fast turn, another shape, a page / track / palette change and ui.force snap. */
 static uint16_t roll_shot[240 * 240];
-static void roll_settle(void)                     /* GLOBAL, nothing rolling, no knob hot */
+static void roll_settle_on(const char *page)       /* that page, nothing rolling, no knob hot */
 {
     uint32_t k;
-    go_title("GLOBAL");
+    go_title(page);
     ui.hot_t = 0; ui.bpm_t = 0;
     for (k = 0; k < 12u; k++) frame();
 }
+static void roll_settle(void) { roll_settle_on("GLOBAL"); }   /* (TUNE on KNOB 4) */
 /* host_screen against roll_shot: the pixels that differ inside the box (in = 1) or outside it */
 static uint32_t roll_diff(int32_t x0, int32_t y0, int32_t x1, int32_t y1, int in)
 {
@@ -1414,10 +1415,10 @@ static int test_roll(void)
     ok = roll_diff(STRIP(3), 0) == 0 && roll_diff(STRIP(3), 1) > 20u && !ui.roll[3].from[0];
     bad += check("roll: a mid-roll frame differs from the static render inside the value strip only", ok);
 
-    /* BPM 120 -> 121 (SELECT): the header rolls, the digits 1 and 2 stay; the BPM card too (no unit:
+    /* BPM 120 -> 121 (SEQ > TEMPO KNOB 1): the header rolls, the digits 1 and 2 stay; the BPM card too (no unit:
      * the label says BPM: set in M, it rolls like any number) */
-    ui_power_on(); roll_settle();
-    turn(EN_SELECT, 1);
+    ui_power_on(); roll_settle_on("TEMPO");
+    turn(EN_K1, 1);
     ok = song.g[G_BPM] == 121 && str_eq(ui.roll[ROLL_BPM].from, "120") && ui.roll[ROLL_BPM].dir == 1 &&
          str_eq(ui.roll[0].from, "120") && ui.roll[0].dir == 1;
     frame(); frame();
@@ -1485,8 +1486,8 @@ static int test_roll(void)
         frame();
         ok &= !ui.roll[3].from[0] && !ui.roll[ROLL_BPM].from[0];
     }
-    ui_power_on(); roll_settle();
-    turn(EN_SELECT, 1);
+    ui_power_on(); roll_settle_on("TEMPO");
+    turn(EN_K1, 1);
     ok &= ui.roll[ROLL_BPM].from[0] != 0;
     ui.force = 1; frame();
     ok &= !ui.roll[ROLL_BPM].from[0];
@@ -1496,7 +1497,7 @@ static int test_roll(void)
     /* MONO: every roll frame is gray */
     ui_power_on(); roll_settle();
     ok = 1;
-    turn(EN_SELECT, 9);
+    song.g[G_BPM] += 9;                                  /* (the header rolls too) */
     turn(EN_K4, -1);
     for (k = 0; k < ROLL_FRAMES; k++) { ok &= screen_gray(); frame(); }
     bad += check("roll: MONO roll frames are gray", ok);
@@ -2386,6 +2387,42 @@ static int test_boot_template(void)
     settings_boot = 0;
     memset(&tmpl, 0, sizeof tmpl);
     memset(proj_slot, 0, sizeof proj_slot);
+    return bad;
+}
+
+/* BPM and SWG: SEQ > TEMPO, the project's (saved and loaded with it); SELECT never sets the BPM: it turns the open
+ * section's pages both ways (wrapping) and moves the cursor on STEP */
+static int test_tempo_select(void)
+{
+    int bad = 0, ok;
+    ui_power_on();
+    stop_transport();
+    go_title("GLOBAL");
+    turn(EN_SELECT, 1);
+    ok = song.g[G_BPM] == 120 && str_eq(cur_page()->title, "SYSTEM");
+    turn(EN_SELECT, 1);
+    ok &= str_eq(cur_page()->title, "GLOBAL");
+    turn(EN_SELECT, -1);
+    bad += check("SELECT on GLO: GLOBAL -> SYSTEM -> GLOBAL (wraps), back the other way; the BPM untouched",
+                 ok && str_eq(cur_page()->title, "SYSTEM") && song.g[G_BPM] == 120);
+    go_title("STEP");
+    cursor_set(4);
+    turn(EN_SELECT, 3);
+    bad += check("SELECT on STEP: the cursor (5 -> 8)", ui.cursor == 7u && str_eq(cur_page()->title, "STEP"));
+    go_title("TEMPO");
+    turn(EN_K1, 4);
+    turn(EN_K2, 10);
+    ok = song.g[G_BPM] == 124 && song.g[G_SWING] == 10 && cur_page()->fam == FAM_SEQ;
+    memset(proj_slot, 0, sizeof proj_slot);
+    memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+    project_save(2);
+    song.g[G_BPM] = 90;
+    song.g[G_SWING] = 0;
+    project_load(2);
+    bad += check("SEQ > TEMPO: BPM and SWG, saved and loaded with the project", ok && song.g[G_BPM] == 124 &&
+                 song.g[G_SWING] == 10);
+    memset(proj_slot, 0, sizeof proj_slot);
+    memset(proj_bank_slot, 0, sizeof proj_bank_slot);
     return bad;
 }
 
@@ -3814,6 +3851,7 @@ int main(void)
     bad += test_rec_gestures();
     bad += test_quick_save();
     bad += test_midi_status();
+    bad += test_tempo_select();
 #if MELODEE_SLICE
 #if SMP_USER_SLOTS
     bad += test_slices();

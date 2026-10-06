@@ -68,8 +68,11 @@ runs Felucca.
 
 ![FM-1 controls](docs/panel.jpg)
 
-- **SELECT** sets the BPM, **MASTER** the volume, **ALGORITHM** picks the track (T1–T4) and
-  **PRESETS** its sound. **KNOB 1–4** edit the four columns of the page
+- **SELECT** turns the pages of the open section (both ways) and moves the cursor on STEP; **MASTER** the
+  volume, **ALGORITHM** picks the track (T1–T4) and **PRESETS** its sound. **KNOB 1–4** edit the four columns
+  of the page
+- **BPM** and the song's **SWG** are on **SEQ > TEMPO**: the project's, saved and loaded with it (power-on: the
+  BOOT project's, the template's or 120); GLO > GLOBAL keeps CLK and TUNE, the device's
 - FX, SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
   HOME returns home
 - **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the song,
@@ -111,8 +114,8 @@ NOTE / TIE / REST, and KNOB 4 sets accent and slide. On a synth track:
   a fresh history. With no manual edit to undo, held SAVE retains the sound/pattern-load undo.
 
 Using SELECT consumes the ENV/SCL page tap; a tap without an edit still opens that page. A final
-SELECT turn arriving with the key or modifier release is included. SELECT keeps its tempo role
-when no note or editing modifier is held. PRESETS continues to browse sounds on HOME and PRESETS,
+SELECT turn arriving with the key or modifier release is included. With no note or editing modifier
+held, SELECT moves the cursor. PRESETS continues to browse sounds on HOME and PRESETS,
 and selects FM6 operators on their pages.
 
 Armed live recording writes the step currently playing, and the STEP cursor follows it. The DRUM
