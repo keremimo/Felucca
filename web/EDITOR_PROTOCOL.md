@@ -55,7 +55,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 SLICE (NENGINES 14; a build with `MELODEE_SLICE=0` has 13). The device and the editor list them in another order (ANALOG FM6 PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE SLICE DRUM: `ENGINE_ORDER`); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 SLICE (reserved without `MELODEE_SLICE`), 14 OBXF (NENGINES 15). The device and the editor list them in another order (ANALOG FM6 OBXF PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE SLICE DRUM: `ENGINE_ORDER`); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (83..90), and `INFO` gives `P_E0`.
 Their meaning, range and names depend on the current engine, so re-read `DESC` for them
@@ -653,3 +653,22 @@ without it there is no answer. `tools/usb_audio_stats.py` reads them.
 | cmd | Request args | Reply args |
 | --- | --- | --- |
 | 72 AUDIO_STATS | — or 1 (start new maxima after this reply) | schema (2), then 20 counters, each 5 × 7 bits, LSB first: play alt, capture alt, play rate, capture rate (Hz), play fill, capture fill (frames), play underruns, play overruns, capture underruns, capture overruns, bad packets, packets received, packets sent, missed USB frames, longest gap between services (µs), longest service (µs), late renders, the feedback (10.14), longest render (µs), CPU (Q8) |
+
+
+## OBXF (engine 14)
+
+OBXF is the hardware-float OB-Xf port. `NAMES` exposes 75 curated CC0 factory patches.
+EDIT/HOME macros are CUT, RES, ENV, ATK, DEC, REL, DTN, PTCH; the first seven are neutral at zero.
+On-device OBXF pages edit the full 95-value patch (HQ is retained but not rendered).
+User presets retain PTCH and macros, like FM6. Projects, templates and runtime backups retain the edited patch
+and its name, independently of PTCH. Full-patch SysEx transfer and dedicated web pages are deferred.
+
+FUN9 (4396 bytes) retains FUN8's data and FM6 offsets, then adds four OBXF records (95 little-endian
+uint16 values and 13 name bytes) before the project name/checksum. Continuous values are normalized times
+16256; discrete values are biased by their minimum. TPL7 adds those same records to TPL6.
+FBKA (19244 bytes) contains FUN9 and all 32 banks inside the existing five-sector A/B flash allocation.
+Its inactive steps pack into 8 bytes: four 7-bit notes, `n+5*time` (4 bits), flags (2), velocity (7), hits
+and accents (8 each), probability (7), least-significant bit first. FUN1..FUN8, TPL5/6 and FBK9 remain readable;
+old firmware rejects FUN9/TPL7/FBKA. The object ids and backup framing stay unchanged.
+
+OBXF uses at most two native voices when one part uses a simple patch; it reserves one shared native voice for layered waveforms, oscillator modulation or several selected OBXF parts. Larger factory unison/polyphony settings remain stored but are bounded during playback; HQ is stored and ignored.

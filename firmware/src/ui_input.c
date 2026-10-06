@@ -491,7 +491,10 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max));
     *vp = (int16_t)v;
-    if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* (a copy of FM6's value: written back there) */
+    if (pg->scope == SC_OBXF) {
+        obxf_page_put(pg, slot, v);
+        return;
+    } else if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* (a copy of FM6's value: written back there) */
         fm6_page_put(pg, slot, v);
         return;
     }

@@ -134,6 +134,8 @@ static int page_visible(uint32_t i)
 {
     if (PAGES[i].id[0] == P_MPCDEG && PAGES[i].scope == SC_TRACK)
         return TSEL->p[P_QUANT] == Q_MPC;
+    if (PAGES[i].scope == SC_OBXF)
+        return TSEL->eng_req == ENGI_OBXF;
     if (PAGES[i].scope == SC_FM6 || PAGES[i].scope == SC_FMOP)
         return TSEL->eng_req == ENGI_FM6;              /* FM6's patch, operators and functions */
 #if MELODEE_SLICE
@@ -419,6 +421,9 @@ static struct {
     uint8_t eng, preset, user, patn;
     uint8_t fm6_slot;            /* the track's FM6 patch and its PTCH slot (eng_fm6.c): an edited or a project's */
     uint8_t fm6[FP_SIZE + 1u];   /* patch is the track's own, not PTCH's factory one */
+    uint16_t obxf[OX_NP];
+    char obxf_name[OXF_NAME + 1u];
+    uint8_t obxf_slot;
     int16_t p[P_COUNT];
     step_t step[NSTEP];
     motion_store_t motion_backup; /* one track only, swaps with the shared event pool on undo */
@@ -445,6 +450,8 @@ static uint32_t track_sig(const track_t *t)      /* the sound (an FM6 track's pa
 {
     uint8_t id[3] = {t->eng_req, t->preset, t->user};
     uint32_t h = fnv(fnv(steps_sig(t), t->p, sizeof t->p), id, 3), k = trk_index(t);
+    h = fnv(h, obxf_patch[k], sizeof obxf_patch[k]);
+    h = fnv(h, obxf_name[k], sizeof obxf_name[k]);
     h = fnv(h, fm6_patch[k], sizeof fm6_patch[k]); /* (a patch the editor sent between two loads) */
     for (uint32_t j = 0; j < motion.count; j++)
         if ((motion.event[j].place >> 6) == k) h = fnv(h, &motion.event[j], sizeof motion.event[j]);
@@ -472,6 +479,9 @@ static void load_begin(track_t *t, uint32_t what)
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
     undo.fm6_slot = fm6_slot[i];
+    memcpy(undo.obxf, obxf_patch[i], sizeof undo.obxf);
+    memcpy(undo.obxf_name, obxf_name[i], sizeof undo.obxf_name);
+    undo.obxf_slot = obxf_slot[i];
     undo.pat = pat_sig[i];
     undo.patn = pat_last[i];
     motion_snapshot_track(t, &undo.motion_backup);
@@ -567,6 +577,12 @@ static void undo_swap(void)
         fm6_slot[tr] = undo.fm6_slot;             /* (fm6_poll: the patch stays) */
         memcpy(undo.fm6, v, FP_SIZE);
         undo.fm6_slot = sl;
+        {
+            uint16_t ov[OX_NP]; char on[OXF_NAME + 1u]; uint8_t os = obxf_slot[tr];
+            memcpy(ov, obxf_patch[tr], sizeof ov); memcpy(on, obxf_name[tr], sizeof on);
+            obxf_put_all(tr, undo.obxf, undo.obxf_name); obxf_slot[tr] = undo.obxf_slot;
+            memcpy(undo.obxf, ov, sizeof ov); memcpy(undo.obxf_name, on, sizeof on); undo.obxf_slot = os;
+        }
     }
     undo.keep = 0;                                /* the next load copies the track as it is now */
     if (t == TSEL)

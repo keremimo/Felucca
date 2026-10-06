@@ -65,7 +65,7 @@ static void fm1_irq_init(void)
     for (i = 0; i < 128u; i++)
         FM1_VEC[i] = (uint32_t)(uintptr_t)(fm1_fatal_stubs + 6u * i);
     FM1_ICFG(1) = (FM1_ICFG(1) & ~0xF0u) | 0xF0u;           /* exception: enable, prio 7 */
-    FM1_EMU_CON |= 1u << 2;                                 /* div0 traps */
+    FM1_EMU_CON = (FM1_EMU_CON & ~(31u << 16)) | (1u << 2);                                 /* div0 traps */
     FM1_ETM_CON |= 1u;                                      /* branch trace for the report */
 }
 

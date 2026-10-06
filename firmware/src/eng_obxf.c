@@ -10,9 +10,9 @@
  *   CUT  the cutoff (the whole range), RES / ENV the resonance / filter envelope amount (-50 .. +50 %),
  *   ATK DEC REL  the envelope times of both envelopes (x 1/16 .. x 16), DTN osc 2's detune, PTCH the patch
  * Voices: OB-Xf's polyphony, unison and voice count are the patch's. A Melodee voice plays the unison voices of
- * a key (obxf_k of them; OB-Xf's unison stacks voices on one key), the part plays up to 8 of them in all: its
- * voice cap (engine_t.cap) is 8 / k keys. A unison patch with more keys than that keeps 4 keys of 2 voices (or
- * 2 of 4), its level made up for the voices it lost. The track's FLT moves the cutoff, SHP the pulse width,
+ * a key (obxf_k of them; OB-Xf's unison stacks voices on one key). The measured FM-1 budget allows two
+ * steady subvoices globally (two keys or mono unison); layered waves and oscillator modulation reserve it for
+ * one. The level makes up for the unison voices lost. The track's FLT moves the cutoff, SHP the pulse width,
  * PIT the pitch (glide, LFO, the matrix, UNISON's spread); the patch's envelopes are the voice's amplitude and
  * end it (engine_t.ownenv). Its state lives in the part's engine state (engines.c eng_state). */
 #include "obxf_core.c"
@@ -177,6 +177,15 @@ static char obxf_name[NTRK][OXF_NAME + 1];
 static volatile uint8_t obxf_pgen[NTRK];         /* +1 after each write of obxf_patch[t] */
 static uint8_t obxf_slot[NTRK];                  /* the PTCH value last loaded (main loop); 0xFF = none */
 
+/* Stores reject values outside the patch schema before publishing any track. */
+static int obxf_valid(const uint16_t *v)
+{
+    uint32_t k;
+    for (k = 0; k < OX_NP; k++)
+        if (v[k] > (OXF_KIND[k] ? OXF_ONE : (uint32_t)(OXF_PD[k].max - OXF_PD[k].min))) return 0;
+    return 1;
+}
+
 static void obxf_put(uint32_t tr, uint32_t k, uint32_t v)   /* one value (an edit: the sounding notes follow) */
 {
     obxf_patch[tr % NTRK][k % OX_NP] = (uint16_t)v;
@@ -205,23 +214,44 @@ static void obxf_load_slot(uint32_t tr, uint32_t s)
     obxf_slot[tr % NTRK] = (uint8_t)s;
 }
 
-/* OB-Xf's polyphony and unison in the part's 8 voices: k voices a key, keys at once (the part's voice cap). A unison
- * patch with more keys than fit keeps up to 4 keys (2 voices each, or 4 for 2 keys) */
+/* Layered waves and oscillator modulation cannot share the two-voice allowance:
+ * the FM-1's measured worst case (JET's large LFO sweep) misses its 2.90 ms deadline.
+ * Reserve the full shared budget for one such native voice; steady patches may use two. */
+static uint32_t obxf_costly(const uint16_t *v)
+{
+    return v[OX_SYNC] || v[OX_XMOD] || v[OX_RING] || v[OX_EPIT] || v[OX_EPW] ||
+        (v[OX_SAW1] && v[OX_PUL1]) || (v[OX_SAW2] && v[OX_PUL2]) ||
+        (v[OX_L1A2] && (v[OX_L1PW1] || v[OX_L1PW2])) ||
+        (v[OX_L2A2] && (v[OX_L2PW1] || v[OX_L2PW2])) ||
+        (v[OX_L1A1] && (v[OX_L1P1] || v[OX_L1P2])) ||
+        (v[OX_L2A1] && (v[OX_L2P1] || v[OX_L2P2]));
+}
+/* Several selected OBXF parts also pay their independent LFO/smoother overhead.
+ * Four idle parts plus two voices exceeded the deadline; reserve one global voice
+ * while more than one part is on OBXF (including an engine-switch fade). */
+static uint32_t obxf_single(const uint16_t *v)
+{
+    uint32_t n=0;
+    for(uint32_t t=0;t<NTRK;t++)n += trk[t].eng_req==ENGI_OBXF || trk[t].engine==ENGI_OBXF;
+    return obxf_costly(v) || n>1u;
+}
 static void obxf_shape(const uint16_t *v, uint32_t *k, uint32_t *keys)
 {
+    uint32_t nv = obxf_single(v) ? 1u : OXF_NV;
     uint32_t vpk = v[OX_UNI] ? v[OX_UNIV] + 1u : 1u, poly = v[OX_POLY] + 1u, n;
+    if (vpk > nv) vpk = nv;
     if (vpk > poly)
         vpk = poly;
     if (vpk == 1u) {
         *k = 1u;
-        *keys = poly < OXF_NV ? poly : OXF_NV;
+        *keys = poly < nv ? poly : nv;
         return;
     }
     n = poly / vpk;
-    if (n > 4u)
-        n = 4u;
-    *k = vpk < OXF_NV / n ? vpk : OXF_NV / n;
-    *keys = n < OXF_NV / *k ? n : OXF_NV / *k;
+    if (n > nv / 2u)
+        n = nv / 2u;
+    *k = vpk < nv / n ? vpk : nv / n;
+    *keys = n < nv / *k ? n : nv / *k;
 }
 
 /* a sound load put a PTCH value in (a preset, a user preset, undo, an engine change): its patch, and from a
@@ -382,6 +412,7 @@ static void obxf_part_init(oxf_part_t *p, uint32_t tr)
 /* the voice keys' level made up for the unison voices obxf_k left out (random phases: as the square root) */
 static float obxf_makeup(const uint16_t *v, uint32_t k)
 {
+    uint32_t nv = obxf_single(v) ? 1u : OXF_NV;
     uint32_t vpk = v[OX_UNI] ? v[OX_UNIV] + 1u : 1u, poly = v[OX_POLY] + 1u;
     float r;
     if (vpk > poly)
@@ -397,10 +428,10 @@ static float obxf_makeup(const uint16_t *v, uint32_t k)
     }
 }
 
-#define OXF_GAIN 65536.f         /* OB-Xf's full scale -> Melodee's mix */
+#define OXF_GAIN 32768.f         /* OB-Xf's full scale -> Melodee's mix */
 static float obxf_gain[NTRK];
 
-static void obxf_block(track_t *t)
+static void obxf_prepare(track_t *t)
 {
     uint32_t tr = (uint32_t)(t - trk), i, k, keys;
     oxf_part_t *p = OXP(t);
@@ -416,12 +447,14 @@ static void obxf_block(track_t *t)
     }
     for (i = 0; i < 7u; i++)
         e[i] = t->p[P_E0 + i];
-    if (!obxf_made[tr].ok || obxf_made[tr].gen != obxf_pgen[tr] || memcmp(e, obxf_made[tr].e, sizeof e)) {
+    obxf_shape(v, &k, &keys);
+    if (k != obxf_made[tr].k || keys != obxf_made[tr].keys || !obxf_made[tr].ok || obxf_made[tr].gen != obxf_pgen[tr] || memcmp(e, obxf_made[tr].e, sizeof e)) {
         obxf_made[tr].gen = obxf_pgen[tr];
         memcpy(obxf_made[tr].e, e, sizeof e);
         obxf_made[tr].ok = 1;
         obxf_par_make(&p->par, v, e);
-        obxf_shape(v, &k, &keys);
+        if (keys < obxf_made[tr].keys)
+            for(i=keys*k;i<OXF_NV;i++)p->v[i].sounding=p->v[i].gated=0;
         if (k != obxf_made[tr].k) {                     /* another unison size: the voices start over */
             for (i = 0; i < OXF_NV; i++)
                 p->v[i].sounding = p->v[i].gated = 0;
@@ -438,27 +471,30 @@ static void obxf_block(track_t *t)
             p->sm_mode = p->par.mode;
         }
     }
+}
+
+static void obxf_block(track_t *t)
+{
+    uint32_t i;
+    oxf_part_t *p = OXP(t);
+    obxf_prepare(t);
     for (i = 0, p->any = 0; i < OXF_NV; i++)
         p->any |= p->v[i].sounding;
     oxf_part_block(p, CTL, (float)t->bend_raw * (1.f / 8192.f), (float)t->mw * (1.f / 127.f), (float)song.g[G_BPM]);
 }
 
-/* engine_t.cap / units: the keys the part plays, the voice budget units of one (2 per OB-Xf voice) */
+/* engine_t.cap / units: the keys the part plays, the voice budget units of one (8 per OB-Xf voice; two share the global budget) */
 static uint32_t obxf_cap(const track_t *t)
 {
     uint32_t tr = (uint32_t)(t - trk) % NTRK, k, keys;
-    if (obxf_made[tr].keys)
-        return obxf_made[tr].keys;
     obxf_shape(obxf_patch[tr], &k, &keys);
     return keys;
 }
 static uint32_t obxf_units(const track_t *t)
 {
     uint32_t tr = (uint32_t)(t - trk) % NTRK, k, keys;
-    if (obxf_made[tr].k)
-        return 2u * obxf_made[tr].k;
     obxf_shape(obxf_patch[tr], &k, &keys);
-    return 2u * k;
+    return (obxf_single(obxf_patch[tr]) ? 16u : 8u) * k;
 }
 
 /* the Melodee voice's OB-Xf voices */
@@ -482,6 +518,7 @@ static void obxf_start(track_t *t, voice_t *v, int held)
 }
 static void obxf_note_on(track_t *t, voice_t *v)
 {
+    obxf_prepare(t);
     uint32_t n, i;
     oxf_voice_t *s = obxf_sub(t, v, &n);
     if (voice_was == 0u)                                 /* a free voice: whatever it played is gone */
@@ -489,7 +526,7 @@ static void obxf_note_on(track_t *t, voice_t *v)
             s[i].sounding = 0;
     obxf_start(t, v, voice_was == 2u);
 }
-static void obxf_legato(track_t *t, voice_t *v) { obxf_start(t, v, 1); }
+static void obxf_legato(track_t *t, voice_t *v) { obxf_prepare(t); obxf_start(t, v, 1); }
 
 static int obxf_done(track_t *t, voice_t *v)
 {

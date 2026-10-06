@@ -49,7 +49,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 
 ## Features
 
-- **Thirteen engines** (below), each with its own factory presets
+- **Fourteen engines** (below), each with its own factory presets
 - **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM engine or
   the SAMPLE engine's GM kit); up to 16 FM6 voices or 8 voices from the other engines shared between
   them (an FM6 voice uses one budget unit, another engine's voice two; 16 units total).
@@ -172,6 +172,7 @@ The FM6 bank has explicit conversion for earlier Melodee and Felucca banks.
 In the order the device lists them:
 
 - **ANALOG**: virtual analog; two oscillators, noise, drive, resonant low-pass filter
+- **OBXF**: an OB-Xf port with 75 CC0 factory patches, two BLEP oscillators, sync, crossmod, ring modulation, noise colours, OB-X filters and the 15 Xpander modes. Full patch pages on the device; edited patches and names travel with projects, templates and backups.
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track edited in the
   web editor or on the device; operator frequency, levels, envelopes and scaling, pitch envelope,
   LFO, STORE and DX7 SysEx; an algorithm chart on screen. PRESETS selects the operator on operator
@@ -252,6 +253,7 @@ Felucca, which Melodee is built on, is Leo Kuroshita's work. If Melodee is usefu
 - Samples: [Versilian Studios](https://versilian-studios.com/) [VSCO-2 Community Edition](https://github.com/sgossner/VSCO-2-CE) and [VCSL](https://github.com/sgossner/VCSL), CC0 1.0 ([attribution](assets/samples-cc0/ATTRIBUTION.txt))
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
 - PHYS engine: models ported from [DaisySP](https://github.com/electro-smith/DaisySP) by Electrosmith and Emilie Gillet ([MIT](LICENSES/MIT-DaisySP.txt)) and from Emilie Gillet's [eurorack](https://github.com/pichenettes/eurorack) code ([MIT](LICENSES/MIT-Rings.txt))
+- OBXF engine: [OB-Xf](https://github.com/surge-synthesizer/OB-Xf), continuing OB-Xd 2.11 by Vadim Filatov and discoDSP (GPL-3.0-or-later); factory patches CC0, their authors credited in the source
 - FM6 engine: msfa from [Dexed](https://github.com/asb2m10/dexed) by Google Inc. and Pascal Gauthier ([Apache-2.0](LICENSES/Apache-2.0-msfa.txt))
 - Package format and boot files: [JieLi AC79 SDK](https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK) ([Apache-2.0](LICENSES/Apache-2.0.txt); three of its files are in every package, none in this tree)
 - Contributions: [keremimo](https://github.com/keremimo) (white-key scales, #2), [ChanceTheMaker](https://github.com/ChanceTheMaker)

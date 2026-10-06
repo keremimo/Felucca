@@ -18,7 +18,7 @@ static int motion_recording(void)
     project_t q; project_store_t packed;
     project_capture(&q);
     bad += check("project snapshot saves base + independent events while sounding", q.t[0].p[P_REV] == 23 && q.motion.event[0].value == 110 &&
-        proj_pack(&packed, &q) && sizeof packed == 3584u);
+        proj_pack(&packed, &q) && sizeof packed == PROJ_STORE_SIZE);
     seq_stop();
     bad += check("stop before another step restores the original parameter", t->p[P_REV] == 23);
     seq_start(); seq_tick(t, CTL);
@@ -77,7 +77,7 @@ static int compact_project(void)
     motion_set_event(t, 3, P_REV, 110);
     project_t before, after; project_store_t packed, corrupt;
     project_capture(&before);
-    bad += check("FUN8 fits the retained and flash extent", sizeof(proj_slot) == 4u * 3584u && proj_pack(&packed, &before));
+    bad += check("FUN8 fits the retained and flash extent", sizeof(proj_slot) == 4u * PROJ_STORE_SIZE && proj_pack(&packed, &before));
     fm6_fn[0][FN_PTIME] = 33;                            /* (FM6 functions: in the FBK9 around FUN8, not in FUN8) */
     project_capture(&before);
     {

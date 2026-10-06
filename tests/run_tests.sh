@@ -214,6 +214,14 @@ if [ -f build/gen/melodee_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
     mkdir -p build/noise_demo
     run "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" "$OUT/noise_test" build/noise_demo
+    $CC -O2 -w -ffp-contract=off -Ibuild/gen -Ifirmware/src -o "$OUT/obxf_test" tests/obxf_test.c -lm
+    run "OBXF: patch/pages/stores/undo/unison/release/stability" "$OUT/obxf_test"
+    run "OBXF: importer parameter boundaries" python3 tests/obxf_import_test.py
+    if [ -n "${OBXF_SRC:-}" ]; then
+        run "OBXF vs OB-Xf: native and libm math" sh tests/obxf_parity.sh
+    else
+        echo "== OBXF reference skipped (OBXF_SRC=<OB-Xf> to run tests/obxf_parity.sh)"
+    fi
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_test" tests/fm6_test.c -lm
     mkdir -p build/fm6_demo
     run "FM6: the DX7's algorithms, pitch, levels, envelopes, modulation; DC, clipping, macros, patches, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo

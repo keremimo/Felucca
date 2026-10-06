@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-only
+/* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio)
  * The synthesis restates OB-Xf (https://github.com/surge-synthesizer/OB-Xf, GPL-3.0-or-later): Copyright 2013-2025
  * by the authors of OB-Xd (Vadim Filatov, discoDSP) and of OB-Xf (the Surge Synth Team). */
@@ -21,7 +21,7 @@
 #define OXF_PI 3.14159265f
 #define OXF_DC 1e-18f
 #define OXF_BS 16                /* B_SAMPLES: the BLEP's half length */
-#define OXF_NV NPOLY             /* voices of a part */
+#define OXF_NV 2                 /* measured FM-1 limit; two native subvoices per part */
 #define OXF_RC ((970.f / 44000.f) * 0.998865567f)   /* the 4-pole's damping: (970 / 44000) sqrt(44000 / rate) */
 #define OXF_BLK CTL              /* the samples of a block (voice.c renders CTL at a time) */
 
@@ -31,6 +31,9 @@ typedef union { float f; uint32_t u; } oxf_fu;
 /* 2^x: x rounded to an integer n, 2^(x - n) by its series to the 7th power (|x - n| <= 1/2: < 1e-8) */
 static inline float oxf_exp2(float x)
 {
+#ifdef OXF_LIBM
+    return exp2f(x);
+#endif
     oxf_fu r;
     int32_t n;
     float f;
@@ -45,11 +48,20 @@ static inline float oxf_exp2(float x)
     r.u += (uint32_t)n << 23;
     return r.f;
 }
-static inline float oxf_exp(float x) { return oxf_exp2(x * 1.44269504f); }
+static inline float oxf_exp(float x) {
+#ifdef OXF_LIBM
+    return expf(x);
+#else
+    return oxf_exp2(x * 1.44269504f);
+#endif
+}
 
 /* natural log (x > 0): the exponent, and the mantissa in [1/sqrt2, sqrt2) by atanh's series */
 static float oxf_log(float x)
 {
+#ifdef OXF_LIBM
+    return logf(x);
+#endif
     oxf_fu m;
     int32_t e;
     float t, t2;
@@ -71,6 +83,9 @@ static float oxf_log(float x)
 /* tan(x), 0 <= x < pi/2: sin / cos of x or of pi/2 - x (whichever is below pi/4) by their series */
 static inline float oxf_tan(float x)
 {
+#ifdef OXF_LIBM
+    return tanf(x);
+#endif
     int inv = x > 0.785398163f;
     float y = inv ? (1.57079637f - x) - 4.37113883e-8f : x, y2 = y * y, s, c;
     s = y * (1.f + y2 * (-1.f / 6.f + y2 * (1.f / 120.f + y2 * (-1.f / 5040.f + y2 * (1.f / 362880.f)))));
@@ -81,6 +96,9 @@ static inline float oxf_tan(float x)
 /* atan(x): |x| folded below 1, then below tan(pi/12) (atan a = pi/6 + atan((a sqrt3 - 1) / (a + sqrt3))) */
 static inline float oxf_atan(float x)
 {
+#ifdef OXF_LIBM
+    return atanf(x);
+#endif
     float a = x < 0.f ? -x : x, r, t2, off = 0.f;
     int inv = a > 1.f;
     if (inv)
@@ -120,7 +138,7 @@ static float oxf_logsc(float v, float lo, float hi, float roll)
 static inline float oxf_tpt(float *st, float in, float k)
 {
     float v = (in - *st) * k, res = v + *st;
-    *st = res + v;
+    *st += 2.f * v;
     return res;
 }
 static inline float oxf_tpt_k(float hz) { float c = hz * OXF_SRINV * OXF_PI; return c / (1.f + c); }   /* unwarped */
@@ -331,6 +349,8 @@ static inline float oxf_env_tick(oxf_env_t *e, float curve)
         res = e->out;
         break;
     case OXE_REL:
+        /* OB-Xf applies the native release time each sample (matrix pass-through too). */
+        e->coef = oxf_env_rel_coef(e);
         if (e->out > 20e-6f) {
             e->out = e->out + e->out * e->coef + OXF_DC;
             res = e->out;
@@ -356,7 +376,7 @@ typedef struct {
 
 typedef struct {
     oxf_osc_t o[2];
-    float d_frac[OXF_BS], d_xmod[OXF_BS], d_pitch[OXF_BS];   /* the oscillator block's 15-sample delays */
+    float d_frac[OXF_BS], d_xmod[OXF_BS], d_pitch[OXF_BS], d_noise[OXF_BS];   /* the oscillator block's 15-sample delays */
     uint8_t d_sync[OXF_BS];
     float d_aenv[2 * OXF_BS], d_fenv[2 * OXF_BS], d_lfo1[2 * OXF_BS], d_lfo2[2 * OXF_BS];   /* the voice's 31 */
     oxf_noise_t nz;              /* the oscillators' noise */
@@ -364,6 +384,8 @@ typedef struct {
     oxf_env_t fenv, aenv;
     oxf_lfo_t lfo2;
     float pole[4];
+    float pitch_base[2], pitch_hz[2], cut_base, cut_g;
+    uint8_t pitch_cached[2], cut_cached;
     float dcblk, bright, porta;  /* oscillator DC block, brightness, portamento states */
     float s_aenv, s_fenv, s_cut, s_porta, s_lvl;   /* the voice's slop, -0.5 .. 0.5 */
     float vel, env_fac;
@@ -377,6 +399,7 @@ typedef struct {
     oxf_par_t par;
     oxf_lfo_t lfo1, vib;
     float sm_cut, sm_res, sm_mode, sm_pb, sm_mw;
+    float res_last, res_curve; uint8_t res_cached;
     float b_lfo1[OXF_BLK], b_vib[OXF_BLK], b_cut[OXF_BLK], b_res2[OXF_BLK], b_res4[OXF_BLK], b_mode[OXF_BLK],
         b_pb[OXF_BLK];
     uint32_t seed;
@@ -411,11 +434,11 @@ static void oxf_mix(oxf_osc_t *o, const float *tab, int blamp, float offset, flo
 #define oxf_blep(o, off, sc) oxf_mix(o, OXF_BLEP, 0, off, sc)
 #define oxf_blamp(o, off, sc) oxf_mix(o, OXF_BLAMP, 1, off, sc)
 
-static inline float oxf_next(oxf_osc_t *o)          /* -aliasReduction */
+static inline float oxf_next(oxf_osc_t *o)          /* OB-Xf aliasReduction subtracts the residual */
 {
     o->buf[o->pos] = 0.f;
     o->pos = (uint8_t)((o->pos + 1u) & (2u * OXF_BS - 1u));
-    return o->buf[o->pos];
+    return -o->buf[o->pos];
 }
 
 /* the transitions of one sample (x: the phase before its wrap); sync: the leader wrapped at sf (follower only) */
@@ -595,12 +618,6 @@ static void oxf_part_block(oxf_part_t *p, uint32_t n, float bend, float wheel, f
         p->sm_res += (P->res - p->sm_res) * OXF_SMK + OXF_DC;
         p->sm_mode += (P->mode - p->sm_mode) * OXF_SMK + OXF_DC;
         p->sm_pb += (bend - p->sm_pb) * OXF_SMK + OXF_DC;
-        re = 0.991f - oxf_logsc(1.f - oxf_clamp(p->sm_res, 0.f, 1.f), 0.f, 0.991f, 40.f);
-        p->b_cut[i] = p->sm_cut;
-        p->b_res2[i] = 1.f - re;
-        p->b_res4[i] = 3.5f * re;
-        p->b_mode[i] = p->sm_mode;
-        p->b_pb[i] = p->sm_pb;
         p->sm_mw += (wheel - p->sm_mw) * OXF_SMK + OXF_DC;
         if (!p->any) {
             oxf_lfo_update(&p->lfo1, P->lfo[0].w1, P->lfo[0].w2, P->lfo[0].w3, P->lfo[0].pw, 0, 1);
@@ -608,11 +625,44 @@ static void oxf_part_block(oxf_part_t *p, uint32_t n, float bend, float wheel, f
             p->b_lfo1[i] = p->b_vib[i] = 0.f;
             continue;
         }
+        if (!p->res_cached || p->res_last != p->sm_res) {
+            p->res_last = p->sm_res; p->res_cached = 1;
+            p->res_curve = 0.991f - oxf_logsc(1.f - oxf_clamp(p->sm_res, 0.f, 1.f), 0.f, 0.991f, 40.f);
+        }
+        re = p->res_curve;
+        p->b_cut[i] = p->sm_cut;
+        p->b_res2[i] = 1.f - re;
+        p->b_res4[i] = 3.5f * re;
+        p->b_mode[i] = p->sm_mode;
+        p->b_pb[i] = p->sm_pb;
         oxf_lfo_update(&p->lfo1, P->lfo[0].w1, P->lfo[0].w2, P->lfo[0].w3, P->lfo[0].pw, 0, 0);
         oxf_lfo_update(&p->vib, w1, w2, 0.f, 0.f, 1, 0);
         p->b_lfo1[i] = oxf_lfo_val(&p->lfo1);
         p->b_vib[i] = oxf_lfo_val(&p->vib) * p->sm_mw * p->sm_mw * 4.f;
     }
+}
+
+/* Oscillator drift is only +/-0.05 semitone. Split its tiny exponent from the native pitch;
+ * the quadratic series is within float rounding here. Cache the native pitch while it is steady
+ * (the envelopes, glide, wheel and LFO still update it at sample rate when they move). */
+static inline float oxf_voice_pitch(oxf_voice_t *v, uint32_t osc, float base, float noise)
+{
+    if (!v->pitch_cached[osc] || v->pitch_base[osc] != base) {
+        v->pitch_cached[osc] = 1; v->pitch_base[osc] = base; v->pitch_hz[osc] = oxf_pitch(base);
+    }
+    float x = noise * (0.1f * 0.693147181f / 12.f);
+    return v->pitch_hz[osc] * (1.f + x * (1.f + 0.5f * x));
+}
+/* tan(a+d) addition law: cutoff's white drift is at most 1.75 Hz, so tan(d)'s cubic
+ * series is float-accurate. The native cutoff still follows all modulation per sample. */
+static inline float oxf_voice_g(oxf_voice_t *v, float base, float actual)
+{
+    if (!v->cut_cached || v->cut_base != base) {
+        v->cut_cached = 1; v->cut_base = base; v->cut_g = oxf_tan(base * OXF_SRINV * OXF_PI);
+    }
+    float d = (actual - base) * OXF_SRINV * OXF_PI;
+    d = d * (1.f + d * d * (1.f / 3.f));
+    return (v->cut_g + d) / (1.f - v->cut_g * d);
 }
 
 /* n samples of a voice, added into Melodee's mix out (Voice::ProcessSample and OscillatorBlock::ProcessSample).
@@ -631,7 +681,7 @@ static int oxf_voice_render(oxf_part_t *p, oxf_voice_t *v, int32_t *out, uint32_
     uint32_t i;
     v->lfo2.inc = l2hz;
     for (i = 0; i < n; i++) {
-        float lfo1 = p->b_lfo1[i], lfo2, f_lfo1, f_lfo2, menv, cutoff, pb, note, pwenv, ptenv;
+        float lfo1 = p->b_lfo1[i], lfo2, f_lfo1, f_lfo2, menv, cutoff, basecut, pb, note, pwenv, ptenv;
         float m1pw, m2pw, m1p, m2p, x, fs, pwc, o1out, o2out, s, aval;
         int sreset = 0;
         float sfrac = 0.f;
@@ -651,6 +701,8 @@ static int oxf_voice_render(oxf_part_t *p, oxf_voice_t *v, int32_t *out, uint32_
         cutoff = oxf_pitch(P->lfo[0].cut * f_lfo1 * P->lfo[0].amt1 + P->lfo[1].cut * f_lfo2 * P->lfo[1].amt1 +
                            oxf_clamp(p->b_cut[i] + cut, 0.f, 120.f) + v->s_cut * P->slop_cut +
                            P->env_amt * v->d_fenv[k32] - 45.f + P->keytrack * (pb + note + 40.f));
+        basecut = oxf_min(cutoff, OXF_SR * 0.5f - 120.f);
+        if (P->push) basecut = oxf_min(basecut, 19000.f);
         cutoff = oxf_min(cutoff + oxf_white(&v->cut_nz) * 3.365f, OXF_SR * 0.5f - 120.f);
         if (P->push)
             cutoff = oxf_min(cutoff, 19000.f);
@@ -666,8 +718,8 @@ static int oxf_voice_render(oxf_part_t *p, oxf_voice_t *v, int32_t *out, uint32_
               P->env_pitch * ptenv + p->b_vib[i];
 
         /* ---- OscillatorBlock: oscillator 1, the leader */
-        fs = oxf_min(oxf_pitch(0.1f * oxf_white(&v->nz.white) + note + P->pitch1 + m1p + P->tune +
-                               (float)P->transpose + P->uni_det * o1->slop) * OXF_SRINV, 0.45f);
+        fs = oxf_min(oxf_voice_pitch(v, 0u, note + P->pitch1 + m1p + P->tune +
+                               (float)P->transpose + P->uni_det * o1->slop, oxf_white(&v->nz.white)) * OXF_SRINV, 0.45f);
         x = o1->ph + fs;
         pwc = oxf_clamp((P->pw + pwm + m1pw) * 0.5f + 0.5f, 0.1f, 1.f);
         if (P->pul1)
@@ -693,9 +745,10 @@ static int oxf_voice_render(oxf_part_t *p, oxf_voice_t *v, int32_t *out, uint32_
         o1out = o1->dl[k16] + oxf_next(o1);
 
         /* ---- oscillator 2, the follower: its pitch delayed as oscillator 1 is */
-        v->d_pitch[v->i16] = 0.1f * oxf_white(&v->nz.white) + (P->key2 ? note : -33.f) + P->detune + P->pitch2 +
+        v->d_noise[v->i16] = oxf_white(&v->nz.white);
+        v->d_pitch[v->i16] = (P->key2 ? note : -33.f) + P->detune + P->pitch2 +
                              m2p + o1out * P->xmod + P->tune + (float)P->transpose + P->uni_det * o2->slop;
-        fs = oxf_min(oxf_pitch(v->d_pitch[k16]) * OXF_SRINV, 0.45f);
+        fs = oxf_min(oxf_voice_pitch(v, 1u, v->d_pitch[k16], v->d_noise[k16]) * OXF_SRINV, 0.45f);
         pwc = oxf_clamp((P->pw + pwm + m2pw) * 0.5f + 0.5f, 0.1f, 1.f);
         x = o2->ph + fs;
         if (P->pul2)
@@ -726,10 +779,10 @@ static int oxf_voice_render(oxf_part_t *p, oxf_voice_t *v, int32_t *out, uint32_
         s = s - oxf_tpt(&v->dcblk, s, dc_k);
         s = oxf_tpt(&v->bright, s, P->bright_k);
         {
-            float g = oxf_tan(cutoff * OXF_SRINV * OXF_PI), r2 = p->b_res2[i], r4 = p->b_res4[i], mm = p->b_mode[i];
+            float g = oxf_voice_g(v, basecut, cutoff), r2 = p->b_res2[i], r4 = p->b_res4[i], mm = p->b_mode[i];
             float *q = v->pole;
             if (P->four) {
-                float lpc = g / (1.f + g), ml = 1.f / (1.f + g), y0, y1, y2, y3, y4, vv, res, o;
+                float ml = 1.f / (1.f + g), lpc = g * ml, y0, y1, y2, y3, y4, vv, res, o;
                 float S = (lpc * (lpc * (lpc * q[0] + q[1]) + q[2]) + q[3]) * ml, G = lpc * lpc * lpc * lpc;
                 y0 = (s - r4 * S) / (1.f + r4 * G);
                 vv = (y0 - q[0]) * lpc;

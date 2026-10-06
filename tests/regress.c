@@ -115,10 +115,23 @@ static void blk(void)
 static uint32_t at(double s) { return (uint32_t)(s * FS) / CTL * CTL; }
 static void run_to(uint32_t f) { while (fpos < f) blk(); }
 
+/* CC0 OB-Xf pads retain releases up to 60 seconds. Allow their native RC release
+ * (including slop), while keeping the existing 12-second bound for other engines. */
+static uint32_t release_cap(void)
+{
+    uint32_t secs = FREE_CAP_S;
+    for (uint32_t k = 0; k < NTRK; k++) if (trk[k].engine == ENGI_OBXF) {
+        const oxf_par_t *p = &OXP(&trk[k])->par;
+        uint32_t n = (uint32_t)(p->ar * 0.001f * 4.f * (1.f + 0.5f * p->slop_env)) + 2u;
+        if (n > secs) secs = n;
+    }
+    return secs;
+}
+
 /* after the last note-off (rel_at): until the voices are free, then the FX tail */
 static void finish(void)
 {
-    uint32_t cap = rel_at + FREE_CAP_S * FS;
+    uint32_t cap = rel_at + release_cap() * FS;
     dc_end = dc_end ? dc_end : fpos;
     while (!parts_free() && fpos < cap)
         blk();
@@ -900,6 +913,12 @@ static int chk_hang(char *msg, uint32_t n)
         host_tracks_init();
         for (k = 0; k < NPART; k++) {
             host_preset(&trk[k], rnd(NENGINES), rnd(4));
+            /* DX7 L4 may deliberately sustain after key-up (legacy DIGITAL conversions too).
+             * This routing test needs terminating envelopes; sound/parity tests retain native L4. */
+            if(trk[k].eng_req==ENGI_FM6) {
+                for(uint32_t op=0;op<6;op++)fm6_patch[k][op*FP_OP+FP_L1+3]=0;
+                fm6_pgen[k]++;
+            }
             trk[k].p[P_VOICE] = (int16_t)rnd(4);
             trk[k].p[P_AMODE] = rnd(3) == 0 ? (int16_t)(1 + rnd(4)) : 0;
             trk[k].p[P_AHOLD] = 0;
@@ -938,7 +957,7 @@ static int chk_hang(char *msg, uint32_t n)
             bad = 1;
         rel_at = fpos;
         {
-            uint32_t cap = fpos + FREE_CAP_S * FS;
+            uint32_t cap = fpos + release_cap() * FS;
             while (!parts_free() && fpos < cap)
                 blk();
             for (c = 0; c < NPART * NVOICE && !parts_free() && !bad; c++) {
@@ -946,7 +965,7 @@ static int chk_hang(char *msg, uint32_t n)
                 if (v->active) {
                     bad = 2;
                     snprintf(who, sizeof who, "part %u voice %u note %u still active %d s after the note-offs (gate %u "
-                             "stage %u)", c / NVOICE + 1u, c % NVOICE, v->note, FREE_CAP_S, v->gate, v->stage);
+                             "stage %u)", c / NVOICE + 1u, c % NVOICE, v->note, release_cap(), v->gate, v->stage);
                 }
             }
         }
