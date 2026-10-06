@@ -115,7 +115,13 @@ static void blk(void)
 static uint32_t at(double s) { return (uint32_t)(s * FS) / CTL * CTL; }
 static void run_to(uint32_t f) { while (fpos < f) blk(); }
 
-static uint32_t release_cap(void) { return FREE_CAP_S; }
+/* Casio's CZ-1 presets whose DCA has no SUS point: the whole envelope plays whatever the key does (the CZ's
+ * own behaviour, docs/CZ1_SYSEX.md), and these ring past FREE_CAP_S: BELLS decays at R2 18, SITAR holds on a
+ * rate-0 step, JET ROAR rises at R2 6 */
+#define FREE_LONG_S 90
+static const char *const LONG_TAIL[] = {"preset/CZ-1/47_BELLS", "preset/CZ-1/51_SITAR", "preset/CZ-1/62_JET_ROAR"};
+static uint32_t free_cap_s = FREE_CAP_S;         /* this job's (run_job_body) */
+static uint32_t release_cap(void) { return free_cap_s; }
 
 /* after the last note-off (rel_at): until the voices are free, then the FX tail */
 static void finish(void)
@@ -371,6 +377,10 @@ static void job_cpu(const job_t *j)
 static int run_job_body(job_t *j)
 {
     memset(&R, 0, sizeof R);
+    free_cap_s = FREE_CAP_S;
+    for (uint32_t i = 0; i < sizeof LONG_TAIL / sizeof LONG_TAIL[0]; i++)
+        if (!strcmp(j->name, LONG_TAIL[i]))
+            free_cap_s = FREE_LONG_S;
     switch (j->kind) {
     case J_PRESET:
         job_preset(j);

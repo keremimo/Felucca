@@ -2,6 +2,19 @@
 /* CZ-1 is a separate engine: native Casio tone data, never PHASE knob conversion.
  * Envelope state and note reset utilities are shared with the phase family. */
 #include "cz_native.c"
+#include "melodee_cz1.h"            /* Casio's 64 CZ-1 preset tones (tools/gen_cz1_factory.py) */
+/* A factory preset: Casio's tone at its BANK A..D / PTCH 1..16 (the CZ-1's A-1 .. H-8, as the default
+ * banks hold them, cz_bank.c), INIT TONE the init voice. Restored and imported tones bypass this hook */
+static void cz_factory_loaded(track_t *t)
+{
+    uint32_t k = (uint32_t)t->p[P_E0] * 16u + (uint32_t)t->p[P_E1] - 1u;
+    if (t->eng_req != ENGI_CZ || t->p[P_E7] != CZ_NATIVE)
+        return;
+    if (t->p[P_E1] > 0 && k < CZ_FACTORY_N)
+        memcpy(cz_patch[(uint32_t)(t - trk) % NTRK].raw, CZ_FACTORY[k], CZ_BYTES);
+    else
+        cz_patch_init(cz_patch[(uint32_t)(t - trk) % NTRK].raw);
+}
 static int (*cz_user_bank_read)(uint32_t,uint32_t,uint8_t *);
 static uint16_t cz_user_pick[NTRK];
 static const char *const N_CZ_BANK[]={"A","B","C","D","E","F","G","H"};
@@ -26,8 +39,11 @@ static int cz_native_done(track_t *t, voice_t *v)
     return c->eg[a][2].stage > (b[CZ_ENV_END[a][2]] & 7u) &&
         c->eg[z][2].stage > (b[CZ_ENV_END[ls == 2u ? 0u : z][2]] & 7u);
 }
+#define CZ_FACTORY_PRESET(n, bank, ptch, pat) \
+    {n, {bank, ptch, 0, 0, 0, 0, 0, CZ_NATIVE}, {0, 70, 127, 60}, 0, 0, FX(0, 0, 0, 0), PAT(pat)},
 static const preset_t CZ_PRESETS[] = {
     {"INIT TONE", {0, 0, 0, 0, 0, 0, 0, CZ_NATIVE}, {0, 70, 127, 60}, 0, 0, FX(0, 0, 0, 0), PAT(1)},
+    CZ_FACTORY_PRESETS(CZ_FACTORY_PRESET)   /* Casio's, dry as the CZ-1 (no effects) */
 };
 static const engine_t ENG_CZ = {
     .name = "CZ-1", .page_title = {"CZ-1", "TONE"},

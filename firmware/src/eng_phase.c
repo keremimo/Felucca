@@ -15,12 +15,6 @@ static const char *const N_PD_LINE[] = {"MIX", "RING"};
 #include "cz_patch.h"
 static const char *const N_PD_ENV[] = {"LINK", "SPLIT"};
 static cz_patch_t cz_patch[NTRK] __attribute__((section(".pool")));
-/* Factory selection starts a native tone; restored/imported tones bypass this hook. */
-static void cz_factory_loaded(track_t *t)
-{
-    if (t->eng_req == ENGI_CZ && t->p[P_E7] == CZ_NATIVE)
-        cz_patch_init(cz_patch[(uint32_t)(t - trk) % NTRK].raw);
-}
 static void cz_init(void) { for (uint32_t k = 0; k < NTRK; k++) cz_patch_init(cz_patch[k].raw); }
 
 /* Eight rate/target points, with explicit sustain/end. Rates are Q24 per

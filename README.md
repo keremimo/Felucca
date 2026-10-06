@@ -194,8 +194,9 @@ as FM6 sounds converted from them.
 
 **SLICER** (FX page, every track): a tempo-synced 16-step gate or stutter, with 16 patterns.
 
-CZ-1 opens with a native INIT TONE. Imported Casio tones use their original oscillator and
-six eight-point envelope parameters. PHASE remains independently selectable with its
+CZ-1 opens with a native INIT TONE; PRESETS then lists Casio's 64 CZ-1 preset tones (A-1 BRASS 1 to
+H-8 TYPHOON SOUND), which also fill BANK A–D until you save your own bank there. Imported Casio tones use
+their original oscillator and six eight-point envelope parameters. PHASE remains independently selectable with its
 LINK/SPLIT controls and six factory presets.
 
 **Native CZ-1 SysEx**: choose CZ-1 in the web editor, then **CZ-1 native patches → Import .syx**.
@@ -203,7 +204,8 @@ Select a tone from the imported bank and **Send to track**. **Read track** retri
 **Export .syx** writes a CZ-1-compatible tone. **Add to library** and the library's device-bank upload
 save native tones. CZ-1 also has eight dedicated banks of 16 tones (128 slots),
 with named banks, complete .syx bank import/export and persistent device storage.
-BANK / PTCH on the device choose bank A–H and slot 1–16 (0 initializes a tone).
+BANK / PTCH on the device choose bank A–H and slot 1–16 (0 initializes a tone); a bank never saved holds
+the factory tones (A: CZ-1 A-1..B-8, B: C-1..D-8, C: E-1..F-8, D: G-1..H-8; E–H empty).
 Full backups include these banks. Both lines have separate eight-point DCO/DCW/DCA envelopes, including sustain,
 end points, velocity sensitivity and key follow. The original 144-byte CZ-1 tone survives user presets,
 projects, templates and library export; it is not reduced to common ADSR values. Compatible 128-byte

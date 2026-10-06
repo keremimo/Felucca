@@ -2338,6 +2338,58 @@ static int test_cz1_pages(void)
     return bad;
 }
 
+/* CZ-1's factory: Casio's 64 preset tones are PRESETS 1..64 (each loads its tone, BANK A..D, PTCH 1..16) and
+ * the default BANK A..D (E..H empty); a saved bank wins, "none" in a restore brings the default back */
+static int test_cz1_factory(void)
+{
+    const engine_t *e = ENGINES[ENGI_CZ];
+    uint32_t tr, i, ok = 1, n;
+    cz_bank_t *b;
+    static cz_bank_t mine;
+    int bad = 0;
+    ui_power_on();
+    stop_transport();
+    tr = song.sel % NTRK;
+    bad += check("CZ-1 PRESETS: INIT TONE, then Casio's 64 CZ-1 tones", e->npresets == 65u && CZ_FACTORY_N == 64u &&
+                 str_eq(e->presets[1].name, "BRASS 1") && str_eq(e->presets[64].name, "TYPHOON"));
+    for (i = 1; i <= 64u; i++) {
+        set_engine_of(TSEL, ENGI_CZ);
+        apply_preset_to(TSEL, i);
+        ok &= TSEL->preset == i && TSEL->p[P_E0] == (int16_t)((i - 1u) / 16u) && TSEL->p[P_E1] == (int16_t)((i - 1u) % 16u + 1u) &&
+              !memcmp(cz_patch[tr].raw, CZ_FACTORY[i - 1u], CZ_BYTES) && cz_patch_valid(cz_patch[tr].raw);
+        frame();                                         /* (cz_bank_poll: the tone stays, BANK / PTCH already its) */
+        ok &= !memcmp(cz_patch[tr].raw, CZ_FACTORY[i - 1u], CZ_BYTES);
+    }
+    bad += check("CZ-1 each factory preset loads its native tone and shows its BANK / PTCH", ok);
+    bad += check("CZ-1 factory tones keep the CZ-1's own LCD names",
+                 !memcmp(CZ_FACTORY[0] + 128, "    BRASS 1     ", 16) && !memcmp(CZ_FACTORY[45] + 128, "AFRO-PERCUSSION ", 16));
+    apply_preset_to(TSEL, 0);
+    bad += check("CZ-1 INIT TONE is still the init voice", !memcmp(cz_patch[tr].raw + 128, "INIT", 4) && TSEL->p[P_E1] == 0);
+    ok = 1;
+    for (n = 0; n < 8u; n++) {
+        cz_bank_import(n, 0, 0);
+        b = cz_bank_load(n);
+        ok &= !cz_bank_saved && b->used == (n < 4u ? 0xFFFFu : 0u);
+        for (i = 0; n < 4u && i < 16u; i++) ok &= !memcmp(b->tone[i].raw, CZ_FACTORY[n * 16u + i], CZ_BYTES);
+    }
+    b = cz_bank_load(1);
+    bad += check("CZ-1 never-saved BANK A..D hold Casio's A-1 .. H-8, E..H empty", ok && !memcmp(b->name, "CZ-1 C1-D8", 10));
+    cz_bank_boot();                                      /* (power-on: persist_boot -> up_boot) */
+    set_engine_of(TSEL, ENGI_CZ);
+    TSEL->p[P_E0] = 2; TSEL->p[P_E1] = 7; frame();
+    bad += check("CZ-1 BANK C PTCH 7 on the device: the default bank's tone (CZ-1 E-7, VOICE 2)",
+                 !memcmp(cz_patch[tr].raw, CZ_FACTORY[2u * 16u + 6u], CZ_BYTES));
+    cz_bank_empty(&mine, 0);
+    memcpy(mine.tone[0].raw, CZ_FACTORY[63], CZ_BYTES); mine.used = 1u;
+    cz_bank_import(0, (const uint8_t *)&mine, sizeof mine);
+    b = cz_bank_load(0);
+    ok = cz_bank_saved && b->used == 1u && !memcmp(b->tone[0].raw, CZ_FACTORY[63], CZ_BYTES);
+    bad += check("CZ-1 a saved BANK A wins over the factory one", ok);
+    cz_bank_import(0, 0, 0);
+    bad += check("CZ-1 a restore without BANK A brings Casio's back", cz_bank_load(0)->used == 0xFFFFu && !cz_bank_saved);
+    return bad;
+}
+
 static int test_edit_cycle(void)
 {
     static const char *const CYC_A[] = {"EDIT 1", "EDIT 2", "VOICE", "VOICE 2", "EDIT 1"};
@@ -3927,6 +3979,7 @@ int main(void)
     bad += test_name();
     bad += test_edit_cycle();
     bad += test_cz1_pages();
+    bad += test_cz1_factory();
     bad += test_fm6_pages();
     bad += test_boot_template();
     bad += test_key_lights();

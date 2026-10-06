@@ -63,4 +63,15 @@ Read, load, save, erase, rename and export controls operate on the selected bank
 Full backups retain bank names, empty slots and every native tone byte. Device
 BANK and PTCH controls select A–H and 1–16; PTCH 0 selects INIT.
 
+## Factory tones
+
+Casio's 64 CZ-1 preset tones are built into the firmware (`assets/cz1-factory/`, see its README for
+where they come from). A bank that was never saved shows them: BANK A holds the CZ-1's A-1..B-8,
+B C-1..D-8, C E-1..F-8, D G-1..H-8 (16 a bank, in the CZ-1's order); E–H start empty. Saving a bank
+(even emptied) keeps yours; a backup carries only saved banks, so restoring one without a bank brings
+the factory tones back. PRESETS 1–64 load the same tones (BANK / PTCH follow) whatever the banks hold.
+
+These tones have no sustain point in several DCA envelopes (BELLS, SITAR, JET ROAR): as on the CZ, the
+whole envelope plays regardless of the key, so such notes ring long after release.
+
 Earlier next FUNA/FUNB, FBKB/FBKC and TPL8/TPL9 CZ sounds are migrated to raw native tones; common sound settings and patterns are retained.

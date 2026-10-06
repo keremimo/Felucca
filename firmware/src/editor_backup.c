@@ -63,7 +63,7 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
         if (fm6_bank.magic == FM6_BANK_MAGIC) *len = sizeof fm6_bank;
         return (const uint8_t *)&fm6_bank;
     }
-    if(id>=9u && id<=16u){cz_bank_t *b=cz_bank_load(id-9u);*len=sizeof *b;return (const uint8_t *)b;}
+    if(id>=9u && id<=16u){cz_bank_t *b=cz_bank_load(id-9u);if(cz_bank_saved)*len=sizeof *b;return (const uint8_t *)b;}   /* (a default bank: none) */
     return 0;
 }
 static uint32_t ed_bk_capture(void)
