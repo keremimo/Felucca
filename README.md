@@ -49,9 +49,8 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 
 ## Features
 
-- **Fourteen engines** (below), each with its own factory presets
-- **Four tracks**, one synth part each with its own engine and sound (drums are the DRUM engine or
-  the SAMPLE engine's GM kit); up to 16 FM6 voices or 8 voices from the other engines shared between
+- **Eleven engines** (below), each with its own factory presets
+- **Four tracks**, one synth part each with its own engine and sound (DRUM plays the synthesized 808); up to 16 FM6 voices or 8 voices from the other engines shared between
   them (an FM6 voice uses one budget unit, another engine's voice two; 16 units total).
   ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide and per-step chance; a piano
@@ -159,11 +158,11 @@ projects, with empty patterns. BOOT OFF uses the template when one is saved. CLK
 and ROUT persist between starts; loading a project or template applies its own settings. DRUM is the
 device's own setting.
 
-Projects use the FBK9 format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
+Projects use the FBKB format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
 projects load into pattern 1; their old project-based SONG rows are cleared. Pre-1.0 Melodee's
 multi-pattern projects/settings/templates and incompatible 58/62-parameter user presets are not imported.
 User sample slots USR1–3 and sample uploads are removed; their flash space now stores projects.
-Built-in samples, drum kits and BREAK remain available. Earlier sample data is overwritten as projects
+SAMPLE, GRAIN, SLICE, OBXF and the custom drum kit are removed; only synthesized 808 drums remain. Earlier sample data is overwritten as projects
 are saved. Complete backups with nonempty user samples require firmware that supports those slots.
 The FM6 bank has explicit conversion for earlier Melodee and Felucca banks.
 
@@ -172,29 +171,48 @@ The FM6 bank has explicit conversion for earlier Melodee and Felucca banks.
 In the order the device lists them:
 
 - **ANALOG**: virtual analog; two oscillators, noise, drive, resonant low-pass filter
-- **OBXF**: an OB-Xf port with 75 CC0 factory patches, two BLEP oscillators, sync, crossmod, ring modulation, noise colours, OB-X filters and the 15 Xpander modes. Full patch pages on the device; edited patches and names travel with projects, templates and backups.
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track edited in the
   web editor or on the device; operator frequency, levels, envelopes and scaling, pitch envelope,
   LFO, STORE and DX7 SysEx; an algorithm chart on screen. PRESETS selects the operator on operator
   pages. Each track keeps its own patch and function settings (MODERN / MARK I / OPL, pitch bend,
   portamento, wheel, foot, breath and aftertouch), saved with the project and the template
-- **PHASE**: phase distortion (ported from CrispyZebra)
+- **PHASE**: phase distortion with LINK/SPLIT envelopes and its own six presets.
+- **CZ-1**: native Casio tones, with separate eight-point pitch, timbre and volume envelopes on each line
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
-- **SAMPLE**: multisampled instruments and a GM percussion set
 - **VOICE**: formant oscillator, sung vowels
 - **TRIO**: 3 oscillators with ring modulation and sync, multimode filter
 - **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
-- **GRAIN**: granular textures from the built-in samples
 - **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
-- **SLICE**: the built-in drum break cut into slices, one per key
-- **DRUM**: an 8-lane kit of Felucca's own drum voices on the General MIDI key map; **KIT 808**
-  plays TR-808 circuit models instead
+- **DRUM**: synthesized TR-808 circuit models on eight lanes with the General MIDI key map.
+  The 808 is the only kit; Felucca’s custom kit has been removed.
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them.
 
 **SLICER** (FX page, every track): a tempo-synced 16-step gate or stutter, with 16 patterns.
+
+CZ-1 opens with a native INIT TONE. Imported Casio tones use their original oscillator and
+six eight-point envelope parameters. PHASE remains independently selectable with its
+LINK/SPLIT controls and six factory presets.
+
+**Native CZ-1 SysEx**: choose CZ-1 in the web editor, then **CZ-1 native patches → Import .syx**.
+Select a tone from the imported bank and **Send to track**. **Read track** retrieves its original tone;
+**Export .syx** writes a CZ-1-compatible tone. **Add to library** and the library's device-bank upload
+save native tones. Both lines have separate eight-point DCO/DCW/DCA envelopes, including sustain,
+end points, velocity sensitivity and key follow. The original 144-byte CZ-1 tone survives user presets,
+projects, templates and library export; it is not reduced to common ADSR values. Compatible 128-byte
+CZ tones are accepted with CZ-1 defaults for fields they lack. See [format and fidelity notes](docs/CZ1_SYSEX.md).
+
+Native mode uses the documented uPD933 phase functions, rate law and logarithmic DCA response.
+Vibrato timing, key follow, velocity response, DAC behavior and output filtering still need hardware
+calibration; this build does not establish near-identical CZ-1 audio.
+
+SAMPLE, GRAIN and SLICE and all recorded sample material have been removed. Engine numbers 4, 8
+and 13 remain reserved so existing projects do not accidentally select another instrument. Old tracks
+using those engines are silent until another sound is chosen. Historical separate GM drum parts load
+as the synthesized 808 kit. SLICER remains a gate/stutter effect on synthesized audio.
+
 
 ## Scale keyboard
 
@@ -215,7 +233,7 @@ QNT **ALL** plays the next scale note on every key, black keys included. QNT **M
 MPC's Bank H pads (MIDI 20–35, H01–H16 of MPC Sample's default map) to successive scale notes;
 the **MPC** page in the SCL family sets **DEG**, the degree pad H02 plays. Incoming MIDI follows
 WHITE, ALL and MPC the way the keys do (without the octave buttons). SCL, QNT and DEG are shared by
-all four tracks; ROOT and TRN stay per track. Drum kits and slices keep their own note mapping.
+all four tracks; ROOT and TRN stay per track. Drum kits keep their own note mapping.
 
 Press **SCL** again for the **CHORD** page: CHRD picks the chord keys (OFF, the scale's triads or
 sevenths, or a fixed shape) and VOIC the voicing.
@@ -226,7 +244,7 @@ sevenths, or a fixed shape) and VOIC the voicing.
 | --- | --- |
 | `firmware/` | firmware sources: `src/` app, `hal/` hardware layer, `loader/` update loader |
 | `tools/` | build script, generators, package maker, installer and sample uploader |
-| `assets/` | UI font, icon names, CC0 instrument samples |
+| `assets/` | UI font and icon names |
 | `web/` | web installer and editor sources |
 | `tests/` | tests that run on the build machine |
 | `LICENSES/` | licence texts of the bundled font, icons, ported DSP and SDK files |
@@ -246,14 +264,12 @@ Felucca, which Melodee is built on, is Leo Kuroshita's work. If Melodee is usefu
 - Based on [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com)
 - **[Hügelton Instruments](https://hugelton.com)** (Leo Kuroshita, [@kurogedelic](https://github.com/kurogedelic)):
   Felucca itself; the PHASE engine's waveforms (a C port of the oscillator of
-  [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the DRUM voices; the Hügelton Sample
-  Pack (the drum samples, GPL-3.0-only, not CC0); the [Fukiai](https://github.com/hugelton/Fukiai) icon
+  [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the synthesized 808; the [Fukiai](https://github.com/hugelton/Fukiai) icon
   font ([MIT](LICENSES/MIT-Fukiai.txt))
 - Font: [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors, [SIL OFL 1.1](LICENSES/OFL-InterTight.txt)
-- Samples: [Versilian Studios](https://versilian-studios.com/) [VSCO-2 Community Edition](https://github.com/sgossner/VSCO-2-CE) and [VCSL](https://github.com/sgossner/VCSL), CC0 1.0 ([attribution](assets/samples-cc0/ATTRIBUTION.txt))
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
+- Native CZ engine: uPD933 model by Devin Acker in [MAME](https://github.com/mamedev/mame/blob/master/src/devices/sound/upd933.cpp) ([BSD-3-Clause](LICENSES/BSD-3-Clause-uPD933.txt))
 - PHYS engine: models ported from [DaisySP](https://github.com/electro-smith/DaisySP) by Electrosmith and Emilie Gillet ([MIT](LICENSES/MIT-DaisySP.txt)) and from Emilie Gillet's [eurorack](https://github.com/pichenettes/eurorack) code ([MIT](LICENSES/MIT-Rings.txt))
-- OBXF engine: [OB-Xf](https://github.com/surge-synthesizer/OB-Xf), continuing OB-Xd 2.11 by Vadim Filatov and discoDSP (GPL-3.0-or-later); factory patches CC0, their authors credited in the source
 - FM6 engine: msfa from [Dexed](https://github.com/asb2m10/dexed) by Google Inc. and Pascal Gauthier ([Apache-2.0](LICENSES/Apache-2.0-msfa.txt))
 - Package format and boot files: [JieLi AC79 SDK](https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK) ([Apache-2.0](LICENSES/Apache-2.0.txt); three of its files are in every package, none in this tree)
 - Contributions: [keremimo](https://github.com/keremimo) (white-key scales, #2), [ChanceTheMaker](https://github.com/ChanceTheMaker)
@@ -262,7 +278,7 @@ Felucca, which Melodee is built on, is Leo Kuroshita's work. If Melodee is usefu
 
 ## Licence
 
-Free software: [GPL-3.0-only](LICENSE), the Hügelton Sample Pack included. The bundled font and the
+Free software: [GPL-3.0-only](LICENSE). The bundled font and the
 ported DSP keep their own licences ([LICENSES/](LICENSES/)); details in [LICENSING.md](LICENSING.md).
 
 "Felucca" and "Hügelton Instruments" are names of Hügelton Instruments. M-VAVE and FM-1 are

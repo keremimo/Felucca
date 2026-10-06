@@ -2,18 +2,15 @@
 # function in build/melodee.dis, x4 per nesting level, divides x9. The check allows +10 %.
 # Rewritten by BUDGET_UPDATE=1.
 analog_render 585
-phase_render 79
+phase_render 127
 lofi_render 123
-sample_render 126
 formant_render 314
 trio_render 341
 trio_pass 175
 wheel_render 267
 wheel_block 102
-grain_render 1731
-grain_block 139
 phys_render 61
-drum_render 86
+drum_render 72
 noise_render 259
 fm6_render 4138
 px_modal_block 111
@@ -22,16 +19,6 @@ px_memb_block 106
 px_string_excite 171
 px_string_run 264
 px_symp_run 252
-dv_metal_run 26
-dv_kick_run 153
-dv_snare_run 158
-dv_clap_run 74
-dv_hat_run 61
-dv_tom_run 75
-dv_rim_run 61
-dv_bell_run 52
-dv_cym_run 67
-dv_out 35
 dr_bd 127
 dr_sd 137
 dr_tom 105
@@ -45,8 +32,6 @@ dr_cy 114
 dr_hat 37
 dr8_run 20
 slicer_track 632
-slice_render 453
-slc_rev 120
 fm1_alnk0_irq 37502
 mod_begin 158
 mod_voice 30
@@ -58,4 +43,5 @@ perf_block 814
 perf_master 31
 rev_room 218
 rev_spring 126
-obxf_render 74537
+cz_native_render 529
+cz_native_wave 0

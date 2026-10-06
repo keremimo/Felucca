@@ -60,6 +60,19 @@ static int steps_same(const step_t *n, const step8_t *o)
     return 1;
 }
 
+/* Old GM notes become grid hits only for a migrated drum track. */
+static int drum_steps_same(const step_t *n, const step8_t *o)
+{
+    for (uint32_t k=0;k<NSTEP;k++) {
+        step_t expected={0};
+        memcpy(&expected,&o[k],sizeof o[k]);
+        step_to_grid(&expected);
+        if (memcmp(n[k].note,expected.note,4) || n[k].n!=expected.n || n[k].time!=expected.time ||
+            n[k].flags!=expected.flags || n[k].vel!=expected.vel || n[k].hit!=expected.hit || n[k].acc!=expected.acc) return 0;
+    }
+    return 1;
+}
+
 /* today's project q as format 4 stored it (8-byte steps; the hits dropped) */
 static void to_v4(project_v4_t *v, const project_t *q)
 {
@@ -92,9 +105,9 @@ static void to_v4(project_v4_t *v, const project_t *q)
 static int track_ok(const proj_trk_t *n, const proj_trk_v2_t *o, uint32_t t, int drum, int16_t lvl, int16_t rev)
 {
     uint32_t k;
-    int ok = (drum ? n->engine == 4u && n->preset == PROJ_DEF_KEEP
+    int ok = (drum ? n->engine == ENGI_DRUM && n->preset == PROJ_DEF_KEEP
                    : n->engine == o->engine && n->preset == o->preset) &&
-             steps_same(n->step, o->step);
+             (drum ? drum_steps_same(n->step,o->step) : steps_same(n->step, o->step));
     for (k = 0; k <= P_DETUNE; k++)
         ok &= n->p[k] == (drum && k == P_LEVEL ? lvl : drum && k == P_REV ? rev : oldv(t, k));
     ok &= n->p[P_SLCR] == 0 && n->p[P_SLPAT] == TP[P_SLPAT].def && n->p[P_SLRATE] == TP[P_SLRATE].def &&
@@ -185,10 +198,10 @@ int main(void)
     bad += check("FUN2 -> FUN6: engine bytes kept (WHEEL 7, ANALOG 0, TRIO 6)",
                  q.t[0].engine == 7 && q.t[1].engine == 0 && q.t[2].engine == 6 &&
                  str_eq(ENGINES[7]->name, "WHEEL") && str_eq(ENGINES[6]->name, "TRIO") && NENGINES > 8);
-    bad += check("FUN2 -> FUN6: the drum track -> part 4, SAMPLE (PERC on load), steps kept",
-                 q.parts == NPART && q.t[3].engine == 4 && str_eq(ENGINES[4]->name, "SAMPLE") &&
-                 TRK_DEF[3][0] == ENGI_DRUM && str_eq(SMP_PRESET_TABLE[SMP_PERC_PRESET].name, "PERC") &&
-                 q.t[3].preset == PROJ_DEF_KEEP && steps_same(q.t[3].step, v2.t[3].step));
+    bad += check("FUN2 -> FUN6: the drum track -> part 4, 808 DRUM, steps kept",
+                 q.parts == NPART && q.t[3].engine == ENGI_DRUM && str_eq(ENGINES[ENGI_DRUM]->name, "DRUM") &&
+                 TRK_DEF[3][0] == ENGI_DRUM && !eng_ok(4) &&
+                 q.t[3].preset == PROJ_DEF_KEEP && drum_steps_same(q.t[3].step, v2.t[3].step));
 
     /* format 3 (1.0, four parts), as written before the modulation matrix */
     memset(&v3, 0, sizeof v3);
@@ -220,11 +233,11 @@ int main(void)
     v3.g[G_DRREV] = 20;
     v3.sum = proj_hash(&v3, sizeof v3 - 4u);
     memcpy(&buf, &v3, sizeof v3);
-    ok = proj_import(&q2, &buf, (int)sizeof v3) && proj_ok(&q2) && q2.parts == NPART && q2.t[3].engine == 4 &&
+    ok = proj_import(&q2, &buf, (int)sizeof v3) && proj_ok(&q2) && q2.parts == NPART && q2.t[3].engine == ENGI_DRUM &&
          q2.t[3].preset == PROJ_DEF_KEEP && q2.t[3].p[P_LEVEL] == 90 && q2.t[3].p[P_REV] == 20 &&
          q2.t[3].p[P_PAN] == oldv3(0, P_PAN) && q2.t[3].p[P_SLEN] == oldv3(0, P_SLEN) &&
          q2.t[3].p[P_SLCR] == oldv3(0, P_SLCR) && q2.t[3].p[P_M1SRC] == 0 &&
-         steps_same(q2.t[3].step, v3.t[0].step) && !memcmp(&q2.t[0], &q.t[0], sizeof q.t[0]);
+         drum_steps_same(q2.t[3].step, v3.t[0].step) && !memcmp(&q2.t[0], &q.t[0], sizeof q.t[0]);
     bad += check("FUN3 before 1.0: the drum track -> part 4 (LEVEL / REV from G_DRLVL / G_DRREV)", ok);
 
     /* a FUN6 round trip: stored as is (a matrix slot set; an engine added since: SLICE, 8; a DRUM track with
@@ -346,7 +359,6 @@ int main(void)
     {
         static const int16_t OLD_KIT[8] = {4, 64, 70, 64, 64, 100, 0, 0};   /* PHYS DRUM KIT before 1.0 */
         static const int16_t E0[8] = {4, 70, 80, 60, 50, 110, 100, 70}, E1[8] = {2, 10, 20, 30, 40, 50, 60, 70};
-        const preset_t *dk = &ENGINES[ENGI_DRUM]->presets[0];
         q.t[0].engine = ENGI_PHYS;                      /* MODEL DRUM, PERC 70 (CYM), KICK 100 (ROUND) */
         q.t[0].preset = 9;
         q.t[1].engine = ENGI_PHYS;                      /* MEMB (2: DUST only before phys 1) */
@@ -367,14 +379,14 @@ int main(void)
         memcpy(&buf, &v4, sizeof v4);
         ok = proj_import(&q2, &buf, (int)sizeof v4) && proj_ok(&q2) && q2.phys == PROJ_PHYS &&
              q2.t[0].engine == ENGI_DRUM && q2.t[0].preset == 0 && str_eq(ENGINES[ENGI_DRUM]->name, "DRUM") &&
-             q2.t[0].p[P_E0] == 2 && q2.t[0].p[P_E6] == 1 && q2.t[0].p[P_E7] == 0;
+             q2.t[0].p[P_E0] == 4 && q2.t[0].p[P_E6] == 1 && q2.t[0].p[P_E7] == 0;
         for (i = 1; i < 6u; i++)
             ok &= q2.t[0].p[P_E0 + i] == E0[i];         /* TUNE TONE DECY SNAP ACC in place */
         ok &= q2.t[1].engine == ENGI_PHYS && !memcmp(q2.t[1].p, q.t[1].p, sizeof q.t[1].p);
         ok &= q2.t[3].engine == ENGI_PHYS && !memcmp(q2.t[3].p, q.t[3].p, sizeof q.t[3].p);
         ok &= q2.t[2].engine == ENGI_DRUM;              /* the old DRUM KIT: DRUM's DRUM KIT */
         for (i = 0; i < 8u; i++)
-            ok &= q2.t[2].p[P_E0 + i] == dk->e[i];
+            ok &= q2.t[2].p[P_E0 + i] == OLD_KIT[i];
         ok &= !memcmp(&q2.t[0].step[1], &q.t[0].step[1], sizeof q.t[0].step - sizeof(step_t)) &&
               q2.t[0].p[P_LEVEL] == q.t[0].p[P_LEVEL];
         ok &= q2.t[0].step[0].n == 0 && q2.t[0].step[0].hit == ((1u << DV_KICK) | (1u << DV_HATC));   /* the grid */

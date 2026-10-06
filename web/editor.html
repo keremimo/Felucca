@@ -174,7 +174,6 @@
       <button role="tab" data-tab="sequencer" data-t="tabSeq" data-ic="symbol_grid"></button>
       <button role="tab" data-tab="tracks" data-t="tabTracks" data-ic="ui_slider_vertical"></button>
       <button role="tab" data-tab="library" data-t="library" data-ic="symbol_books"></button>
-      <button role="tab" data-tab="samples" data-t="samples" data-ic="symbol_waves"></button>
       <button role="tab" data-tab="projects" data-t="projects" data-ic="symbol_folder"></button>
       <button role="tab" data-tab="settings" data-t="tabSettings" data-ic="symbol_cog"></button>
     </nav>
@@ -195,6 +194,14 @@
       </div>
     </div>
     <p class="dim" id="ctlhelp" data-t="ctlHelp"></p>
+    <div id="czpanel" class="group" hidden>
+      <h2>CZ-1 native patches</h2>
+      <p class="dim">Import Casio .syx tones or banks. Native mode uses the original two lines and six eight-point envelopes. Read the selected track before editing it.</p>
+      <p class="bar"><button id="czimport">Import .syx</button><input id="czfile" type="file" accept=".syx" hidden>
+        <select id="czvoices" aria-label="Imported CZ patch"></select><button id="czread">Read track</button><button id="czsend">Send to track</button>
+        <button id="czexport">Export .syx</button><button id="czlibrary">Add to library</button></p>
+      <div id="czcontrols"></div>
+    </div>
     <div class="groups" id="groups"></div>
   </section>
 
@@ -281,7 +288,7 @@
           <button id="libsave" data-t="saveToLib" data-ic="port_disk"></button>
           <button id="libimport" data-t="import" data-ic="symbol_upload"></button>
           <button id="libexport" data-t="exportLib" data-ic="symbol_download"></button>
-          <input type="file" id="libfile" accept=".json,application/json" multiple hidden>
+          <input type="file" id="libfile" accept=".json,.syx,.SYX,application/json,application/octet-stream" multiple hidden>
           <span class="dim" id="libcount"></span>
         </p>
       </div>
@@ -305,12 +312,6 @@
         </div>
       </div>
     </div>
-  </section>
-
-  <section class="panel" id="p-samples" data-tab="samples" data-dev hidden>
-    <h2 data-t="samples" data-ic="symbol_waves"></h2>
-    <p class="dim" data-t="smpHelp"></p>
-    <div id="smpslots"></div>
   </section>
 
   <section class="panel" id="p-projects" data-tab="projects" data-dev hidden>
@@ -364,9 +365,72 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   TRACK_PARAM: 31, TRACK_CHANGED: 32, SONG: 33, PATTERN: 73, BANK_SONG: 74,
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
-  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71 };
+  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
+/* Native CZ-1 tones: the original 144 bytes, not the common parameter array. */
+const CZ = {
+  BYTES: 144, ENV: [[55,38,21],[112,95,78]], END: [[54,37,20],[111,94,77]],
+  valid(b) { return Array.isArray(b) && b.length === 144 && b.every(x => Number.isInteger(x) && x >= 0 && x <= 255)
+    && !(b[0] & 240) && (b[0] >> 2) <= 2 && b[1] <= 1 && !(b[2] & 3) && b[3] <= 47
+    && [0,57].every(o => (b[17+o]&15) <= 9 && (b[17+o]>>4) <= 14 && b[19+o] <= 9)
+    && CZ.END.flat().every(i => !(b[i]&8)); },
+  nibbles(b) { if (!CZ.valid(b)) throw new Error("Invalid CZ tone"); return b.flatMap(x => [x&15,x>>4]); },
+  bytes(n) { if (n.length !== 288 || n.some(x => !Number.isInteger(x) || x < 0 || x > 15)) throw new Error("Invalid CZ tone nibbles");
+    const b=Array.from({length:144},(_,i)=>n[2*i]|n[2*i+1]<<4); if (!CZ.valid(b)) throw new Error("Invalid CZ tone"); return b; },
+  name(b) { return String.fromCharCode(...b.slice(128).map(x=>x>=32&&x<=126?x:32)).trim() || "CZ PATCH"; },
+  setName(b,n) { const str=String(n).toUpperCase().replace(/[^ -~]/g," ").padEnd(16," ").slice(0,16); [...str].forEach((c,i)=>b[128+i]=c.charCodeAt(0)); },
+  init() { const b=Array(144).fill(0); b[4]=8; b[20]=b[37]=241; b[54]=240; b[21]=119; b[22]=255; b[23]=247;
+    b[38]=127;b[39]=255;b[40]=255;b[55]=127; b.splice(71,57,...b.slice(14,71)); CZ.setName(b,"INIT");return b; },
+  sysex(b,channel=0,slot=0x60) { return new Uint8Array([240,68,0,0,112|(channel&15),33,slot,...CZ.nibbles(b),247]); },
+  read(data,filename="CZ") {
+    const bytes=Array.from(data), voices=[]; let i=0;
+    while (i<bytes.length) {
+      if (bytes[i] >= 248 || bytes[i] === 0) {i++;continue;}
+      if (bytes[i] !== 240) { /* Casio's non-framed handshake response. */
+        if ((bytes[i]&240)===112 && bytes[i+1]===49 && bytes[i+2]===247) {i+=3;continue;}
+        throw new Error("Expected a Casio CZ SysEx frame");
+      }
+      const frame=[];i++;
+      while(i<bytes.length && bytes[i]!==247) { const x=bytes[i++];if(x>=248)continue;if(x>=128)throw new Error("Invalid CZ SysEx framing");frame.push(x); }
+      if(i>=bytes.length)throw new Error("Truncated CZ SysEx frame");i++;
+      if(frame.length<5 || frame[0]!==68 || frame[1]!==0 || frame[2]!==0 || (frame[3]&240)!==112)throw new Error("Not a Casio CZ tone file");
+      const cmd=frame[4];
+      if([16,17,49].includes(cmd) || (cmd===48 && frame.length===5))continue;
+      if(![32,33,48].includes(cmd))throw new Error("Unsupported Casio message; select a tone dump");
+      const off=cmd===48?5:6, nib=frame.slice(off);
+      if(![256,288].includes(nib.length) || nib.some(x=>x>15))throw new Error("Invalid CZ tone length or nibble");
+      const raw=Array.from({length:nib.length/2},(_,k)=>nib[2*k]|nib[2*k+1]<<4);
+      if(raw.length===128) {
+        const kf=[0,25,51,78,106,134,163,193,223,255];
+        for(const o of [0,57]) { raw[17+o]&=15; raw[18+o]=kf[Math.min(9,raw[19+o])]; for(const x of [20,37,54])raw[x+o]|=240; }
+        raw.push(...Array(16).fill(32)); CZ.setName(raw,filename.replace(/\.[^.]+$/,"")+(voices.length?" "+(voices.length+1):""));
+      }
+      if(!CZ.valid(raw))throw new Error("Invalid CZ tone parameters");
+      voices.push({name:CZ.name(raw),raw});
+    }
+    if(!voices.length)throw new Error("No CZ tones found");return {voices};
+  },
+  rate(raw,e) { const x=raw&127, n=e===1?x-8:x, top=e===0?127:119;
+    return Math.max(0,Math.min(99,n<=0?0:n>=top?99:Math.floor(n*99/top)+1)); },
+  level(raw,e) { const x=raw&127;return e===0?(x<64?x:x-4):e===1?Math.min(99,Math.ceil(x*99/127)):x===0?0:Math.max(1,x-28); },
+  editPoint(b,l,e,k,field,value) {
+    const base=CZ.ENV[l][e],i=base+2*k;
+    if(field==="rate")b[i]=(b[i]&128)|Math.floor(value*(e===0?127:119)/99)+(e===1?8:0);
+    else {const raw=e===0?(value>=64?value+4:value):e===1?Math.floor(value*127/99):value?value+28:0;
+      b[i+1]=(b[i+1]&128)|raw;
+      // Only recompute directions affected by this changed target.
+      for(const j of [k,k+1])if(j<8){const cur=b[base+2*j+1]&127,prev=j?b[base+2*j-1]&127:0;b[base+2*j]=(b[base+2*j]&127)|(cur<prev?128:0);}}
+  },
+  setEnvelope(b,l,e,rates,levels,sustain,end) {
+    const base=CZ.ENV[l][e];b[CZ.END[l][e]]=(b[CZ.END[l][e]]&240)|end;
+    let prev=0;
+    for(let k=0;k<8;k++) { const rate=Math.floor(rates[k]*(e===0?127:119)/99)+(e===1?8:0);
+      const value=k===end?0:e===0?(levels[k]>=64?levels[k]+4:levels[k]):e===1?Math.floor(levels[k]*127/99):levels[k]?levels[k]+28:0;
+      b[base+2*k]=rate|(value<prev?128:0);b[base+2*k+1]=value|(k===sustain?128:0);prev=value;
+    }
+  }
+};
 /* user preset bank: name 1..12 printable ASCII, a 16-step pattern of (note, flags 1 acc 2 slide 4 tie) */
 const UP = { NAME_MAX: 12, PAT: 16, LIST_MAX: 16 };
 const F = { INT: 0, PCT: 1, BIPCT: 2, TIME: 3, LFOHZ: 4, CUTOFF: 5, DB: 6, SEMI: 7, ENUM: 8, BPM: 9, NOTE: 10, ONOFF: 11, OCT: 12, STEPS: 13 };
@@ -428,6 +492,8 @@ class Reader {
 }
 
 const parse = {
+  [CMD.CZ_GET](a) { if (a.length<3) throw new Error("Short CZ reply"); const r={target:a[0],index:a[1],rc:a[2]}; if(!r.rc)r.raw=CZ.bytes(a.slice(3));else if(a.length!==3)throw new Error("Invalid CZ reply");return r; },
+  [CMD.CZ_PUT](a) { if(a.length!==3)throw new Error("Invalid CZ reply");return {target:a[0],index:a[1],rc:a[2]}; },
   [CMD.INFO](a) {
     const r = new Reader(a);
     const o = { version: r.s(), nengines: r.b(), pcount: r.b(), gcount: r.b(), nstep: r.b(), pe0: r.b(), engines: [] };
@@ -448,6 +514,7 @@ const parse = {
     for (const p of [8, 11, 15]) if (o.motionMax && trailer[p] === 0x46 && trailer[p + 1] === 1) o.fm6 = { factory: trailer[p + 2], bank: trailer[p + 3] };
     o.patterns = o.motionMax && o.backupCaps && trailer[11] === 0x50 && trailer[12] === 1 && trailer[13] === 8 ? 8 : 0;
     if (o.patterns) o.chainRows = trailer[14] === 16 ? 16 : 0;
+    o.cz = !!o.motionMax && [12,15,19].some(p=>trailer[p]===0x43 && trailer[p+1]===1 && (trailer[p+2]|trailer[p+3]<<7)===CZ.BYTES);
     return o;
   },
   [CMD.UI_STATE](a) {
@@ -596,6 +663,8 @@ const parse = {
 function upName(s) { return String(s ?? "").replace(/[^\x20-\x7E]/g, "").trim().slice(0, UP.NAME_MAX) || "PATCH"; }
 
 const req = {
+  czGet: (target,index) => [CMD.CZ_GET,[target,index]],
+  czPut: (target,index,raw,pattern=null) => [CMD.CZ_PUT,[target,index,...CZ.nibbles(raw),...(pattern?Array.from({length:16},(_,i)=>patNorm(...(pattern[i]||[0,0]))).flat():[])]],
   uiState: () => [CMD.UI_STATE, []],
   uiSet: (id, value) => [CMD.UI_SET, [id, value]],
   uiPalettes: () => [CMD.UI_PALETTES, []],
@@ -684,7 +753,7 @@ function replyMatches(cmd, args, a) {
     case CMD.SMP_WRITE: return a[0] === args[0] && a[1] === args[1] && a[2] === args[2] && a[3] === args[3];
     case CMD.BANK_SONG: case CMD.SONG: return a[0] === args[0];
     case CMD.PATTERN: return a[0] === args[0] && a[1] === args[1];
-    case CMD.FM6_GET: case CMD.FM6_PUT: return a[0] === args[0] && a[1] === args[1];
+    case CMD.CZ_GET: case CMD.CZ_PUT: case CMD.FM6_GET: case CMD.FM6_PUT: return a[0] === args[0] && a[1] === args[1];
     case CMD.FM6_ERASE: return a[0] === args[0];
     case CMD.PROJECT: return a[0] === args[0] && a[1] === args[1];
     case CMD.UP_LIST: case CMD.UP_GET: case CMD.UP_PUT: case CMD.UP_STORE: case CMD.UP_LOAD: case CMD.UP_ERASE:
@@ -1130,6 +1199,7 @@ function cleanPatch(pt) {
     created: pt.created || now, modified: pt.modified || pt.created || now,
   };
   if (Number.isInteger(pt.slot)) o.slot = pt.slot;
+  if (pt.cz != null) { if(!CZ.valid(pt.cz))throw new Error("Invalid native CZ patch");o.cz=pt.cz.slice(); }
   if (Array.isArray(pt.fm6) && pt.fm6.length === FM6.PACKED) o.fm6 = pt.fm6.map((x) => (x | 0) & 127);   /* (a converted */
   if (Array.isArray(pt.fm4)) o.fm4 = pt.fm4.map((v) => (Number.isFinite(v) ? Math.round(v) : null));    /* DIGITAL sound) */
   return o;
@@ -1146,11 +1216,16 @@ function libraryFile(kind, patches, ctx) {
       const o = { name: c.name, engine: c.engine, engineName: c.engineName || (ctx.engines || [])[c.engine] || "",
         params: c.p, pattern: c.pattern, tags: c.tags, created: c.created, modified: c.modified };
       if (c.grid) o.grid = c.grid;
+      if (c.cz) o.cz=c.cz;
       if (c.fm6) { o.fm6 = c.fm6; o.fm4 = c.fm4; }   /* a DIGITAL sound converted: its FM6 patch, the DIGITAL values */
       if (Number.isInteger(x.slot)) o.slot = x.slot;
       return o;
     }),
   };
+}
+function czLibraryPatch(v,ctx={}) {
+  const p=Array(ctx.keys?.length||92).fill(null);p[(ctx.pe0??84)+7]=2;
+  return cleanPatch({name:v.name,engine:15,engineName:"CZ-1",p,cz:v.raw,tags:["CZ-1","SysEx"]});
 }
 /* -> {patches, skipped, keys (the file's, for a library that has none yet)}; throws on a file it cannot read.
    A DIGITAL patch (the engine retired in 1.0) where ctx has no DIGITAL imports as FM6 (fromDigital) */
@@ -1174,7 +1249,7 @@ function readLibraryFile(obj, ctx) {
     const p = ctx.keys && ctx.pe0 && obj.p.length !== ctx.keys.length ? tailParams(obj.p, ctx.keys.length, ctx.pe0)
       : obj.p.slice(0, ctx.keys ? ctx.keys.length : obj.p.length);
     const pt = fm4({ name: obj.presetName || obj.engineName || "PATCH", engine: e, engineName: obj.engineName, p,
-      pattern: Array.isArray(obj.steps) ? patternFromSteps(obj.steps) : null, tags: ["file"] }, obj.engineName,
+      cz:obj.cz, pattern: Array.isArray(obj.steps) ? patternFromSteps(obj.steps) : null, tags: ["file"] }, obj.engineName,
       ctx.keys && ctx.pe0 ? ctx.pe0 : p.length - 8);
     return pt ? { patches: [cleanPatch(pt)], skipped: 0, keys: null } : { patches: [], skipped: 1, keys: null };
   }
@@ -1212,9 +1287,12 @@ const bank = {
     }
     return { total: first.total, slots };
   },
-  async get(rq, info, slot) { return parse[CMD.UP_GET](await rq(req.upGet(slot)), info); },
+  async get(rq, info, slot) {
+    const p=parse[CMD.UP_GET](await rq(req.upGet(slot)),info);
+    if(p.used && p.engine===15 && p.p[info.pe0+7]===2) { if(!info.cz)throw new Error("Firmware lacks native CZ support");const r=parse[CMD.CZ_GET](await rq(req.czGet(1,slot)));if(r.rc)throw new Error("Cannot read native CZ patch");p.cz=r.raw; }return p;
+  },
   /* -> rc (0 ok) */
-  async put(rq, slot, pt) { return parse[CMD.UP_PUT](await rq(req.upPut(slot, pt), FLASH_OPT)).rc; },
+  async put(rq, slot, pt) { return pt.cz ? parse[CMD.CZ_PUT](await rq(req.czPut(1,slot,pt.cz,pt.pattern),FLASH_OPT)).rc : parse[CMD.UP_PUT](await rq(req.upPut(slot, pt), FLASH_OPT)).rc; },
   async store(rq, slot, name) { return parse[CMD.UP_STORE](await rq(req.upStore(slot, name), FLASH_OPT)).rc; },
   async load(rq, slot) { return parse[CMD.UP_LOAD](await rq(req.upLoad(slot), { timeout: 1000 })).rc; },
   async erase(rq, slot) { return parse[CMD.UP_ERASE](await rq(req.upErase(slot), FLASH_OPT)).rc; },
@@ -1226,7 +1304,9 @@ async function capturePatch(rq, info, name) {
   const steps = [];
   for (let i = 0; i < UP.PAT && i < info.nstep; i++) steps.push(parse[CMD.STEP_GET](await rq(req.stepGet(i))));
   const drum = info.engines[dump.engine] === "DRUM";   /* (a DRUM track that strikes a lane: its grid) */
-  return { patch: cleanPatch({ name, engine: dump.engine, engineName: info.engines[dump.engine], p: dump.p, pattern: patternFromSteps(steps),
+  let cz=null;
+  if(dump.engine===15 && dump.p[info.pe0+7]===2) { if(!info.cz)throw new Error("Firmware lacks native CZ support");const r=parse[CMD.CZ_GET](await rq(req.czGet(0,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read CZ patch");cz=r.raw; }
+  return { patch: cleanPatch({ cz, name, engine: dump.engine, engineName: info.engines[dump.engine], p: dump.p, pattern: patternFromSteps(steps),
     grid: drum ? gridFromSteps(steps) : null }), dump, steps };
 }
 
@@ -1243,7 +1323,9 @@ const trackOwn = (i, pe0) => TRACK_OWN.has(i) || (pe0 >= 83 && P_CHORD.includes(
    there = undo) and treats the SETs right after G_ENGSEL as part of this load (EDITOR_PROTOCOL.md "undo").
    opt: {gEng: G_ENGSEL id, progress(i, n)} */
 async function auditionPatch(rq, info, pt, opt = {}) {
-  await rq(req.set(1, opt.gEng ?? 20, pt.engine));
+  if(pt.cz && !info.cz)throw new Error("Install firmware with native CZ support first");
+  if(pt.cz) { const r=parse[CMD.CZ_PUT](await rq(req.czPut(0,opt.track??(info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0),pt.cz)));if(r.rc)throw new Error("CZ patch rejected"); }
+  else await rq(req.set(1, opt.gEng ?? 20, pt.engine));
   const dump = parse[CMD.DUMP](await rq(req.dump()), info);
   const n = Math.min(info.pcount, pt.p.length);
   for (let i = 0; i < n; i++) {
@@ -1651,8 +1733,8 @@ function makeMockDevice(opt = {}) {
     D("SIZE", F.PCT, 0, 127, 90), D("DAMP", F.PCT, 0, 127, 60), D("CRT", F.LFOHZ, 0, 127, 40), D("CDP", F.PCT, 0, 127, 60),
     E("MIDI", ["USB", "TRS"], 0), E("DRUM", ["OFF", ...Array.from({ length: 16 }, (_, i) => String(i + 1))], 10), E("ROUT", ["CH1-4", "SEL"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 5, 1), E("BOOT", ["OFF", "A", "B", "C", "D"], 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
-    E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL",
-      "GRAIN", "PHYS", "DRUM", "NOISE", "FM6", "SLICE", "OBXF"], 0), E("SET", NGO, 0),
+    E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "-", "VOICE", "TRIO", "WHEEL",
+      "-", "PHYS", "DRUM", "NOISE", "FM6", "-", "-", "CZ-1"], 0), E("SET", NGO, 0),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     E("TYPE", ["ROOM", "SPRING"], 0),               /* G_RTYPE (id 24, was G_DRCH): the reverb's model */
     D("-", F.INT, 0, 0, 0), D("-", F.INT, 0, 0, 0),   /* G_DRLVL, G_DRREV: inert since 1.0 */
@@ -1675,7 +1757,7 @@ function makeMockDevice(opt = {}) {
       presets: [] },
     { name: "PHASE", titles: ["PHS", "LINE"], edit: [E("WAVE", ["SAW", "SQR", "PLS", "DSIN", "SPLS", "RSAW", "RTRI", "RTRP"], 0),
         E("WAVE2", ["-", "SAW", "SQR", "PLS", "DSIN", "SPLS", "RSAW", "RTRI", "RTRP"], 0), D("DCW", F.PCT, 0, 127, 60), D("ENV", F.PCT, 0, 127, 64),
-        D("DTN", F.INT, 0, 127, 0, null, "ct"), E("LINE", ["MIX", "RING"], 0), D("SUB", F.PCT, 0, 127, 0), NONE],
+        D("DTN", F.INT, 0, 127, 0, null, "ct"), E("LINE", ["MIX", "RING"], 0), D("SUB", F.PCT, 0, 127, 0), E("EG", ["LINK", "SPLIT"], 0)],
       presets: [P("BRASS", [0, 0, 30, 90, 0, 0, 0, 0], [8, 70, 90, 40], 0, 6), P("ORGAN", [3, 0, 40, 0, 0, 0, 0, 0], [0, 127, 127, 30], 0, 6),
         P("STRING", [0, 4, 50, 40, 12, 0, 0, 0], [40, 90, 100, 70], 0, 5), P("RESO", [5, 0, 60, 60, 0, 0, 0, 0], [0, 70, 30, 60], 0, 1),
         P("BELL", [6, 0, 80, 50, 0, 0, 0, 0], [0, 95, 0, 90], 0, 7), P("WIRE", [4, 7, 70, 40, 7, 0, 0, 0], [10, 80, 80, 60], 0, 4)] },
@@ -1684,10 +1766,7 @@ function makeMockDevice(opt = {}) {
       presets: [P("PULSE LD", [0, 0, 32, 0, 0, 20, 0, 127], [0, 60, 90, 30], 1, 4), P("WAVE BASS", [1, 1, 0, 0, 0, 0, 0, 90], [0, 50, 70, 20], 1, 2),
         P("ARP 8BIT", [2, 0, 96, 0, 0, 0, 2, 110], [0, 60, 80, 40], 0, 13), P("WAVE LEAD", [0, 4, 92, 0, 0, 18, 0, 110], [0, 70, 90, 30], 1, 3),
         P("STEP LEAD", [4, 0, 40, 34, 0, 16, 0, 127], [0, 64, 127, 55], 1, 4)] },
-    { name: "SAMPLE", titles: ["SET", "TONE"], edit: [E("SET", ["PIANO", "PIANO", "FLUTE", "SAX", "PERC"], 0), D("TUNE", F.SEMI, -24, 24, 0), D("BITS", F.INT, 0, 127, 0),
-        E("LOOP", NONOFF, 1), D("CUT", F.INT, 0, 127, 127), NONE, D("DRV", F.PCT, 0, 127, 0), NONE],
-      presets: [P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70]), P("PIANO", [0, 0, 0, 1, 127, 0, 0, 0], [0, 127, 127, 70]),
-        P("FLUTE", [2, 0, 0, 1, 127, 0, 0, 0], [12, 80, 120, 60]), P("SAX", [3, 0, 0, 1, 127, 0, 0, 0], [12, 80, 120, 60])] },
+    {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
     { name: "VOICE", titles: ["VOWL", "TONE"], edit: [D("VOWL", F.INT, 0, 127, 0), D("VOWL2", F.INT, 0, 127, 64), D("TALK", F.TIME, 0, 127, 0),
         D("SHIFT", F.SEMI, -12, 12, 0), D("BUZZ", F.PCT, 0, 127, 64), D("BRTH", F.PCT, 0, 127, 10), D("Q", F.PCT, 0, 127, 64), D("RAND", F.PCT, 0, 127, 0)],
       presets: [P("CHOIR AAH", [0, 0, 0, 0, 40, 22, 60, 0], [85, 90, 115, 95], 0, 5), P("VOX LEAD", [32, 0, 0, 2, 90, 8, 72, 0], [6, 70, 105, 55], 1, 4),
@@ -1704,11 +1783,7 @@ function makeMockDevice(opt = {}) {
       presets: [P("FULL ORGAN", [15, 0, 0, 0, 0, 30, 20, 1], [0, 64, 127, 45], 0, 5), P("JAZZ PERC", [4, 0, 0, 0, 2, 50, 8, 1], [0, 64, 127, 40], 0, 3),
         P("GOSPEL", [6, 0, 0, 0, 1, 60, 40, 2], [0, 64, 127, 45], 0, 6), P("SOFT FLUTE", [1, 0, -2, 0, 0, 10, 0, 1], [0, 64, 127, 55], 0, 5),
         P("ROCK DRIVE", [7, 0, 0, 0, 0, 70, 100, 2], [0, 64, 127, 40], 0, 4)] },
-    { name: "GRAIN", titles: ["GRAN", "SPRY"], edit: [E("SRC", ["PIANO", "PIANO", "FLUTE", "SAX", "PERC"], 0),
-        D("POS", F.PCT, 0, 127, 32), D("SIZE", F.PCT, 0, 127, 80), D("DENS", F.PCT, 0, 127, 80),
-        D("PTCH", F.SEMI, -24, 24, 0), D("SPRD", F.PCT, 0, 127, 30), D("RAND", F.PCT, 0, 127, 10), D("TONE", F.PCT, 0, 127, 127)],
-      presets: [P("CLOUD PAD", [2, 50, 92, 88, 0, 40, 14, 100], [70, 90, 120, 90], 0, 5), P("GLITCH", [3, 64, 24, 112, 0, 100, 90, 127], [0, 70, 100, 30], 0, 4),
-        P("FROZEN", [0, 40, 108, 72, 0, 0, 10, 92], [50, 100, 127, 100], 0, 5), P("SHIMMER", [0, 30, 70, 100, 12, 30, 24, 110], [30, 90, 110, 90], 0, 7)] },
+    {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
     { name: "PHYS", titles: ["BODY", "EXCT"], edit: [E("MODEL", ["MODAL", "STRNG", "MEMB", "SYMP"], 0), D("STRC", F.PCT, 0, 127, 64),
         D("BRIT", F.PCT, 0, 127, 80), D("DAMP", F.PCT, 0, 127, 80), D("POS", F.PCT, 0, 127, 20), D("ACC", F.PCT, 0, 127, 90),
         D("BOW", F.PCT, 0, 127, 0), D("EXC", F.PCT, 0, 127, 0)],
@@ -1717,11 +1792,10 @@ function makeMockDevice(opt = {}) {
         P("KALIMBA", [0, 34, 16, 56, 100, 90, 0, 48], [0, 100, 127, 60], 0, 7), P("HAND DRUM", [2, 112, 76, 56, 44, 100, 14, 24], [0, 100, 127, 64], 0, 6),
         P("TOMS", [2, 0, 52, 40, 30, 100, 40, 30], [0, 100, 127, 70], 0, 2), P("DRONE STRING", [3, 127, 80, 88, 64, 100, 92, 0], [0, 100, 127, 90], 0, 3),
         P("HARP", [3, 8, 62, 74, 60, 90, 0, 0], [0, 100, 127, 80], 0, 3)] },
-    { name: "DRUM", titles: ["KIT", "HIT"], edit: [E("KIT", ["STD", "HAND", "CYM", "H+CYM", "808"], 0), D("TUNE", F.PCT, 0, 127, 64),
+    { name: "DRUM", titles: ["KIT", "HIT"], edit: [D("KIT", F.ENUM, 4, 4, 4, ["808"]), D("TUNE", F.PCT, 0, 127, 64),
         D("TONE", F.PCT, 0, 127, 64), D("DECY", F.PCT, 0, 127, 64), D("SNAP", F.PCT, 0, 127, 64), D("ACC", F.PCT, 0, 127, 100),
         E("KICK", ["PUNCH", "ROUND"], 0), D("DRV", F.PCT, 0, 127, 0)],
-      presets: [P("DRUM KIT", [0, 64, 70, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12),
-        P("808 KIT", [4, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12)] },
+      presets: [P("808 KIT", [4, 64, 64, 64, 64, 100, 0, 0], [0, 100, 127, 100], 0, 12)] },
     { name: "NOISE", titles: ["SRC", "MOVE"], edit: [E("MODE", ["ANLG", "DUST", "LFSR", "META"], 0), D("COLR", F.PCT, 0, 127, 64),
         D("FREQ", F.CUTOFF, 0, 127, 80), D("RES", F.PCT, 0, 127, 30), D("TRK", F.PCT, 0, 127, 64), D("DENS", F.PCT, 0, 127, 0),
         D("DRFT", F.PCT, 0, 127, 0), D("CRSH", F.PCT, 0, 127, 0)],
@@ -1750,90 +1824,10 @@ function makeMockDevice(opt = {}) {
         P("STEEL DRUM", [0, 0, 0, 0, 0, 0, 0, 21], [0, 0, 127, 0], 0),
         P("SAW BASS", [0, 0, 0, 0, 0, 0, 0, 22], [0, 0, 127, 0], 1),
         P("TUBULAR", [0, 0, 0, 0, 0, 0, 0, 23], [0, 0, 127, 0], 0)] },
-    { name: "SLICE", titles: ["SLCE", "PLAY"], edit: [E("SRC", ["BREAK"], 0),
-        E("DIV", ["4", "8", "16", "32", "AUTO", "MAN"], 2), D("START", F.INT, 0, 31, 0), D("PTCH", F.SEMI, -24, 24, 0),
-        E("MODE", ["ONE", "GATE", "LOOP"], 0), E("REV", ["OFF", "ON"], 0), D("DCAY", F.TIME, 0, 127, 127), D("TONE", F.INT, 0, 127, 127)],
-      presets: [P("CHOP", [0, 2, 0, 0, 0, 0, 127, 127], [0, 127, 127, 30], 0, 9), P("STUTTER", [0, 1, 0, 0, 1, 0, 90, 110], [0, 127, 127, 12], 0, 10)] },
-    { name: "OBXF", titles: ["MACRO", "PATCH"], edit: [
-      D("CUT", F.BIPCT, -64, 63, 0), D("RES", F.BIPCT, -64, 63, 0), D("ENV", F.BIPCT, -64, 63, 0),
-      D("ATK", F.INT, -64, 63, 0), D("DEC", F.INT, -64, 63, 0), D("REL", F.INT, -64, 63, 0),
-      D("DTN", F.BIPCT, -64, 63, 0), E("PTCH", ["OBRIGHT", "OB ONE", "CLASSIC KEYS", "BASS 1", "BASS 2", "REZ BASS", "THICK UNISON", "SAWDUST", "ROLLING BASS", "SLAP BASS", "FUTURE BASS", "XMOD STACK", "STEALTH BASS", "FRETLESS", "BRASS CHORDS", "BRASS STABS", "SILKY BRASS", "TRIUMPHER", "POLY BRASS", "FRENCH HORN", "TRUMPET", "E.PIANO", "OB PIANO", "CLAVINET", "HARPSICHORD", "CP SEVENTY", "CELESTA", "GALACTIKEY", "LEAKEYS", "MELLOWOW", "SWEET SPOT", "EVOLUTION", "PULLED PWM", "SUPER SAW", "SHADOW SYNC", "TUNGSTEN", "MONO MONSTA", "MUUGER", "ROCK UNISON", "STREET HAWK", "HALOGENIC", "FUNK LEAD", "8VM LEAD", "OBELISK", "WARMTH", "VINTAGE SWEL", "JUST A PAD", "DARK FUTURE", "SWEEPRISE", "MORNING GLOW", "5 AM PAD", "RICH", "BREATHE", "STRING MACH", "BIG STRINGS", "SOFT STRINGS", "PIZZICATO", "SWEPT TREM", "OBERPHISA", "ROTARY ORGAN", "CHURCH ORGAN", "SAW PLUCK", "SIMPLE PLUCK", "PIZZI", "MARIMBA", "VIBRAPHONE", "BELLS", "CHOIR AAH", "WOO-AAH", "FLUTE", "REEDER", "JET", "LASER GUN", "UPLIFT", "S&H DRONE"], 0)],
-      presets: [
-        P("OBRIGHT", [0,0,0,0,0,0,0,0], [0,0,127,0], 0, 6),
-        P("OB ONE", [0,0,0,0,0,0,0,1], [0,0,127,0], 0, 5),
-        P("CLASSIC KEYS", [0,0,0,0,0,0,0,2], [0,0,127,0], 0, 6),
-        P("BASS 1", [0,0,0,0,0,0,0,3], [0,0,127,0], 0, 2),
-        P("BASS 2", [0,0,0,0,0,0,0,4], [0,0,127,0], 0, 2),
-        P("REZ BASS", [0,0,0,0,0,0,0,5], [0,0,127,0], 0, 2),
-        P("THICK UNISON", [0,0,0,0,0,0,0,6], [0,0,127,0], 0, 2),
-        P("SAWDUST", [0,0,0,0,0,0,0,7], [0,0,127,0], 0, 2),
-        P("ROLLING BASS", [0,0,0,0,0,0,0,8], [0,0,127,0], 0, 2),
-        P("SLAP BASS", [0,0,0,0,0,0,0,9], [0,0,127,0], 0, 2),
-        P("FUTURE BASS", [0,0,0,0,0,0,0,10], [0,0,127,0], 0, 2),
-        P("XMOD STACK", [0,0,0,0,0,0,0,11], [0,0,127,0], 0, 2),
-        P("STEALTH BASS", [0,0,0,0,0,0,0,12], [0,0,127,0], 0, 2),
-        P("FRETLESS", [0,0,0,0,0,0,0,13], [0,0,127,0], 0, 2),
-        P("BRASS CHORDS", [0,0,0,0,0,0,0,14], [0,0,127,0], 0, 6),
-        P("BRASS STABS", [0,0,0,0,0,0,0,15], [0,0,127,0], 0, 6),
-        P("SILKY BRASS", [0,0,0,0,0,0,0,16], [0,0,127,0], 0, 6),
-        P("TRIUMPHER", [0,0,0,0,0,0,0,17], [0,0,127,0], 0, 6),
-        P("POLY BRASS", [0,0,0,0,0,0,0,18], [0,0,127,0], 0, 6),
-        P("FRENCH HORN", [0,0,0,0,0,0,0,19], [0,0,127,0], 0, 6),
-        P("TRUMPET", [0,0,0,0,0,0,0,20], [0,0,127,0], 0, 6),
-        P("E.PIANO", [0,0,0,0,0,0,0,21], [0,0,127,0], 0, 6),
-        P("OB PIANO", [0,0,0,0,0,0,0,22], [0,0,127,0], 0, 6),
-        P("CLAVINET", [0,0,0,0,0,0,0,23], [0,0,127,0], 0, 6),
-        P("HARPSICHORD", [0,0,0,0,0,0,0,24], [0,0,127,0], 0, 6),
-        P("CP SEVENTY", [0,0,0,0,0,0,0,25], [0,0,127,0], 0, 6),
-        P("CELESTA", [0,0,0,0,0,0,0,26], [0,0,127,0], 0, 6),
-        P("GALACTIKEY", [0,0,0,0,0,0,0,27], [0,0,127,0], 0, 6),
-        P("LEAKEYS", [0,0,0,0,0,0,0,28], [0,0,127,0], 0, 6),
-        P("MELLOWOW", [0,0,0,0,0,0,0,29], [0,0,127,0], 0, 6),
-        P("SWEET SPOT", [0,0,0,0,0,0,0,30], [0,0,127,0], 0, 6),
-        P("EVOLUTION", [0,0,0,0,0,0,0,31], [0,0,127,0], 0, 6),
-        P("PULLED PWM", [0,0,0,0,0,0,0,32], [0,0,127,0], 0, 6),
-        P("SUPER SAW", [0,0,0,0,0,0,0,33], [0,0,127,0], 0, 4),
-        P("SHADOW SYNC", [0,0,0,0,0,0,0,34], [0,0,127,0], 0, 4),
-        P("TUNGSTEN", [0,0,0,0,0,0,0,35], [0,0,127,0], 0, 4),
-        P("MONO MONSTA", [0,0,0,0,0,0,0,36], [0,0,127,0], 0, 4),
-        P("MUUGER", [0,0,0,0,0,0,0,37], [0,0,127,0], 0, 4),
-        P("ROCK UNISON", [0,0,0,0,0,0,0,38], [0,0,127,0], 0, 4),
-        P("STREET HAWK", [0,0,0,0,0,0,0,39], [0,0,127,0], 0, 4),
-        P("HALOGENIC", [0,0,0,0,0,0,0,40], [0,0,127,0], 0, 4),
-        P("FUNK LEAD", [0,0,0,0,0,0,0,41], [0,0,127,0], 0, 4),
-        P("8VM LEAD", [0,0,0,0,0,0,0,42], [0,0,127,0], 0, 4),
-        P("OBELISK", [0,0,0,0,0,0,0,43], [0,0,127,0], 0, 5),
-        P("WARMTH", [0,0,0,0,0,0,0,44], [0,0,127,0], 0, 5),
-        P("VINTAGE SWEL", [0,0,0,0,0,0,0,45], [0,0,127,0], 0, 5),
-        P("JUST A PAD", [0,0,0,0,0,0,0,46], [0,0,127,0], 0, 5),
-        P("DARK FUTURE", [0,0,0,0,0,0,0,47], [0,0,127,0], 0, 5),
-        P("SWEEPRISE", [0,0,0,0,0,0,0,48], [0,0,127,0], 0, 5),
-        P("MORNING GLOW", [0,0,0,0,0,0,0,49], [0,0,127,0], 0, 5),
-        P("5 AM PAD", [0,0,0,0,0,0,0,50], [0,0,127,0], 0, 5),
-        P("RICH", [0,0,0,0,0,0,0,51], [0,0,127,0], 0, 5),
-        P("BREATHE", [0,0,0,0,0,0,0,52], [0,0,127,0], 0, 5),
-        P("STRING MACH", [0,0,0,0,0,0,0,53], [0,0,127,0], 0, 5),
-        P("BIG STRINGS", [0,0,0,0,0,0,0,54], [0,0,127,0], 0, 5),
-        P("SOFT STRINGS", [0,0,0,0,0,0,0,55], [0,0,127,0], 0, 5),
-        P("PIZZICATO", [0,0,0,0,0,0,0,56], [0,0,127,0], 0, 5),
-        P("SWEPT TREM", [0,0,0,0,0,0,0,57], [0,0,127,0], 0, 5),
-        P("OBERPHISA", [0,0,0,0,0,0,0,58], [0,0,127,0], 0, 6),
-        P("ROTARY ORGAN", [0,0,0,0,0,0,0,59], [0,0,127,0], 0, 6),
-        P("CHURCH ORGAN", [0,0,0,0,0,0,0,60], [0,0,127,0], 0, 6),
-        P("SAW PLUCK", [0,0,0,0,0,0,0,61], [0,0,127,0], 0, 3),
-        P("SIMPLE PLUCK", [0,0,0,0,0,0,0,62], [0,0,127,0], 0, 3),
-        P("PIZZI", [0,0,0,0,0,0,0,63], [0,0,127,0], 0, 3),
-        P("MARIMBA", [0,0,0,0,0,0,0,64], [0,0,127,0], 0, 3),
-        P("VIBRAPHONE", [0,0,0,0,0,0,0,65], [0,0,127,0], 0, 3),
-        P("BELLS", [0,0,0,0,0,0,0,66], [0,0,127,0], 0, 7),
-        P("CHOIR AAH", [0,0,0,0,0,0,0,67], [0,0,127,0], 0, 5),
-        P("WOO-AAH", [0,0,0,0,0,0,0,68], [0,0,127,0], 0, 5),
-        P("FLUTE", [0,0,0,0,0,0,0,69], [0,0,127,0], 0, 4),
-        P("REEDER", [0,0,0,0,0,0,0,70], [0,0,127,0], 0, 4),
-        P("JET", [0,0,0,0,0,0,0,71], [0,0,127,0], 0, 0),
-        P("LASER GUN", [0,0,0,0,0,0,0,72], [0,0,127,0], 0, 0),
-        P("UPLIFT", [0,0,0,0,0,0,0,73], [0,0,127,0], 0, 0),
-        P("S&H DRONE", [0,0,0,0,0,0,0,74], [0,0,127,0], 0, 5)] },
+    {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
+    {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
+    {name:"CZ-1",titles:["CZ-1","TONE"],edit:[...Array(7).fill(NONE),D("TONE",F.INT,2,2,2)],
+      presets:[P("INIT TONE",[0,0,0,0,0,0,0,2],[0,70,127,60],0,1)]},
   ];
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_BANK = 32;
   /* factory PATTERNS[] (engines.c; the device loads them from SEQ > PATTERNS, presets only suggest one): absolute
@@ -1863,7 +1857,7 @@ function makeMockDevice(opt = {}) {
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
   const NTRK = 4;
-  const newTrack = () => ({ engine: 0, preset: 0, fm6: FM6.INIT_PK.slice(),
+  const newTrack = () => ({ engine: 0, preset: 0, fm6: FM6.INIT_PK.slice(), cz:CZ.init(),
     p: TP.map((d) => d.def).concat(new Array(8).fill(0)),
     motion: {on: true, events: []},
     step: Array.from({ length: NSTEP }, () => ({ chance: 100, n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 })) });
@@ -1884,7 +1878,10 @@ function makeMockDevice(opt = {}) {
     Object.defineProperty(st, k, { enumerable: false, get: () => st.tracks[st.sel][k], set: (v) => { st.tracks[st.sel][k] = v; } });
   }
   const watchMs = opt.watchMs || 3000;
-  const desc = (scope, id) => (scope === 0 && id < P_COUNT ? (id >= P_E0 ? ENG[st.engine].edit[id - P_E0] : TP[id])
+  const czDesc = (id) => { const n = ["W1", "W2", "A2", "P"][Math.floor((id - 61) / 5)];
+    const k = (id - 61) % 5; return D(["A", "D", "S", "R", "LV"][k] + n,
+      [F.TIME,F.TIME,F.PCT,F.TIME,F.PCT][k], 0,127,k === 2 || k === 4 ? 127 : 0); };
+  const desc = (scope, id) => scope === 0 && st.engine === 2 && id >= 61 && id <= 80 ? czDesc(id) : (scope === 0 && id < P_COUNT ? (id >= P_E0 ? ENG[st.engine].edit[id - P_E0] : TP[id])
     : scope === 1 && id < G_COUNT ? GP[id] : null);
   const EMPTY = { n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 };
   const isDrum = () => ENG[st.engine].name === "DRUM";
@@ -1903,6 +1900,7 @@ function makeMockDevice(opt = {}) {
   const loadPattern = (k) => loadPat16(PATTERNS[k][0].map((n, i) => [n, PATTERNS[k][1][i]]));
   function applyPreset(pi) {
     const e = ENG[st.engine];
+    if(!e.presets.length){st.preset=0;return;}
     pi = aliasOf(e.presets.map((x) => x.name), pi % e.presets.length);
     const pr = e.presets[pi];
     st.preset = pi;
@@ -1913,6 +1911,10 @@ function makeMockDevice(opt = {}) {
     for (let i = P_SLCR + 4; i < P_E0; i++) if (!trackOwn(i, P_E0)) st.p[i] = TP[i].def;   /* a factory preset turns the
                                                      matrix off; the SLICER, the chord keys, the steps and the other track
                                                      settings stay (ui.c apply_preset_to) */
+    if (st.engine === 15) {
+      st.tracks[st.sel].cz = CZ.init();
+      st.p[33] = st.p[34] = st.p[35] = st.p[36] = 0;
+    }
     if (st.engine === FM6_E) fm6Slot(st.tracks[st.sel], st.p[P_E0 + 7]);   /* eng_fm6.c fm6_track_loaded */
   }
   /* PTCH s -> the track's patch: F1..F8 factory, then the bank (empty: the init voice) */
@@ -1938,8 +1940,9 @@ function makeMockDevice(opt = {}) {
   }
   const snapshot = (name) => {                   /* (upreset.c up_store: a DRUM track that strikes a lane: its grid) */
     const grid = isDrum() ? gridFromSteps(st.step) : null;
-    return patternUsed(grid) ? { engine: st.engine, name, p: st.p.slice(), pattern: null, grid }
-      : { engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null };
+    const cz=st.engine===15 && st.p[P_E0+7]===2 ? st.tracks[st.sel].cz.slice() : null;
+    return patternUsed(grid) ? { cz, engine: st.engine, name, p: st.p.slice(), pattern: null, grid }
+      : { cz, engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null };
   };
   const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); };
   function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3)] */
@@ -1995,7 +1998,7 @@ function makeMockDevice(opt = {}) {
           b(1);
           for (let i = 0; i < UP.PAT; i++) b(hitsEnc(...u.grid[i])[2]);
         } else {
-          for (let i = 0; i < UP.PAT; i++) { const x = u ? u.pattern[i] : [0, 0]; b(x[0]); b(x[1]); }
+          for (let i = 0; i < UP.PAT; i++) { const x = u?.pattern?.[i] || [0, 0]; b(x[0]); b(x[1]); }
           b(0);
         }
         break;
@@ -2041,7 +2044,7 @@ function makeMockDevice(opt = {}) {
           const own = st.p.slice();                 /* parameters (TRACK_OWN: mix, ARP, SCL, LEN.., SLICER) stay */
           const p = u.p.map((x, i) => (trackOwn(i, P_E0) ? own[i] : x));
           if (u.engine === 1) fm4Apply(p);          /* a DIGITAL record (kept as it is): FM6 */
-          else { st.engine = u.engine; st.preset = 0; st.p = p; }
+          else { st.engine = u.engine; st.preset = 0; st.p = p; if(u.cz)st.tracks[st.sel].cz=u.cz.slice(); }
         }
         b(a[0]); b(u ? 0 : 1);
         break;
@@ -2096,13 +2099,23 @@ function makeMockDevice(opt = {}) {
         m.events.forEach(e => {b(e.step);b(e.param);v(e.value);});
         break;
       }
+      case CMD.CZ_GET: case CMD.CZ_PUT: {
+        const [target,index]=a;let rc=target>1||index>=(target?NB:NTRK)?1:0,raw;
+        if(!rc && cmd===CMD.CZ_GET) { if(a.length!==2)rc=1;else {raw=target?st.bank[index]?.cz:st.tracks[index].cz;if(!raw)rc=2;} }
+        if(!rc && cmd===CMD.CZ_PUT) {
+          try {if(![290,322].includes(a.length))throw Error();raw=CZ.bytes(a.slice(2,290));}catch{rc=1;}
+          if(!rc) {if(target) {const pt=czLibraryPatch({name:CZ.name(raw),raw},{pe0:P_E0,pcount:P_COUNT});pt.p=TP.map(d=>d.def).concat(Array(8).fill(0));pt.p[P_E0+7]=2;if(a.length===322)pt.pattern=Array.from({length:16},(_,i)=>a.slice(290+2*i,292+2*i));st.bank[index]=pt;}
+            else {const tr=st.tracks[index];tr.cz=raw.slice();tr.engine=15;tr.preset=0;for(let i=0;i<P_COUNT;i++)if(!trackOwn(i,P_E0))tr.p[i]=i<P_E0?TP[i].def:ENG[15].edit[i-P_E0].def;tr.p[P_E0+7]=2;}}
+        }
+        b(target);b(index);b(rc);if(!rc && cmd===CMD.CZ_GET)CZ.nibbles(raw).forEach(b);break;
+      }
       case CMD.INFO:
         s(opt.legacy ? "MELODEE 0.4 BETA (MOCK)" : "MELODEE v0.10 (MOCK)"); b(ENG.length); b(P_COUNT); b(G_COUNT); b(NSTEP); b(P_E0);
         ENG.forEach((e) => s(e.name));
         if (!opt.legacy) b(NTRK);
         if (!opt.legacy && !opt.v3 && !opt.v5) {
           b(16);
-          if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(FM6_BANK); } }
+          if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(FM6_BANK); b(0x43); b(1); b(16); b(1); } }
         }
         break;
       case CMD.GET: case CMD.SET: {
@@ -2428,11 +2441,11 @@ function aliasOf(names, i) { const k = names ? names.indexOf(names[i]) : -1; ret
 /* the order the device shows its engines in (src/engines.c ENGINE_ORDER): the lists here follow it, the protocol keeps
    the engine numbers. engineOrder(names): the indices of names in that order, "-" (a reserved number) left out; a name
    the list does not know (another firmware) follows in index order */
-const ENGINE_ORDER = ["ANALOG", "FM6", "OBXF", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS", "NOISE",
-  "SLICE", "DRUM"];
+const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "CZ-1", "LOFI", "VOICE", "TRIO", "WHEEL", "PHYS", "NOISE",
+  "DRUM"];
 function engineOrder(names) {
   const rank = (n) => { const k = ENGINE_ORDER.indexOf(n); return k < 0 ? ENGINE_ORDER.length : k; };
-  return (names || []).map((n, i) => i).filter((i) => names[i] !== "-")
+  return (names || []).map((n, i) => i).filter((i) => !["-","SAMPLE","GRAIN","SLICE","OBXF"].includes(names[i]))
     .sort((a, b) => rank(names[a]) - rank(names[b]) || a - b);
 }
 
@@ -2708,13 +2721,12 @@ function applyLang() {
   renderBank();
   renderPreferences(true);
   renderPanels();
-  if (dev) { renderSlots(); renderStepHead(); renderSamples(); renderTrackbar(); renderMixer(); renderSysinfo(); renderFm6(); }
 }
 $("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
 
 /* ---------------------------------------------------------------- tabs --- */
 /* one panel at a time; the last one is remembered (localStorage) and in the URL hash (#sound ...) */
-const TABS = ["sound", "fm6", "sequencer", "tracks", "library", "samples", "projects", "settings"];
+const TABS = ["sound", "fm6", "sequencer", "tracks", "library", "projects", "settings"];
 const TAB_KEY = "felucca-editor-tab";
 const TRACK_TABS = new Set(["sound", "sequencer", "tracks"]);
 let tab = (() => {
@@ -2730,7 +2742,6 @@ function showTab(name) {
   tab = name;
   try { localStorage.setItem(TAB_KEY, name); } catch (e) { /* no storage */ }
   if (location.hash !== "#" + name) history.replaceState(null, "", location.pathname + location.search + "#" + name);
-  if (prev === "samples" && name !== "samples") samplesLeave();   /* no hidden recording or preview */
   renderPanels();
   if (name === "tracks" && prev !== "tracks" && hasTracks() && dev.dump) op(readMixer);
   if (name === "fm6" && prev !== "fm6" && dev && dev.dump && dev.info.fm6) op(fm6Refresh);
@@ -2746,7 +2757,6 @@ function renderPanels() {
     b.tabIndex = on ? 0 : -1;
     if (b.dataset.tab === "tracks") b.hidden = !tracksOk;
     if (b.dataset.tab === "fm6") b.hidden = fm6Off;
-    if (b.dataset.tab === "samples") b.hidden = !!dev?.info.patterns;
   }
   const ready = !!dev && !!dev.dump;
   let hint = "";
@@ -2754,7 +2764,6 @@ function renderPanels() {
     const mine = p.dataset.tab === want;
     let show = mine && (!("dev" in p.dataset) || ready);
     if (mine && "dev" in p.dataset && !dev) hint = "needDevice";   /* (while connecting the status line says it) */
-    if (show && want === "samples" && !dev.smp) { show = false; hint = "smpNone"; }
     p.hidden = !show;
   }
   $("hint").hidden = !hint;
@@ -2825,6 +2834,10 @@ const LAYOUT = (pe0) => [
   { t: "LFO", pages: [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]]] },
   ...(pe0 >= 61 ? [{ t: "MOD", mod: 49 }] : []),   /* the matrix: P_M1SRC 49 .. P_M4AMT 60, one row per slot */
   { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]]] },
+  ...(pe0 >= 81 && engName() === "PHASE" && dev.dump.p[pe0+7]===1 ? [{t: "CZ ENVELOPES", pages: [
+    ["DCW1 ENV", 0, [61,62,63,64]], ["DCW2 ENV", 0, [66,67,68,69]],
+    ["DCA2 ENV", 0, [71,72,73,74]], ["DCO ENV", 0, [76,77,78,79]],
+    ["CZ LEVEL", 0, [65,70,75,80]]]}] : []),
   ...(pe0 >= 81 && engName() === "DIGITAL" ? [{ t: "OP ENV", pages: [   /* P_FM1_ATK 61: ATK DEC SUS REL LVL per operator (a
                                                     MELODEE_FM4=1 firmware only: DIGITAL retired, its engine is "-") */
     ...[0, 1, 2, 3].map((k) => [`OP${k + 1}`, 0, [61 + 5 * k, 62 + 5 * k, 63 + 5 * k, 64 + 5 * k]]),
@@ -2899,7 +2912,6 @@ async function connect() {
 }
 
 function disconnect(reasonKey = "disconnected") {
-  samplesLeave();                                   /* the Samples tab goes: so do the input and the preview */
   if (dev) {
     dev.link.close();
     dev.input.onmidimessage = null;
@@ -2999,7 +3011,7 @@ async function rereadEngineDesc(d = dev) {
   const pe0 = d.info.pe0;
   const before = JSON.stringify(d.pdesc.slice(pe0));
   for (let i = 0; i < 8 && pe0 + i < d.info.pcount; i++) d.pdesc[pe0 + i] = await getDescOrNull(0, pe0 + i, d);
-  if (d.built !== d.dump.engine || JSON.stringify(d.pdesc.slice(pe0)) !== before) buildGroups();
+  if (d.built !== d.dump.engine || (d.dump.engine===15 && d.builtMode!==d.dump.p[pe0+7]) || JSON.stringify(d.pdesc.slice(pe0)) !== before) buildGroups();
 }
 
 async function loadSteps(d = dev) {
@@ -3023,7 +3035,6 @@ function buildUI() {
   buildGroups();
   updateBrowser();
   renderSlots();
-  renderSamples();
   renderSysinfo();
   fm6List = null;
   renderFm6();
@@ -3087,11 +3098,13 @@ function modDst(d, txt) {
 function buildGroups() {
   ctl.clear();
   dev.built = dev.dump.engine;
+  dev.builtMode = dev.dump.p[dev.info.pe0+7];
   /* Sound: the selected track's parameters; Sequencer: its pattern settings; Settings: globals */
   const groups = { groups: [], seqgroups: [], setgroups: [] };
   const { info } = dev;
   if (knownLayout(info)) {
     for (const g of LAYOUT(info.pe0)) {
+      if (dev.dump.engine===15 && ["ENV","EDIT"].includes(g.t)) continue;
       const div = el("div", { class: "group" }, el("h2", { ic: HEAD_IC[g.t], text: g.engine ? `EDIT ${info.engines[dev.dump.engine] || ""}` : g.t }));
       if (g.mod != null) {                          /* MOD: slot number, SRC, DST, AMT in one row */
         for (let k = 0; k < 4; k++) {
@@ -3125,11 +3138,13 @@ function buildGroups() {
     groups.setgroups.push(c);
   }
   for (const [id, divs] of Object.entries(groups)) $(id).replaceChildren(...divs);
+  $("czpanel").hidden = !dev.info.cz || dev.dump.engine!==15;
 }
 
 function paramRow(s, id) {
   const d = s ? dev.gdesc[id] : dev.pdesc[id];
   if (!visible(d) || (s === 1 && G_SKIP.has(d.label))) return null;
+  if (!s && dev.dump.engine===15 && dev.dump.p[dev.info.pe0+7]===2 && id>=dev.info.pe0 && id<dev.info.pe0+7) return null;
   const k = key(s, id);
   let input;
   if (d.fmt === F.ENUM || d.fmt === F.NOTE || d.fmt === F.ONOFF) {
@@ -3210,6 +3225,7 @@ function userSet(s, id, v, final) {
   st.last = performance.now();
   if (v === st.sent) return;                        /* the last request already carries it */
   sendSet(s, id, k);
+  if (!s && dev.dump.engine===15 && id===dev.info.pe0+7) buildGroups();
 }
 async function sendSet(s, id, k) {
   if (!dev) return;
@@ -3581,450 +3597,6 @@ $("clearseq").addEventListener("click", async () => {
   } catch (err) { report(err); } finally { releaseBusy(); }
 });
 
-/* ---------------------------------------------------------- samples --- */
-const smpDraft = [0, 1, 2].map(() => ({ name: "", files: [] }));
-let smpBusy = false;
-const SMP_RC = { 1: "size", 2: "header", 3: "data CRC", 4: "flash", 5: "zones" };
-const kib = (n) => (n / 1024).toFixed(1);
-
-/* auto key split, as in buildSlot (for the preview) */
-function splitKeys(files) {
-  const z = files.map((f, i) => ({ i, root: f.root })).sort((a, b) => a.root - b.root);
-  const out = [];
-  z.forEach((x, j) => {
-    out[x.i] = [j === 0 ? 0 : Math.floor((z[j - 1].root + x.root) / 2) + 1, j === z.length - 1 ? 127 : Math.floor((x.root + z[j + 1].root) / 2)];
-  });
-  return out;
-}
-const draftBytes = (d) => d.files.reduce((a, f) => a + ((f.s.length + 1) >> 1), 0);
-
-async function decodeFile(f) {
-  const buf = await f.arrayBuffer();
-  let x;
-  try {
-    const w = parseWav(buf);
-    x = resample(w.x, w.sr, SMP.RATE);
-  } catch (e) {                                     /* not a plain WAV: let the browser decode it */
-    const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    const ab = await new Ctx(1, 1, SMP.RATE).decodeAudioData(buf.slice(0));
-    x = new Float64Array(ab.length);
-    for (let c = 0; c < ab.numberOfChannels; c++) { const d = ab.getChannelData(c); for (let i = 0; i < d.length; i++) x[i] += d[i] / ab.numberOfChannels; }
-  }
-  if (!x.length) throw new Error("no audio");
-  const raw = Float64Array.from(x);                 /* kept for trimming: s is raw[a, b) (takeSample) */
-  return { fname: f.name, raw, a: 0, b: raw.length, s: takeSample(raw, 0, raw.length),
-           root: rootFromName(f.name.replace(/\.[^.]*$/, "")) };
-}
-
-/* ---- recording: the computer's input (getUserMedia, no echo cancelling / noise suppression / AGC),
- * raw PCM through an AudioWorklet, mixed to mono; it stops by itself when the slot is full */
-const REC_WORKLET = `registerProcessor("melodee-rec", class extends AudioWorkletProcessor {
-  process(inputs) {
-    const i = inputs[0];
-    if (i && i.length && i[0].length) {
-      const n = i[0].length, m = new Float32Array(n);
-      for (let c = 0; c < i.length; c++) for (let k = 0; k < n; k++) m[k] += i[c][k] / i.length;
-      this.port.postMessage(m, [m.buffer]);
-    }
-    return true;
-  }
-});`;
-let rec = null;                                     /* the recording: { k, ctx, stream, chunks, n, max, peak } */
-let recDevice = "", recInputs = [];                 /* the chosen input (deviceId, "" = default), the inputs */
-
-async function listInputs() {
-  try { recInputs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput"); }
-  catch (e) { recInputs = []; }
-}
-
-let recStarting = false, recEpoch = 0;               /* cancel a pending permission / worklet on leave */
-const recActive = () => !!rec || recStarting;       /* the draft must not change: Upload, files, trims off */
-async function recStart(k) {
-  const d = smpDraft[k], left = SMP.MAX_DATA - draftBytes(d);   /* bytes: two samples each */
-  if (!dev || tab !== "samples" || rec || recStarting || smpBusy) return;
-  const session = dev, epoch = ++recEpoch;
-  const current = () => epoch === recEpoch && dev === session && tab === "samples";
-  const check = () => { if (!current()) throw new Error("closed"); };
-  if (left < 1024 || d.files.length >= SMP.MAX_ZONES) { sayK("recFull"); return; }
-  let stream = null, ctx = null;
-  recStarting = true;
-  renderSamples();                                  /* (the controls go off during the prompt) */
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: {
-      deviceId: recDevice ? { exact: recDevice } : undefined,
-      echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-    check();
-    ctx = new AudioContext();
-    await ctx.resume();                             /* (made after the permission prompt: it may start suspended) */
-    check();
-    const url = URL.createObjectURL(new Blob([REC_WORKLET], { type: "text/javascript" }));
-    try { await ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
-    check();
-    const node = new AudioWorkletNode(ctx, "melodee-rec"), mute = ctx.createGain();
-    mute.gain.value = 0;                            /* pulled by the graph, but nothing is heard */
-    ctx.createMediaStreamSource(stream).connect(node).connect(mute).connect(ctx.destination);
-    rec = { k, ctx, stream, chunks: [], n: 0, max: Math.floor(left * 2 * ctx.sampleRate / SMP.RATE), peak: 0 };
-    node.port.onmessage = (e) => {
-      const r = rec;
-      if (!r || r.ctx !== ctx || r.stopping) return;
-      const chunk = e.data.subarray(0, Math.max(0, r.max - r.n));
-      r.chunks.push(chunk);
-      r.n += chunk.length;
-      for (const v of e.data) r.peak = Math.max(r.peak, Math.abs(v));
-      if (r.n >= r.max) recStop();
-    };
-    await listInputs();                             /* the labels come with the permission */
-    check();
-    recStarting = false;
-    renderSamples();
-    requestAnimationFrame(recTick);
-  } catch (e) {                                     /* nothing stays open: the input, the context */
-    if (epoch === recEpoch) recStarting = false;
-    if (rec && rec.ctx === ctx) rec = null;
-    if (stream) stream.getTracks().forEach((tr) => tr.stop());
-    if (ctx) ctx.close().catch(() => {});
-    if (e.message !== "closed" && current()) sayK("recDenied", ": " + e.message);
-    renderSamples();
-  }
-}
-
-/* the time and the level while recording (no re-render) */
-function recTick() {
-  if (!rec) return;
-  const box = $("smpslots").querySelector(`[data-k="${rec.k}"]`);
-  const lv = box && box.querySelector("progress.rec"), tm = box && box.querySelector(".rectime");
-  if (lv) lv.value = Math.min(1, rec.peak);
-  if (tm) tm.textContent = `${(rec.n / rec.ctx.sampleRate).toFixed(1)} / ${(rec.max / rec.ctx.sampleRate).toFixed(1)} s`;
-  rec.peak *= 0.8;
-  requestAnimationFrame(recTick);
-}
-
-/* rec stays set (stopping) until the recording is in the draft: Upload and Record stay off meanwhile */
-async function recStop() {
-  const r = rec;
-  if (!r || r.stopping) return;
-  r.stopping = true;
-  r.stream.getTracks().forEach((tr) => tr.stop());
-  await r.ctx.close().catch(() => {});
-  if (rec === r) rec = null;
-  const x = new Float64Array(Math.min(r.n, r.max));
-  let o = 0;
-  for (const c of r.chunks) {
-    const n = Math.min(c.length, x.length - o);
-    x.set(c.subarray(0, n), o);
-    o += n;
-  }
-  const raw = Float64Array.from(resample(x, r.ctx.sampleRate, SMP.RATE));
-  const d = smpDraft[r.k];
-  let pk = 0;
-  for (const v of raw) pk = Math.max(pk, Math.abs(v));
-  if (pk < 1e-4) {                                  /* nothing came in: a muted or wrong input */
-    sayK("recSilent");
-    renderSamples();
-    return;
-  }
-  if (raw.length > 1 && d.files.length < SMP.MAX_ZONES) {
-    const [a, b] = autoTrim(raw);
-    d.files.push({ fname: `REC ${d.files.length + 1}`, raw, a, b, s: takeSample(raw, a, b), root: 60 });
-    if (!d.name) d.name = "REC";
-  }
-  renderSamples();
-}
-
-/* ---- trimming: the waveform of raw with its two ends, dragged with a pointer; the wheel zooms
- * (at the pointer); zoomed in, a drag away from the ends (or shift + wheel) moves the view; a double
- * click shows it all. The view, [v0, v1)
- * of raw, is kept in the file (the list is drawn again after every trim). */
-function drawTrim(cv, f) {
-  const w = cv.width, h = cv.height - 4, g = cv.getContext("2d"), cs = getComputedStyle(cv);
-  const fg = cs.getPropertyValue("--fg").trim() || "#000", line = cs.getPropertyValue("--line").trim() || "#ccc";
-  const n = f.raw.length, v0 = f.v0 ?? 0, v1 = f.v1 ?? n, span = v1 - v0;
-  const xa = (f.a - v0) / span * w, xb = (f.b - v0) / span * w;
-  if (f.pk === undefined) {                        /* raw never changes: its peak, once */
-    f.pk = 1e-9;
-    for (const v of f.raw) f.pk = Math.max(f.pk, Math.abs(v));
-  }
-  const pk = f.pk;
-  g.clearRect(0, 0, w, cv.height);
-  for (let x = 0; x < w; x++) {                     /* per column: the smallest and largest sample */
-    const i0 = v0 + Math.floor(x / w * span), i1 = Math.max(i0 + 1, v0 + Math.floor((x + 1) / w * span));
-    let lo = 0, hi = 0;
-    for (let i = i0; i < i1 && i < n; i++) { lo = Math.min(lo, f.raw[i]); hi = Math.max(hi, f.raw[i]); }
-    g.fillStyle = x >= xa && x < xb ? fg : line;
-    g.fillRect(x, h / 2 - hi / pk * (h / 2 - 2), 1, Math.max(1, (hi - lo) / pk * (h / 2 - 2)));
-  }
-  g.fillStyle = fg;
-  if (xa >= 0 && xa <= w) g.fillRect(Math.min(w - 2, xa), 0, 2, h);
-  if (xb >= 0 && xb <= w) g.fillRect(Math.max(0, xb - 2), 0, 2, h);
-  g.fillStyle = line;                               /* where the view is in the whole */
-  g.fillRect(0, cv.height - 2, w, 2);
-  g.fillStyle = fg;
-  g.fillRect(v0 / n * w, cv.height - 3, Math.max(3, span / n * w), 3);
-}
-
-function trimCanvas(f) {
-  const cv = el("canvas", { class: "trim", width: 600, height: 60, title: t("trim") });
-  let end = null;                                   /* "a" or "b": the end being dragged */
-  const frac = (e) => { const r = cv.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); };
-  const at = (e) => {
-    const v0 = f.v0 ?? 0, v1 = f.v1 ?? f.raw.length;
-    return Math.round(v0 + frac(e) * (v1 - v0));
-  };
-  cv.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const v = [f.v0 ?? 0, f.v1 ?? f.raw.length];
-    const d = e.deltaY || e.deltaX;
-    if (!d) return;
-    [f.v0, f.v1] = e.shiftKey || (!e.deltaY && e.deltaX)
-      ? zoomView(f.raw.length, v[0], v[1], frac(e), 1, (d > 0 ? 0.1 : -0.1))
-      : zoomView(f.raw.length, v[0], v[1], frac(e), d > 0 ? 1.25 : 0.8, 0);
-    drawTrim(cv, f);
-  }, { passive: false });
-  cv.addEventListener("dblclick", () => { f.v0 = 0; f.v1 = f.raw.length; drawTrim(cv, f); });
-  /* a press within GRAB px of an end drags that end; elsewhere it drags the view (zoomed), or moves
-   * the nearer end (the whole input shown: nothing to scroll) */
-  const GRAB = 10;
-  let pan = null;                                   /* dragging the view: { x, v0, span } */
-  const zoomed = () => (f.v1 ?? f.raw.length) - (f.v0 ?? 0) < f.raw.length;
-  const near = (e) => {                             /* the end within GRAB px of the pointer, or null */
-    const r = cv.getBoundingClientRect(), v0 = f.v0 ?? 0, span = (f.v1 ?? f.raw.length) - v0;
-    const da = Math.abs(e.clientX - (r.left + (f.a - v0) / span * r.width));
-    const db = Math.abs(e.clientX - (r.left + (f.b - v0) / span * r.width));
-    return Math.min(da, db) > GRAB ? null : da <= db ? "a" : "b";
-  };
-  cv.addEventListener("pointerdown", (e) => {
-    if (smpBusy || recActive() || e.button !== 0 || !e.isPrimary || end || pan) return;   /* one primary pointer */
-    const p = at(e);
-    end = near(e);
-    if (!end && zoomed()) {
-      pan = { x: e.clientX, v0: f.v0 ?? 0, span: (f.v1 ?? f.raw.length) - (f.v0 ?? 0) };
-      cv.style.cursor = "grabbing";
-      cv.setPointerCapture(e.pointerId);
-      return;
-    }
-    end = end || (Math.abs(p - f.a) <= Math.abs(p - f.b) ? "a" : "b");
-    cv.setPointerCapture(e.pointerId);
-    cv.dispatchEvent(new PointerEvent("pointermove", e));
-  });
-  cv.addEventListener("pointermove", (e) => {
-    if (pan) {
-      const r = cv.getBoundingClientRect();
-      const a = Math.round(pan.v0 - (e.clientX - pan.x) / r.width * pan.span);
-      f.v0 = Math.max(0, Math.min(f.raw.length - pan.span, a));
-      f.v1 = f.v0 + pan.span;
-      drawTrim(cv, f);
-      return;
-    }
-    if (!end) {                                     /* hovering: what a press would do */
-      cv.style.cursor = near(e) || !zoomed() ? "ew-resize" : "grab";
-      return;
-    }
-    const p = at(e), min = Math.round(SMP.RATE * 0.01);   /* at least 10 ms */
-    if (end === "a") f.a = Math.max(0, Math.min(p, f.b - min));
-    else f.b = Math.min(f.raw.length, Math.max(p, f.a + min));
-    drawTrim(cv, f);
-  });
-  const done = () => {
-    if (pan) {                                      /* the view moved: nothing else changes */
-      pan = null;
-      cv.style.cursor = "grab";
-      return;
-    }
-    if (!end) return;
-    end = null;
-    f.s = takeSample(f.raw, f.a, f.b);
-    renderSamples();                                /* the length and the slot size change */
-  };
-  cv.addEventListener("pointerup", done);
-  cv.addEventListener("pointercancel", done);
-  requestAnimationFrame(() => drawTrim(cv, f));     /* (once it is in the page: its colours) */
-  return cv;
-}
-
-/* leaving the Samples tab or disconnecting: a recording is stopped (it stays in the draft), the
- * preview stops and its audio context closes */
-function samplesLeave() {
-  ++recEpoch;
-  recStarting = false;
-  if (rec) recStop();
-  if (previewSrc) try { previewSrc.stop(); } catch (e) { /* already ended */ }
-  previewSrc = null;
-  if (previewCtx) previewCtx.close().catch(() => {});
-  previewCtx = null;
-}
-
-/* play the trimmed sample as it will be stored (22050 Hz) */
-let previewSrc = null, previewCtx = null;
-function preview(f) {
-  try {
-    if (previewSrc) previewSrc.stop();
-    previewCtx = previewCtx || new AudioContext();
-    previewCtx.resume().catch(() => {});
-    const buf = previewCtx.createBuffer(1, f.s.length, SMP.RATE), ch = buf.getChannelData(0);
-    for (let i = 0; i < f.s.length; i++) ch[i] = f.s[i] / 32768;
-    previewSrc = previewCtx.createBufferSource();
-    previewSrc.buffer = buf;
-    previewSrc.connect(previewCtx.destination);
-    previewSrc.start();
-  } catch (e) { /* no audio output: nothing to play */ }
-}
-
-async function addFiles(k, list) {
-  const d = smpDraft[k];
-  for (const f of list) {
-    try {
-      const z = await decodeFile(f);
-      if (d.files.length >= SMP.MAX_ZONES) break;
-      d.files.push(z);
-      if (!d.name) d.name = f.name.replace(/\.[^.]*$/, "").toUpperCase().replace(/[^\x20-\x7E]/g, "").slice(0, 8);
-    } catch (e) { sayK("smpDecodeFail", `${f.name} (${e.message})`); }
-  }
-  renderSamples();
-}
-
-/* a slot's recording row: Record / Stop, the input, the time and the level */
-function recRow(k) {
-  const on = rec && rec.k === k;
-  const sel = el("select", { title: t("recInput"), disabled: !!rec },
-    el("option", { value: "", text: t("recInput") }),
-    ...recInputs.map((d, i) => el("option", { value: d.deviceId, text: d.label || `${t("recInput")} ${i + 1}` })));
-  sel.value = recDevice;
-  sel.addEventListener("change", () => { recDevice = sel.value; });
-  return el("div", { class: "head" },
-    el("button", { ic: on ? "control_stop_f" : "control_rec_f", disabled: smpBusy || recStarting || (!!rec && (!on || rec.stopping)),
-      onclick: () => (on ? recStop() : recStart(k)) }, t(on ? "stopRec" : "record")),
-    recInputs.length ? sel : "",
-    on ? el("progress", { class: "rec", max: 1, value: 0 }) : "",
-    on ? el("span", { class: "rectime dim" }) : "");
-}
-
-function renderSamples() {
-  const box = $("smpslots");                        /* the tab says when there are no slots (renderPanels) */
-  if (!dev || !dev.smp) { box.replaceChildren(); return; }
-  const max = SMP.MAX_DATA;
-  box.replaceChildren(...dev.smp.slots.map((u, k) => {
-    const d = smpDraft[k];
-    const status = u.zones ? `${u.name || "—"}, ${u.zones} ${t("zones")}, ${u.kib} KiB` : t("empty");
-    const bar = el("progress", { max: dev.smp.slotKiB, value: u.kib, title: `${u.kib} / ${dev.smp.slotKiB} KiB` });
-    const file = el("input", { type: "file", accept: ".wav,audio/wav,audio/x-wav,audio/*", multiple: true, hidden: true });
-    file.addEventListener("change", () => { addFiles(k, [...file.files]); file.value = ""; });
-    const name = el("input", { type: "text", class: "name", maxlength: 8, value: d.name, spellcheck: "false", placeholder: "NAME" });
-    name.addEventListener("input", () => {
-      const v = name.value.toUpperCase().replace(/[^\x20-\x7E]/g, "").slice(0, 8);
-      if (v !== name.value) name.value = v;
-      d.name = v;
-    });
-    const bytes = draftBytes(d), tooBig = bytes > max;
-    const size = el("span", { class: tooBig ? "bad" : "dim",
-      text: d.files.length ? `${kib(bytes)} / ${kib(max)} KiB` + (tooBig ? " " + t("smpTooBig") : "") : "" });
-    const prog = el("progress", { max: 1, value: 0, hidden: true });
-    const blk = el("div", { class: "smp", "data-k": k },
-      el("div", { class: "head" }, el("b", { text: `USR${k + 1}` }), el("span", { text: status }), bar,
-        el("button", { ic: "symbol_trash", disabled: smpBusy || !u.zones, onclick: () => smpErase(k) }, t("erase"))),
-      el("div", { class: "head" }, el("span", { text: t("smpName") }), name,
-        el("button", { ic: "symbol_folder_open", disabled: smpBusy || recActive(), onclick: () => file.click() }, t("chooseFiles")), file,
-        el("button", { ic: "symbol_upload", disabled: smpBusy || recActive() || !d.files.length || tooBig || !d.name, onclick: () => smpUpload(k, prog) }, t("upload")),
-        d.files.length ? el("button", { text: t("clearList"), disabled: smpBusy || recActive(), onclick: () => { d.files = []; renderSamples(); } }) : "",
-        size, prog),
-      recRow(k));
-    if (d.files.length) {
-      const keys = splitKeys(d.files);
-      const tb = el("table", {}, el("tr", {}, el("th", { text: t("file") }), el("th", { text: t("root") }),
-        el("th", { text: t("keys") }), el("th", { text: t("length") }), el("th")));
-      d.files.forEach((f, i) => {
-        const root = el("input", { type: "text", class: "root", value: noteName(f.root), spellcheck: "false" });
-        root.addEventListener("change", () => {
-          const n = parseNote(root.value.trim());
-          if (n == null) { root.classList.add("bad"); return; }
-          f.root = n;
-          renderSamples();
-        });
-        tb.append(el("tr", {}, el("td", { text: f.fname }), el("td", {}, root),
-          el("td", { text: `${noteName(keys[i][0])}–${noteName(keys[i][1])}` }),
-          el("td", { text: `${(f.s.length / SMP.RATE).toFixed(2)} s` }),
-          el("td", {}, el("button", { text: t("remove"), disabled: smpBusy || recActive(), onclick: () => { d.files.splice(i, 1); renderSamples(); } }))));
-        if (f.raw)                                  /* the waveform: drag its ends to trim */
-          tb.append(el("tr", { class: "trimrow" }, el("td", { colspan: 4 }, trimCanvas(f)),
-            el("td", {},
-              el("button", { text: t("preview"), onclick: () => preview(f) }),
-              el("button", { text: t("autoTrim"), disabled: smpBusy || recActive(), onclick: () => {
-                [f.a, f.b] = autoTrim(f.raw);
-                f.s = takeSample(f.raw, f.a, f.b);
-                renderSamples();
-              } }))));
-      });
-      blk.append(tb);
-    }
-    blk.addEventListener("dragover", (e) => { e.preventDefault(); blk.classList.add("over"); });
-    blk.addEventListener("dragleave", () => blk.classList.remove("over"));
-    blk.addEventListener("drop", (e) => {
-      e.preventDefault();
-      blk.classList.remove("over");
-      if (!smpBusy && !recActive() && e.dataTransfer.files.length) addFiles(k, [...e.dataTransfer.files]);   /* (the recording sized itself to the slot) */
-    });
-    return blk;
-  }));
-}
-
-async function smpInfo(d = dev) { d.smp = parse[CMD.SMP_INFO](await sessionRequest(d, req.smpInfo())); }
-
-async function smpUpload(k, prog) {
-  const d = smpDraft[k];
-  let built;
-  try { built = buildSlot(d.name, d.files.map((f) => ({ s: f.s, root: f.root }))); }
-  catch (e) { sayK("smpFail", e.message); return; }
-  if (!confirm(t("confirmUpload").replace("{n}", k + 1))) return;
-  const { hdr, data } = built;
-  const session = dev;
-  const releaseBusy = beginBusy();
-  smpBusy = true;
-  renderSamples();
-  prog = $("smpslots").querySelector(`[data-k="${k}"] progress[max="1"]`);
-  prog.hidden = false;
-  try {
-    const t0 = performance.now();
-    let r = parse[CMD.SMP_BEGIN](await rq(req.smpBegin(k), { timeout: 1000, retries: 0 }));
-    if (r.rc) throw new Error("begin rc " + r.rc);
-    for (let off = 0; off < data.length; off += 256) {
-      const a = SMP.DATA_OFF + off;
-      const w = parse[CMD.SMP_WRITE](await rq(req.smpWrite(k, a, data.subarray(off, off + 256)), { timeout: 1000, retries: 1 }));
-      if (w.rc) throw new Error(`write at 0x${a.toString(16)} rc ${w.rc}`);
-      prog.value = (off + 256) / data.length;
-      sayK("smpUploading", `${k + 1}  ${kib(Math.min(data.length, off + 256))} / ${kib(data.length)} KiB`);
-    }
-    r = parse[CMD.SMP_END](await rq(req.smpEnd(k, hdr), { timeout: 2000, retries: 0 }));
-    if (r.rc) throw new Error(`end rc ${r.rc} (${SMP_RC[r.rc] || "?"})`);
-    sayK("smpDone", `${k + 1}  ${((performance.now() - t0) / 1000).toFixed(1)} s`);
-  } catch (e) {
-    if (e.message !== "closed") sayK("smpFail", e.message);
-  } finally {
-    try { if (session === dev) await smpInfo(session); } catch (e) { /* shown by the next action */ }
-    smpBusy = false;
-    releaseBusy();
-    renderSamples();
-  }
-}
-
-async function smpErase(k) {
-  if (!dev || !confirm(t("confirmErase").replace("{n}", k + 1))) return;
-  const session = dev;
-  const releaseBusy = beginBusy();
-  smpBusy = true;
-  renderSamples();
-  try {
-    const r = parse[CMD.SMP_ERASE](await rq(req.smpErase(k), { timeout: 2500, retries: 0 }));
-    if (r.rc) throw new Error("erase rc " + r.rc);
-    sayK("smpErased", String(k + 1));
-  } catch (e) {
-    if (e.message !== "closed") sayK("smpFail", e.message);
-  } finally {
-    try { if (session === dev) await smpInfo(session); } catch (e) { /* ignore */ }
-    smpBusy = false;
-    releaseBusy();
-    renderSamples();
-  }
-}
-
 /* ---------------------------------------------------------- mixer (v3) --- */
 /* dev.mix = TRACK reply + pan per track ({sel, ntrk, tracks: [{engine, preset, level, mute, armed, pan}]}).
    Read on connect, after every RELOAD / sound change, with the slow safety DUMP and when the tab opens.
@@ -4233,6 +3805,7 @@ function onPush(f) {
       if (touched(k)) return;                       /* the user's value wins; their SET follows */
       const old = arr[c.id];
       arr[c.id] = c.value;
+      if (!c.scope && d.dump.engine===15 && c.id===d.info.pe0+7 && old!==c.value) buildGroups();
       showValue(k, c.value, false);
       blink(k);
       mixFromDump();
@@ -4322,6 +3895,7 @@ setInterval(async () => {
     if (d !== dev) return;
     const soundChanged = dump.engine !== d.dump.engine || dump.preset !== d.dump.preset;
     const engineChanged = dump.engine !== d.dump.engine;
+    const modeChanged = dump.engine===15 && dump.p[d.info.pe0+7]!==d.dump.p[d.info.pe0+7];
     const oldLen = d.dump.p[pSlen()];
     for (const [k, c] of ctl) {
       const v = c.scope ? dump.g[c.id] : dump.p[c.id];
@@ -4330,6 +3904,7 @@ setInterval(async () => {
     }
     d.dump = dump;
     if (engineChanged) await rereadEngineDesc();
+    else if (modeChanged) buildGroups();
     if (hasTracks()) await readMixer();             /* the strips (other tracks push nothing) */
     if (soundChanged) { updateBrowser(); await loadSteps(); sayK("ready"); return; }
     if (dump.p[pSlen()] !== oldLen) { $("steptables").dataset.len = ""; renderSteps(); }
@@ -4432,15 +4007,48 @@ setInterval(() => {
 }, 1000);
 
 /* ------------------------------------------------------------ files --- */
-$("savefile").addEventListener("click", () => {
+let czVoices=[{name:"INIT",raw:CZ.init()}],czTone=czVoices[0].raw.slice();
+function czRender() {
+  const root=$("czcontrols");root.replaceChildren();
+  const number=(label,value,min,max,change)=>{const input=el("input",{type:"number",min,max,value});input.style.width="5em";input.addEventListener("change",()=>{const n=Number(input.value);if(!Number.isInteger(n)||n<min||n>max){input.value=value;return;}change(n);});return el("label",{},label," ",input);};
+  const select=(label,value,options,change)=>{const input=el("select");options.forEach((n,i)=>input.append(el("option",{value:i},n)));input.value=value;input.addEventListener("change",()=>change(+input.value));return el("label",{},label," ",input);};
+  const name=el("input",{value:CZ.name(czTone),maxlength:16});name.addEventListener("change",()=>CZ.setName(czTone,name.value));
+  root.append(el("p",{class:"bar"},el("label",{},"Name ",name),select("Lines",czTone[0]&3,["1","2","1 + 1","1 + 2"],v=>czTone[0]=(czTone[0]&12)|v),select("Octave",czTone[0]>>2,["Normal","+1","−1"],v=>czTone[0]=(czTone[0]&3)|(v<<2)),select("Detune",czTone[1],["+","−"],v=>czTone[1]=v),number("Semitones",czTone[3],0,47,v=>czTone[3]=v),number("Fine",czTone[2]>>2,0,63,v=>czTone[2]=v<<2)));
+  for(let l=0;l<2;l++) {
+    const off=57*l,word=()=>czTone[14+off]|czTone[15+off]<<8,setWord=v=>{czTone[14+off]=v&255;czTone[15+off]=v>>8;};
+    const section=el("div",{class:"group"},el("h3",{},`Line ${l+1}`));
+    const waves=["Saw","Square","Pulse","Silent","Double sine","Saw / pulse","Resonance","Double pulse"];
+    section.append(el("p",{class:"bar"},select("Wave 1",word()>>13,waves,v=>setWord((word()&8191)|(v<<13))),select("Wave 2",word()&512?(word()>>10&7)+1:0,["Off",...waves],v=>setWord((word()&~(512|7168))|(v?512|((v-1)<<10):0))),select("Window",word()>>6&7,["None","Saw","Triangle","Trapezoid","Pulse","Double saw 5","Double saw 6","Double saw 7"],v=>setWord((word()&~448)|(v<<6))),number("Level",15-(czTone[17+off]>>4),1,15,v=>czTone[17+off]=(czTone[17+off]&15)|((15-v)<<4)),number("DCA key follow",czTone[17+off]&15,0,9,v=>czTone[17+off]=(czTone[17+off]&240)|v),number("DCW key follow",czTone[19+off],0,9,v=>{czTone[19+off]=v;czTone[18+off]=[0,25,51,78,106,134,163,193,223,255][v];})));
+    for(let e=0;e<3;e++) {
+      const base=CZ.ENV[l][e],end=CZ.END[l][e],table=el("table"),tbody=el("tbody");table.append(el("thead",{},el("tr",{},... ["Point","Rate","Level"].map(x=>el("th",{},x)))),tbody);
+      section.append(el("h3",{},["DCO · pitch","DCW · waveform","DCA · amplitude"][e]));
+      const sustain=Array.from({length:8},(_,k)=>k).find(k=>czTone[base+2*k+1]&128);
+      section.append(el("p",{class:"bar"},select("Sustain",sustain==null?0:sustain+1,["None",...Array.from({length:8},(_,k)=>String(k+1))],v=>{for(let k=0;k<8;k++)czTone[base+2*k+1]=(czTone[base+2*k+1]&127)|(v===k+1?128:0);}),select("End",czTone[end]&7,Array.from({length:8},(_,k)=>String(k+1)),v=>czTone[end]=(czTone[end]&240)|v),number("Velocity sensitivity",15-(czTone[end]>>4),0,15,v=>czTone[end]=(czTone[end]&15)|((15-v)<<4))));
+      for(let k=0;k<8;k++)tbody.append(el("tr",{},el("td",{},String(k+1)),el("td",{},number("",CZ.rate(czTone[base+2*k],e),0,99,v=>CZ.editPoint(czTone,l,e,k,"rate",v))),el("td",{},number("",CZ.level(czTone[base+2*k+1],e),0,99,v=>CZ.editPoint(czTone,l,e,k,"level",v)))));
+      section.append(table);
+    }root.append(section);
+  }
+  root.append(el("p",{class:"bar"},select("Modulation",czTone[14]&8?2:czTone[14]&32?1:0,["Off","Ring","Noise"],v=>czTone[14]=(czTone[14]&~40)|(v===1?32:v===2?8:0))));
+}
+$("czimport").addEventListener("click",()=>$("czfile").click());
+$("czfile").addEventListener("change",async()=>{const f=$("czfile").files[0];if(!f)return;try{czVoices=CZ.read(new Uint8Array(await f.arrayBuffer()),f.name).voices;$("czvoices").replaceChildren(...czVoices.map((v,i)=>el("option",{value:i},v.name)));czTone=czVoices[0].raw.slice();czRender();say(`Imported ${czVoices.length} CZ tones`);}catch(e){say(e.message);}finally{$("czfile").value="";}});
+$("czvoices").addEventListener("change",()=>{czTone=czVoices[+$("czvoices").value].raw.slice();czRender();});
+$("czread").addEventListener("click",()=>op(async()=>{const r=parse[CMD.CZ_GET](await rq(req.czGet(0,dev.sel||0)));if(r.rc)throw Error("Cannot read CZ tone");czTone=r.raw;czRender();say("CZ tone read from track");}));
+$("czsend").addEventListener("click",()=>op(async()=>{const d=dev;const r=parse[CMD.CZ_PUT](await rq(req.czPut(0,d.sel||0,czTone)));if(r.rc)throw Error("CZ tone rejected");await afterSoundChange("ready",d);}));
+$("czexport").addEventListener("click",()=>downloadBytes(`${fileSlug(CZ.name(czTone))}.syx`,CZ.sysex(czTone)));
+$("czlibrary").addEventListener("click",()=>libAdd([czLibraryPatch({name:CZ.name(czTone),raw:czTone},dev?.info||{})]).then(()=>say("CZ tone added to library")).catch(e=>say(e.message)));
+czRender();
+
+$("savefile").addEventListener("click", () => op(async () => {
   if (!dev) return;
   const engine = dev.dump.engine, preset = dev.dump.preset;
   const data = { format: "felucca-patch", version: 1, firmware: dev.info.version,
     engineName: dev.info.engines[engine], presetName: (dev.names[engine] || [])[preset],
     engine, preset, p: dev.dump.p.slice(), g: dev.dump.g.slice(),
     steps: dev.steps.map((s) => ({ n: s.n, notes: s.notes.slice(), time: s.time, flags: s.flags, vel: s.vel })) };
+  if(data.engine===15 && data.p[dev.info.pe0+7]===2) { const r=parse[CMD.CZ_GET](await rq(req.czGet(0,dev.sel||0)));if(r.rc)throw new Error("Cannot read native CZ patch");data.cz=r.raw; }
   download(`melodee-${fileSlug(data.engineName || "patch")}-${fileSlug(data.presetName || preset)}.json`, data);
-});
+}));
 $("loadfile").addEventListener("click", () => { $("file").value = ""; $("file").click(); });
 $("file").addEventListener("change", async () => {
   const f = $("file").files[0];
@@ -4450,13 +4058,15 @@ $("file").addEventListener("change", async () => {
   try {
     data = JSON.parse(await f.text());
     assertSession(session);
+    if(data.cz != null && (!CZ.valid(data.cz)||!session.info.cz))throw new Error("Invalid CZ patch or unsupported firmware");
     if (!Number.isInteger(data.engine) || !Number.isInteger(data.preset) || !Array.isArray(data.p)) throw new Error("engine / preset / p");
     if (data.engine < 0 || data.engine >= dev.info.nengines) throw new Error("engine " + data.engine);
   } catch (e) { if (e.message !== "closed") sayK("badfile", e.message); return; }
   const releaseBusy = beginBusy();
   try {
     selfLoad();
-    await rq(req.preset(data.engine, data.preset));
+    if(data.cz) { const r=parse[CMD.CZ_PUT](await rq(req.czPut(0,dev.sel||0,data.cz)));if(r.rc)throw new Error("CZ patch rejected"); }
+    else await rq(req.preset(data.engine, data.preset));
     dev.dump = await getDump();
     await rereadEngineDesc();
     const n = Math.min(data.p.length, dev.info.pcount);
@@ -4757,6 +4367,7 @@ $("factlib").addEventListener("click", () => libOp(async (d, rqf) => {
 function libPut(id, slot) {
   const p = lib.find((x) => x.id === id);
   if (!p || !dev || !dev.bank || slot == null || libBusy) return;
+  if(p.cz && !dev.info.cz) {say("Install firmware with native CZ support first");return;}
   const s = dev.bank.slots[slot];
   if (!engineOk(p)) { sayK("badEngine", p.engineName || p.engine); return; }
   if (s.used && !confirm(t("confirmOverwrite").replace("{n}", slotName(slot)).replace("{name}", s.name))) return;
@@ -4820,8 +4431,9 @@ $("libfile").addEventListener("change", async () => {
   let n = 0, skipped = 0;
   for (const f of [...$("libfile").files]) {
     try {
-      const obj = JSON.parse(await f.text());
       const ctx = libCtx();
+      if(/\.syx$/i.test(f.name)) { const imported=CZ.read(new Uint8Array(await f.arrayBuffer()),f.name);await libAdd(imported.voices.map(v=>czLibraryPatch(v,ctx)));n+=imported.voices.length;continue; }
+      const obj = JSON.parse(await f.text());
       const r = readLibraryFile(obj, ctx);
       if (!ctx.keys && r.keys) {                     /* no layout yet: the file's becomes the library's */
         libMeta = { keys: r.keys, engines: Array.isArray(obj.engines) ? obj.engines : null, pe0: obj.pE0 ?? null };
@@ -4867,7 +4479,7 @@ function bankGet(slot) {
   libOp(async (d, rqf) => {
     const u = await bank.get(rqf, dev.info, slot);
     if (!u.used) { sayK("emptySlot", slotName(slot)); return; }
-    const pt = { name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, pattern: u.pattern, grid: u.grid, tags: ["device"] };
+    const pt = { name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, cz:u.cz, pattern: u.pattern, grid: u.grid, tags: ["device"] };
     await libAdd([reservedFm4(dev.info.engines, u.engine) ? fromDigital(pt, dev.info.engines, dev.info.pe0) : pt]);
     sayK("copiedLib", u.name);
   });
@@ -4895,7 +4507,7 @@ $("bkexport").addEventListener("click", () => libOp(async (d, rqf) => {
     if (!x.used) continue;
     sayK("readingBank", ` ${slotName(x.slot)}`);
     const u = await bank.get(rqf, dev.info, x.slot);
-    if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, pattern: u.pattern, grid: u.grid, slot: x.slot,
+    if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, cz:u.cz, pattern: u.pattern, grid: u.grid, slot: x.slot,
       engineName: reservedFm4(dev.info.engines, u.engine) ? "DIGITAL" : dev.info.engines[u.engine] });   /* (DIGITAL's values) */
   }
   download(`melodee-bank-${today()}.json`, libraryFile("bank", out, libCtx()));

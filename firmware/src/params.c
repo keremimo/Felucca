@@ -42,8 +42,8 @@ static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"}
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR"};
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"};
-static const char *const N_ENGNAME[] = {"ANALOG", MELODEE_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN", "PHYS",
-                                             "DRUM", "NOISE", "FM6", MELODEE_SLICE ? "SLICE" : "-", "OBXF"};
+static const char *const N_ENGNAME[] = {"ANALOG", MELODEE_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "-", "VOICE", "TRIO", "WHEEL", "-", "PHYS",
+                                             "DRUM", "NOISE", "FM6", MELODEE_SLICE ? "SLICE" : "-", "-", "CZ-1"};
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
 #define PE(l, n, df) {l, F_ENUM, 0, (int16_t)(sizeof(n) / sizeof(n[0]) - 1), df, n, 0}
@@ -227,6 +227,8 @@ static const param_desc_t GP[G_COUNT] = {
 static uint32_t scale_count(const track_t *t);          /* seq.c */
 static const param_desc_t *track_desc(const track_t *t, uint32_t id)
 {
+    if (t->eng_req == 2u && id >= P_FM1_ATK && id <= P_FM4_LEVEL)
+        return &CZ_ED[id - P_FM1_ATK];
     if (id == P_MPCDEG) {                             /* a degree of the track's scale */
         static param_desc_t degree;
         degree = TP[P_MPCDEG];
@@ -245,6 +247,8 @@ static const param_desc_t *track_desc(const track_t *t, uint32_t id)
  * only; range and default are the same): what the editor protocol, user presets and projects use */
 static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
 {
+    if (e == 2u && id >= P_FM1_ATK && id <= P_FM4_LEVEL)
+        return &CZ_ED[id - P_FM1_ATK];
     return id >= P_E0 ? &ENGINES[e]->edit[id - P_E0] : &TP[id];
 }
 
@@ -253,7 +257,7 @@ static const param_desc_t *param_desc_of(uint32_t e, uint32_t id)
  * and the editor's SET lands on the original. -> the value v stands for */
 static int32_t enum_orig(const param_desc_t *d, int32_t v)
 {
-    return d->names == SMP_ALL_NAMES && v >= 0 && v < SMP_NSETS ? SMP_SET_ORIG[v] : v;
+    (void)d; return v;
 }
 
 /* a knob moved an F_ENUM from `from` to v: past any alias in that direction (back to `from` at the end) */
@@ -403,7 +407,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
        FAM_COUNT };
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
-       SC_FM6, SC_FMOP, SC_OBXF };                                 /* FM6: its patch, functions; operator fm6_opsel */
+       SC_FM6, SC_FMOP, SC_CZ };                                 /* FM6: its patch, functions; operator fm6_opsel */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHANCE, GR_MOTION, GR_CHORD, GR_SLICES,
        GR_FMEG, GR_FMPEG, GR_FMSTORE };                   /* FM6: an operator's envelope, the pitch EG, STORE */
@@ -430,34 +434,6 @@ static const page_t PAGES[] = {
     {"MPC", FAM_SCL, SC_TRACK, GR_NONE, {P_MPCDEG, 0xFF, 0xFF, 0xFF}},   /* QNT MPC only: the degree of pad H02 */
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},
-    /* OBXF: the full patch, after its eight neutral EDIT macros. */
-    {"OSC", FAM_EDIT, SC_OBXF, GR_NONE, {OX_O1P, OX_O2P, OX_DET, OX_SYNC}},
-    {"WAVES", FAM_EDIT, SC_OBXF, GR_NONE, {OX_SAW1, OX_PUL1, OX_SAW2, OX_PUL2}},
-    {"PW", FAM_EDIT, SC_OBXF, GR_NONE, {OX_PW, OX_PW2, OX_XMOD, OX_BRT}},
-    {"ENV MOD", FAM_EDIT, SC_OBXF, GR_NONE, {OX_EPIT, OX_EPB, OX_EPW, OX_EWB}},
-    {"ENV INV", FAM_EDIT, SC_OBXF, GR_NONE, {OX_EPI, OX_EWI, OX_KEY2, 0xFF}},
-    {"MIXER", FAM_EDIT, SC_OBXF, GR_NONE, {OX_MIX1, OX_MIX2, OX_RING, OX_NOISE}},
-    {"FILTER", FAM_EDIT, SC_OBXF, GR_NONE, {OX_CUT, OX_RES, OX_FAMT, OX_KTRK}},
-    {"FLT MODE", FAM_EDIT, SC_OBXF, GR_NONE, {OX_MODE, OX_FOUR, OX_BPB, OX_PUSH}},
-    {"XPANDER", FAM_EDIT, SC_OBXF, GR_NONE, {OX_XPD, OX_XPM, OX_NCOL, 0xFF}},
-    {"FILT ENV", FAM_EDIT, SC_OBXF, GR_NONE, {OX_FA, OX_FD, OX_FS, OX_FR}},
-    {"FENV 2", FAM_EDIT, SC_OBXF, GR_NONE, {OX_FCRV, OX_FVEL, OX_FINV, 0xFF}},
-    {"AMP ENV", FAM_EDIT, SC_OBXF, GR_NONE, {OX_AA, OX_AD, OX_AS, OX_AR}},
-    {"AENV 2", FAM_EDIT, SC_OBXF, GR_NONE, {OX_ACRV, OX_AVEL, 0xFF, 0xFF}},
-    {"LFO1 A", FAM_EDIT, SC_OBXF, GR_NONE, {OX_L1RATE, OX_L1SYNC, OX_L1PW, OX_L1A1}},
-    {"LFO1 B", FAM_EDIT, SC_OBXF, GR_NONE, {OX_L1W1, OX_L1W2, OX_L1W3, OX_L1A2}},
-    {"LFO1 C", FAM_EDIT, SC_OBXF, GR_NONE, {OX_L1P1, OX_L1P2, OX_L1CUT, OX_L1VOL}},
-    {"LFO1 PW", FAM_EDIT, SC_OBXF, GR_NONE, {OX_L1PW1, OX_L1PW2, 0xFF, 0xFF}},
-    {"LFO2 A", FAM_EDIT, SC_OBXF, GR_NONE, {OX_L2RATE, OX_L2SYNC, OX_L2PW, OX_L2A1}},
-    {"LFO2 B", FAM_EDIT, SC_OBXF, GR_NONE, {OX_L2W1, OX_L2W2, OX_L2W3, OX_L2A2}},
-    {"LFO2 C", FAM_EDIT, SC_OBXF, GR_NONE, {OX_L2P1, OX_L2P2, OX_L2CUT, OX_L2VOL}},
-    {"LFO2 PW", FAM_EDIT, SC_OBXF, GR_NONE, {OX_L2PW1, OX_L2PW2, 0xFF, 0xFF}},
-    {"OB VOICE", FAM_EDIT, SC_OBXF, GR_NONE, {OX_POLY, OX_UNI, OX_UNIV, OX_UDET}},
-    {"OB GLIDE", FAM_EDIT, SC_OBXF, GR_NONE, {OX_PORTA, OX_LEG, OX_PRIO, OX_TRNS}},
-    {"CONTROL", FAM_EDIT, SC_OBXF, GR_NONE, {OX_BUP, OX_BDN, OX_BO2, OX_TUNE}},
-    {"VIB/VOL", FAM_EDIT, SC_OBXF, GR_NONE, {OX_VWAV, OX_VRATE, OX_VOL, 0xFF}},
-    {"SLOP", FAM_EDIT, SC_OBXF, GR_NONE, {OX_SPOR, OX_SCUT, OX_SENV, OX_SLVL}},
-    {"SLICES", FAM_EDIT, SC_TRACK, GR_SLICES, {0xFF, 0xFF, 0xFF, 0xFF}},   /* SLICE only: the slices by hand (ui_slice.c) */
     /* FM6 only (page_visible): the patch as the DX7 has it, its operators (PRESETS picks one), the functions */
     {"STORE", FAM_EDIT, SC_FM6, GR_FMSTORE, {0, 1, 2, 3}},   /* SLOT STORE SEND INIT (ui_input.c act_do) */
     {"ALGO", FAM_EDIT, SC_FM6, GR_NONE, {FP_ALG, FP_FB, FP_OKS, FP_TRNSP}},
@@ -476,6 +452,12 @@ static const page_t PAGES[] = {
     {"FM PORTA", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_PMODE, FP_SIZE + FN_PTIME, FP_SIZE + FN_GLISS, FP_SIZE + FN_ENGINE}},
     {"FM WH/FT", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_MWR, FP_SIZE + FN_MWA, FP_SIZE + FN_FCR, FP_SIZE + FN_FCA}},
     {"FM BR/AT", FAM_EDIT, SC_FM6, GR_NONE, {FP_SIZE + FN_BCR, FP_SIZE + FN_BCA, FP_SIZE + FN_ATR, FP_SIZE + FN_ATA}},
+    /* PHASE: the retired FM4 storage fields hold split CZ envelopes. */
+    {"DCW1 ENV", FAM_EDIT, SC_CZ, GR_NONE, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_REL}},
+    {"DCW2 ENV", FAM_EDIT, SC_CZ, GR_NONE, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_REL}},
+    {"DCA2 ENV", FAM_EDIT, SC_CZ, GR_NONE, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
+    {"DCO ENV", FAM_EDIT, SC_CZ, GR_NONE, {P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL}},
+    {"CZ LEVEL", FAM_EDIT, SC_CZ, GR_NONE, {P_FM1_LEVEL, P_FM2_LEVEL, P_FM3_LEVEL, P_FM4_LEVEL}},
     {"OP1 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM1_ATK, P_FM1_DEC, P_FM1_SUS, P_FM1_REL}},
     {"OP2 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM2_ATK, P_FM2_DEC, P_FM2_SUS, P_FM2_REL}},
     {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
@@ -559,29 +541,9 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
     fm6_put_patch(tr, v, 0);
 }
 
-/* OBXF values stay at their stored precision until a knob edits them. */
-static int16_t obxf_cell[4];
-static const param_desc_t *obxf_page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
-{
-    uint32_t id = pg->id[slot & 3u], tr = song.sel % NTRK;
-    *valp = 0;
-    if (id >= OX_NP || TSEL->eng_req != ENGI_OBXF) return 0;
-    obxf_cell[slot & 3u] = (int16_t)oxf_ui(id, obxf_patch[tr][id]);
-    *valp = &obxf_cell[slot & 3u];
-    return &OXF_PD[id];
-}
-static void obxf_page_put(const page_t *pg, uint32_t slot, int32_t val)
-{
-    uint32_t id = pg->id[slot & 3u];
-    if (id < OX_NP && TSEL->eng_req == ENGI_OBXF)
-        obxf_put(song.sel, id, oxf_from_ui(id, val));
-}
-
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
-    if (pg->scope == SC_OBXF)
-        return obxf_page_desc(pg, slot, valp);
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP)
         return fm6_page_desc(pg, slot, valp);
     if (id == 0xFFu) {

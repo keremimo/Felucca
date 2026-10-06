@@ -21,7 +21,7 @@
  * Bank projects occupy 0xA0000..0xC7FFF, two five-sector copies per slot.
  * User samples are disabled: this area must never accept sample uploads.
  * Existing flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..): settings 0xFC000, projects 0x97000..0x9EFFF,
- * user sample slots 0xA0000..0xDBFFF (eng_sample.c), user preset banks 0xDC000..0xDFFFF (upreset.c), the FM6
+ * user sample slots 0xA0000..0xDBFFF (sample_data.c), user preset banks 0xDC000..0xDFFFF (upreset.c), the FM6
  * patch bank (fm6_bank.c): copy A 0x9F000, copy B 0xFE000 (the two free sectors) */
 enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_BANK0, OBJ_COUNT = OBJ_BANK0 + 4 };
 

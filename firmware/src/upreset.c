@@ -32,6 +32,8 @@
  * With -DUP_HOST (host test) only the part above #ifndef UP_HOST is built;
  * it needs nothing but core.h. */
 #define UP_PER_BANK 16u
+#include "cz_patch.h"
+#define UP_VER_CZ 6u                            /* native CZ-1 bytes in the 144-byte payload */
 #define UP_PMAX 72u                              /* room for P_COUNT to grow */
 #define UP_USED 0xA5u
 #define UP_VER 4u                                /* 2 since 1.0; 1 is read too (PHYS MODEL 2 was DUST) */
@@ -57,6 +59,8 @@ static up_rec_t *up_rec(uint32_t k) { return &up_bank[k / UP_PER_BANK].r[k % UP_
 
 static int up_valid(const up_rec_t *r)
 {
+    if (r->used == UP_USED && r->ver == UP_VER_CZ)
+        return r->engine == ENGI_CZ && r->np == P_COUNT && r->name[0] && cz_patch_valid(r->packed);
     if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < NENGINES &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
     /* Pre-1.0 Melodee reused UPB1/version 1, but its MPC/chord ids and engine 9 mean different things.
@@ -79,6 +83,7 @@ static void up_migrate(up_rec_t *r)
 {
     int16_t e[8]; uint32_t k;
     if (!up_valid(r)) return;
+    if (r->ver == UP_VER_CZ) return;
     for (k = 0; k < 8u; k++) e[k] = up_value(r, r->np - 8u + k);
     if (drum_from_phys(r->engine, e)) {
         r->engine = ENGI_DRUM;
@@ -101,6 +106,7 @@ static void up_bank_check(uint32_t b, int len)  /* after loading bank b (len byt
 /* the record's values in today's P_* order (mapped by count, see above); def = the defaults */
 static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
 {
+    if (r->ver == UP_VER_CZ) { memcpy(out, def, P_COUNT * sizeof *out); out[P_E7] = CZ_NATIVE; return; }
     int16_t values[UP_PMAX * 2u];
     for (uint32_t i = 0; i < r->np && i < NELEM(values); i++) values[i] = up_value(r, i);
     params_by_count(out, values, r->np, def);
@@ -339,6 +345,10 @@ static int up_store(uint32_t k, const char *name)
     up_set_name(&r, k, name);
     for (i = 0; i < P_COUNT; i++)
         up_set_value(&r, i, motion_base_value(TSEL, i));
+    if (r.engine == ENGI_CZ && TSEL->p[P_E7] == CZ_NATIVE) {
+        r.ver = UP_VER_CZ;
+        memcpy(r.packed, cz_patch[song.sel % NTRK].raw, CZ_BYTES);
+    }
     up_pat_from(&r, TSEL->step);
     if (drum_track(TSEL)) {                             /* a DRUM track that strikes a lane: its grid */
         uint32_t any = 0;
@@ -397,9 +407,9 @@ static int up_load(uint32_t k)
             if (!param_kept(i))
                 t->p[i] = v[i];
         t->preset = 0;
+        if (r->ver == UP_VER_CZ) memcpy(cz_patch[song.sel % NTRK].raw, r->packed, CZ_BYTES);
         fm1_irq_on();
         fm6_track_loaded(t);                            /* FM6: a user preset holds the PTCH and the macros */
-        obxf_track_loaded(t, 0);                        /* OBXF: the same (and its own voice mode) */
     }
     t->user = (uint8_t)(k + 1u);
     load_end(t);

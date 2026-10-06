@@ -61,12 +61,6 @@ static void mapping_test(void)
     for (k = 0; k < 27u; k++)
         assert(kb_map(t, k) == 48u + k);
     t->p[P_QUANT] = 2;
-    t->engine = t->eng_req = 4;                /* SAMPLE PERC (the GM kit, any part): the first C is the kick */
-    if (smp_perc_set() >= 0) {
-        t->p[P_E0] = (int16_t)smp_perc_set();
-        for (k = 0; k < 27u; k++)
-            assert(kb_map(t, k) == 29u + k);
-    }
     t->engine = t->eng_req = 0;                /* SNAP (QNT 1, the old ON): every key, rounded down */
     t->p[P_QUANT] = 1;
     t->p[P_SCALE] = 2;                         /* C minor */

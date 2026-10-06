@@ -55,7 +55,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 SAMPLE, 5 VOICE, 6 TRIO, 7 WHEEL, 8 GRAIN, 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 SLICE (reserved without `MELODEE_SLICE`), 14 OBXF (NENGINES 15). The device and the editor list them in another order (ANALOG FM6 OBXF PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS NOISE SLICE DRUM: `ENGINE_ORDER`); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 reserved (SAMPLE retired), 5 VOICE, 6 TRIO, 7 WHEEL, 8 reserved (GRAIN retired), 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 reserved (OBXF retired), 15 CZ-1 (NENGINES 16). The device and the editor list them in another order (ANALOG FM6 PHASE CZ-1 LOFI VOICE TRIO WHEEL PHYS NOISE DRUM: `ENGINE_ORDER`); the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (83..90), and `INFO` gives `P_E0`.
 Their meaning, range and names depend on the current engine, so re-read `DESC` for them
@@ -431,7 +431,7 @@ Flash objects 8..11 have two five-sector copies each at 0xA0000..0xC7FFF; CRC-ve
 its header-last commit. The old single-sector project objects remain readable for migration. Old FUN8,
 FUN7 and older supported single-pattern projects become bank 1, with other banks empty and the old
 project-based SONG cleared. USR1–3 are removed; sample commands refuse uploads/erases and SMP_INFO
-reports zero slots. Built-in samples and BREAK stay available. Writable SLICES pages are hidden.
+reports zero slots. Recorded material and SAMPLE/GRAIN/SLICE are removed. DRUM provides only synthesized 808.
 
 Current BACKUP_LIST has nine objects: 0 runtime (FBK9), 1 settings/template, 2..5 saved projects (FBK9 or
 an older format before first save), 6..7 user presets and 8 FM6 bank. PUT accepts 20224-byte FBK9, 3584-byte
@@ -663,12 +663,27 @@ On-device OBXF pages edit the full 95-value patch (HQ is retained but not render
 User presets retain PTCH and macros, like FM6. Projects, templates and runtime backups retain the edited patch
 and its name, independently of PTCH. Full-patch SysEx transfer and dedicated web pages are deferred.
 
-FUN9 (4396 bytes) retains FUN8's data and FM6 offsets, then adds four OBXF records (95 little-endian
-uint16 values and 13 name bytes) before the project name/checksum. Continuous values are normalized times
-16256; discrete values are biased by their minimum. TPL7 adds those same records to TPL6.
-FBKA (19244 bytes) contains FUN9 and all 32 banks inside the existing five-sector A/B flash allocation.
-Its inactive steps pack into 8 bytes: four 7-bit notes, `n+5*time` (4 bits), flags (2), velocity (7), hits
-and accents (8 each), probability (7), least-significant bit first. FUN1..FUN8, TPL5/6 and FBK9 remain readable;
-old firmware rejects FUN9/TPL7/FBKA. The object ids and backup framing stay unchanged.
+## Native CZ-1 tones (commands 75/76)
 
-OBXF uses at most two native voices when one part uses a simple patch; it reserves one shared native voice for layered waveforms, oscillator modulation or several selected OBXF parts. Larger factory unison/polyphony settings remain stored but are bounded during playback; HQ is stored and ignored.
+INFO advertises native tones with the tagged capability `43 01 10 01` (hex):
+CZ support, version 1, 16-byte native names, bank support. Retired sample commands
+no longer upload material; SMP_INFO reports zero factory and user slots.
+
+- **75 CZ_GET**: arguments `target index`; target 0 = track (0..3), 1 = user preset
+  (0..127). Reply `target index rc`, followed on success by 288 low-first nibbles
+  encoding the complete 144-byte native tone.
+- **76 CZ_PUT**: arguments `target index` followed by those 288 nibbles. For a bank
+  slot only, an optional 32-byte ordinary pattern may follow. Reply `target index rc`.
+
+Invalid lengths, nibble values and native synthesis parameters are rejected before
+changing the track or flash. An unused/non-native preset GET returns an error.
+Track PUT selects engine 15 (CZ-1), native tone marker 2, resets the ordinary sound controls to
+neutral defaults, and preserves the track's musical/routing settings.
+Preset record version 6 preserves the full native bytes in the fixed 192-byte record.
+FUN10 projects (4160 bytes), FBKB pattern banks (19008 bytes) and TPL8 templates preserve each track's native
+tone; older formats remain readable. See [native tones](../docs/CZ1_SYSEX.md).
+
+DRUM now has one factory preset, **808 KIT** (index 0); KIT's stored value stays 4.
+Older custom KIT values render the 808. No 909 is included.
+
+OBXF is removed from synthesis, presets, editing and patch storage. Engine 14 stays reserved.

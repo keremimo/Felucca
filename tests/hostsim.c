@@ -5,10 +5,10 @@
  *   tests/run_tests.sh builds it into build/host/;
  *   build/host/hostsim ENGINE PRESET MONO OUT.wav [CHORUS]
  * env: SECS=n renders n s (the 2 s note pattern repeats), CHORD[=k] holds k keys
- * (default 4, up to 8), DRUMS=1 adds GM drum hits (part 4: SAMPLE PERC), BENCH=1 prints the render time,
+ * (default 4, up to 8), DRUMS=1 adds GM drum hits (part 4: 808 DRUM), BENCH=1 prints the render time,
  * DIST=d, LEVEL=l, SENDS=c,d,r, SWEEP=1, NOTE=k, OCT=o, PSET=id:v,..., VSWEEP=1, PSWEEP=id:a:b,
  * PRESET=1 (the whole preset: sends, voice mode), STEPS=n,n,... (a pattern, 0 = rest; see below).
- * TRACKS=DIR: the 4-track test (tracks_demo below): a bass / pad / lead / drums (SAMPLE PERC) pattern
+ * TRACKS=DIR: the 4-track test (tracks_demo below): a bass / pad / lead / drums (808 DRUM) pattern
  * with live recording into DIR (mix + solos), checks, and the cost against one track. */
 #include <stdio.h>
 #include <unistd.h>
@@ -70,6 +70,7 @@ static uint64_t now_ns(void)
 
 static void host_tracks_init(void)                /* as melodee_init: defaults, empty patterns */
 {
+    cz_init();
     pattern_init();
     uint32_t i, k;
     for (i = 0; i < G_COUNT; i++)
@@ -102,8 +103,8 @@ static void host_preset_values(track_t *t, uint32_t e, uint32_t pi, const preset
     t->p[P_VOICE] = p->mono ? V_LEGATO : V_POLY;
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = (int16_t)(p->fx[i] ? p->fx[i] - 1 : FX_DEF[i]);
+    cz_factory_loaded(t);
     fm6_track_loaded(t);                          /* FM6: the preset's patch (ui.c apply_preset_to) */
-    obxf_track_loaded(t, 1);                      /* OBXF: the same */
 }
 static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
 {
@@ -139,10 +140,9 @@ static void host_preset(track_t *t, uint32_t e, uint32_t pi)
 }
 
 /* Explicit legacy fixture: hidden from factory browsing, still used by saved GM projects. */
-static void host_legacy_sample_perc(track_t *t)
+static void host_808_kit(track_t *t)
 {
-    host_preset_values(t, 4, 0, &SMP_PRESET_TABLE[SMP_PERC_PRESET]);
-    t->engine = 4;
+    host_preset(t, ENGI_DRUM, 0);
 }
 
 static void put_step(track_t *t, uint32_t i, uint32_t n, const uint8_t *notes, uint32_t time, uint32_t flags)
@@ -166,7 +166,7 @@ static uint32_t busy_now(void)                   /* sounding voices of the parts
     return n;
 }
 
-/* drum hits on part 4 (SAMPLE PERC, the GM kit): kick on the beats, snare on 2 and 4, hats on the 16ths
+/* drum hits on part 4 (808 DRUM, the GM kit): kick on the beats, snare on 2 and 4, hats on the 16ths
  * (k: 16ths since the start), each released at the next (a one-shot plays on through its release) */
 static void drum_hit(uint32_t k)
 {
@@ -189,7 +189,7 @@ static uint32_t started_since(const track_t *t, uint32_t a0)
 
 /* the demo song: T1 ANALOG ACID (16 steps), T2 the power-on pad (TRK_DEF: FM6 PAD; DIGITAL PAD until it was
  * retired) (32 steps, tied chords), T3 LOFI PULSE LD
- * (12 steps: 3 against 4), T4 SAMPLE PERC drums (16 steps, up to 3 notes a step); 120 BPM, 8 bars. Bars 5..6:
+ * (12 steps: 3 against 4), T4 808 DRUM drums (16 steps, up to 3 notes a step); 120 BPM, 8 bars. Bars 5..6:
  * live recording: a clap into the drums just before step 4 (quantised onto it, not triggered twice),
  * MIDI ch 3 into the lead, a two-key chord on the keys into an empty pad step. solo: 0 = the mix,
  * 1..4 = that track only. Writes DIR/NAME; returns the number of failed checks. */
@@ -215,7 +215,7 @@ static int tracks_demo(const char *dir, const char *name, uint32_t solo)
     host_preset(t1, 0, 4);
     host_preset(t2, TRK_DEF[1][0], TRK_DEF[1][1]);
     host_preset(t3, 3, 0);
-    host_legacy_sample_perc(td);                   /* saved SAMPLE PERC sound */
+    host_808_kit(td);                   /* saved 808 DRUM sound */
     for (i = 0; i < 16u; i++) {
         uint8_t n = ACID[i];
         put_step(t1, i, n ? 1u : 0u, &n, n ? ST_NOTE : ST_REST, ACIDF[i]);
@@ -299,12 +299,12 @@ static int tracks_demo(const char *dir, const char *name, uint32_t solo)
         return bmax > NVOICE;
     {
         const step_t *s3 = &td->step[3], *s4 = &td->step[4], *l1 = &t3->step[1], *p14 = &t2->step[14];
-        int ok_clap = s3->time == ST_NOTE && s3->n == 1u && s3->note[0] == 39u &&
+        int ok_clap = s3->time == ST_NOTE && s3->n == 0u && (s3->hit & (1u << DV_CLAP)) &&
                       s4->n == 3u && s4->note[0] == 36 && s4->note[1] == 38 && s4->note[2] == 42 && clap_hits == 3u;
         int ok_lead = l1->n == 1u && l1->note[0] == 84u && l1->time == ST_NOTE;
         int ok_keys = p14->n == 2u && p14->time == ST_NOTE && p14->note[0] == 60u && p14->note[1] == 64u;
         printf("tracks: recording: late clap 39 on step 3 = %u; step 4 keeps %u notes, triggers %u hits "
-               "(want 3: no repeated clap) %s\n", s3->note[0], s4->n, clap_hits,
+               "(want 3: no repeated clap) %s\n", (s3->hit & (1u << DV_CLAP)) ? 39u : 0u, s4->n, clap_hits,
                ok_clap ? "ok" : "FAIL");
         printf("tracks: recording: MIDI ch 3 -> lead step 1 = %u (want 84) %s; keys -> pad step 14 = %u notes %u %u %s\n",
                l1->note[0], ok_lead ? "ok" : "FAIL", p14->n, p14->note[0], p14->note[1], ok_keys ? "ok" : "FAIL");
@@ -335,8 +335,8 @@ static double tracks_cost(const uint8_t parts[NPART][3], uint32_t *busy_max)
         int32_t o[2 * CTL];
         host_tracks_init();
         for (p = 0; p < NPART; p++) {
-            if (parts[p][0] == 4u && parts[p][1] == SMP_PERC_PRESET)
-                host_legacy_sample_perc(&trk[p]);
+            if (parts[p][0] == 4u)
+                host_808_kit(&trk[p]);
             else
                 host_preset(&trk[p], parts[p][0], parts[p][1]);
             if (parts[p][2] == DRUM_HITS)
@@ -844,7 +844,6 @@ int main(int argc, char **argv)
         inst.p[P_SUS] = p->env[2]; inst.p[P_REL] = p->env[3]; inst.p[P_ED_FLT] = p->fenv;
     }
     fm6_track_loaded(&inst);                            /* FM6: the preset's patch */
-    obxf_track_loaded(&inst, 0);                        /* OBXF: the same */
     inst.p[P_VOICE] = (int16_t)mono;
     inst.p[P_CHOR] = argc > 5 ? atoi(argv[5]) : 24;      /* as melodee_init */
     inst.p[P_DLY] = argc > 5 ? atoi(argv[5]) : 28;
@@ -904,9 +903,9 @@ int main(int argc, char **argv)
                 n |= 1u << K[k];
             fm1_in.notes = (fp > FS / 10 && fp < FS * 3 / 2) ? n : 0;
         }
-        if (getenv("DRUMS") && fp % (FS / 8u) < CTL) {   /* part 4 SAMPLE PERC: drum_hit on 16ths */
+        if (getenv("DRUMS") && fp % (FS / 8u) < CTL) {   /* part 4 808 DRUM: drum_hit on 16ths */
             if (!f)
-                host_legacy_sample_perc(&trk[3]);
+                host_808_kit(&trk[3]);
             drum_hit(f / (FS / 8u));
         }
         if (getenv("DIST"))

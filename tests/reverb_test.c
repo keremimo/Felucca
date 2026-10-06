@@ -382,7 +382,7 @@ static void demo(const char *dir, const char *name, int rtype, int pluck)
         for (i = 0; i < 16u; i++)
             put_step(tr, i, PL[i] ? 1u : 0u, &PL[i], PL[i] ? ST_NOTE : ST_REST, 0);
     } else {
-        host_legacy_sample_perc(tr);                               /* the GM kit */
+        host_808_kit(tr);                               /* the GM kit */
         for (i = 0; i < 16u; i++) {
             uint8_t dn[3], k = 0;
             if (i % 4u == 0u || i == 10u) dn[k++] = 36;

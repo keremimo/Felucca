@@ -491,10 +491,7 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max));
     *vp = (int16_t)v;
-    if (pg->scope == SC_OBXF) {
-        obxf_page_put(pg, slot, v);
-        return;
-    } else if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* (a copy of FM6's value: written back there) */
+    if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* (a copy of FM6's value: written back there) */
         fm6_page_put(pg, slot, v);
         return;
     }
@@ -933,7 +930,6 @@ static void ui_input(void)
         ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
     }
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
-    obxf_poll();                                        /* OBXF: the same */
 #if !MELODEE_FM4
     for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */
         if (trk[k].eng_req == ENGI_DIGITAL)             /* already): FM6 (fm4_convert.c) */

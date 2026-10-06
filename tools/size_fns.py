@@ -17,7 +17,7 @@ SRC = _ROOT / "firmware" / "src" if (_ROOT / "firmware" / "src").is_dir() else _
 # the UI, the stores, the editor and the console: main loop only, never called by sound code
 SIZE_FILES = ["ui.c", "favorites.c", "icons.c", "ui_graph.c", "ui_draw.c", "ui_menu.c", "ui_input.c",
               "storage.c", "upreset.c", "project.c", "settings_persist.c",
-              "editor.c", "editor_preferences.c", "editor_backup.c", "console.c"]
+              "editor.c", "editor_cz.c", "cz_patch.h", "pattern_store.c", "editor_fm6.c", "fm6_bank.c", "editor_preferences.c", "editor_backup.c", "console.c"]
 DEF = re.compile(r"^(?:static|void|int|uint\w*|int\w*|const)\b[^;=(]*?\b([A-Za-z_]\w*)\s*\(", re.M)
 IR_DEF = re.compile(r"^(define [^\n]*?@\"?([\w.]+)\"?\([^\n]*\)(?: unnamed_addr| local_unnamed_addr)?)( #\d+[^\n]*\{)$",
                     re.M)
@@ -55,7 +55,21 @@ def main(src, dst):
             return m.group(0)
         hit.add(m.group(2))
         return m.group(1) + " minsize" + m.group(3)
-    Path(dst).write_text(IR_DEF.sub(mark, Path(src).read_text()))
+    ir = IR_DEF.sub(mark, Path(src).read_text())
+    attrs = {int(n): a for n,a in re.findall(r"^attributes #(\d+) = (.*)$",ir,re.M)}
+    nextattr = max(attrs)+1
+    hotattrs = {}
+    def hot(m):
+        nonlocal nextattr
+        num = int(m.group(2))
+        if num not in hotattrs:
+            hotattrs[num] = nextattr
+            nextattr += 1
+        return m.group(1) + "#" + str(hotattrs[num]) + m.group(3)
+    ir = re.sub(r'^(define [^\n]+ )#(\d+)( section ".dsp_text"[^\n]*\{)$',hot,ir,flags=re.M)
+    for n,new in hotattrs.items():
+        ir += "\nattributes #"+str(new)+" = "+attrs[n].replace("optsize ","")+"\n"
+    Path(dst).write_text(ir)
     print(f"size: {len(hit)} main-loop functions built for size ({len(names) - len(hit)} not in this build)")
     return 0
 

@@ -1,18 +1,18 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* FBKA: a FUN9 sound/current-pattern record plus seven other banks per track,
+/* FBKB: a FUN10 sound/current-pattern record plus seven other banks per track,
  * all bank timings, arrangement assignments and bounded motion bank tags.
- * Five sectors per A/B copy; the 19,244-byte record is validated in main-loop
+ * Five sectors per A/B copy; the 19,008-byte record is validated in main-loop
  * staging before any runtime state is replaced. */
-/* FBKA stores the FUN9 patches without growing the five-sector flash object. Its extra
+/* FBKB stores the FUN10 patches without growing the five-sector flash object. Its extra
  * steps use exactly 64 bits: four 7-bit notes, n+5*time (4 bits), flags (2), velocity (7),
  * hits/accents (8 each), probability (7). FBK9 remains readable at its frozen offsets. */
 #define BANK_MAGIC9 0x394B4246u
 #define BANK_SIZE9 20224u
-#define BANK_MAGIC 0x414B4246u
-#define BANK_STORE_SIZE 19244u
+#define BANK_MAGIC 0x424B4246u
+#define BANK_STORE_SIZE (BANK_SIZE9 - NTRK * (NPAT - 1u) * NSTEP + PROJ_CZ_BYTES)
 static uint32_t bank_v9;
 #define BANK_PROJ_SIZE (bank_v9 ? PROJ_STORE_V8 : PROJ_STORE_SIZE)
-#define BANK_STEP_SIZE (bank_v9 ? 9u : 8u)
+#define BANK_STEP_SIZE (bank_v9 == 1u ? 9u : 8u)
 #define BANK_ACTIVE_OFF (8u + BANK_PROJ_SIZE)
 #define BANK_EXTRA_OFF (BANK_ACTIVE_OFF + NTRK)
 #define BANK_TIMING_OFF (BANK_EXTRA_OFF + NTRK * (NPAT - 1u) * NSTEP * BANK_STEP_SIZE)
@@ -51,7 +51,7 @@ static uint32_t bank_bits_get(const uint8_t *b, uint32_t *pos, uint32_t n)
 static int bank_step_unpack(step_t *s, const uint8_t *b)
 {
     uint32_t pos = 0, i, meta;
-    if (bank_v9) return bank_step9_unpack(s, b);
+    if (bank_v9 == 1u) return bank_step9_unpack(s, b);
     for (i = 0; i < 4u; i++) s->note[i] = (uint8_t)bank_bits_get(b, &pos, 7u);
     meta = bank_bits_get(b, &pos, 4u); s->n = meta % 5u; s->time = meta / 5u;
     s->flags = (uint8_t)bank_bits_get(b, &pos, 2u); s->vel = (uint8_t)bank_bits_get(b, &pos, 7u);
@@ -180,17 +180,17 @@ static void bank_restore(const uint8_t *raw)
 }
 
 /* Upgrade a validated FBK9 in place, before re-saving/renaming/restoring an archive.
- * Compact first at the old start, then slide the compact region to FUN9's end. */
+ * Compact first at the old start, then slide the compact region to FUN10's end. */
 static void bank_upgrade(uint8_t *raw)
 {
-    uint32_t old_start, old_tail, old_fn, new_start, new_tail, new_fn;
+    uint32_t old_start, old_tail, old_fn, new_start, new_tail, new_fn, old_proj, old_step;
     if (!bank_v9) return;
-    old_start = BANK_EXTRA_OFF; old_tail = BANK_TIMING_OFF; old_fn = BANK_FN_OFF;
+    old_start = BANK_EXTRA_OFF; old_tail = BANK_TIMING_OFF; old_fn = BANK_FN_OFF; old_proj = BANK_PROJ_SIZE; old_step = BANK_STEP_SIZE;
     bank_v9 = 0; new_start = BANK_EXTRA_OFF; new_tail = BANK_TIMING_OFF; new_fn = BANK_FN_OFF;
     uint8_t active[NTRK], tail[512];
-    memcpy(active, raw + 8u + PROJ_STORE_V8, sizeof active);
+    memcpy(active, raw + 8u + old_proj, sizeof active);
     memcpy(tail, raw + old_tail, old_fn + 4u + NTRK * FM6_NFN - old_tail);
-    for (uint32_t i = 0; i < NTRK * (NPAT - 1u) * NSTEP; i++) {
+    for (uint32_t i = 0; old_step == 9u && i < NTRK * (NPAT - 1u) * NSTEP; i++) {
         step_t st; bank_step9_unpack(&st, raw + old_start + i * 9u);
         bank_step_pack(raw + old_start + i * 8u, &st);
     }

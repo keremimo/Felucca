@@ -148,3 +148,11 @@ static inline uint32_t cents_inc(int32_t pitch16, int32_t ct, int32_t fine)
     uint32_t inc = pitch_inc(clamp(pitch16 + d16, 0, 2047));
     return inc + (uint32_t)((int32_t)(inc >> 12) * (rem * 2367 / 16000 + fine));
 }
+
+/* 2^(i/192), Q16: pitch ratios in 1/16 semitones, d16 >= -3072 (16 octaves down) */
+static uint32_t pow2_q16(int32_t d16)
+{
+    uint32_t u = (uint32_t)(d16 + 192 * 16), oct = u / 192u;     /* no loop for negative d16 */
+    uint32_t r = pitch_inc(1600 + u % 192u) / (pitch_inc(1600) >> 16);   /* 2^(d/192) via the pitch table */
+    return oct >= 16u ? r << (oct - 16u) : r >> (16u - oct);
+}

@@ -46,7 +46,7 @@ static void panel_setup(void) {}
 static uint32_t flash_ok = 1;
 static void audio_silence(void) {}
 static void fl_inval(uint32_t off, uint32_t n) { (void)off; (void)n; }
-static uint8_t *host_flash_ptr(uint32_t off) { return &host_samples[0][0] + off - SMP_USER_BASE; }
+static uint8_t *host_flash_ptr(uint32_t off) { return &host_samples[0][0] + off - 0xA0000u; }
 static int fl_erase4k(uint32_t off, uint32_t *took)
 {
     memset(host_flash_ptr(off), 0xFF, 4096); *took = 0; host_erases++; return 0;
@@ -75,7 +75,7 @@ static void reset(void)
     memset(&ed_w, 0, sizeof ed_w); memset(&ui, 0, sizeof ui);
     memset(&favorites, 0, sizeof favorites); memset(&settings, 0, sizeof settings); settings_init();
     memset(proj_slot, 0, sizeof proj_slot); memset(up_bank, 0, sizeof up_bank);
-    memset(&um, 0, sizeof um); memset(usr_nz, 0, sizeof usr_nz);
+    memset(&um, 0, sizeof um);
     host_progress = 1; host_erases = host_writes = host_wire_n = 0;
     transport_req = panic_req = 0; sx_ready = sx_collect = sx_busy = 0;
     so_r = so_w = mi_r = mi_w = 0; midi_in_overflow = 0; usb.config = 1;
@@ -113,14 +113,14 @@ static int preferences(void)
     uint32_t n = request(ED_INFO, a, 0);
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
-        host_wire[n - 20] == 0 && host_wire[n - 19] == 0x55 &&
-        host_wire[n - 18] == 1 && host_wire[n - 17] == 9 &&
-        host_wire[n - 16] == 0x4d && host_wire[n - 15] == 1 &&
-        host_wire[n - 14] == MOTION_MAX && host_wire[n - 13] == 1 &&
-        host_wire[n - 12] == 0x42 && host_wire[n - 11] == 1 && host_wire[n - 10] == 3 &&
-        host_wire[n - 9] == 0x50 && host_wire[n - 8] == 1 && host_wire[n - 7] == NPAT && host_wire[n - 6] == CHAIN_ROWS &&
-        host_wire[n - 5] == 0x46 && host_wire[n - 4] == 1 && host_wire[n - 3] == FM6_NFAC &&
-        host_wire[n - 2] == FM6_BANK_N);
+        host_wire[n - 24] == 0 && host_wire[n - 23] == 0x55 &&
+        host_wire[n - 22] == 1 && host_wire[n - 21] == 9 &&
+        host_wire[n - 20] == 0x4d && host_wire[n - 19] == 1 &&
+        host_wire[n - 18] == MOTION_MAX && host_wire[n - 17] == 1 &&
+        host_wire[n - 16] == 0x42 && host_wire[n - 15] == 1 && host_wire[n - 14] == 3 &&
+        host_wire[n - 13] == 0x50 && host_wire[n - 12] == 1 && host_wire[n - 11] == NPAT && host_wire[n - 10] == CHAIN_ROWS &&
+        host_wire[n - 9] == 0x46 && host_wire[n - 8] == 1 && host_wire[n - 7] == FM6_NFAC &&
+        host_wire[n - 6] == FM6_BANK_N && host_wire[n-5]==0x43 && host_wire[n-4]==1 && host_wire[n-3]==16 && host_wire[n-2]==1);
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].bg);
@@ -253,53 +253,6 @@ static int steps(void)
     return bad;
 }
 
-static int samples(void)
-{
-    uint8_t a[640] = {0}, data[257], short_group[] = {0, 0, 4, 0, 1};
-    uint32_t n, i;
-    int bad = 0;
-    smp_user_hdr_t h;
-    reset(); memset(host_samples, 0, sizeof host_samples);
-    for (i = 0; i < sizeof data; i++) data[i] = (uint8_t)(i * 37u);
-    song.playing = 1; host_progress = 0;
-    bad += check("sample erase waits for STOP and refuses a stalled audio ISR",
-                 request(ED_SMP_BEGIN, a, 1) == 8u && host_wire[6] != 0 && !host_erases && song.playing);
-    host_progress = 1;
-    bad += check("sample erase stops transport before touching flash",
-                 request(ED_SMP_BEGIN, a, 1) == 8u && !host_wire[6] && host_erases == 1 && !song.playing);
-    a[0] = 0; a[1] = 0; a[2] = 4; a[3] = 0;
-    n = pack7(data, 257, a + 4) + 4u;
-    bad += check("257 decoded sample bytes are rejected without a truncated write",
-                 request(ED_SMP_WRITE, a, n) == 11u && host_wire[9] == 1 && !host_writes);
-    bad += check("a dangling packed-data mask is rejected",
-                 request(ED_SMP_WRITE, short_group, sizeof short_group) == 11u && host_wire[9] == 1 && !host_writes);
-    n = pack7(data, 256, a + 4) + 4u;
-    transport_req = 1;
-    bad += check("sample writes cancel a pending PLAY before flash access",
-                 request(ED_SMP_WRITE, a, n) == 11u && !host_wire[9] && transport_req != 1u && host_writes == 1);
-    memset(&h, 0, sizeof h); h.magic = SMP_USER_MAGIC; h.version = 1; h.nz = 1;
-    h.data_len = 256; h.crc = st_crc32(data, 256); h.zone[0].n = 512; h.zone[0].le = 511;
-    h.zone[0].rate = 65536; h.zone[0].hi = 127;
-    a[0] = 0; n = pack7((const uint8_t *)&h, sizeof h, a + 1) + 1u;
-    a[n] = 0; a[n + 1u] = 0;
-    bad += check("an oversized sample header is rejected without programming flash",
-                 request(ED_SMP_END, a, n + 2u) == 8u && host_wire[6] == 1 && host_writes == 1);
-    bad += check("complete sample header and CRC publish a valid slot",
-                 request(ED_SMP_END, a, n) == 8u && !host_wire[6] && usr_nz[0] == 1 && host_writes == 2);
-    bad += check("repeated END of the same published header does not rewrite live zones",
-                 request(ED_SMP_END, a, n) == 8u && !host_wire[6] && host_writes == 2);
-    h.zone[0].rate = 131072;
-    n = pack7((const uint8_t *)&h, sizeof h, a + 1) + 1u;
-    bad += check("END cannot change published sample zones without BEGIN",
-                 request(ED_SMP_END, a, n) == 8u && host_wire[6] == 2 && host_writes == 2 &&
-                 usr_zone[0][0].rate == 65536u);
-    song.playing = 1; host_progress = 0; a[0] = 0; a[1] = 0;
-    bad += check("user-preset STORE does not mutate RAM when audio cannot stop",
-                 request(ED_UP_STORE, a, 2) == 8u && host_wire[6] == 2 && !up_used(0));
-    bad += check("user-preset ERASE reports failure when audio cannot stop",
-                 request(ED_UP_ERASE, a, 1) == 8u && host_wire[6] == 2);
-    return bad;
-}
 
 static int song_protocol(void)
 {
@@ -457,10 +410,33 @@ static int bank_protocol(void)
     bad += check("sample inventory advertises zero user slots", host_wire[5]==0);
     return bad;
 }
+static int cz_native_protocol(void)
+{
+    int bad=0; uint8_t raw[CZ_BYTES],a[322]; reset();cz_init();
+    cz_patch_init(raw);raw[20]=0x37;raw[17]=0x42;raw[14]=0xE0;raw[15]=0xDE;
+    for(uint32_t k=0;k<8;k++){raw[21+2*k]=(uint8_t)(k*15);raw[22+2*k]=(uint8_t)(k*17);}raw[28]|=128;
+    a[0]=0;a[1]=2;for(uint32_t i=0;i<CZ_BYTES;i++){a[2+2*i]=raw[i]&15;a[3+2*i]=raw[i]>>4;}
+    request(ED_CZ_PUT,a,290);
+    bad+=check("CZ PUT preserves all eight DCA points, velocity and hidden waves",host_wire[7]==0 && trk[2].eng_req==ENGI_CZ && trk[2].p[P_E7]==CZ_NATIVE && !memcmp(cz_patch[2].raw,raw,CZ_BYTES));
+    request(ED_CZ_GET,a,2);int same=host_wire_n==297 && host_wire[7]==0;
+    for(uint32_t i=0;i<CZ_BYTES;i++)same &= host_wire[8+2*i]==(raw[i]&15) && host_wire[9+2*i]==(raw[i]>>4);
+    bad+=check("CZ GET returns exact low-first tone nibbles",same);
+    a[40]=16;request(ED_CZ_PUT,a,290);bad+=check("invalid CZ upload leaves live patch intact",host_wire[7]==1 && !memcmp(cz_patch[2].raw,raw,CZ_BYTES));a[40]=raw[19]&15;
+    a[0]=1;a[1]=8;request(ED_CZ_PUT,a,290);bad+=check("CZ tone uses atomic ordinary preset storage",host_wire[7]==0 && up_used(8) && up_rec(8)->ver==UP_VER_CZ && !memcmp(up_rec(8)->packed,raw,CZ_BYTES));
+    song.sel=1;up_load(8);bad+=check("loading user CZ preset restores all 144 native bytes",TSEL->p[P_E7]==CZ_NATIVE && !memcmp(cz_patch[1].raw,raw,CZ_BYTES));
+    project_t q,r;project_store_t packed;project_capture(&q);bad+=check("native tones survive project serialization",proj_pack(&packed,&q) && proj_unpack(&r,packed.raw,sizeof packed) && !memcmp(q.cz,r.cz,sizeof q.cz));
+    static uint8_t banked[BANK_STORE_SIZE];
+    bad+=check("native tones survive full pattern-bank serialization",bank_pack(banked,&q,1) && bank_valid(banked,sizeof banked) && !memcmp(q.cz,proj_scratch.cz,sizeof q.cz));
+    template_save(); static tmpl_t saved; saved=tmpl;
+    memset(cz_patch,0,sizeof cz_patch); memset(&tmpl,0,sizeof tmpl);
+    int restored=tmpl_take((const uint8_t *)&saved,sizeof saved);template_load();
+    bad+=check("native tone bytes and mode survive a saved template",restored && trk[1].p[P_E7]==CZ_NATIVE && !memcmp(cz_patch[1].raw,raw,CZ_BYTES));
+    return bad;
+}
 int main(void)
 {
     int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() +
-              fm6_patches() + user_preset_roundtrip();
+              fm6_patches() + user_preset_roundtrip() + cz_native_protocol();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

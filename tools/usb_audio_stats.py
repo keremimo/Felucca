@@ -14,21 +14,23 @@ FIELDS = (
     'poll_max_us', 'service_max_us', 'audio_late', 'feedback_q14',
     'audio_max_us', 'cpu_q8',
 )
+VOICE_FIELDS = ('voices_active', 'voices_held', 'obxf_active', 'obxf_held', 'voices_shed', 'voices_given_up')
 HEADER = [0x7D, 0x46, 0x4C, 72]
 
 
-def snapshot(incoming, outgoing, window=False):
-    outgoing.send(mido.Message('sysex', data=HEADER + ([1] if window else [])))
+def snapshot(incoming, outgoing, window=False, voices=False):
+    outgoing.send(mido.Message('sysex', data=HEADER + ([int(window) | (2 if voices else 0)] if window or voices else [])))
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
         for message in incoming.iter_pending():
             if message.type != 'sysex' or list(message.data[:4]) != HEADER:
                 continue
             data = message.data[4:]
-            if len(data) != 1 + 5 * len(FIELDS) or data[0] != 2:
+            fields = FIELDS + VOICE_FIELDS if data and data[0] == 3 else FIELDS
+            if len(data) != 1 + 5 * len(fields) or data[0] not in (2, 3):
                 raise RuntimeError('Unsupported audio diagnostics schema')
             return {field: sum(data[1 + i * 5 + j] << (7 * j) for j in range(5))
-                    for i, field in enumerate(FIELDS)}
+                    for i, field in enumerate(fields)}
         time.sleep(0.005)
     raise TimeoutError('No USB audio diagnostics reply; requires a USB audio build (editor command 72)')
 
@@ -40,13 +42,14 @@ def main():
     parser.add_argument('--interval', type=float, default=5)
     parser.add_argument('--window', action='store_true',
                         help='report the maxima of each interval instead of since boot')
+    parser.add_argument('--voices', action='store_true', help='include active voices and overload shedding counters')
     args = parser.parse_args()
     if args.interval < 1 or args.seconds < 0:
         parser.error('interval must be >= 1 s; seconds must be >= 0')
     with mido.open_input(args.port) as incoming, mido.open_output(args.port) as outgoing:
         start = time.monotonic()
         while True:
-            stats = snapshot(incoming, outgoing, args.window)
+            stats = snapshot(incoming, outgoing, args.window, args.voices)
             stats['cpu_pct'] = round(stats['cpu_q8'] * 100 / 256, 1)
             stats['elapsed_s'] = round(time.monotonic() - start, 3)
             print(json.dumps(stats), flush=True)

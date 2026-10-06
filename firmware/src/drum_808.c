@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
  * Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
 /* DRUM's KIT 808 (eng_drum.c): an analog kit modelled on the TR-808's voice circuits. A lane plays one circuit at a
- * time (dr8_t, in the lane in place of drum_voice.c's state): the instrument of the note struck, from the 808's own
+ * time (dr8_t, in each lane): the instrument of the note struck, from the 808's own
  * General MIDI map (DR_GM: three toms and three congas, maracas, claves, cowbell, cymbal), else the 808's nearest to
  * the drum the other kits play there. A hit kicks the circuit again while it may still ring; a closed hat chokes
  * the open one.
@@ -39,7 +39,7 @@ static const uint8_t DR_GM[47] = {               /* GM percussion keys 35..81 ->
     DR_X, DR_X, DR_MA, DR_MA, DR_X, DR_X, DR_X, DR_X,             /* 67 cabasa, maracas */
     DR_CL, DR_CL, DR_CL, DR_X, DR_X, DR_X, DR_X,                  /* 75 claves, wood blocks */
 };
-static const uint8_t DR_OF_DVT[DVT_COUNT] = {    /* the other kits' drum (DVT_*) -> the 808's */
+static const uint8_t DR_OF_DVT[DVT_COUNT] = {    /* fallback GM role (DVT_*) -> the 808 instrument */
     DR_BD, DR_BD, DR_SD, DR_CP, DR_CH, DR_OH, DR_MT, DR_MC, DR_RS, DR_CL, DR_CB, DR_CY,
 };
 

@@ -5,14 +5,13 @@
 #include "dsp.c"
 #include "eng_analog.c"
 #include "eng_phase.c"
+#include "eng_cz.c"
 #include "eng_lofi.c"
-#include "eng_sample.c"
 #include "eng_formant.c"
 #include "eng_trio.c"
 #include "eng_wheel.c"
-#include "eng_grain.c"
 #include "eng_phys.c"           /* PHYS: DaisySP physical models (phys_dsp.c, MIT) */
-#include "eng_drum.c"           /* DRUM: the 8-lane kit (drum_voice.c) */
+#include "eng_drum.c"           /* DRUM: synthesized 808 circuits (drum_808.c) */
 #include "eng_noise.c"
 #include "eng_fm6.c"            /* FM6: 6-operator FM rendered as Dexed renders it (fm6_core.c) */
 #include "fm4_convert.c"        /* DIGITAL's tables, and its sounds -> FM6 */
@@ -27,7 +26,7 @@ static void slice_gone_render(struct track *t, voice_t *v, int32_t *out, uint32_
 {
     (void)t; (void)v; (void)out; (void)n; (void)m;
 }
-static const engine_t ENG_SLICE_GONE = {         /* 13 without MELODEE_SLICE: reserved, never offered (eng_ok) */
+static const engine_t ENG_RETIRED = {         /* 13 without MELODEE_SLICE: reserved, never offered (eng_ok) */
     .name = "-",
     .page_title = {"-", "-"},
     .edit = {{"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
@@ -38,31 +37,28 @@ static const engine_t ENG_SLICE_GONE = {         /* 13 without MELODEE_SLICE: re
     .knob = {P_E4, P_E5, P_E6, P_REL},
 };
 #endif
-#include "eng_obxf.c"           /* OBXF: OB-Xf's polysynth (obxf_core.c, float) */
 
 /* the engines' runtime state of a part. A part renders one engine at a time (an engine switch fades the old one
  * out first, voice.c engine_block), so their states share one block per part, cleared at every switch: an engine
  * finds its state as at power-on (the pool section is zeroed at boot). The patch of a part (FM6's) is not in here */
 static union {
     phys_slot_t phys[PHYS_POLY];
-    gr_part_t grain;
+    cz_part_t cz;
     drum_lane_t drum[DV_NLANE];
     drw_part_t wheel;
     fm6_part_t fm6;
-    oxf_part_t obxf;
 #if MELODEE_SLICE
     slc_rb_t slice;
 #endif
 } eng_state[NPART] __attribute__((section(".pool")));
 static phys_slot_t *phys_slots(uint32_t part) { return eng_state[part % NPART].phys; }
-static gr_part_t *gr_part_of(const track_t *t) { return &eng_state[(uint32_t)(t - trk) % NPART].grain; }
 static drum_lane_t *drum_kit_part(uint32_t part) { return eng_state[part % NPART].drum; }
 static drw_part_t *drw_of(const track_t *t) { return &eng_state[(uint32_t)(t - trk) % NPART].wheel; }
 static fm6_part_t *fm6_part(uint32_t part) { return &eng_state[part % NPART].fm6; }
-static oxf_part_t *obxf_part(uint32_t part) { return &eng_state[part % NPART].obxf; }
 #if MELODEE_SLICE
 static int16_t (*slc_rbuf(uint32_t part))[SLC_RB] { return eng_state[part % NPART].slice; }
 #endif
+static cz_part_t *cz_part(uint32_t part) { return &eng_state[part % NPART].cz; }
 static void eng_state_clear(uint32_t part)
 {
     if (part < NPART)
@@ -79,11 +75,11 @@ static const engine_t *const ENGINES[NENGINES] = {
 #endif
     &ENG_PHASE,                  /* 2 */
     &ENG_LOFI,                   /* 3 */
-    &ENG_SAMPLE,                 /* 4 */
+    &ENG_RETIRED,                /* 4: retired SAMPLE; reserved to preserve stored indices */
     &ENG_FORMANT,                /* 5 VOICE (eng_formant.c: "voice" is a sounding note in voice.c) */
     &ENG_TRIO,                   /* 6 */
     &ENG_WHEEL,                  /* 7 */
-    &ENG_GRAIN,                  /* 8 */
+    &ENG_RETIRED,                /* 8: retired GRAIN; stored index reserved */
     &ENG_PHYS,                   /* 9 (ENGI_PHYS) */
     &ENG_DRUM,                   /* 10 (ENGI_DRUM) */
     &ENG_NOISE,                  /* 11 */
@@ -91,9 +87,10 @@ static const engine_t *const ENGINES[NENGINES] = {
 #if MELODEE_SLICE
     &ENG_SLICE,                  /* 13 (ENGI_SLICE) */
 #else
-    &ENG_SLICE_GONE,             /* 13: reserved (MELODEE_SLICE=0 builds without SLICE) */
+    &ENG_RETIRED,             /* 13: reserved (MELODEE_SLICE=0 builds without SLICE) */
 #endif
-    &ENG_OBXF,                   /* 14 (ENGI_OBXF) */
+    &ENG_RETIRED,                /* 14: retired OBXF; stored index reserved */
+    &ENG_CZ,                     /* 15: native Casio CZ-1 */
 };
 
 /* a track's engine number as an index (the audio paths: a compare, cheaper than % NENGINES; a bad number: 0) */
@@ -105,11 +102,10 @@ static inline uint32_t eng_idx(uint32_t e) { return e < NENGINES ? e : 0u; }
 static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     0,                           /* ANALOG */
     12,                          /* FM6 */
-    14,                          /* OBXF */
 #if MELODEE_FM4
     1,                           /* DIGITAL */
 #endif
-    2, 3, 4, 5, 6, 7, 8, 9,      /* PHASE LOFI SAMPLE VOICE TRIO WHEEL GRAIN PHYS */
+    2, ENGI_CZ, 3, 5, 6, 7, 9,      /* PHASE CZ-1 LOFI VOICE TRIO WHEEL PHYS */
     11,                          /* NOISE */
 #if MELODEE_SLICE
     13,                          /* SLICE */
@@ -121,7 +117,7 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
 static int eng_ok(uint32_t e)
 {
-    return e < NENGINES && (MELODEE_FM4 || e != ENGI_DIGITAL) && (MELODEE_SLICE || e != ENGI_SLICE);
+    return e < NENGINES && e != 4u && e != 8u && e != 14u && (MELODEE_FM4 || e != ENGI_DIGITAL) && (MELODEE_SLICE || e != ENGI_SLICE);
 }
 static uint32_t eng_vis(uint32_t n) { return ENGINE_ORDER[n % NENG_SHOWN]; }
 static uint32_t eng_rank(uint32_t e)

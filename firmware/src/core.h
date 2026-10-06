@@ -3,7 +3,7 @@
 /* MELODEE core types: tracks, voices, engines, parameters.
  * Four tracks, each a synth part: its own engine, preset, parameters, voices and 64-step
  * pattern. The parts share one budget of VBUDGET units of sounding voices (voice.c). Drums are the DRUM
- * engine or the SAMPLE engine's PERC set (General MIDI map) on any part.
+ * engine (synthesized 808 on the General MIDI map) on any part.
  * Sections: sizes, parameters, voices and engines, tracks and the song, system. */
 #include <stdint.h>
 
@@ -17,18 +17,24 @@
 #define NSTEP 64
 #define NPAT 8u
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
-#ifndef MELODEE_SLICE
-#define MELODEE_SLICE 1          /* the SLICE engine (eng_slice.c), engine 13; MELODEE_SLICE=0 builds without it */
+/* SLICE retired. Keep its stored engine number reserved. */
+#ifdef MELODEE_SLICE
+#undef MELODEE_SLICE
 #endif
+#define MELODEE_SLICE 0
 #ifndef MELODEE_FM4
 #define MELODEE_FM4 0            /* the DIGITAL engine (eng_digital.c, four-operator FM): kept in the tree, not built
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
-#define NENGINES 15               /* SLICE is 13 (a reserved number without MELODEE_SLICE), OBXF 14 */
+#define NENGINES 16               /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1 */
 #define ENGI_DIGITAL 1u          /* reserved without MELODEE_FM4: never selectable (eng_ok), its sounds load as FM6 */
-#define NENG_SHOWN (NENGINES - !MELODEE_FM4 - !MELODEE_SLICE)   /* the engines one can pick: PRESETS, the EDIT
+#define NENG_SHOWN (NENGINES - 3u - !MELODEE_FM4 - !MELODEE_SLICE)   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
 #define ENGI_SLICE 13u           /* reserved without MELODEE_SLICE: never selectable (eng_ok) */
+#ifdef SMP_USER_SLOTS
+#undef SMP_USER_SLOTS
+#endif
+#define SMP_USER_SLOTS 0u        /* sample material and its upload slots are retired */
 #define UP_SLOTS 32u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
@@ -117,7 +123,7 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
 {
     if (engine != ENGI_PHYS || e[0] != 4)
         return 0;
-    e[0] = (int16_t)((e[7] < 0 ? 0 : e[7] > 127 ? 127 : e[7]) >> 5);   /* PERC -> KIT: STD HAND CYM H+CYM */
+    e[0] = 4; /* Retired custom drum variants now play the synthesized 808. */
     e[6] = (int16_t)(e[6] >= 64);                                       /* KICK: PUNCH, ROUND */
     e[7] = 0;
     return 1;
@@ -207,13 +213,13 @@ typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c 
     void (*mono_key)(struct track *t, uint32_t note);
     /* optional: the part's block after its voices (FM6: Dexed's DC filter); nr: voices rendered */
     void (*post)(struct track *t, int32_t *out, uint32_t n, uint32_t nr);
-    /* optional: the voice cap of the part now, instead of poly (OBXF: its patch's keys) */
+    /* optional: the voice cap of the part now, instead of poly  */
     uint32_t (*cap)(const struct track *t);
-    /* optional: the voice budget units one of its voices takes now (OBXF: 2 per voice of its unison) */
+    /* optional: the voice budget units one of its voices takes now  */
     uint32_t (*units)(const struct track *t);
 } engine_t;
 /* voice_start: what the voice it starts did just before (0 free, 1 released, 2 its key down: a steal or a move);
- * engine_t.note_on may read it (OBXF: a voice with its key down goes on, as OB-Xf's) */
+ * engine_t.note_on may read it  */
 static uint8_t voice_was;
 
 /* ------------------------------------------------- tracks, the song --- */

@@ -195,7 +195,7 @@ int main(void)
 
     /* PHYS MODEL DRUM (before 1.0) -> the DRUM engine: from flash (a record of an older layout too), by UP_PUT */
     {
-        static const int16_t OLD[8] = {4, 70, 80, 60, 50, 110, 100, 70}, NEW[8] = {2, 70, 80, 60, 50, 110, 1, 0};
+        static const int16_t OLD[8] = {4, 70, 80, 60, 50, 110, 100, 70}, NEW[8] = {4, 70, 80, 60, 50, 110, 1, 0};
         up_rec_t d = r, m = r, o = r;
         uint32_t k;
         d.engine = ENGI_PHYS;
