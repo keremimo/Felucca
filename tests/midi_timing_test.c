@@ -215,7 +215,8 @@ static int loop_replay_test(void)
         timing_packet(timing_now, 0xF8, 0, 0, 2);
         events_block(CTL);
         seq_advance(15u * 6144u + 5000u);
-        /* Three paths share the same late last-step quantization. */
+        t->p[P_RECQ] = 3; /* optional playback 1/16 grid */
+        /* Three paths retain the same late last-step original onset. */
         if (source == 0) input_on(t, 60, 111);
         else { timing_packet(timing_now, 0x90, 60, 111, source); events_block(CTL); }
         seq_advance(2000);
@@ -223,9 +224,9 @@ static int loop_replay_test(void)
         else { timing_packet(timing_now, 0x80, 60, 0, source); events_block(CTL); }
         bad += check("late loop-start input records only step zero, never both loop ends",
                      t->step[0].n == 1 && t->step[0].note[0] == 60 && t->step[15].time == ST_REST && !t->step[15].n);
-        uint32_t captured = step_gate(&t->step[0]) * 6144u / 255u;
+        uint32_t captured = (recording[0].duration << (recording[0].owner >> 5)) * 6144u / RECORD_UNIT;
         bad += check("quantizing the onset preserves the 2000-unit note duration",
-                     captured <= 2000u && captured + 25u > 2000u);
+                     captured <= 2000u && captured + 6u > 2000u);
         bad += check("recorded velocity 111 stays 111 rather than becoming an accent",
                      t->step[0].vel == 111 && !(t->step[0].flags & SF_ACCENT));
         seq_stop(); song.rec = 0; t->p[P_SGATE] = 16;
@@ -263,13 +264,26 @@ static int old_formats_and_overdub_test(void)
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96};
     project_capture(&proj_scratch);
     int ok = bank_pack(proj_wire_u.raw, &proj_scratch, 1);
-    uint32_t magic = PROJ_MAGIC_V10, sum;
-    memcpy(proj_wire_u.raw + 8, &magic, 4);
-    sum = proj_hash(proj_wire_u.raw + 8, PROJ_STORE_SIZE - 4);
-    memcpy(proj_wire_u.raw + 8 + PROJ_STORE_SIZE - 4, &sum, 4);
-    magic = BANK_MAGIC_D; memcpy(proj_wire_u.raw, &magic, 4);
-    bank_checksum(proj_wire_u.raw);
-    ok &= bank_valid(proj_wire_u.raw, BANK_STORE_SIZE);
+    /* Build the frozen 92-parameter FUN10/FBKD layout, not today's
+     * payload with an old magic. Its banks use n+5*time metadata. */
+    uint8_t legacy[PROJ_STORE_V11]; memset(legacy, 0, sizeof legacy);
+    memcpy(legacy, proj_wire_u.raw + 8u, 68u); legacy[66] = 92;
+    memcpy(legacy + 68u, proj_wire_u.raw + 8u + 68u, PROJ_REC_OFF - 68u);
+    uint32_t magic = PROJ_MAGIC_V10, size = PROJ_STORE_V11, sum;
+    memcpy(legacy, &magic, 4); memcpy(legacy + 4u, &size, 4);
+    sum = proj_hash(legacy, sizeof legacy - 4u); memcpy(legacy + sizeof legacy - 4u, &sum, 4);
+    for (uint32_t i = 0; i < NTRK * (NPAT - 1u) * NSTEP; i++) {
+        uint8_t *bytes = proj_wire_u.raw + BANK_EXTRA_OFF + i * 8u;
+        step_t st; bank_step_unpack(&st, bytes);
+        bytes[3] = (bytes[3] & 15u) | ((st.n + 5u * st.time) << 4);
+    }
+    memmove(proj_wire_u.raw + 8u + PROJ_STORE_V11, proj_wire_u.raw + 8u + PROJ_STORE_SIZE,
+            BANK_SIZE_E - 8u - PROJ_STORE_V11 - 4u);
+    memcpy(proj_wire_u.raw + 8u, legacy, sizeof legacy);
+    magic = BANK_MAGIC_D; size = BANK_SIZE_E;
+    memcpy(proj_wire_u.raw, &magic, 4); memcpy(proj_wire_u.raw + 4u, &size, 4);
+    sum = proj_hash(proj_wire_u.raw, BANK_SIZE_E - 4u); memcpy(proj_wire_u.raw + BANK_SIZE_E - 4u, &sum, 4);
+    ok &= bank_valid(proj_wire_u.raw, BANK_SIZE_E);
     if (ok) bank_upgrade(proj_wire_u.raw);
     ok &= bank_valid(proj_wire_u.raw, BANK_STORE_SIZE) && *(uint32_t *)proj_wire_u.raw == BANK_MAGIC &&
           *(uint32_t *)(proj_wire_u.raw + 8) == PROJ_MAGIC;
@@ -287,6 +301,7 @@ static int old_formats_and_overdub_test(void)
     input_off(t, 60);
     return bad;
 }
+#ifndef MIDI_TIMING_NO_MAIN
 int main(void)
 {
     int bad = grid_test() + timeline_test() + phase_test() + divisions_test() + lengths_and_swing_test() +
@@ -294,3 +309,5 @@ int main(void)
     printf("%s\n", bad ? "MIDI TIMING TEST FAILED" : "MIDI timing tests passed");
     return bad != 0;
 }
+
+#endif

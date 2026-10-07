@@ -56,7 +56,7 @@ typedef struct {
 enum {                          /* per-track parameters */
     P_LEVEL,
     P_ATK, P_DEC, P_SUS, P_REL,
-    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: unused, kept for the formats / protocol */
+    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: reserved field now used by sequencer playback QNT */
     P_LRATE, P_LWAVE, P_LPHASE, P_LFADE,
     P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP,
     P_AMODE, P_ARATE, P_AOCT, P_AGATE,
@@ -80,6 +80,8 @@ enum {                          /* per-track parameters */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
+
+#define P_RECQ P_ED_FX          /* reuse an inert parameter; engine and scale ids stay fixed */
 
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
@@ -226,6 +228,13 @@ static uint8_t voice_was;
 enum { ST_NOTE, ST_TIE, ST_REST };
 #define SF_ACCENT 1u
 #define SF_SLIDE 2u
+#define SF_RECORDED 4u                         /* step is a view of timed notes, played by recording.c */
+#define RECORD_MAX 152u
+#define RECORD_UNIT 65536u                     /* fractional onset within its swung step; duration uses an exponent */
+/* owner: bank/track in low 5 bits, duration exponent in high 3. step: actual index in
+ * low 6 bits, overview rounded forward in bit 6, wrapped to zero in bit 7. */
+typedef struct { uint16_t on, duration; uint8_t note, vel, owner, step; } recorded_note_t;
+_Static_assert(sizeof(recorded_note_t) == 8u, "timed note layout");
 #define NLANE 8                  /* drum lanes of a step (the DRUM engine's: eng_drum.c DRUM_LANE_NOTE) */
 typedef struct {                 /* acid-style step: up to 4 notes (POLY), time, accent, slide; drum hits */
     uint8_t note[4];

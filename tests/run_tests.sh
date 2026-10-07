@@ -134,6 +134,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "USB/TRS clock, bend, sustain, ownership and panic recovery" "$OUT/midi_control_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_timing_test" tests/midi_timing_test.c -lm
     run "MIDI timing: quantized TRS/USB recording, audio timeline, tempo changes and timer wrap" "$OUT/midi_timing_test"
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/recording_test" tests/recording_test.c -lm
+    run "MIDI recording: raw events, reversible quantization, independent releases, banks and capacity" "$OUT/recording_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_scale_test" tests/midi_scale_test.c -lm
     run "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" "$OUT/midi_scale_test"
     $CC -O1 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/digital_test" tests/digital_test.c -lm

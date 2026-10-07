@@ -101,7 +101,7 @@ static void pattern_keys(uint32_t notes)
             else if (ui.pat_key != b + 1u) {
                 int rc = pattern_copy(TSEL, ui.pat_key - 1u, b);
                 ui.pat_copy = 1;
-                ui_message(rc == 2 ? "MOTION FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
+                ui_message(rc == 2 ? "PATTERN DATA FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
                 ui.force = 1;
             }
         }
@@ -366,6 +366,7 @@ static void step_edit(uint32_t slot, int32_t steps)
             cursor_set(ui.cursor + steps);
         break;
     case 1:                                               /* NOTE: transpose the step */
+        st->flags &= (uint8_t)~SF_RECORDED;
         if (!st->n) {
             st->note[0] = last_note;
             st->n = 1;
@@ -378,10 +379,12 @@ static void step_edit(uint32_t slot, int32_t steps)
         last_note = st->note[0];
         break;
     case 2:                                               /* TIME: NOTE / TIE / REST (length: PRESETS) */
+        st->flags &= (uint8_t)~SF_RECORDED;
         st->time = (uint8_t)clamp((int32_t)st->time + (steps > 0 ? 1 : -1), ST_NOTE, ST_REST);
         if (!st->hit && st->time == ST_REST) st->acc = 0;
         break;
     default: {                                            /* FLAG: - / ACC / SLD / A+S */
+        st->flags &= (uint8_t)~SF_RECORDED;
         uint32_t f = (st->flags & SF_ACCENT ? 1u : 0u) | (st->flags & SF_SLIDE ? 2u : 0u);
         f = (uint32_t)clamp((int32_t)f + (steps > 0 ? 1 : -1), 0, 3);
         st->flags = (uint8_t)((st->flags & ~(SF_ACCENT | SF_SLIDE)) | (f & 1u ? SF_ACCENT : 0u) | (f & 2u ? SF_SLIDE : 0u));
@@ -766,6 +769,7 @@ static void seq_entry_notes(const uint8_t *n, uint32_t cnt)
         step_history.cursor_before = ui.cursor;
         ui.entry_open = 1;
         st->n = 0;
+        st->flags &= (uint8_t)~SF_RECORDED;
         st->time = ST_NOTE;
     }
     if (t->p[P_VOICE] && !ENGINES[t->engine]->oneshot) {   /* (drums: hits stack as a chord) */
@@ -1342,6 +1346,7 @@ static void ui_input(void)
         }
         ui.step_move = (ui.step_mods & ui.step_used) != 0u;
     }
+    if (recording_full) { recording_full = 0; ui_message("RECORDING FULL"); }
     step_history_end();                                 /* (seq_undo.c: this frame's STEP edit) */
     ui_notices();
 }

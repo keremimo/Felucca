@@ -248,7 +248,7 @@ static void ed_step_reply(const step_t *st)              /* the same 11 bytes */
     for (i = 0; i < 4u; i++)
         ed_b(st->note[i]);
     ed_b(st->time);
-    ed_b(st->flags);
+    ed_b(st->flags & (SF_ACCENT | SF_SLIDE));
     ed_b(st->vel);
     ed_b(st->hit & 0x7Fu);
     ed_b(st->hit ? st->acc & 0x7Fu : 0u);

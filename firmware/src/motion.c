@@ -4,6 +4,7 @@
  * interrupt guard as parameter batches. The ISR only scans 64 fixed records.
  * p[] is the sounding value; motion_base_value() is the patch's saved value. */
 static motion_store_t motion;
+static int recording_copy(track_t *t, uint32_t source, uint32_t dest, int apply);
 static int16_t motion_base[NTRK][P_COUNT];
 static uint32_t motion_active[NTRK][(P_COUNT + 31u) / 32u];
 static uint8_t motion_base_valid, motion_full;
@@ -29,7 +30,7 @@ static int motion_param(uint32_t id)
 {
     /* Sound only: transport, routing, voice allocation and discrete engine
      * changes never become automation. FX sends and continuous mix are safe. */
-    return id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
+    return id != P_RECQ && id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
         (id >= P_DIST && id <= P_REV) || id == P_GLIDE || id == P_PAN ||
         id == P_DETUNE || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || id >= P_E0);   /* (not the chord keys) */
 }
@@ -39,7 +40,7 @@ static int motion_valid(const motion_store_t *m)
     if (m->rsv[0] > 1u || m->count > MOTION_MAX || (m->on & ~((1u << NTRK) - 1u))) return 0;
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->event[i];
-        if (!motion_param(e->param) || e->value < -64 || e->value > 127) return 0;
+        if ((!motion_param(e->param) && e->param != P_RECQ) || e->value < -64 || e->value > 127) return 0;
         if (!m->rsv[0]) for (j = 0; j < i; j++)
             if (m->event[j].place == e->place && m->event[j].param == e->param) return 0;
     }
@@ -181,6 +182,7 @@ static __attribute__((noinline)) void motion_step(track_t *t, uint32_t step, con
     for (i = 0; i < m->count; i++) {
         const motion_event_t *e = &m->event[i];
         if (motion_pattern[i] != t->pattern || e->place != (k << 6 | step)) continue;
+        if (e->param == P_RECQ) continue; /* old inert FX automation stays inert */
         const param_desc_t *d = param_desc_of(eng_idx(t->eng_req), e->param);
         t->p[e->param] = (int16_t)clamp(e->value, d->min, d->max);
         motion_active[k][e->param / 32u] |= 1u << (e->param % 32u);
@@ -233,7 +235,9 @@ static int pattern_copy(track_t *t, uint32_t source, uint32_t dest)
         if (motion_pattern[i] == dest) n++;
     }
     if (motion.count - n + extra > MOTION_MAX) { motion_unguard(f); return 2; }
+    if (recording_copy(t, source, dest, 0)) { motion_unguard(f); return 2; }
     pattern_commit(t);
+    recording_copy(t, source, dest, 1);
     *pattern_at(k, dest) = *pattern_at(k, source);
     n = 0;
     for (i = 0; i < motion.count; i++) if ((motion.event[i].place >> 6) != k || motion_pattern[i] != dest) {

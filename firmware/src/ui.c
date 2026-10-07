@@ -273,6 +273,7 @@ static void grid_hit(track_t *t, uint32_t i, uint32_t l, uint32_t on)
 {
     step_t *s = &t->step[i % NSTEP];
     uint32_t b = 1u << (l % NLANE);
+    s->flags &= (uint8_t)~SF_RECORDED;
     if (on == 2u)
         on = !(step_lanes(s) & b);
     if (s->time != ST_NOTE) {                    /* a REST or a TIE: an empty step (nothing to turn off) */
@@ -695,7 +696,7 @@ static void pat_load_ui(track_t *t, uint32_t n)
 static int param_kept(uint32_t i)
 {
     return i == P_LEVEL || i == P_PAN || i == P_MUTE || (i >= P_AMODE && i <= P_SGATE) ||
-           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_MPCDEG;
+           (i >= P_SLCR && i <= P_SLDEPTH) || i == P_CHRD || i == P_VOIC || i == P_MPCDEG || i == P_RECQ;
 }
 
 /* SCL, QNT and the MPC degree are the song's: one scale for every part, kept the same in each track's own slots

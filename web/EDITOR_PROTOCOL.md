@@ -680,7 +680,7 @@ changing the track or flash. An unused/non-native preset GET returns an error.
 Track PUT selects engine 15 (CZ-1), native tone marker 2, resets the ordinary sound controls to
 neutral defaults, and preserves the track's musical/routing settings.
 Preset record version 8 preserves all native bytes in a 238-byte record. Earlier 192-byte banks and next’s v6/v7 CZ records remain readable.
-FUN11 projects (4160 bytes), FBKE pattern banks (19008 bytes) and TPLA templates preserve each track's native
+FUN12 projects (5376 bytes), FBKF pattern banks (20224 bytes) and TPLB templates preserve each track's native
 tone; older formats remain readable. See [native tones](../docs/CZ1_SYSEX.md).
 
 DRUM now has one factory preset, **808 KIT** (index 0); KIT's stored value stays 4.
@@ -708,3 +708,41 @@ and earlier formats remain readable with their original accent validation.
 STEP_SET/TRACK_STEP keep existing recorded gates on hit-free notes; converting
 to lane hits clears the gate. The 12-byte editor reply continues to report lane
 accents only. Full backups retain recorded gates.
+
+
+### Original performance timing (FUN12 / FBKF)
+
+Track parameter **8**, previously the inert `P_ED_FX` field, is now `P_RECQ`: **OFF** (0),
+then the ten existing DIV values plus one (1/4 = 1, 1/16 = 3, 16T = 6, 4BAR = 10).
+P_COUNT stays 92 and P_E0 stays 84. This parameter is per track, survives sound loads, and
+is shown on SEQ > TIMING and the web sequencer. Scale QNT remains parameter 27. Old projects
+and templates initialize timing QNT to OFF. New TPLB templates retain it without changing size.
+Web library files use `TQNT` for parameter 8 and keep `QNT` for scale parameter 27, so older
+library files retain their scale mapping. The timing page appears only when the device advertises it.
+
+Live recording stores original note edges even when timing QNT is enabled. Playback alone rounds
+onsets to the nearest swung boundary of the selected division, with loop-end mapping to zero.
+Each note retains its captured duration; its release shifts with its quantized onset. Switching OFF
+restores original timing. Repeated hits within one step and independent chord releases are retained.
+Playback fires each recorded event at most once per loop, including when QNT changes mid-loop.
+
+FUN12 LE magic is `0x46554E3C`, size 5376. The original FM6/CZ payload offsets stay fixed.
+Header bytes 65 and 67 hold a 12-bit active-bank selection (four 3-bit bank ids, low byte at 65).
+At offset 4144 are 152 eight-byte timed-note records: LE u16 onset fraction, LE u16 duration,
+note byte, velocity byte, owner byte, step byte. Velocity zero means unused. Owner low five bits
+are `track * 8 + bank`; high three bits are the duration exponent. Step low six bits select the
+original onset step, bit 6 marks an overview rounded to its following step, and bit 7 marks overview
+wrap to zero. Onset is 0..65535/65536 of that swung step; duration is `u16 * 2^exponent / 65536`
+nominal pattern steps. The name remains the final 12 bytes before the FNV-1a checksum.
+
+Step flag 4 marks the overview of recorded events. FUN12 encodes it in the high bit of the step's
+metadata byte. FBKF LE magic is `0x464B4246`, size 20224, still within five sectors including the
+256-byte storage header. Its inactive steps retain their eight-byte size: four 7-bit notes, then
+4 metadata bits (`NOTE n` = 0..4, TIE = 5, REST = 6; bit 3 is the recorded flag), two ordinary flags,
+7 velocity bits, 8 hits, 8 accent/gate bits, and 7 probability bits. Counts on REST/TIE normalize to
+zero. FUN11/FBKE, FUN10/FBKD and previous formats keep their original decoders and migrate on save.
+
+The 12-byte STEP_SET/TRACK_STEP protocol remains a conventional step edit; it converts that overview
+group to manual step playback. Replies mask the internal recorded flag. Full runtime/project backups
+retain original timing and every bank. User-preset patterns carry the overview only. Capacity is 152
+notes across the project; overflow reports RECORDING FULL without overwriting existing entries.

@@ -1151,6 +1151,7 @@ function paramKeys(pdesc, pe0, pcount) {
   for (let i = 0; i < pcount; i++) {
     if (i >= pe0) { out.push("E" + (i - pe0)); continue; }
     const l = (pdesc[i] && pdesc[i].label) || "P" + i;
+    if (i === 8 && l === "QNT") { out.push("TQNT"); continue; }  /* scale QNT keeps its existing library key */
     seen[l] = (seen[l] || 0) + 1;
     out.push(seen[l] > 1 ? `${l}#${seen[l]}` : l);
   }
@@ -1370,7 +1371,7 @@ async function czBankRead(rq,index){const r=parse[CMD.CZ_BANK](await rq(req.czBa
 /* the track's own parameters, which no sound load changes (ui.c param_kept): LEVEL, the ARP and ARP 2 pages,
    SCL, LEN DIV SWING GATE (17..32), PAN, MUTE, the SLICER (45..48); with P_E0 83 the chord keys CHRD VOIC (81, 82:
    E0 E1 of the 89-parameter firmware); with P_E0 84 the MPC degree (83: E0 of 1.0) */
-const TRACK_OWN = new Set([0, 39, 40, ...Array.from({ length: 16 }, (_, i) => 17 + i), 45, 46, 47, 48]);
+const TRACK_OWN = new Set([0, 8, 39, 40, ...Array.from({ length: 16 }, (_, i) => 17 + i), 45, 46, 47, 48]);
 const P_CHORD = [81, 82];                          /* core.h P_CHRD, P_VOIC (since P_COUNT 91, P_E0 83) */
 const P_MPCDEG = 83;                               /* core.h P_MPCDEG (since P_COUNT 92, P_E0 84) */
 const trackOwn = (i, pe0) => TRACK_OWN.has(i) || (pe0 >= 83 && P_CHORD.includes(i)) || (pe0 >= 84 && i === P_MPCDEG);
@@ -1771,7 +1772,7 @@ function makeMockDevice(opt = {}) {
   const TP = [
     D("LVL", F.DB, 0, 127, 104),
     D("ATK", F.TIME, 0, 127, 10), D("DEC", F.TIME, 0, 127, 70), D("SUS", F.PCT, 0, 127, 90), D("REL", F.TIME, 0, 127, 60),
-    D("FLT", F.BIPCT, -64, 63, 0), D("PIT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("FX", F.BIPCT, -64, 63, 0),
+    D("FLT", F.BIPCT, -64, 63, 0), D("PIT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), E("QNT", ["OFF", ...NDIV], 0),
     D("RATE", F.LFOHZ, 0, 127, 60), E("WAVE", ["SIN", "TRI", "SAW", "SQR", "S&H"], 0), D("PHS", F.INT, 0, 127, 0), D("FADE", F.TIME, 0, 127, 0),
     D("PIT", F.BIPCT, -64, 63, 0), D("FLT", F.BIPCT, -64, 63, 0), D("SHP", F.BIPCT, -64, 63, 0), D("AMP", F.PCT, 0, 127, 0),
     E("MODE", ["OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT"], 0), E("RATE", NDIV, 2), D("OCT", F.INT, 1, 4, 1), D("GATE", F.PCT, 1, 127, 64),
@@ -2921,7 +2922,7 @@ const LAYOUT = (pe0) => [
   { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ...(pe0 >= 83 ? [["CHORD", 0, P_CHORD]] : []),   /* CHRD VOIC 81, 82 */
     ...(pe0 >= 84 ? [["MPC", 0, [P_MPCDEG]]] : [])] },                                                 /* DEG 83 */
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
-  { t: "SEQ PATTERN", tab: "seqgroups", pages: [["PATTERN", 0, [29, 30, 31, 32]]] },
+  { t: "SEQ PATTERN", tab: "seqgroups", pages: [["PATTERN", 0, [29, 30, 31, 32]], ["TIMING", 0, [8]]] },
   { t: "TEMPO", tab: "seqgroups", pages: [["TEMPO", 1, [0, 1]]] },   /* BPM SWG: the project's (SEQ > TEMPO) */
   { t: "GLOBAL", tab: "setgroups", pages: [["GLOBAL", 1, [2, 3]], ["SYSTEM", 1, [14]]] },   /* G_ROUTE: MIDI IN */
 ];
@@ -3193,6 +3194,7 @@ function buildGroups() {
         continue;
       }
       for (const [title, s, ids] of g.pages) {
+        if (title === "TIMING" && dev.pdesc[8]?.label !== "QNT") continue;
         const rows = ids.map((id) => paramRow(s, id)).filter(Boolean);
         if (!rows.length) continue;
         const tt = g.engine && (dev.titles[dev.dump.engine] || [])[g.pages.findIndex((x) => x[0] === title)];

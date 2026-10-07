@@ -4,6 +4,7 @@
 static const char *const N_LWAVE[] = {"SIN", "TRI", "SAW", "SQR", "S&H"};
 static const char *const N_AMODE[] = {"OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT"};
 static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
+static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
 static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
@@ -130,7 +131,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_ED_FLT] = PD("FLT", F_BIPCT, -64, 63, 0),
     [P_ED_PIT] = PD("PIT", F_BIPCT, -64, 63, 0),
     [P_ED_SHP] = PD("SHP", F_BIPCT, -64, 63, 0),
-    [P_ED_FX] = PD("FX", F_BIPCT, -64, 63, 0),
+    [P_ED_FX] = PE("QNT", N_RECQ, 0),
     [P_LRATE] = PD("RATE", F_LFOHZ, 0, 127, 60),
     [P_LWAVE] = PE("WAVE", N_LWAVE, 0),
     [P_LPHASE] = PD("PHS", F_INT, 0, 127, 0),
@@ -429,7 +430,7 @@ typedef struct {
 
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
-    {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* (P_ED_FX: nothing reads it) */
+    {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* the former fourth slot is now SEQ TIMING */
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* KNOB 1: the slot (mod_ui_slot) */
@@ -502,6 +503,7 @@ static const page_t PAGES[] = {
     {"SONG", FAM_SEQ, SC_GLOBAL, GR_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"CHANCE", FAM_SEQ, SC_STEP, GR_CHANCE, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"MOTION", FAM_SEQ, SC_TRACK, GR_MOTION, {0xFF, 0xFF, 0xFF, 0xFF}},
+    {"TIMING", FAM_SEQ, SC_TRACK, GR_NONE, {P_RECQ, 0xFF, 0xFF, 0xFF}},
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */

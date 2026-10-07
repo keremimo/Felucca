@@ -531,6 +531,10 @@ async function editorLibrarian() {
   ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 92 && file.paramLabels.length === 92 && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" && file.paramLabels[83] === "DEG" && file.engines.length === 16,
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
+  const oldKeys = keys.slice(); oldKeys[8] = "FX";
+  const oldTiming = E.readLibraryFile({ ...file, paramLabels: oldKeys }, ctx).patches[0].p;
+  ok(keys[8] === "TQNT" && keys[27] === "QNT" && oldTiming[8] === null && oldTiming[27] === cap.p[27],
+    "library file: timing QNT has a separate key and preserves legacy scale QNT");
   ok(back.patches.length === 2 && !back.skipped && eq(back.patches[0].p, cap.p) && eq(back.patches[1].p, bass.p)
     && js(back.patches[1].pattern) === js(bass.pattern) && back.patches[1].tags.join() === "bass,device" && back.patches[1].engineName === "PHASE",
     "library file: write -> read round trip");

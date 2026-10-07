@@ -109,7 +109,7 @@ static int track_ok(const proj_trk_t *n, const proj_trk_v2_t *o, uint32_t t, int
                    : n->engine == o->engine && n->preset == o->preset) &&
              (drum ? drum_steps_same(n->step,o->step) : steps_same(n->step, o->step));
     for (k = 0; k <= P_DETUNE; k++)
-        ok &= n->p[k] == (drum && k == P_LEVEL ? lvl : drum && k == P_REV ? rev : oldv(t, k));
+        ok &= n->p[k] == (drum && k == P_LEVEL ? lvl : drum && k == P_REV ? rev : k == P_RECQ ? 0 : oldv(t, k));
     ok &= n->p[P_SLCR] == 0 && n->p[P_SLPAT] == TP[P_SLPAT].def && n->p[P_SLRATE] == TP[P_SLRATE].def &&
           n->p[P_SLDEPTH] == TP[P_SLDEPTH].def;
     for (k = P_M1SRC; k <= P_M4AMT; k++)
@@ -142,7 +142,7 @@ static int track_v3_ok(const proj_trk_t *n, const proj_trk_v3_t *o, uint32_t t)
     uint32_t k;
     int ok = n->engine == o->engine && n->preset == o->preset && steps_same(n->step, o->step);
     for (k = 0; k <= P_SLDEPTH; k++)
-        ok &= n->p[k] == oldv3(t, k);           /* up to the SLICER: the same ids */
+        ok &= n->p[k] == (k == P_RECQ ? 0 : oldv3(t, k));           /* up to the SLICER: the same ids */
     for (k = P_M1SRC; k <= P_M4AMT; k++)
         ok &= n->p[k] == TP[k].def && TP[k].def == 0;
     for (k = 0; k < 8u; k++)

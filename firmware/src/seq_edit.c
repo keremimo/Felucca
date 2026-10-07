@@ -83,6 +83,7 @@ static uint32_t step_note_move(track_t *t, uint32_t start, int32_t delta)
         return start;
     for (i = 0; i < n; i++)
         saved[i] = t->step[(start + i) % len];
+    saved[0].flags &= (uint8_t)~SF_RECORDED;
     for (i = 0; i < n; i++)
         step_clear(&t->step[(start + i) % len]);
     for (i = 0; i < n; i++)
@@ -105,6 +106,7 @@ static uint32_t step_note_resize(track_t *t, uint32_t start, int32_t wanted)
         limit++;
     }
     n = (uint32_t)clamp(wanted, 1, (int32_t)limit);
+    t->step[start].flags &= (uint8_t)~SF_RECORDED;
     for (i = n; i < old; i++)
         step_clear(&t->step[(start + i) % len]);
     for (i = old; i < n; i++) {
