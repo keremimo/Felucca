@@ -1234,7 +1234,11 @@ async function packages() {
   const logical = py(`import sys; raw = open(sys.argv[1], "rb").read()
 sys.stdout.buffer.write(b"".join(raw[i * 48:i * 48 + 47] for i in range(20)) + raw[960:])`, pkg);
   ok(eq(logicalImage(raw), logical), "fm1pkg.js logicalImage");
-  ok(/^FM-1_9\d\d$/.test(productOf(raw)), "fm1pkg.js productOf");
+  const product = py(`import sys; sys.path.insert(0, "tools")
+from fm1_install import product_of
+print(product_of(open(sys.argv[1], "rb").read()), end="")`, pkg).toString();
+  ok(/^FM-1_9\d{2,4}$/.test(productOf(raw)) && productOf(raw) === product,
+    "fm1pkg.js productOf == Python (development and release identities)");
 }
 
 /* ------------------------------------------------- update protocol (fm1ota.js) --- */

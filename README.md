@@ -9,8 +9,8 @@ No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the i
 It saves a complete backup first. If your firmware cannot export one, you can select
 **Skip backup** and confirm that Melodee music, sounds and settings may be lost.
 
-Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.11.1**
-([what's new](#whats-new-in-0111)).
+Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.12**
+([what's new](#whats-new-in-012)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -21,6 +21,28 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 0.12
+
+- **Microtonal scales:** 54 new tunings, for 70 scales in total, including equal divisions,
+  just intonation, historical temperaments, maqam models and Bohlen–Pierce. The SCALES browser
+  groups them by family, shows full names and note counts, and saves device favorites; the web
+  editor adds filtering, search and browser favorites. Chords, ARP and recordings retain scale degrees
+- **Concert pitch:** set A4 from **400–480 Hz** on GLO > GLOBAL, saved independently of projects;
+  440 Hz remains the default and TUNE still adds a fine offset in cents
+- **Recording:** retain the original note timing and gate lengths, with **1,024 timed notes across
+  all 32 pattern banks**. SEQ > TIMING > QNT applies reversible playback quantization and defaults OFF
+- **Recorded-note editing:** SEQ > NOTES selects individual synth or drum hits, zooms the original
+  take, deletes selected hits and supports undo without changing neighbouring notes
+- **Native user presets:** 64 FM6 voices and 128 CZ-1 tones in separate collections, alongside 64 general
+  user presets. Scroll and favorite them in PRESETS; import/export Dexed/DX7 and Casio .syx in the editor.
+  Native slots store only the tone, so loading keeps the track's effects and patterns
+- **FM6 diagrams:** MARK I algorithms 4 and 6 show their longer feedback paths
+- **FX change:** the shared delay is retired to make room for expanded recording; THROW now feeds reverb
+
+**Upgrading from 0.11 / 0.11.1:** existing projects, templates, settings and presets migrate.
+Expanded recordings and new scale IDs need 0.12; older firmware cannot reproduce those additions.
+Microtonal MIDI OUT sends degree addresses, so an external synth needs the same tuning and mapping.
 
 ## What's new in 0.11.1
 
@@ -34,9 +56,6 @@ runs Felucca.
   timbre and volume envelopes, the CZ's waveforms and windows, ring and noise modulation, detune, vibrato,
   key follow, line levels and velocity sensitivity (from MIDI)
 - **Casio's 64 CZ-1 preset tones** (A-1 BRASS 1 to H-8 TYPHOON SOUND) as CZ-1's factory presets
-- **Native user presets:** 64 FM6 voices and 128 CZ-1 tones in separate collections, alongside 64 general
-  user presets. Scroll and favorite them in PRESETS; import/export Dexed/DX7 and Casio .syx in the editor.
-  Native slots store only the tone, so loading keeps the track's effects and patterns
 - **Every tone value on the device:** 38 EDIT pages for the lines, detune, vibrato, windows and the six
   envelopes, and CZ TOOLS (NAME, copy line 1 > 2 or 2 > 1, COMPARE). A value that has no effect on the
   tone as it is (line 2 in LINE1, steps after END, vibrato without DEPTH) is drawn dim
