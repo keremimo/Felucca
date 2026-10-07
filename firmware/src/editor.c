@@ -226,7 +226,7 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
  * bytes (an editor of before the grid): the hits stay */
 static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
 {
-    uint32_t i;
+    uint32_t i, gate = step_gate(st);
     st->n = (uint8_t)(a[0] > 4u ? 4u : a[0]);
     for (i = 0; i < 4u; i++)
         st->note[i] = a[1 + i] & 0x7Fu;
@@ -235,8 +235,9 @@ static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
     st->vel = a[7] & 0x7Fu;
     if (na >= 11u) {
         st->hit = (uint8_t)((a[8] & 0x7Fu) | (a[10] & 1u) << 7);
-        st->acc = (uint8_t)(((a[9] & 0x7Fu) | (a[10] & 2u) << 6) & st->hit);
+        st->acc = st->hit ? (uint8_t)(((a[9] & 0x7Fu) | (a[10] & 2u) << 6) & st->hit) : (uint8_t)gate;
     }
+    if (!st->hit && st->time == ST_REST) st->acc = 0;
     if (na >= 12u) step_set_chance(st, a[11] <= 100u ? a[11] : 100u);
     ui.force = 1;
 }
@@ -250,8 +251,8 @@ static void ed_step_reply(const step_t *st)              /* the same 11 bytes */
     ed_b(st->flags);
     ed_b(st->vel);
     ed_b(st->hit & 0x7Fu);
-    ed_b(st->acc & 0x7Fu);
-    ed_b((uint32_t)(st->hit >> 7) | (uint32_t)(st->acc >> 7) << 1);
+    ed_b(st->hit ? st->acc & 0x7Fu : 0u);
+    ed_b((uint32_t)(st->hit >> 7) | (st->hit ? (uint32_t)(st->acc >> 7) << 1 : 0u));
     ed_b(step_chance(st));
 }
 

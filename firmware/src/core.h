@@ -234,7 +234,7 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
     uint8_t flags;               /* SF_ACCENT | SF_SLIDE */
     uint8_t vel;
     uint8_t hit;                 /* bit l: lane l hits (its GM note, on any engine): the DRUM grid */
-    uint8_t acc;                 /* bit l: that hit is accented (velocity 127) */
+    uint8_t acc;                 /* hit != 0: lane accents; hit == 0: recorded gate, 1..255 of a step (0 legacy) */
     uint8_t probability;         /* 0 = legacy 100%; 1..100 = percent, 101 = silent */
 } step_t;
 typedef struct {                 /* a step as formats 1..4 (projects to FUN4) stored it: no hits */
@@ -245,6 +245,8 @@ typedef struct {                 /* a step as formats 1..4 (projects to FUN4) st
 /* Probability keeps zero-initialized and legacy patterns at 100%. */
 static uint32_t step_chance(const step_t *s) { return !s->probability ? 100u : s->probability <= 100u ? s->probability : 0u; }
 static void step_set_chance(step_t *s, uint32_t chance) { s->probability = (uint8_t)(chance >= 100u ? 0u : chance ? chance : 101u); }
+static uint32_t step_gate(const step_t *s) { return s->hit ? 0u : s->acc; }
+static int step_acc_valid(const step_t *s) { return s->hit ? !(s->acc & ~s->hit) : s->time != ST_REST || !s->acc; }
 #define MOTION_MAX 64u
 /* Four tracks x64 steps fit one byte. Values retain their signed parameter range. */
 typedef struct { uint8_t place, param; int16_t value; } motion_event_t;
@@ -298,6 +300,7 @@ typedef struct track {
     uint8_t rh_ties;             /* TIE steps written after it */
     uint8_t rh_last;             /* the last of them; rh_bak: what it held (an early release puts it back) */
     step_t rh_bak;
+    uint32_t rh_elapsed;         /* actual held duration before onset quantization */
     /* mono */
     uint8_t mono_stack[NVOICE];  /* keys held, in press order (as many as Dexed keeps voices for) */
     uint8_t nmono;

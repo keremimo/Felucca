@@ -680,7 +680,7 @@ changing the track or flash. An unused/non-native preset GET returns an error.
 Track PUT selects engine 15 (CZ-1), native tone marker 2, resets the ordinary sound controls to
 neutral defaults, and preserves the track's musical/routing settings.
 Preset record version 8 preserves all native bytes in a 238-byte record. Earlier 192-byte banks and next’s v6/v7 CZ records remain readable.
-FUN10 projects (4160 bytes), FBKD pattern banks (19008 bytes) and TPLA templates preserve each track's native
+FUN11 projects (4160 bytes), FBKE pattern banks (19008 bytes) and TPLA templates preserve each track's native
 tone; older formats remain readable. See [native tones](../docs/CZ1_SYSEX.md).
 
 DRUM now has one factory preset, **808 KIT** (index 0); KIT's stored value stays 4.
@@ -700,3 +700,11 @@ u16 version 1, u16 slot count 16, u32 used mask, 16 bank-name bytes, then 16
 objects; earlier 9-object and sample-era inventories are still accepted.
 
 Earlier next FUNA/FUNB, FBKB/FBKC and TPL8/TPL9 CZ sounds are migrated to raw native tones; common sound settings and patterns are retained.
+
+Recorded synth gates: when a NOTE or TIE has no lane hits, its stored accent byte
+holds the final gate as 1..255/255 of that swung step (0 uses the legacy track
+GATE). FUN11/FBKE retain these gates without changing record sizes. FUN10/FBKD
+and earlier formats remain readable with their original accent validation.
+STEP_SET/TRACK_STEP keep existing recorded gates on hit-free notes; converting
+to lane hits clears the gate. The 12-byte editor reply continues to report lane
+accents only. Full backups retain recorded gates.

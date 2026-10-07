@@ -62,7 +62,7 @@ On top of Felucca 1.0 it adds:
 - **Patterns:** eight banks per track, with songs that pick a bank for each track
 - **Step editing:** set a note's length while its key is held, resize it with ENV, move it with SCL,
   delete it with EDIT, and undo or redo up to eight edits; MIDI step entry; live recording onto the
-  playing step, with the cursor following it
+  nearest swung step, with the cursor following playback
 - **Startup:** a BOOT project loaded at power-on and a template for new projects; CLK, TUNE, MIDI and
   ROUT kept between starts
 - **Panel:** HOME names the notes and chords you play; key lights for the scale and the sounding
@@ -83,7 +83,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   ALGORITHM selects the track on every page
 - **Sequencer:** 64 steps per track with chords, ties, accent, slide and per-step chance; a piano
   roll of the steps; a drum grid (white keys = steps, black keys = lanes); motion recording of knob
-  moves; live loop recording onto the playing step with overdub; MIDI step entry; tied-note length,
+  moves; live loop recording onto the nearest swung step with overdub; MIDI step entry; tied-note length,
   movement and deletion; eight-level manual step undo/redo; divisions from 1/32 to 4 bars;
   loading a sound never touches your patterns
 - **Patterns:** eight independent 64-step banks per track, with up to four notes per step, ties,
@@ -175,12 +175,14 @@ SELECT turn arriving with the key or modifier release is included. With no note 
 held, SELECT turns the pages; KNOB 1 moves the cursor. PRESETS continues to browse sounds on HOME and PRESETS,
 and selects FM6 operators on their pages.
 
-Armed live recording writes the step currently playing, and the STEP cursor follows it. With
-**CLK TRS** or **CLK USB**, notes received from that clock source round to the nearest swung step
-onset. This preserves a quantized sequence sent by an MPC or DAW even when note and clock messages
-arrive on opposite sides of a boundary. Step position follows MIDI clock pulses directly, so tempo
-changes do not shift the pattern. Set the track's **DIV** to the recording grid and **SWING** to match
-the source. The DRUM grid keeps its white-key step and black-key lane controls.
+Armed live recording rounds note starts to the nearest swung step, including across the loop end;
+the STEP cursor follows playback. Synth notes retain their held duration when the start moves, so
+replay does not replace short or sustained notes with the track's GATE setting. Re-recording a note
+replaces its old tied tail. Notes entered together as a chord share a held length; the step model
+does not store independent release times for overlapping chord notes. With **CLK TRS** or **CLK USB**,
+step position follows MIDI clock pulses directly, so tempo changes do not shift the pattern. Set the
+track's **DIV** to the recording grid and **SWING** to match the source. The DRUM grid keeps its
+white-key step and black-key lane controls.
 
 ### Startup and compatibility
 
@@ -190,7 +192,7 @@ projects, with empty patterns. BOOT OFF uses the template when one is saved. CLK
 and ROUT persist between starts; loading a project or template applies its own settings. DRUM is the
 device's own setting.
 
-Projects use the FBKD format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
+Projects use the FBKE format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
 projects load into pattern 1; their old project-based SONG rows are cleared. Pre-1.0 Melodee's
 multi-pattern projects/settings/templates and incompatible 58/62-parameter user presets are not imported.
 User sample slots USR1–3 and sample uploads are removed; their flash space now stores projects.

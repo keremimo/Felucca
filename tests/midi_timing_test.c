@@ -186,9 +186,9 @@ static int lengths_and_swing_test(void)
         }
         events_block(CTL);
     }
-    bad += check("a chord straddling a clock boundary shares one onset and a two-step length",
+    bad += check("a chord straddling a boundary shares one onset and retains its full held length",
                  trk[0].step[1].n == 3 && trk[0].step[1].note[0] == 60 && trk[0].step[1].note[1] == 64 &&
-                 trk[0].step[1].note[2] == 67 && trk[0].step[2].time == ST_TIE && trk[0].step[3].time == ST_REST);
+                 trk[0].step[1].note[2] == 67 && trk[0].step[2].time == ST_TIE && trk[0].step[3].time == ST_TIE && step_gate(&trk[0].step[3]) < 8);
     timing_reset(2, start);
     trk[0].p[P_SSWING] = 100;
     timing_packet(start, 0xFA, 0, 0, 2);
@@ -205,9 +205,92 @@ static int lengths_and_swing_test(void)
     bad += check("synced MIDI quantization follows the swung onset", trk[0].step[0].note[0] == 72 && !trk[0].step[1].n);
     return bad;
 }
+static int loop_replay_test(void)
+{
+    int bad = 0;
+    for (uint32_t source = 0; source < 3; source++) {
+        timing_reset(2, 24000000u);
+        track_t *t = &trk[0];
+        timing_packet(timing_now, 0xFA, 0, 0, 2);
+        timing_packet(timing_now, 0xF8, 0, 0, 2);
+        events_block(CTL);
+        seq_advance(15u * 6144u + 5000u);
+        /* Three paths share the same late last-step quantization. */
+        if (source == 0) input_on(t, 60, 111);
+        else { timing_packet(timing_now, 0x90, 60, 111, source); events_block(CTL); }
+        seq_advance(2000);
+        if (source == 0) input_off(t, 60);
+        else { timing_packet(timing_now, 0x80, 60, 0, source); events_block(CTL); }
+        bad += check("late loop-start input records only step zero, never both loop ends",
+                     t->step[0].n == 1 && t->step[0].note[0] == 60 && t->step[15].time == ST_REST && !t->step[15].n);
+        uint32_t captured = step_gate(&t->step[0]) * 6144u / 255u;
+        bad += check("quantizing the onset preserves the 2000-unit note duration",
+                     captured <= 2000u && captured + 25u > 2000u);
+        bad += check("recorded velocity 111 stays 111 rather than becoming an accent",
+                     t->step[0].vel == 111 && !(t->step[0].flags & SF_ACCENT));
+        seq_stop(); song.rec = 0; t->p[P_SGATE] = 16;
+        seq_start(); seq_advance(0);
+        seq_advance(captured - 1u);
+        bad += check("replay keeps the recorded note held despite a different track GATE", gate_note(t, 60));
+        seq_advance(1);
+        bad += check("replay releases the note at its captured duration", !gate_note(t, 60));
+        seq_advance(16u * 6144u - captured - 1u);
+        bad += check("replay has no extra onset on the final step", !gate_note(t, 60) && t->seq_idx == 15);
+        seq_advance(1);
+        bad += check("replay starts the note once when the loop returns to zero", gate_note(t, 60) && t->seq_idx == 0);
+    }
+    return bad;
+}
+static int recorded_gate_storage_test(void)
+{
+    timing_reset(2, 24000000u);
+    trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 111, 0, 83};
+    pattern_commit(&trk[0]);
+    pattern_request(&trk[0], 1);
+    trk[0].step[2] = (step_t){{64}, 1, ST_NOTE, 0, 70, 0, 211};
+    project_capture(&proj_scratch);
+    int ok = bank_pack(proj_wire_u.raw, &proj_scratch, 1) && bank_valid(proj_wire_u.raw, BANK_STORE_SIZE);
+    if (ok) {
+        project_restore_runtime(&proj_scratch); bank_restore(proj_wire_u.raw);
+        ok = trk[0].step[2].acc == 211 && pattern_at(0, 0)->step[0].acc == 83;
+    }
+    return check("recorded gates survive project save/load in active and inactive banks", ok);
+}
+static int old_formats_and_overdub_test(void)
+{
+    int bad = 0;
+    timing_reset(2, 24000000u);
+    trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96};
+    project_capture(&proj_scratch);
+    int ok = bank_pack(proj_wire_u.raw, &proj_scratch, 1);
+    uint32_t magic = PROJ_MAGIC_V10, sum;
+    memcpy(proj_wire_u.raw + 8, &magic, 4);
+    sum = proj_hash(proj_wire_u.raw + 8, PROJ_STORE_SIZE - 4);
+    memcpy(proj_wire_u.raw + 8 + PROJ_STORE_SIZE - 4, &sum, 4);
+    magic = BANK_MAGIC_D; memcpy(proj_wire_u.raw, &magic, 4);
+    bank_checksum(proj_wire_u.raw);
+    ok &= bank_valid(proj_wire_u.raw, BANK_STORE_SIZE);
+    if (ok) bank_upgrade(proj_wire_u.raw);
+    ok &= bank_valid(proj_wire_u.raw, BANK_STORE_SIZE) && *(uint32_t *)proj_wire_u.raw == BANK_MAGIC &&
+          *(uint32_t *)(proj_wire_u.raw + 8) == PROJ_MAGIC;
+    bad += check("existing FUN10/FBKD projects migrate while retaining legacy GATE behavior", ok && !step_gate(&proj_scratch.t[0].step[0]));
+    timing_reset(2, 24000000u);
+    track_t *t = &trk[0]; seq_start(); seq_advance(0);
+    input_on(t, 60, 111); seq_advance(14000); input_off(t, 60);
+    seq_stop(); seq_start(); seq_advance(0);
+    input_on(t, 60, 70); seq_advance(2000); input_off(t, 60);
+    bad += check("a shorter repeated take removes its old tied tail and keeps softer velocity",
+                 t->step[0].vel == 70 && step_gate(&t->step[0]) < 90 && t->step[1].time == ST_REST && t->step[2].time == ST_REST);
+    t->seq_notes[0] = 60; t->seq_n = 1;
+    input_on(t, 60, 100); seq_release(t);
+    bad += check("a sequencer release cannot cut a note still held by the player", gate_note(t, 60));
+    input_off(t, 60);
+    return bad;
+}
 int main(void)
 {
-    int bad = grid_test() + timeline_test() + phase_test() + divisions_test() + lengths_and_swing_test();
+    int bad = grid_test() + timeline_test() + phase_test() + divisions_test() + lengths_and_swing_test() +
+              loop_replay_test() + recorded_gate_storage_test() + old_formats_and_overdub_test();
     printf("%s\n", bad ? "MIDI TIMING TEST FAILED" : "MIDI timing tests passed");
     return bad != 0;
 }

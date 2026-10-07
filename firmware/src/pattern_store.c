@@ -1,16 +1,17 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* FBKD: a FUN10 sound/current-pattern record plus seven other banks per track,
+/* FBKE: a FUN11 sound/current-pattern record plus seven other banks per track,
  * all bank timings, arrangement assignments and bounded motion bank tags.
  * Five sectors per A/B copy; the 19,008-byte record is validated in main-loop
  * staging before any runtime state is replaced. */
-/* FBKD stores the FUN10 patches without growing the five-sector flash object. Its extra
+/* FBKE stores the FUN11 patches without growing the five-sector flash object. Its extra
  * steps use exactly 64 bits: four 7-bit notes, n+5*time (4 bits), flags (2), velocity (7),
  * hits/accents (8 each), probability (7). FBK9 remains readable at its frozen offsets. */
 #define BANK_MAGIC9 0x394B4246u
 #define BANK_SIZE9 20224u
 #define BANK_SIZE_CZ_OLD 19084u
 #define BANK_SIZE_CZ_NEXT 19092u
-#define BANK_MAGIC 0x444B4246u
+#define BANK_MAGIC_D 0x444B4246u
+#define BANK_MAGIC 0x454B4246u                  /* FBKE: recorded gates; all previous offsets stay fixed */
 #define BANK_STORE_SIZE (BANK_SIZE9 - NTRK * (NPAT - 1u) * NSTEP + PROJ_CZ_BYTES)
 static uint32_t bank_v9;
 #define BANK_PROJ_SIZE (bank_v9==1u ? PROJ_STORE_V8 : bank_v9==2u ? PROJ_LEGACY_CZ_OLD : bank_v9==3u ? PROJ_LEGACY_CZ : PROJ_STORE_SIZE)
@@ -59,11 +60,11 @@ static int bank_step_unpack(step_t *s, const uint8_t *b)
     s->flags = (uint8_t)bank_bits_get(b, &pos, 2u); s->vel = (uint8_t)bank_bits_get(b, &pos, 7u);
     s->hit = (uint8_t)bank_bits_get(b, &pos, 8u); s->acc = (uint8_t)bank_bits_get(b, &pos, 8u);
     s->probability = (uint8_t)bank_bits_get(b, &pos, 7u);
-    return meta < 15u && s->probability <= 101u && !(s->acc & ~s->hit);
+    return meta < 15u && s->probability <= 101u && (bank_v9 ? !(s->acc & ~s->hit) : step_acc_valid(s));
 }
 static int bank_step_pack(uint8_t *b, const step_t *s)
 {
-    if (s->n > 4u || s->time > ST_REST || s->flags > 3u || s->vel > 127u || s->probability > 101u || (s->acc & ~s->hit)) return 0;
+    if (s->n > 4u || s->time > ST_REST || s->flags > 3u || s->vel > 127u || s->probability > 101u || !step_acc_valid(s)) return 0;
     uint32_t pos = 0;
     memset(b, 0, 8u);
     for (uint32_t j = 0; j < 4u; j++) { if (s->note[j] > 127u) return 0; bank_bits_put(b, &pos, s->note[j], 7u); }
@@ -113,9 +114,9 @@ static int bank_valid(const uint8_t *raw, uint32_t len)
 {
     uint32_t magic, size, sum, pos;
     if (!bank_full(len)) return 0;
-    bank_v9 = len==BANK_SIZE9?1u:len==BANK_SIZE_CZ_OLD?2u:len==BANK_SIZE_CZ_NEXT?3u:0u; pos = BANK_EXTRA_OFF;
     memcpy(&magic, raw, 4); memcpy(&size, raw + 4, 4); memcpy(&sum, raw + len - 4u, 4);
-    if ((magic != (bank_v9==1u ? BANK_MAGIC9 : bank_v9==2u ? 0x424B4246u : bank_v9==3u ? 0x434B4246u : BANK_MAGIC) && !(bank_v9==0u && magic==0x424B4246u)) || size != len || sum != proj_hash(raw, len - 4u) ||
+    bank_v9 = len==BANK_SIZE9?1u:len==BANK_SIZE_CZ_OLD?2u:len==BANK_SIZE_CZ_NEXT?3u:magic==BANK_MAGIC_D?4u:0u; pos = BANK_EXTRA_OFF;
+    if ((magic != (bank_v9==1u ? BANK_MAGIC9 : bank_v9==2u ? 0x424B4246u : bank_v9==3u ? 0x434B4246u : bank_v9==4u ? BANK_MAGIC_D : BANK_MAGIC) && !(bank_v9==0u && magic==0x424B4246u)) || size != len || sum != proj_hash(raw, len - 4u) ||
         !proj_import_any(&proj_scratch, raw + 8u, BANK_PROJ_SIZE)) return 0;
     for (uint32_t k = 0; k < NTRK; k++) {
         if (raw[BANK_ACTIVE_OFF + k] >= NPAT) return 0;
@@ -182,7 +183,7 @@ static void bank_restore(const uint8_t *raw)
 }
 
 /* Upgrade a validated FBK9 in place, before re-saving/renaming/restoring an archive.
- * Compact first at the old start, then slide the compact region to FUN10's end. */
+ * Compact first at the old start, then slide the compact region to FUN11's end. */
 static void bank_upgrade(uint8_t *raw)
 {
     uint32_t old_start, old_tail, old_fn, new_start, new_tail, new_fn, old_proj, old_step;

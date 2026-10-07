@@ -379,6 +379,7 @@ static void step_edit(uint32_t slot, int32_t steps)
         break;
     case 2:                                               /* TIME: NOTE / TIE / REST (length: PRESETS) */
         st->time = (uint8_t)clamp((int32_t)st->time + (steps > 0 ? 1 : -1), ST_NOTE, ST_REST);
+        if (!st->hit && st->time == ST_REST) st->acc = 0;
         break;
     default: {                                            /* FLAG: - / ACC / SLD / A+S */
         uint32_t f = (st->flags & SF_ACCENT ? 1u : 0u) | (st->flags & SF_SLIDE ? 2u : 0u);

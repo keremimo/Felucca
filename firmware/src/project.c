@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Projects: four slots in NOR, each holding 32 independent pattern banks.
- * FBKD (pattern_store.c) contains the FUN10 sound/current-pattern record below.
+ * FBKE (pattern_store.c) contains the FUN11 sound/current-pattern record below.
  * Hardware retains only slot names/occupancy in RAM; full records use one
  * main-loop staging buffer. Host fixtures also provide a RAM storage backend.
  *
@@ -49,7 +49,8 @@
 #define PROJ_LEGACY_CZ_OLD 4236u
 #define PROJ_LEGACY_CZ 4244u
 #define PROJ_MAGIC_V8 0x46554E38u
-#define PROJ_MAGIC 0x46554E3Au                 /* FUN10: FUN8 + full native CZ tones */
+#define PROJ_MAGIC_V10 0x46554E3Au
+#define PROJ_MAGIC 0x46554E3Bu                 /* FUN11: recorded gates in hit-free step accent bytes */
 #define PROJ_MAGIC_V7 0x46554E37u              /* "FUN7": serialized (byte params, packed steps), chain, motion */
 #define PROJ_MAGIC_V6 0x46554E36u              /* FUN6: 69 parameters, drum grid, chain */
 #define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": the grid, without the chain; read only */
@@ -116,7 +117,7 @@ _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "
 #define PROJ_FM6_OFF (PROJ_CZ_OFF - NTRK * FM6_PACKED)
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(G_COUNT == 27u, "FUN7 globals retain original IDs");
-_Static_assert(sizeof(project_store_t) == 4160u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN10 / FUN7 sizes");
+_Static_assert(sizeof(project_store_t) == 4160u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN11 / FUN7 sizes");
 typedef struct {                               /* a track of format 4, read only */
     int16_t p[PROJ_NP_V4];
     uint8_t engine, preset;
@@ -430,7 +431,7 @@ static int proj_fn_none(project_t *q)          /* a record without FM6 function 
 static int proj_import_any(project_t *q, const void *b, int n)
 {
     if((n==PROJ_LEGACY_CZ && ((const uint32_t *)b)[0]==0x46554E42u) || (n==PROJ_LEGACY_CZ_OLD && ((const uint32_t *)b)[0]==0x46554E41u))return proj_unpack(q,b,(uint32_t)n) && proj_fn_none(q);
-    if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[0] == PROJ_MAGIC)
+    if (n == PROJ_STORE_SIZE && (((const uint32_t *)b)[0] == PROJ_MAGIC || ((const uint32_t *)b)[0] == PROJ_MAGIC_V10))
         return proj_unpack(q, b, PROJ_STORE_SIZE) && proj_fn_none(q);
     if (n == PROJ_STORE_V8 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V8)
         return proj_unpack(q, b, PROJ_STORE_V8) && proj_fn_none(q);
@@ -521,7 +522,7 @@ static int proj_pack(project_store_t *out, const project_t *q)
             for (uint32_t j = 0; j < 4u; j++)           /* what proj_unpack checks, so a saved project always loads: */
                 b[pos++] = s->note[j] > 127u ? 127u : s->note[j];   /* notes and velocity 0..127, accents */
             b[pos++] = (uint8_t)(s->n | s->time << 3 | s->flags << 5);   /* only on hits */
-            b[pos++] = s->vel > 127u ? 127u : s->vel; b[pos++] = s->hit; b[pos++] = s->acc & s->hit;
+            b[pos++] = s->vel > 127u ? 127u : s->vel; b[pos++] = s->hit; b[pos++] = s->hit ? s->acc & s->hit : s->acc;
             b[pos++] = s->probability;
         }
     }
@@ -550,14 +551,14 @@ static void proj_motion_ids(motion_store_t *m, uint32_t np)
         if (np < P_COUNT && m->event[i].param >= np - 8u && m->event[i].param < np)
             m->event[i].param = (uint8_t)(m->event[i].param + P_COUNT - np);
 }
-/* Serialized FUN10 / FUN8 / FUN7: older records initialize their missing patches. */
+/* Serialized FUN11 / FUN10 / FUN8 / FUN7: older records initialize their missing patches. */
 static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7, v10 = st == PROJ_STORE_SIZE;
     uint32_t lc = st==PROJ_LEGACY_CZ?165u:st==PROJ_LEGACY_CZ_OLD?163u:0u;
     uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - NTRK * FM6_PACKED - (lc ? NTRK*lc : v10 ? PROJ_CZ_BYTES : 0u);
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
-    if (magic != (lc ? (lc==165u?0x46554E42u:0x46554E41u) : v7 ? PROJ_MAGIC_V7 : v10 ? PROJ_MAGIC : PROJ_MAGIC_V8) || size != st || sum != proj_hash(b, st - 4u) ||
+    if ((magic != (lc ? (lc==165u?0x46554E42u:0x46554E41u) : v7 ? PROJ_MAGIC_V7 : v10 ? PROJ_MAGIC : PROJ_MAGIC_V8) && !(v10 && magic == PROJ_MAGIC_V10)) || size != st || sum != proj_hash(b, st - 4u) ||
         np < 8u || np > P_COUNT || 68u + NTRK * (np + 2u + NSTEP * 9u) + sizeof q->chain + sizeof q->motion > end)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
@@ -577,7 +578,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             s->vel = b[pos++]; s->hit = b[pos++]; s->acc = b[pos++]; s->probability = b[pos++];
             if (meta > 127u || s->n > 4u || s->time > ST_REST || s->probability > 101u) return 0;
             for (uint32_t j = 0; j < 4u; j++) if (s->note[j] > 127u) return 0;
-            if (s->vel > 127u || (s->acc & ~s->hit)) return 0;
+            if (s->vel > 127u || (magic == PROJ_MAGIC ? !step_acc_valid(s) : (s->acc & ~s->hit))) return 0;
         }
     }
     memcpy(&q->chain, b + pos, sizeof q->chain); pos += sizeof q->chain;
@@ -653,7 +654,8 @@ static void proj_steps(step_t *s)            /* a loaded sequence stays inside i
         if (s[i].n > 4u) s[i].n = 4;
         if (s[i].time > ST_REST) s[i].time = ST_REST;
         for (j = 0; j < 4u; j++) s[i].note[j] &= 127u;
-        s[i].acc &= s[i].hit;
+        if (s[i].hit) s[i].acc &= s[i].hit;
+        else if (s[i].time == ST_REST) s[i].acc = 0;
     }
 }
 

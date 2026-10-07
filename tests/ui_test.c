@@ -988,15 +988,15 @@ static int test_grid(void)
     fm1_in.notes = 0;
     keyboard_block();
     ok = t->step[5].hit == 1u << DV_HATO && !t->step[5].n && t->rskip_n == 0u;
-    t->seq_pos = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), 5) - 10u;   /* late in step 6: still step 6 */
+    t->seq_pos = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), 5) - 10u;   /* late: rounds to step 7 */
     fm1_in.notes = 1u << key_at(1, 0);
     keyboard_block();
-    ok &= t->step[5].hit == ((1u << DV_HATO) | (1u << DV_KICK)) && !t->step[6].hit && t->rskip_n == 0u;
+    ok &= t->step[5].hit == (1u << DV_HATO) && t->step[6].hit == (1u << DV_KICK) && t->rskip_n == 1u && t->rskip_idx == 6;
     rec_hold(t, 7, 16);
     fm1_in.notes = 0;
     keyboard_block();
     ok &= t->step[7].time == ST_REST && !t->rh_n;
-    bad += check("REC on the grid: lane keys record hits on the step playing (late too), no TIE holds", ok);
+    bad += check("REC on the grid: lane keys round to the nearest step, no TIE holds", ok);
     /* live recording elsewhere (HOME): the GM keys; a lane's note a hit, another GM drum a note */
     go_home();
     frame();
