@@ -232,9 +232,9 @@ static void arp_off(track_t *t)                  /* the sounding arp note ends (
     t->arp_note = 0;
 }
 
-/* n: samples the arp advances by (the external clock's while it runs, 0 stopped); gate_n: samples its
- * gate counts down by (real time when the external transport stops: a tapped or latched note still ends) */
-static volatile uint32_t beat_pos, beat_n;      /* samples into the beat, the beat of the bar (0..3) */
+/* n and gate_n: sample time (INT), musical units (MIDI); a stopped external
+ * transport uses real time converted to musical units for a tapped note's gate. */
+static volatile uint32_t beat_pos, beat_n;      /* clock units into the beat, beat of the bar (0..3) */
 static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
 {
     uint32_t period, cnt, list[64], len = 0, i, j, o;
@@ -250,12 +250,17 @@ static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
             arp_off(t);
         return;
     }
-    period = div_samples((uint32_t)t->p[P_ARATE]);
+    period = seq_div_samples((uint32_t)t->p[P_ARATE]);
     sw = t->p[P_ASWING] * (int32_t)period / 250;
     t->arp_pos += n;
     if (t->arp_pos < period + (uint32_t)((t->arp_idx & 1u) ? sw : -sw) && t->arp_pos != 0xFFFFFFF + n)
         return;
-    t->arp_pos = 0;
+    if (t->arp_pos >= 0xFFFFFFFu)
+        t->arp_pos = 0;
+    else if (song.g[G_CLOCK])
+        t->arp_pos -= period + (uint32_t)((t->arp_idx & 1u) ? sw : -sw);
+    else
+        t->arp_pos = 0;
     /* build the note list: held notes (sorted or as played) over OCT octaves */
     for (i = 0; i < t->nheld; i++)
         list[i] = t->held[i];
@@ -309,7 +314,8 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
     return swing_step_len(t, period, idx);   /* core.h: own + global, at most 100 */
 }
 
-/* live recording: the note goes into the step playing (SEQ > STEP follows it: ui_input.c). Overdub: a step that
+/* Live recording uses the playing step; timestamped MIDI from the clock master
+ * rounds to the nearest swung onset (SEQ > STEP follows playback: ui_input.c). Overdub: a step that
  * holds notes gets this one added (a chord of up to 4; when full, the last note is
  * replaced); MONO / LEGATO / UNISON parts keep one note per step, as step entry does.
  * Held on (synth parts): each further step the sequencer enters while the note is
@@ -317,12 +323,22 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
  * of the last one puts that step back (rec_release), so a short note stays one step.
  * A note recorded into another step ends the hold before (the step model ties the
  * notes of one step only). */
+static uint8_t rec_midi_quantize;                  /* timestamped input from the clock master */
 static void rec_note(track_t *t, uint32_t note, uint32_t vel)
 {
     uint32_t len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u, k;
     uint32_t next = t->seq_pos == 0x7FFFFFFFu;      /* Start and the note in one block: step 0 fires after it */
     uint32_t idx = next ? 0u : t->seq_idx % len;
     step_t *s;
+    /* Clock and pad messages can straddle a boundary in either wire order.
+     * Synced MIDI rounds to the closest swung onset. Panel/ARP recording
+     * continues to use the playing step. Guard the upcoming live note from
+     * being retriggered when that step is entered. */
+    if (!next && rec_midi_quantize &&
+        t->seq_pos >= step_samples(t, seq_div_samples((uint32_t)t->p[P_SDIV]), idx) / 2u) {
+        idx = (idx + 1u) % len;
+        next = 1;
+    }
     s = &t->step[idx];
     if (drum_track(t)) {                            /* DRUM: into the grid, no holds (hits) */
         uint32_t l = drum_lane(note);
@@ -431,7 +447,7 @@ static void rec_release(track_t *t, uint32_t note)
     if (k == t->rh_n || (t->rh_n = (uint8_t)k))
         return;                                     /* not one of them, or others still held */
     if (t->rh_ties && t->seq_idx == t->rh_last &&
-        t->seq_pos < step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx) / 2u)
+        t->seq_pos < step_samples(t, seq_div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx) / 2u)
         t->step[t->rh_last] = t->rh_bak;            /* released early in it: not held into this step */
 }
 
@@ -679,7 +695,7 @@ static void seq_tick(track_t *t, uint32_t n)
     }
     if (!song.playing)
         return;
-    period = div_samples((uint32_t)t->p[P_SDIV]);
+    period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     len = (uint32_t)t->p[P_SLEN];
     t->seq_pos += n;
     for (;;) {
@@ -691,7 +707,7 @@ static void seq_tick(track_t *t, uint32_t n)
         if (!t->seq_idx && !chain.running && t->pattern_next < NPAT) {
             pattern_switch(t, t->pattern_next);
             t->seq_idx = 0;
-            period = div_samples((uint32_t)t->p[P_SDIV]);
+            period = seq_div_samples((uint32_t)t->p[P_SDIV]);
             len = (uint32_t)t->p[P_SLEN];
         }
         motion_step(t, t->seq_idx, &motion);
@@ -733,13 +749,42 @@ static track_t *midi_track(uint32_t ch)
 #include "midi_control.c"
 #include "midi_clock.c"
 
+static void seq_advance(uint32_t n)
+{
+    uint32_t i, beat = seq_beat_samples();
+    chain_tick(n);
+    for (i = 0; i < NTRK; i++)
+        seq_tick(&trk[i], n);
+    for (i = 0; i < NPART; i++)
+        arp_step(&trk[i], n, n);
+    beat_pos += n;
+    while (beat_pos >= beat) {
+        beat_pos -= beat;
+        beat_n = (beat_n + 1u) & 3u;
+    }
+}
+
 /* everything that happens between two rendered blocks */
 static void events_block(uint32_t n)
 {
-    uint32_t i, pr, seq_n = n;
+    uint32_t i, pr;
     uint32_t clock_mode = (uint32_t)song.g[G_CLOCK];
     if (midi_clock.mode != clock_mode) {
+        uint32_t internal_beat = (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM];
+        uint32_t old_beat = midi_clock.mode ? MIDI_BEAT_UNITS : internal_beat;
+        uint32_t new_beat = clock_mode ? MIDI_BEAT_UNITS : internal_beat;
         seq_stop();
+        /* Continue and a latched ARP preserve their fractional phase when
+         * crossing between sample time and MIDI musical units. */
+        for (i = 0; i < NTRK; i++) {
+            track_t *t = &trk[i];
+            if (t->seq_pos < 0x7FFFFFFFu)
+                t->seq_pos = (uint32_t)((uint64_t)t->seq_pos * new_beat / old_beat);
+            if (t->arp_pos < 0xFFFFFFFu)
+                t->arp_pos = (uint32_t)((uint64_t)t->arp_pos * new_beat / old_beat);
+            t->arp_off = (uint32_t)((uint64_t)t->arp_off * new_beat / old_beat);
+        }
+        beat_pos = (uint32_t)((uint64_t)beat_pos * new_beat / old_beat);
         memset(&midi_clock, 0, sizeof midi_clock);
         midi_clock.mode = (uint8_t)clock_mode;
         midi_beat_samples = 0;
@@ -806,38 +851,44 @@ static void events_block(uint32_t n)
         uint32_t st = status & 0xF0u, ch = status & 0x0Fu;
         uint32_t d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu;
         uint32_t source = midi_in_source[at] ? midi_in_source[at] : 1u, ms = midi_in_ms[at];
+        uint32_t time = midi_in_time[at];
+        if (midi_render_timed && (int32_t)(time - midi_render_time) > 0)
+            break;
         mi_r++;
         if (status >= 0xF8u) {
             if (clock_mode == source) {
                 if (status == 0xF8u)
-                    midi_clock_pulse(ms);
-                else
+                    midi_clock_pulse(ms, time);
+                else {
+                    if (song.playing)
+                        seq_advance(midi_clock_advance(time));
                     midi_clock_transport(status, ms);
+                }
+                if (song.playing)
+                    seq_advance(midi_clock_advance(time));
             }
-        } else
+        } else {
+            if (clock_mode && song.playing)
+                seq_advance(midi_clock_advance(time));
+            rec_midi_quantize = clock_mode && clock_mode == source;
             midi_event(st, ch, d1, d2);
+            rec_midi_quantize = 0;
+        }
     }
     if (clock_mode) {
-        seq_n = 0;
         if (song.playing) {
             uint32_t last = midi_clock.have_pulse ? midi_clock.last_ms : midi_clock.start_ms;
             if (fm1_ms - last > 500u) {
                 seq_stop();                         /* cable loss must not leave a running held note */
                 midi_clock.tempo_valid = 0;
             } else
-                seq_n = midi_clock_advance(fm1_ms);
+                seq_advance(midi_clock_advance(midi_render_timed ? midi_render_time : MIDI_TIME_NOW()));
         }
-    }
-    chain_tick(seq_n);
-    for (i = 0; i < NTRK; i++)
-        seq_tick(&trk[i], seq_n);
-    for (i = 0; i < NPART; i++)
-        arp_step(&trk[i], clock_mode ? seq_n : n, clock_mode && song.playing ? seq_n : n);
-    beat_pos += clock_mode ? seq_n : n;               /* the beat the ARP LED flashes on (ui_leds) */
-    if (beat_pos >= beat_samples()) {
-        beat_pos -= beat_samples();
-        beat_pos = beat_pos < beat_samples() ? beat_pos : 0u;
-        beat_n = (beat_n + 1u) & 3u;
+        if (!song.playing)
+            for (i = 0; i < NPART; i++)
+                arp_step(&trk[i], 0, (uint32_t)((uint64_t)n * MIDI_BEAT_UNITS / beat_samples()));
+    } else {
+        seq_advance(n);
     }
     if (song.playing)
         song.tick++;

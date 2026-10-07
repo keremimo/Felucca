@@ -159,7 +159,7 @@ static int motion_capture(track_t *t, uint32_t id, int16_t value)
         return 0;
     }
     len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
-    period = div_samples((uint32_t)t->p[P_SDIV]);
+    period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     f = motion_guard();
     idx = t->seq_idx % len;
     if (t->seq_pos < 0x7FFFFFFFu && t->seq_pos > step_samples(t, period, idx) / 2u) idx = (idx + 1u) % len;

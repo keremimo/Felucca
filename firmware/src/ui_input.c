@@ -72,7 +72,7 @@ static uint32_t grid_leds(void)
  * 2 no ARP playing */
 static uint32_t arp_led(void)
 {
-    uint32_t k, on = 0, b = beat_samples();
+    uint32_t k, on = 0, b = seq_beat_samples();
     for (k = 0; k < NPART; k++)
         on |= trk[k].p[P_AMODE] && trk[k].nheld;
     return !on ? 2u : beat_pos < (beat_n ? b / 6u : b / 2u);

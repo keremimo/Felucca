@@ -274,15 +274,15 @@ typedef struct track {
     uint8_t arp_phys;            /* keys physically held for the arp */
     uint8_t latched;             /* HOLD: keep notes after release */
     /* arp runtime */
-    uint32_t arp_pos;            /* q8 samples into the current arp step */
+    uint32_t arp_pos;            /* samples (INT), or MIDI musical units, into the arp step */
     uint32_t arp_idx;
     uint8_t arp_note;            /* sounding arp note, 0 = none */
-    uint32_t arp_off;            /* q8 sample time of its note-off */
+    uint32_t arp_off;            /* remaining gate in the same clock units */
     /* sequencer */
     step_t step[NSTEP];
     volatile uint8_t pattern, pattern_next;             /* active bank, queued bank (0xff: none) */
     volatile uint32_t pattern_gen;                      /* invalidates editor history even for identical banks */
-    uint32_t seq_pos;            /* q8 samples into the current step */
+    uint32_t seq_pos;            /* samples (INT), or MIDI musical units, into the step */
     uint16_t seq_idx;
     uint8_t seq_notes[4 + NLANE];   /* sounding seq notes (the step's notes, then its hits) */
     uint8_t seq_n;

@@ -175,8 +175,12 @@ SELECT turn arriving with the key or modifier release is included. With no note 
 held, SELECT turns the pages; KNOB 1 moves the cursor. PRESETS continues to browse sounds on HOME and PRESETS,
 and selects FM6 operators on their pages.
 
-Armed live recording writes the step currently playing, and the STEP cursor follows it. The DRUM
-grid keeps its white-key step and black-key lane controls.
+Armed live recording writes the step currently playing, and the STEP cursor follows it. With
+**CLK TRS** or **CLK USB**, notes received from that clock source round to the nearest swung step
+onset. This preserves a quantized sequence sent by an MPC or DAW even when note and clock messages
+arrive on opposite sides of a boundary. Step position follows MIDI clock pulses directly, so tempo
+changes do not shift the pattern. Set the track's **DIV** to the recording grid and **SWING** to match
+the source. The DRUM grid keeps its white-key step and black-key lane controls.
 
 ### Startup and compatibility
 

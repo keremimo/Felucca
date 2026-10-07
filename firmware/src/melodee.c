@@ -64,6 +64,8 @@
 #include "fx.c"
 
 /* ------------------------------------------------- MIDI, sequencer --- */
+#define MIDI_TIME_NOW() fm1_ticks()
+#define MIDI_TICKS_PER_MS (1000u * FM1_TICKS_PER_US)
 #include "usb.c"
 #if MELODEE_UART
 #include "midi_uart.c"

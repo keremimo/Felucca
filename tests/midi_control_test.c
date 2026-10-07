@@ -122,7 +122,8 @@ static int clock_test(uint32_t source)
     bad += check(source == 1 ? "USB six pulses advance exactly one 16th step" : "TRS six pulses advance exactly one 16th step", trk[0].seq_idx == 1u && song.g[G_BPM] == 120);
     fm1_ms = 132; events_block(CTL); uint16_t idx = trk[0].seq_idx; uint32_t pos = trk[0].seq_pos;
     clock_packet(source, 0xFC, 133);
-    bad += check("external Stop preserves step position and releases sequence notes", !song.playing && trk[0].seq_idx == idx && trk[0].seq_pos == pos && !trk[0].seq_n);
+    bad += check("external Stop advances to its timestamp and releases sequence notes", !song.playing && trk[0].seq_idx == idx && trk[0].seq_pos > pos && !trk[0].seq_n);
+    pos = trk[0].seq_pos;
     clock_packet(source, 0xFB, 150);
     bad += check("external Continue resumes the existing step position", song.playing && trk[0].seq_idx == idx && trk[0].seq_pos == pos);
     clock_packet(source, 0xF8, 151); fm1_ms = 672; events_block(CTL);
@@ -264,9 +265,11 @@ static int drum_channel_test(void)
     return bad;
 }
 
+#ifndef MIDI_CONTROL_NO_MAIN
 int main(void)
 {
     int bad = controls_test() + sustain_test() + ownership_test() + clock_test(1) + clock_test(2) + clock_arp_and_boundaries() +
               arp_ext_stop_test() + usb_burst_test() + drum_channel_test();
     printf("%s\n", bad ? "MIDI CONTROL/CLOCK TEST FAILED" : "MIDI control/clock integration tests passed"); return bad != 0;
 }
+#endif

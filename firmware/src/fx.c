@@ -162,6 +162,20 @@ static uint32_t div_samples(uint32_t div)
     return div < 6u ? quarter / DIV_DEN[div] : div < 10u ? quarter << (div - 5u) : quarter / DIV_DEN[div % 6u];
 }
 
+/* External sequencing uses musical units, independent of the measured tempo.
+ * 24 clocks/beat and every division divide exactly; tempo estimates only set
+ * real-time effects and the display, never move an already recorded step. */
+#define MIDI_BEAT_UNITS 24576u
+static uint32_t seq_beat_samples(void)
+{
+    return song.g[G_CLOCK] ? MIDI_BEAT_UNITS : beat_samples();
+}
+static uint32_t seq_div_samples(uint32_t div)
+{
+    uint32_t quarter = seq_beat_samples();
+    return div < 6u ? quarter / DIV_DEN[div] : div < 10u ? quarter << (div - 5u) : quarter / DIV_DEN[div % 6u];
+}
+
 #include "perform.c"                                 /* the FX hold layer's effects (the master) */
 
 static uint32_t delay_samples(void)
