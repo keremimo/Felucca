@@ -100,7 +100,10 @@ static struct {
     uint32_t tpos, pattern_gen;
 } ed_w;
 
-static int16_t *ed_val(uint32_t i) { return i < P_COUNT ? &TSEL->p[i] : &song.g[i - P_COUNT]; }
+static int16_t *ed_val(uint32_t i)
+{
+    return i < P_COUNT ? &TSEL->p[i] : i == P_COUNT + G_A4 ? &tuning_a4 : &song.g[i - P_COUNT];
+}
 static uint32_t ed_step_sig(const step_t *s)
 {
     return ((uint32_t)s->note[0] | (uint32_t)s->note[1] << 7 | (uint32_t)s->note[2] << 14 | (uint32_t)s->note[3] << 21) ^
@@ -215,7 +218,7 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
         return ed_tdesc(TSEL, id);
     }
     if (scope == 1 && id < G_COUNT) {
-        *vp = &song.g[id];
+        *vp = ed_val(P_COUNT + id);
         return &GP[id];
     }
     return 0;
@@ -226,7 +229,7 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
  * bytes (an editor of before the grid): the hits stay */
 static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
 {
-    uint32_t i;
+    uint32_t i, gate = step_gate(st);
     st->n = (uint8_t)(a[0] > 4u ? 4u : a[0]);
     for (i = 0; i < 4u; i++)
         st->note[i] = a[1 + i] & 0x7Fu;
@@ -235,8 +238,9 @@ static void ed_step_put(step_t *st, const uint8_t *a, uint32_t na)
     st->vel = a[7] & 0x7Fu;
     if (na >= 11u) {
         st->hit = (uint8_t)((a[8] & 0x7Fu) | (a[10] & 1u) << 7);
-        st->acc = (uint8_t)(((a[9] & 0x7Fu) | (a[10] & 2u) << 6) & st->hit);
+        st->acc = st->hit ? (uint8_t)(((a[9] & 0x7Fu) | (a[10] & 2u) << 6) & st->hit) : (uint8_t)gate;
     }
+    if (!st->hit && st->time == ST_REST) st->acc = 0;
     if (na >= 12u) step_set_chance(st, a[11] <= 100u ? a[11] : 100u);
     ui.force = 1;
 }
@@ -247,11 +251,11 @@ static void ed_step_reply(const step_t *st)              /* the same 11 bytes */
     for (i = 0; i < 4u; i++)
         ed_b(st->note[i]);
     ed_b(st->time);
-    ed_b(st->flags);
+    ed_b(st->flags & (SF_ACCENT | SF_SLIDE));
     ed_b(st->vel);
     ed_b(st->hit & 0x7Fu);
-    ed_b(st->acc & 0x7Fu);
-    ed_b((uint32_t)(st->hit >> 7) | (uint32_t)(st->acc >> 7) << 1);
+    ed_b(st->hit ? st->acc & 0x7Fu : 0u);
+    ed_b((uint32_t)(st->hit >> 7) | (st->hit ? (uint32_t)(st->acc >> 7) << 1 : 0u));
     ed_b(step_chance(st));
 }
 
@@ -272,6 +276,7 @@ static int ed_flash_stop(void)
 #include "editor_backup.c"
 #include "editor_fm6.c"
 #include "editor_cz.c"
+#include "editor_native.c"
 
 static void ed_motion_reply(uint32_t k, uint32_t rc)
 {
@@ -331,6 +336,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_cz_handle(cmd, a, na)) { ed_send(); return; }
+    if (ed_native_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
 #if MELODEE_USB_AUDIO
     case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 adds voice counters (schema 3); otherwise schema 2 */
@@ -406,8 +412,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x4d); ed_b(1); ed_b(MOTION_MAX); ed_b(1); /* motion + chance v1 */
         ed_b(0x42); ed_b(1); ed_b(3); /* bounded full-backup read + restore */
         ed_b(0x50); ed_b(1); ed_b(NPAT); ed_b(CHAIN_ROWS);     /* bank controls: 73/74 */
-        ed_b(0x46); ed_b(1); ed_b(FM6_NFAC); ed_b(FM6_BANK_N);   /* FM6 patches: cmds 68..71 */
-        ed_b(0x43); ed_b(1); ed_b(CZ_BYTES & 127u); ed_b(CZ_BYTES >> 7); ed_b(CZ_BANK_N); ed_b(CZ_BANK_SLOTS); /* native CZ + banks: 75..77 */
+        ed_b(0x46); ed_b(1); ed_b(FM6_NFAC); ed_b(0);   /* FM6 patches: cmds 68..71 */
+        ed_b(0x43); ed_b(1); ed_b(CZ_BYTES & 127u); ed_b(CZ_BYTES >> 7); ed_b(0); ed_b(0); /* old CZ bank controls retired */
+        ed_b(0x4e); ed_b(1); ed_b(NATIVE_FM_SLOTS); ed_b(0); ed_b(NATIVE_CZ_SLOTS&127u); ed_b(NATIVE_CZ_SLOTS>>7); /* native user pools, command 78 */
         break;
     case ED_GET:
     case ED_SET:
@@ -419,6 +426,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 set_engine((uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1));
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
+                if (a[0] == 1 && a[1] == G_A4)
+                    settings_save();
                 if (a[0] == 0) {
                     (void)motion_capture(TSEL, a[1], *vp);
                     load_extend(TSEL);                      /* (ui.c undo: an audition's values after G_ENGSEL) */
@@ -441,7 +450,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         for (i = 0; i < P_COUNT; i++)
             ed_v(motion_base_value(TSEL, i));
         for (i = 0; i < G_COUNT; i++)
-            ed_v(song.g[i]);
+            ed_v(*ed_val(P_COUNT + i));
         break;
     case ED_DESC:
         if (na < 2u || !(d = ed_desc(a[0], a[1], &vp)))
@@ -454,8 +463,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_v(d->def);
         ed_str(d->label, 8);
         ed_str(d->unit, 8);
-        if (d->fmt == F_ENUM && d->names)                  /* up to 24 (the matrix DST has 20) */
-            for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 24u; i++)
+        if (d->fmt == F_ENUM && d->names)                  /* the full SCL catalogue fits the 1024-byte reply */
+            for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 96u; i++)
                 ed_str(d->names[i], 8);
         break;
     case ED_STEP_GET:

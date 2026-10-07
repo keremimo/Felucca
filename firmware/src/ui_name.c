@@ -43,7 +43,12 @@ static struct {
     char ph[CZ_NAME_LEN + 1u];                              /* what an empty name saves as / shows ("PROJECT A") */
 } nm __attribute__((section(".pool")));                /* (zero-initialised; main loop only: off the audio code's .bss) */
 
-static uint32_t name_limit(void){return nm.kind==NK_CZ_NAME?CZ_NAME_LEN:NM_LEN;}
+static uint32_t name_limit(void)
+{
+    if(nm.kind==NK_CZ_NAME)return CZ_NAME_LEN;
+    if((nm.kind==NK_USER_SAVE || nm.kind==NK_USER_RENAME) && native_limit(TSEL->eng_req))return TSEL->eng_req==ENGI_FM6?10u:CZ_NAME_LEN;
+    return NM_LEN;
+}
 static int name_on(void) { return nm.kind != NK_NONE; }
 static void name_close(void)
 {
@@ -87,12 +92,20 @@ static void name_open(uint32_t kind, uint32_t slot)
         for(uint32_t k=CZ_NAME_LEN;k && b[k-1]==' ';k--)b[k-1]=0;
         str_cpy(nm.ph,"CZ TONE",sizeof nm.ph);
     }else if (kind == NK_USER_SAVE || kind == NK_USER_RENAME) {
-        uint32_t e = kind == NK_USER_RENAME ? up_engine(slot) : TSEL->eng_req;
+        uint32_t e = kind == NK_USER_RENAME && !native_limit(TSEL->eng_req) ? up_engine(slot) : TSEL->eng_req;
         up_auto_name(nm.ph, e, slot);
-        if (kind == NK_USER_RENAME)
-            up_name(slot, b);
-        else if (user_of(TSEL) < UP_SLOTS)             /* the sound's own name */
-            up_name(user_of(TSEL), b);
+        uint32_t origin=kind==NK_USER_RENAME?slot:user_of(TSEL);
+        if(origin<USER_NONE && (kind==NK_USER_RENAME || TSEL->user_native) && native_limit(e)){
+            uint32_t len=e==ENGI_FM6?10u:16u,off=e==ENGI_FM6?118u:128u;
+            memcpy(b,native_raw(e,origin)+off,len);b[len]=0;
+            for(uint32_t i=0;i<len;i++)if(b[i]<' ' || b[i]>'~')b[i]=' ';
+            for(uint32_t i=len;i && b[i-1]==' ';i--)b[i-1]=0;
+        }
+        else if (origin < UP_SLOTS)
+            up_name(origin, b);
+        else if(native_limit(e)){
+            if(e==ENGI_FM6)fm6_name(b,fm6_patch[song.sel]);else {memcpy(b,cz_patch[song.sel].raw+128,16);b[16]=0;}
+        }
         else
             str_cpy(b, nm.ph, sizeof b);
     } else {
@@ -115,7 +128,7 @@ static void name_rename(void)
     uint32_t k = user ? ui.uslot : (uint32_t)song.g[G_SLOT] - 1u;
     if (!user && song.g[G_SLOT] == PROJ_TMPL)
         return;                                       /* (the template has no name) */
-    if (!(user ? up_used(k) : project_used(k)))
+    if (!(user ? user_used(k) : project_used(k)))
         ui_message("EMPTY SLOT");
     else if (transport_busy())
         ui_message("STOP TO SAVE");
@@ -232,10 +245,10 @@ static void name_ok(void)
         cz_compare_take(nm.slot);memset(cz_patch[nm.slot].raw+128,' ',CZ_NAME_LEN);memcpy(cz_patch[nm.slot].raw+128,b,str_len(b));
         ui_message("TONE NAMED");break;
     case NK_USER_SAVE:
-        up_ui_named(2, nm.slot, b);
+        user_ui_named(2, nm.slot, b);
         break;
     case NK_USER_RENAME:
-        up_ui_named(3, nm.slot, b);
+        user_ui_named(3, nm.slot, b);
         break;
     case NK_PROJ_SAVE:
         project_save_as(nm.slot, b);
@@ -308,7 +321,7 @@ static void nm_title(char *b)
     str_cpy(b, nm.kind == NK_USER_SAVE || nm.kind == NK_PROJ_SAVE ? "SAVE " : "NAME ", 8);
     if(nm.kind==NK_CZ_NAME){str_cpy(b,"NAME CZ TONE",24);return;}
     if (nm.kind <= NK_USER_RENAME)
-        up_slot_label(b + 5, nm.slot);
+        user_label(b + 5, nm.slot);
     else
         str_cpy(b + 5, nm.ph, 12);                     /* "PROJECT A" */
 }

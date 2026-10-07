@@ -169,7 +169,7 @@ static void layer_tap(uint32_t l)
 
 /* EDIT: a sound load in the layer. The first one takes the undo copy as the track is now (when the layer
  * opened, unless KNOB 2 / 3 had loaded already), so OCT- and SAVE held go back to it */
-static uint32_t snd_id(void) { return TSEL->eng_req | (uint32_t)TSEL->preset << 8 | (uint32_t)TSEL->user << 16; }
+static uint32_t snd_id(void) { return TSEL->eng_req | (uint32_t)TSEL->preset << 8 | (uint32_t)TSEL->user << 16 | (uint32_t)TSEL->user_native << 24; }
 static void edit_load(uint32_t e, int32_t step)
 {
     uint32_t id = snd_id();
@@ -464,12 +464,12 @@ static void layer_glo(void)
 }
 static void layer_scl(void)                             /* KNOB 2's scales, 4 x 4, the one now selected */
 {
-    uint32_t i, sc = (uint32_t)TSEL->p[P_SCALE];
-    for (i = 0; i < 16u && i <= (uint32_t)TP[P_SCALE].max; i++) {
+    uint32_t i, sc = (uint32_t)TSEL->p[P_SCALE], base = sc / 16u * 16u;
+    for (i = 0; i < 16u && base + i <= (uint32_t)TP[P_SCALE].max; i++) {
         int32_t x = LC_X(i % 4u), y = 4 + 29 * (int32_t)(i / 4u);
-        uint16_t ink, fill = lc_fill(i == sc ? LS_SEL : LS_OFF, &ink);
+        uint16_t ink, fill = lc_fill(base + i == sc ? LS_SEL : LS_OFF, &ink);
         cv_rrect(x, y, LC_W, 25, 4, fill, T_SURF);
-        cv_text_c(x + LC_W / 2, y + 7, &AF_S, TP[P_SCALE].names[i], ink, fill);
+        cv_text_c(x + LC_W / 2, y + 7, &AF_S, TP[P_SCALE].names[base + i], ink, fill);
     }
 }
 static void layer_edit(void)                            /* the engines from F3, INIT next (LY_INIT), the sound under them */
@@ -502,7 +502,7 @@ static void layer_cards(uint32_t l)
                     perf_k[1] * 10, ICON_BITS);
         fmt_int(val, perf_k[2]);
         draw_column(2, "THROW", perf_k[2] ? val : "OFF", perf_k[2] ? "%" : "", perf_k[2] ? VAL(2u) : T_DIM,
-                    perf_k[2] * 10, ICON_DELAY);
+                    perf_k[2] * 10, ICON_REVERB);
         if (perf_harm_on()) {                           /* OCT UP / DN playing: KNOB 4 is its shimmer (SHIMR) */
             fmt_int(val, perf_k[3]);
             draw_column(3, "SHIMR", perf_k[3] ? val : "OFF", perf_k[3] ? "%" : "", perf_k[3] ? VAL(3u) : T_DIM,

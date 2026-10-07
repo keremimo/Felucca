@@ -6,11 +6,22 @@
  * (ui_input.c). The frames of a held entry or move are one edit; a new edit drops the redo. Exact comparisons start
  * a fresh history after anything else changed the steps: live recording, the editor, a pattern load or clear, another
  * track or LEN. */
+/* A NOTES deletion also keeps one removed event per edit. Its storage
+ * generation prevents undo from overwriting slots reused by another take. */
 #define STEP_HISTORY 8u
 static struct {
-    struct { step_t step[NSTEP]; uint8_t cursor; } state[STEP_HISTORY + 1u];
+    struct {
+        step_t step[NSTEP];
+        recorded_note_t removed;
+        uint16_t removed_index, selection;
+        uint8_t cursor, has_removed;
+    } state[STEP_HISTORY + 1u];
     step_t live[NSTEP];                          /* the steps as the last frame left them */
     uint32_t pattern_gen;
+    uint32_t recording_gen;
+    recorded_note_t removed;
+    uint16_t removed_index;
+    uint8_t has_removed;
     uint8_t valid, track, len;
     uint8_t head, count, pos, pending, cursor_before;
 } step_history __attribute__((section(".pool")));
@@ -24,27 +35,35 @@ static uint32_t step_history_index(void)
 
 static int step_history_context(void)
 {
-    return step_history.valid && step_history.pattern_gen == TSEL->pattern_gen && step_history.track == song.sel && step_history.len == step_pattern_len(TSEL) &&
+    return step_history.valid && step_history.recording_gen == recording_generation &&
+           step_history.pattern_gen == TSEL->pattern_gen && step_history.track == song.sel && step_history.len == step_pattern_len(TSEL) &&
            !(song.playing && (song.rec & (1u << song.sel)));
 }
 
 /* before the input: a change from outside the manual editor starts a fresh history. The audio ISR may record: the
  * steps are compared and copied with the IRQs off */
-static void step_history_sync(void)
+static void step_history_sync_locked(void)
 {
-    fm1_irq_off();
     if (!step_history_context() || memcmp(step_history.live, TSEL->step, sizeof step_history.live)) {
         step_history.head = step_history.pos = step_history.pending = 0;
         step_history.count = 1;
         step_history.track = song.sel;
         step_history.pattern_gen = TSEL->pattern_gen;
+        step_history.recording_gen = recording_generation;
+        step_history.has_removed = step_history.state[0].has_removed = 0;
         step_history.len = (uint8_t)step_pattern_len(TSEL);
         memcpy(step_history.state[0].step, TSEL->step, sizeof step_history.live);
         memcpy(step_history.live, TSEL->step, sizeof step_history.live);
         step_history.state[0].cursor = ui.cursor;
+        step_history.state[0].selection = ui.note_pick;
         step_history.valid = !(song.playing && (song.rec & (1u << song.sel)));
     }
     step_history.cursor_before = ui.cursor;
+}
+static void step_history_sync(void)
+{
+    fm1_irq_off();
+    step_history_sync_locked();
     fm1_irq_on();
 }
 
@@ -56,7 +75,7 @@ static void step_history_finish(void)
         step_history_clear();
         return;
     }
-    if (memcmp(step_history.state[at].step, step_history.live, sizeof step_history.live)) {
+    if (step_history.has_removed || memcmp(step_history.state[at].step, step_history.live, sizeof step_history.live)) {
         step_history.count = (uint8_t)(step_history.pos + 1u);   /* the redo goes */
         if (step_history.count == STEP_HISTORY + 1u) {
             step_history.head = (uint8_t)((step_history.head + 1u) % (STEP_HISTORY + 1u));
@@ -68,7 +87,12 @@ static void step_history_finish(void)
         at = step_history_index();
         memcpy(step_history.state[at].step, step_history.live, sizeof step_history.live);
         step_history.state[at].cursor = ui.cursor;
+        step_history.state[at].selection = ui.note_pick;
+        step_history.state[at].has_removed = step_history.has_removed;
+        step_history.state[at].removed = step_history.removed;
+        step_history.state[at].removed_index = step_history.removed_index;
     }
+    step_history.has_removed = 0;
     step_history.pending = 0;
 }
 
@@ -82,7 +106,7 @@ static void step_history_end(void)
         fm1_irq_on();
         return;
     }
-    if (memcmp(step_history.live, TSEL->step, sizeof step_history.live)) {
+    if (step_history.has_removed || memcmp(step_history.live, TSEL->step, sizeof step_history.live)) {
         if (ui.home || cur_page()->scope != SC_STEP) {  /* a pattern load, a clear, the editor: not a STEP edit */
             step_history_clear();
             fm1_irq_on();
@@ -108,12 +132,21 @@ static int step_history_apply(int redo)
         fm1_irq_on();
         return 0;
     }
+    uint32_t change = redo ? (step_history.head + step_history.pos + 1u) % (STEP_HISTORY + 1u) : step_history_index();
+    if (step_history.state[change].has_removed) {
+        uint32_t i = step_history.state[change].removed_index;
+        if (redo) recording_remove(TSEL, i);
+        else recording_restore_note(TSEL, i, step_history.state[change].removed);
+    }
     step_history.pos = (uint8_t)(step_history.pos + (redo ? 1 : -1));
     at = step_history_index();
     memcpy(TSEL->step, step_history.state[at].step, sizeof step_history.live);
     memcpy(step_history.live, TSEL->step, sizeof step_history.live);
+    step_history.recording_gen = recording_generation;
     fm1_irq_on();
     cursor_set(step_history.state[at].cursor);
+    ui.note_pick = step_history.state[at].selection;
+    ui.note_generation = recording_generation;
     ui.hot_t = 0;
     ui.force = 1;
     ui_message(redo ? "REDO" : "UNDO");

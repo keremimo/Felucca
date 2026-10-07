@@ -3,9 +3,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include "../firmware/src/tuning.h"
 #define __attribute__(x)
-#define NENGINES 9u
-#define UP_SLOTS 32u
+#define NENGINES 16u
+#define UP_SLOTS 64u
+#define USER_NATIVE_FM (NENGINES+1u)
+#define USER_NATIVE_CZ (NENGINES+2u)
+#define ENGI_FM6 12u
+#define ENGI_CZ 15u
 static uint8_t fx_lowcut;
 static void fm1_led_key(unsigned k, int on) { (void)k; (void)on; }
 static int fm1_enc_take(unsigned k) { (void)k; return 0; }
@@ -47,11 +52,50 @@ int main(void)
 #ifdef MELODEE_FAVORITES
     assert(favorite_has(8, 0) && favorite_has(NENGINES, 31) && favorites.filter);
 #endif
+    favorite_set(USER_NATIVE_FM,63,1);favorite_set(USER_NATIVE_CZ,127,1);favorite_set(NENGINES,63,1);
+    settings_export(&p);memset(&favorites,0,sizeof favorites);favorites_user_hi=0;settings_import(&p,sizeof p);
+    assert(favorite_has(USER_NATIVE_FM,63) && favorite_has(USER_NATIVE_CZ,127) && favorite_has(NENGINES,63));
+    assert(!favorite_has(USER_NATIVE_FM,64) && !favorite_has(USER_NATIVE_CZ,128));
+    p=original;settings_import(&p,sizeof p);
+    {
+        uint8_t legacy[16]; memset(favorites.factory[14], 0xA5, 32);
+        memcpy(legacy, favorites.factory[14], sizeof legacy);
+        assert(!scale_favorite(0) && !scale_favorite(69));
+        assert(scale_favorite_set(0, 1) && scale_favorite_set(69, 1) && scale_favorite_set(95, 1));
+        assert(!scale_favorite_set(96, 1) && !scale_favorite_set(69, 1));
+        assert(!memcmp(legacy, favorites.factory[14], sizeof legacy));
+        settings_export(&p); memset(&favorites, 0, sizeof favorites); settings_import(&p, sizeof p);
+        assert(scale_favorite(0) && scale_favorite(69) && scale_favorite(95));
+        assert(scale_favorite_set(69, 0) && !scale_favorite(69) && scale_favorite(95));
+        p=original;settings_import(&p,sizeof p);
+    }
     settings.lowcut = 0;
     settings_export(&p);
     assert(!p.lowcut && p.bold == 1 && p.favorites.user == (1u << 31));   /* bold: kept as saved */
     assert(p.favorites.factory[8][0] == 1 && p.favorites.filter == 1);
     assert(p.panel.enc[0] == 3); /* saving one feature preserves the other */
+    {   /* A4 shares PER5's last spare word; old and malformed records use 440 Hz. */
+        persist_t q = original;
+        assert(tuning_a4 == 440);
+        tuning_a4 = 432;
+        settings_export(&q);
+        assert(q.ext.spare[1] == (A4_TAG | 432u));
+        tuning_a4 = 480;
+        assert(settings_import(&q, sizeof q) == 1 && tuning_a4 == 432);
+        for (uint32_t hz = A4_MIN; hz <= A4_MAX; hz++) {
+            tuning_a4 = (int16_t)hz; settings_export(&q);
+            tuning_a4 = 0;
+            assert(settings_import(&q, sizeof q) == 1 && tuning_a4 == (int16_t)hz);
+        }
+        const uint32_t invalid[] = {0u, 432u, 0xFFFFFFFFu, A4_TAG | 399u, A4_TAG | 481u};
+        for (uint32_t k = 0; k < sizeof invalid / sizeof invalid[0]; k++) {
+            q.ext.spare[1] = invalid[k]; tuning_a4 = 432;
+            assert(settings_import(&q, sizeof q) == 1 && tuning_a4 == 440);
+        }
+        q = original; q.magic = PERSIST_MAGIC4; tuning_a4 = 432;
+        assert(settings_import(&q, PERSIST_LEN4) == 2 && tuning_a4 == 440);
+        p = original; settings_import(&p, sizeof p);
+    }
     p = original; p.magic = PERSIST_MAGIC4; p.ext.usb_off = 3;   /* PER4 (Felucca 1.0): favorites, no ext */
     assert(settings_import(&p, PERSIST_LEN4) == 2 && p.magic == PERSIST_MAGIC);
     assert(p.favorites.user == (1u << 31) && p.favorites.factory[8][0] == 1 && !p.ext.usb_off);

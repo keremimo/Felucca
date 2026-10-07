@@ -75,7 +75,7 @@ static void reset(void)
     pattern_init();
     memset(&ed_w, 0, sizeof ed_w); memset(&ui, 0, sizeof ui);
     memset(&favorites, 0, sizeof favorites); memset(&settings, 0, sizeof settings); settings_init();
-    memset(proj_slot, 0, sizeof proj_slot); memset(up_bank, 0, sizeof up_bank);
+    memset(proj_slot, 0, sizeof proj_slot); memset(up_bank, 0, sizeof up_bank); memset(native_fm,0,sizeof native_fm); memset(native_cz,0,sizeof native_cz); native_pending=0;
     memset(&um, 0, sizeof um);
     host_progress = 1; host_erases = host_writes = host_wire_n = 0;
     transport_req = panic_req = 0; sx_ready = sx_collect = sx_busy = 0;
@@ -114,14 +114,14 @@ static int preferences(void)
     uint32_t n = request(ED_INFO, a, 0);
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
-        host_wire[n - 26] == 0 && host_wire[n - 25] == 0x55 &&
-        host_wire[n - 24] == 1 && host_wire[n - 23] == 9 &&
-        host_wire[n - 22] == 0x4d && host_wire[n - 21] == 1 &&
-        host_wire[n - 20] == MOTION_MAX && host_wire[n - 19] == 1 &&
-        host_wire[n - 18] == 0x42 && host_wire[n - 17] == 1 && host_wire[n - 16] == 3 &&
-        host_wire[n - 15] == 0x50 && host_wire[n - 14] == 1 && host_wire[n - 13] == NPAT && host_wire[n - 12] == CHAIN_ROWS &&
-        host_wire[n - 11] == 0x46 && host_wire[n - 10] == 1 && host_wire[n - 9] == FM6_NFAC &&
-        host_wire[n - 8] == FM6_BANK_N && host_wire[n-7]==0x43 && host_wire[n-6]==1 && host_wire[n-5]==16 && host_wire[n-4]==1 && host_wire[n-3]==8 && host_wire[n-2]==16);
+        host_wire[n - 32] == 0 && host_wire[n - 31] == 0x55 &&
+        host_wire[n - 30] == 1 && host_wire[n - 29] == 9 &&
+        host_wire[n - 28] == 0x4d && host_wire[n - 27] == 1 &&
+        host_wire[n - 26] == MOTION_MAX && host_wire[n - 25] == 1 &&
+        host_wire[n - 24] == 0x42 && host_wire[n - 23] == 1 && host_wire[n - 22] == 3 &&
+        host_wire[n - 21] == 0x50 && host_wire[n - 20] == 1 && host_wire[n - 19] == NPAT && host_wire[n - 18] == CHAIN_ROWS &&
+        host_wire[n - 17] == 0x46 && host_wire[n - 16] == 1 && host_wire[n - 15] == FM6_NFAC &&
+        host_wire[n - 14] == 0 && host_wire[n - 13]==0x43 && host_wire[n - 12]==1 && host_wire[n - 11]==16 && host_wire[n - 10]==1 && host_wire[n - 9]==0 && host_wire[n - 8]==0 && host_wire[n-7]==0x4e && host_wire[n-6]==1 && host_wire[n-5]==64 && host_wire[n-4]==0 && host_wire[n-3]==0 && host_wire[n-2]==1);
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].bg);
@@ -141,13 +141,22 @@ static int preferences(void)
     bad += check("empty user slot cannot be starred", host_wire[5] == 1 && !favorite_has(NENGINES, 31));
     up_store(31, "Saved"); request(ED_FAV_SET, a, 4);
     bad += check("saved user slot can be starred without changing its sound", host_wire[5] == 3 && favorite_has(NENGINES, 31));
-    a[3] = 32; request(ED_FAV_GET, a, 4);
+    a[1] = UP_SLOTS - 1; a[3] = 32; request(ED_FAV_GET, a, 4);
     bad += check("favorite range cannot cross the end of user slots", host_wire[5] == 1);
     request(ED_FAV_SET, a, 3);
     bad += check("short favorite writes return an error without reading absent bytes", host_wire[5] == 1);
     bad += check("UI_STATE rejects unexpected request bytes", request(ED_UI_STATE, a, 1) == 0);
     a[0] = 0; request(ED_SONG, a, 1);
     bad += check("SONG still responds through its original command", host_wire_n > 6 && host_wire[4] == 33 && host_wire[5] == 0);
+    {
+        uint8_t before_state[32];
+        up_store(63, "UPPER FAVORITE");
+        uint32_t nstate = request(ED_UI_STATE, a, 0);
+        memcpy(before_state, host_wire, nstate);
+        favorite_set(NENGINES, 63, !favorite_has(NENGINES, 63));
+        request(ED_UI_STATE, a, 0);
+        bad += check("upper-slot favorites change the editor synchronization signature", memcmp(before_state, host_wire, nstate) != 0);
+    }
     return bad;
 }
 
@@ -300,7 +309,7 @@ static int fm6_patches(void)
     uint8_t a[2 + FM6_PACKED], pk[FM6_PACKED];
     uint32_t n, i;
     reset();
-    fm6_bank_check(-1);
+    upf_empty();
     a[0] = ED_FM6_FACTORY; a[1] = 3;
     n = request(ED_FM6_GET, a, 2);
     bad += check("FM6_GET factory 4: the packed record", n == 5u + 3u + FM6_PACKED + 1u && host_wire[7] == 0 &&
@@ -316,34 +325,23 @@ static int fm6_patches(void)
     bad += check("FM6_GET track 3: as sent", host_wire[7] == 0 && !memcmp(host_wire + 8, pk, FM6_PACKED));
     a[0] = ED_FM6_BANK; a[1] = 4;
     n = request(ED_FM6_GET, a, 2);
-    bad += check("FM6_GET of an empty bank slot: rc 2, no record", n == 9u && host_wire[7] == 2);
+    bad += check("retired FM6 bank GET returns rc 3", n == 9u && host_wire[7] == 3);
     a[0] = ED_FM6_BANK; a[1] = 4; memcpy(a + 2, pk, FM6_PACKED);
-    a[2 + 14] = 120;                                      /* OP6 output level 120: stored as 99 */
-    n = request(ED_FM6_PUT, a, sizeof a);
-    a[0] = ED_FM6_BANK; a[1] = 4;
+    request(ED_FM6_PUT, a, sizeof a);
+    bad += check("retired FM6 bank PUT returns rc 3", host_wire[7] == 3);
+    set_engine_of(TSEL, ENGI_FM6);
+    (void)up_store(63, "LAST PRESET");
+    a[0] = ED_FM6_USER; a[1] = 63; memcpy(a + 2, pk, FM6_PACKED);
+    a[2 + 14] = 120;
+    request(ED_FM6_PUT, a, sizeof a);
     request(ED_FM6_GET, a, 2);
-    bad += check("FM6_PUT bank B5, then GET: stored in range (a level of 120 -> 99)", host_wire[7] == 0 &&
-                 host_wire[8 + 14] == 99 && !memcmp(host_wire + 8 + 118, "MY PATCH  ", 10) && fm6_bank_used(4));
+    bad += check("user U64 owns its sanitized FM6 voice", host_wire[7] == 0 && host_wire[8 + 14] == 99 &&
+                 !memcmp(host_wire + 8 + 118, "MY PATCH  ", 10));
     n = request(ED_FM6_LIST, a, 0);
-    {   /* factory 24, bank 32, then used + name per slot */
-        uint32_t p = 7, k, ok = host_wire[5] == FM6_NFAC && host_wire[6] == FM6_BANK_N, named = 0;
-        for (k = 0; k < FM6_NFAC + FM6_BANK_N && p < n; k++) {
-            uint32_t used = host_wire[p++];
-            if (k == FM6_NFAC + 4u) named = used && !memcmp(host_wire + p, "MY PATCH", 9);
-            if (k < FM6_NFAC) ok &= used == 1u;
-            while (host_wire[p]) p++;
-            p++;
-        }
-        bad += check("FM6_LIST: 24 factory names, the bank's used slots by name", ok && named && k == FM6_NSLOT);
-    }
-    trk[1].eng_req = ENGI_FM6;
-    trk[1].p[P_E7] = FM6_NFAC + 4;
-    fm6_poll();
-    bad += check("PTCH B5 loads the bank patch into the track", !memcmp(fm6_patch[1] + FP_NAME, "MY PATCH  ", 10));
+    bad += check("FM6_LIST advertises 24 factory voices and no bank", host_wire[5] == FM6_NFAC && host_wire[6] == 0);
     a[0] = 4;
-    n = request(ED_FM6_ERASE, a, 1);
-    bad += check("FM6_ERASE B5: empty; PTCH B5 plays the init voice", host_wire[6] == 0 && !fm6_bank_used(4) &&
-                 (fm6_poll(), !memcmp(fm6_patch[1] + FP_NAME, "INIT VOICE", 10)));
+    request(ED_FM6_ERASE, a, 1);
+    bad += check("retired FM6 bank ERASE returns rc 3", host_wire[6] == 3);
     a[0] = ED_FM6_TRACK; a[1] = 4;
     request(ED_FM6_PUT, a, sizeof a);
     i = host_wire[7];
@@ -351,7 +349,7 @@ static int fm6_patches(void)
     bad += check("FM6_PUT: a fifth track or a short record: rc 1", i == 1u && host_wire[7] == 1u);
     a[0] = ED_FM6_BANK; a[1] = FM6_BANK_N;
     request(ED_FM6_GET, a, 2);
-    bad += check("FM6_GET past the bank: rc 1", host_wire[7] == 1u);
+    bad += check("FM6_GET retired bank: rc 3", host_wire[7] == 3u);
     return bad;
 }
 
@@ -463,7 +461,7 @@ static int cz_legacy_saved_sounds(void)
     for(uint32_t k=0;k<NTRK;k++){memcpy(legacy+PROJ_CZ_OFF+k*LCZ_PACKED,tone,LCZ_PACKED);legacy[68u+k*(P_COUNT+2u+NSTEP*9u)+P_COUNT]=14;}
     sum=proj_hash(legacy,sizeof legacy-4);memcpy(legacy+sizeof legacy-4,&sum,4);
     bad+=check("earlier next FUNB project migrates CZ engine and full envelopes",proj_import_any(&r,legacy,sizeof legacy) && r.t[0].engine==ENGI_CZ && r.t[0].p[P_E7]==CZ_NATIVE && !memcmp(r.cz[0].raw,native,CZ_BYTES));
-    uint8_t full[BANK_SIZE9];bank_pack(full,&q,0);uint32_t oldExtra=BANK_EXTRA_OFF;
+    uint8_t full[BANK_STORE_SIZE];bank_pack(full,&q,0);uint32_t oldExtra=BANK_EXTRA_OFF;
     memmove(full+8u+sizeof legacy,full+8u+PROJ_STORE_SIZE,BANK_STORE_SIZE-8u-PROJ_STORE_SIZE-4u);
     memcpy(full+8u,legacy,sizeof legacy);magic=0x434B4246u;size=BANK_SIZE_CZ_NEXT;memcpy(full,&magic,4);memcpy(full+4,&size,4);sum=proj_hash(full,size-4u);memcpy(full+size-4u,&sum,4);
     bad+=check("earlier next FBKC pattern bank validates without losing timing",bank_valid(full,size));bank_upgrade(full);
@@ -502,7 +500,41 @@ static int cz_dedicated_banks(void)
     cz_bank_t keep=*cz_bank_load(7);bank=keep;bank.tone[0].raw[0]=255;
     memcpy(ED_BK_RAW,&bank,sizeof bank);ed_bk_id=16;ed_bk_len=ed_bk_pos=sizeof bank;ed_bk_crc=st_crc32(&bank,sizeof bank);
     bad+=check("invalid native bank rejected before replacing saved tones",ed_bk_commit()==2 && !memcmp(cz_bank_load(7),&keep,sizeof keep));
-    request(ED_BACKUP_LIST,a,0);bad+=check("full backups include all eight CZ user banks",host_wire[7]==17);
+    request(ED_BACKUP_LIST,a,0);bad+=check("full backups include all eight CZ user banks",host_wire[7]==23);
+    return bad;
+}
+static int native_protocol(void)
+{
+    int bad=0;reset();cz_init();uint8_t a[3+2*CZ_BYTES],fm[FM6_PACKED],cz[CZ_BYTES];
+    fm6_factory(5,fm);cz_patch_init(cz);memcpy(cz+128,"SIXTEEN CHAR CZ! ",16);
+    a[0]=ENGI_FM6;a[1]=2;a[2]=63;memcpy(a+3,fm,sizeof fm);request(ED_NATIVE,a,3+sizeof fm);
+    bad+=check("NATIVE saves F064 independently of general user records",!host_wire[8] && native_used(ENGI_FM6,63) && !up_used(63));
+    a[1]=1;uint32_t n=request(ED_NATIVE,a,3);
+    bad+=check("NATIVE GET returns exact DX7 VMEM bytes",n==138 && !host_wire[8] && !memcmp(host_wire+9,fm,sizeof fm));
+    a[0]=ENGI_CZ;a[1]=2;a[2]=127;
+    for(uint32_t j=0;j<CZ_BYTES;j++){a[3+2*j]=cz[j]&15;a[4+2*j]=cz[j]>>4;}
+    request(ED_NATIVE,a,sizeof a);
+    bad+=check("NATIVE saves Z128 without using general or FM6 slots",!host_wire[8] && native_used(ENGI_CZ,127) && !memcmp(native_raw(ENGI_CZ,127),cz,sizeof cz));
+    a[3]=16;request(ED_NATIVE,a,sizeof a);
+    bad+=check("malformed native nibbles cannot replace a committed tone",host_wire[8]==1 && !memcmp(native_raw(ENGI_CZ,127),cz,sizeof cz));
+    a[1]=0;a[2]=120;a[3]=16;request(ED_NATIVE,a,4);
+    bad+=check("last native page clamps to Z128 and reports 128 slots",!host_wire[8] && host_wire[9]==8 && host_wire[10]==0 && host_wire[11]==1);
+    a[1]=4;a[2]=127;a[3]=2;trk[2].p[P_REV]=77;trk[2].p[P_LEVEL]=61;trk[2].step[0].note[0]=67;request(ED_NATIVE,a,4);
+    bad+=check("native load targets track 3 and preserves effects, level and pattern",!host_wire[8] && trk[2].user==128 && trk[2].user_native && trk[2].p[P_REV]==77 && trk[2].p[P_LEVEL]==61 && trk[2].step[0].note[0]==67 && !memcmp(cz_patch[2].raw,cz,sizeof cz));
+    trk[2].p[P_E2]=23;request(ED_NATIVE,a,4);
+    bad+=check("same-engine native load also keeps track macros",trk[2].p[P_E2]==23);
+    a[1]=7;a[2]=2;request(ED_NATIVE,a,3);
+    bad+=check("native status encodes Z128 without a 7-bit overflow",!host_wire[8] && host_wire[9]==0 && host_wire[10]==1);
+    uint8_t fav[4]={USER_NATIVE_CZ,127,64,1};request(ED_FAV_SET,fav,4);
+    bad+=check("highest native preset can be favorited through editor",host_wire[5]==3 && favorite_has(USER_NATIVE_CZ,127));
+    a[1]=3;a[2]=126;a[3]=2;request(ED_NATIVE,a,4);
+    bad+=check("native STORE captures just the complete tone",!host_wire[8] && !memcmp(native_raw(ENGI_CZ,126),cz,sizeof cz) && !up_used(62));
+    a[1]=6;memcpy(a+3,"FULL NAME 16 XYZ!",16);request(ED_NATIVE,a,19);
+    bad+=check("native rename retains all 16 CZ name bytes",!host_wire[8] && !memcmp(native_raw(ENGI_CZ,126)+128,"FULL NAME 16 XYZ!",16));
+    a[1]=5;a[2]=127;request(ED_NATIVE,a,3);
+    bad+=check("native erase clears favorite and current preset origin",!host_wire[8] && !native_used(ENGI_CZ,127) && !favorite_has(USER_NATIVE_CZ,127) && !trk[2].user);
+    a[0]=ENGI_FM6;a[1]=3;a[2]=0;a[3]=2;request(ED_NATIVE,a,4);
+    bad+=check("wrong-engine store cannot create a native preset",host_wire[8]==1 && !native_used(ENGI_FM6,0));
     return bad;
 }
 static int names_whole(void)
@@ -521,10 +553,40 @@ static int names_whole(void)
     }
     return check("NAMES of every engine carries all its presets and both titles", !bad);
 }
+static int concert_pitch(void)
+{
+    int bad = 0;
+    uint8_t a[4] = {1, G_A4, (432u + 8192u) & 127u, (432u + 8192u) >> 7};
+    reset(); tuning_a4 = 440;
+    int16_t saved = song.g[G_A4];
+    request(ED_SET, a, sizeof a);
+    bad += check("A4 SET updates device tuning without writing project globals", tuning_a4 == 432 && song.g[G_A4] == saved);
+    request(ED_GET, a, 2);
+    bad += check("A4 GET returns the device reference", ed_rv(host_wire + 7) == 432);
+    request(ED_DUMP, a, 0);
+    bad += check("DUMP reports device A4 instead of the unused project field", ed_rv(host_wire + 7 + 2 * (P_COUNT + G_A4)) == 432);
+    a[2] = 0; a[3] = 0; request(ED_SET, a, sizeof a);
+    bad += check("A4 SET clamps to its supported range", tuning_a4 == A4_MIN);
+    tuning_a4 = 440;
+    return bad;
+}
+static int scale_catalogue(void)
+{
+    reset(); uint8_t a[2] = {0, P_SCALE};
+    uint32_t n = request(ED_DESC, a, 2), at = 14;
+    while (at < n && host_wire[at++]); /* label */
+    while (at < n && host_wire[at++]); /* unit */
+    int good = ed_rv(host_wire + 10) == SCALE_TOTAL - 1;
+    for (uint32_t i = 0; i < SCALE_TOTAL; i++) {
+        good &= at < n && strcmp((const char *)host_wire + at, N_SCALE[i]) == 0;
+        while (at < n && host_wire[at++]);
+    }
+    return check("SCL DESC carries every legacy and microtonal name in one complete frame", good && at == n - 1);
+}
 int main(void)
 {
     int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
-              fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex();
+              native_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex() + concert_pitch() + scale_catalogue();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

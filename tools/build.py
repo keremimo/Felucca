@@ -96,6 +96,7 @@ def generate():
     for old in ("melodee_font.h", "melodee_icons.h"):     # headers of the bitmap font and icon atlas
         (GEN / old).unlink(missing_ok=True)
     tools = SRC / "tools"
+    subprocess.run([sys.executable, str(tools / "gen_scales.py"), "--check"], check=True)
     cmds = [[tools / "gen_aa_font.py", GEN / "ui_fonts.h", "--preset", "inter-tight"],
             [tools / "gen_aa_icons.py", GEN / "ui_icons.h"],
             [tools / "gen_aa_keycaps.py", GEN / "ui_keycaps.h"],

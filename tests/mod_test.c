@@ -79,7 +79,6 @@ static uint32_t preset_by_name(uint32_t e, const char *n)
 static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails), track 1 = engine e preset pi */
 {
     uint32_t k;
-    memset(dly_buf, 0, sizeof dly_buf);
     memset(cho_buf, 0, sizeof cho_buf);
     memset(rev_comb, 0, sizeof rev_comb);
     memset(rev_ap, 0, sizeof rev_ap);
@@ -348,7 +347,7 @@ static void test_math(void)
     slot(t, 0, MS_KEY, MD_DLY, 63);
     t->p[P_DLY] = 64;
     mod_begin(t);
-    check("KEY -> DLY: the latest note (E4: +4 semitones)", t->p[P_DLY] == 64 + ((((4 * 512) * 63) >> 6) * 127 >> 15));
+    check("retired DLY destination stays inert when loading old modulation", !mod.on && t->p[P_DLY] == 64);
     mod_end(t);
     slot(t, 0, MS_ENV, MD_PAN, 63);
     blocks(FS / 10u / CTL);

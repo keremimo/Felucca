@@ -235,16 +235,16 @@ static void graph_roll(const track_t *t, uint16_t c)
     for (r = 0; r < PR_ROWS; r++) {                 /* rows: the lane, the key, the C names */
         int32_t n = (int32_t)proll.lo + PR_ROWS - 1 - r, y = PR_Y0 + r * PR_RH;
         uint32_t pc = (uint32_t)n % 12u;
-        int in = mask == 0xFFFu ? !KEY_BLACK[pc] : (int)((mask >> ((uint32_t)(n - t->p[P_ROOT] + 120) % 12u)) & 1u);
+        int in = micro_active(t) ? ((n - 60) & 1) == 0 : mask == 0xFFFu ? !KEY_BLACK[pc] : (int)((mask >> ((uint32_t)(n - t->p[P_ROOT] + 120) % 12u)) & 1u);
         if (in)
             cv_rect(PR_X0, y, gw, PR_RH, T_LANE);
         if ((held >> r) & 1u)
             cv_rect(PR_KX, y, 9, PR_RH - 1, T_ACCENT);
         else
-            cv_rect(PR_KX, y, KEY_BLACK[pc] ? 5 : 9, PR_RH - 1, KEY_BLACK[pc] ? T_DIM : T_RAISE);
-        if (pc == 0u) {
+            cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[pc] ? 5 : 9, PR_RH - 1, !micro_active(t) && KEY_BLACK[pc] ? T_DIM : T_RAISE);
+        if (micro_active(t) ? ((n - 60) % (int32_t)scale_note_period(t) == 0) : pc == 0u) {
             cv_rect(PR_X0, y + PR_RH - 1, gw, 1, T_RAISE);
-            note_name(nb, (uint32_t)n);
+            if (micro_active(t)) str_cpy(nb, "D1", sizeof nb); else note_name(nb, (uint32_t)n);
             cv_text_r(23, y - 5, &AF_S, nb, T_DIM, T_SURF);   /* (the widest, "C-1", inside the panel: x 3..21) */
         }
     }
@@ -277,6 +277,97 @@ static void graph_roll(const track_t *t, uint16_t c)
         }
     }
 }
+/* NOTES draws original sample times on a timeline. Swing changes the grid
+ * spacing; playback QNT never changes the displayed or selected take. */
+static void notes_window(const track_t *t, uint32_t period, uint32_t *a, uint32_t *b)
+{
+    uint32_t base = notes_base(), end = base + notes_span();
+    if (end > (uint32_t)t->p[P_SLEN]) end = (uint32_t)t->p[P_SLEN];
+    *a = recording_prefix(t, period, base);
+    *b = recording_prefix(t, period, end);
+}
+static int32_t notes_x(uint32_t at, uint32_t a, uint32_t b)
+{
+    /* Callers clip to the visible interval before converting to pixels. */
+    return PR_X0 + (int32_t)((uint64_t)(at - a) * (16 * PR_CW) / (b - a));
+}
+static void notes_follow(const track_t *t)
+{
+    uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), a, b, chosen = notes_selected(t);
+    notes_window(t, period, &a, &b);
+    int32_t lo = 127, hi = -1;
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
+        if (!recording_active(t, i)) continue;
+        uint32_t at = recording_raw_on(t, &recording[i], period);
+        if (at < a || at >= b) continue;
+        int32_t note = recording[i].note;
+        if (note < lo) lo = note;
+        if (note > hi) hi = note;
+    }
+    int32_t center = hi < 0 ? last_note : (lo + hi + 1) / 2;
+    if (hi - lo >= PR_ROWS && chosen < RECORD_MAX) center = recording[chosen].note;
+    proll.lo = (uint8_t)clamp(center - PR_ROWS / 2, 0, 128 - PR_ROWS);
+}
+static void notes_bar(const track_t *t, uint32_t i, uint32_t period, uint32_t a, uint32_t b, uint16_t c, int selected)
+{
+    recorded_note_t snapshot = recording_snapshot(i);
+    const recorded_note_t *r = &snapshot;
+    uint32_t loop = recording_loop(t, period), at = recording_raw_on(t, r, period);
+    uint64_t gate = (uint64_t)r->duration * (1u << (r->owner >> 5)) * period / RECORD_UNIT;
+    if (!gate) gate = 1;
+    if (gate > loop) gate = loop;
+    int32_t y = pr_row_y(r->note), bottom = PR_Y0 + PR_ROWS * PR_RH;
+    for (int32_t wrap = -1; wrap <= 0; wrap++) {
+        int64_t start = (int64_t)at + (int64_t)wrap * loop, end = start + gate;
+        if (end <= a || start >= b) continue;
+        int32_t x = notes_x(start < a ? a : start, a, b), xe = notes_x(end > b ? b : end, a, b);
+        if (xe < x + 2) xe = x + 2;
+        if (xe > PR_X0 + 16 * PR_CW) xe = PR_X0 + 16 * PR_CW;
+        if (y < PR_Y0 || y >= bottom) {
+            cv_rect(x, y < PR_Y0 ? PR_Y0 : bottom - 1, xe - x, 1, c);
+        } else {
+            cv_rect(x, y + 1, xe - x, PR_RH - 2, c);
+            if (selected) cv_frame(x, y, xe - x, PR_RH, T_TEXT);
+            /* An onset tick keeps two close hits visible when tails overlap. */
+            if (start >= a) cv_rect(x, y, 1, PR_RH, selected ? T_TEXT : T_MID);
+        }
+    }
+}
+static void graph_recorded_notes(const track_t *t, uint16_t c)
+{
+    uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), a, b, chosen = notes_selected(t);
+    notes_window(t, period, &a, &b);
+    notes_follow(t);
+    int32_t bottom = PR_Y0 + PR_ROWS * PR_RH;
+    for (int32_t row = 0; row < PR_ROWS; row++) {
+        int32_t note = (int32_t)proll.lo + PR_ROWS - 1 - row, y = PR_Y0 + row * PR_RH;
+        if (micro_active(t) ? ((note - 60) & 1) == 0 : !KEY_BLACK[note % 12]) cv_rect(PR_X0, y, 16 * PR_CW + 1, PR_RH, T_LANE);
+        cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[note % 12] ? 5 : 9, PR_RH - 1, !micro_active(t) && KEY_BLACK[note % 12] ? T_DIM : T_RAISE);
+        if (micro_active(t) ? ((note - 60) % (int32_t)scale_note_period(t) == 0) : note % 12 == 0) {
+            char name[8];
+            if (micro_active(t)) str_cpy(name, "D1", sizeof name); else note_name(name, (uint32_t)note);
+            cv_text_r(23, y - 5, &AF_S, name, T_DIM, T_SURF);
+        }
+    }
+    uint32_t base = notes_base(), end = base + notes_span();
+    if (end > (uint32_t)t->p[P_SLEN]) end = (uint32_t)t->p[P_SLEN];
+    for (uint32_t step = base; step <= end; step++) {
+        int32_t x = notes_x(recording_prefix(t, period, step), a, b);
+        cv_rect(x, PR_Y0, 1, bottom - PR_Y0, step % 4u ? T_GRID : T_RAISE);
+        if (step == ui.cursor) {
+            int32_t xe = notes_x(recording_prefix(t, period, step + 1u), a, b);
+            cv_frame(x, PR_Y0 - 2, xe - x + 1, bottom - PR_Y0 + 4, T_MID);
+        }
+    }
+    if (song.playing) {
+        uint32_t phase = recording_prefix(t, period, t->seq_idx) + t->seq_pos;
+        if (phase >= a && phase < b) cv_rect(notes_x(phase, a, b), PR_Y0, 1, bottom - PR_Y0, T_ACCENT);
+    }
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+        if (i != chosen && recording_active(t, i)) notes_bar(t, i, period, a, b, c, 0);
+    if (chosen < RECORD_MAX) notes_bar(t, chosen, period, a, b, T_ACCENT, 1);
+}
+
 /* SEQ > STEP on a DRUM track: the grid, 8 lanes x the 16 steps of the page shown. Lanes by their two-letter
  * names (BD SD CP CH OH TM RS CB; CG CL CY on the other kits). A hit is a rounded square (accented: the
  * accent), an empty step a dot (brighter on the beats and on the selected lane); the selected lane is
@@ -312,6 +403,19 @@ static void graph_grid(const track_t *t, uint16_t c)
 static void graph_scale(const track_t *t, uint16_t c)
 {
     static const uint8_t BLACK[12] = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0};
+    const micro_scale_t *s = micro_scale(t);
+    if (s) {
+        char label[24];
+        fmt_int(label, s->count);
+        str_cpy(label + str_len(label), " DEGREES / PERIOD", 20);
+        cv_text_c(120, 8, &AF_S, label, T_MID, T_SURF);
+        cv_rect(12, 91, 216, 1, T_RAISE);
+        for (uint32_t d = 0; d <= s->count; d++) {
+            int32_t x = 12 + s->pitch[d] * 216 / s->pitch[s->count];
+            cv_rect(x, d ? 48 : 36, 2, d ? 42 : 54, d ? c : T_ACCENT);
+        }
+        return;
+    }
     uint32_t i, mask = scale_mask(t);
     for (i = 0; i < 12u; i++) {
         uint32_t deg = (i + 12u - (uint32_t)t->p[P_ROOT]) % 12u;
@@ -339,6 +443,18 @@ static void graph_chord(const track_t *t, uint16_t c)
     }
     if (chord_kit(t)) {
         panel_note("NO CHORDS ON KITS", 0, 0);
+        return;
+    }
+    if (micro_active(t)) {
+        if (chord_last[k].n) {
+            n = chord_last[k].n;
+            for (i = 0; i < n; i++) nn[i] = chord_last[k].note[i];
+        } else n = chord_make(t, 60u, nn, &r, &mask);
+        cv_text_c(120, 10, &AF_S, "SCALE DEGREES", T_MID, T_SURF);
+        for (i = 0; i < n; i++) {
+            note_name(b, nn[i]);
+            cv_text_c(30 + (int32_t)i * 60, 55, &AF_S, b, i ? c : T_ACCENT, T_SURF);
+        }
         return;
     }
     if (chord_last[k].n) {
@@ -539,6 +655,15 @@ static void fm_loop(int32_t x, int32_t y, uint16_t c)
     cv_rect(x, y - 4, 1, 4, c);
     cv_line(x - 2, y - 3, x - 1, y - 2, c); cv_line(x + 2, y - 3, x + 1, y - 2, c);
 }
+/* A return from a lower operator, outside the right edge of the whole stack. */
+static void fm_stack_loop(int32_t x, int32_t from_y, int32_t to_y, uint16_t c)
+{
+    cv_rect(x + 11, from_y + 5, 5, 1, c);
+    cv_rect(x + 15, to_y - 4, 1, from_y + 10 - to_y, c);
+    cv_rect(x, to_y - 4, 15, 1, c);
+    cv_rect(x, to_y - 4, 1, 4, c);
+    cv_line(x - 2, to_y - 3, x - 1, to_y - 2, c); cv_line(x + 2, to_y - 3, x + 1, to_y - 2, c);
+}
 /* the output bus under the carriers (the leftmost at cl, the rightmost at cr) at y bus, an arrow out on the right */
 static void fm_bus(int32_t cl, int32_t cr, int32_t bus)
 {
@@ -590,6 +715,16 @@ static uint32_t fm6_fb_op(uint32_t a)
         ;
     return k;
 }
+/* MARK I returns OP4 / OP5 in algorithms 4 / 6; MODERN and OPL return OP6 itself. */
+static uint32_t fm6_fb_source(uint32_t a, uint32_t eng)
+{
+    uint32_t k, src = fm6_fb_op(a);
+    if (eng == FM6_MARK1)
+        for (k = 0; k < 6u; k++)
+            if (FM6_ALG[a & 31u][k] & FM6_FBOUT)
+                src = 5u - k;
+    return src;
+}
 /* the carriers of algorithm a: bit k operator k + 1 (fm6_carriers counts the sixth first) */
 static uint32_t fm6_car_ops(uint32_t a)
 {
@@ -610,6 +745,7 @@ static uint32_t fm6_alg_of(const track_t *t)
 static void graph_fm6(const track_t *t, uint16_t c)
 {
     uint32_t alg = fm6_alg_of(t), k, j, car = fm6_car_ops(alg), top = 0, hi = 0, fbop = fm6_fb_op(alg), hotset = 0;
+    uint32_t fbsrc = fm6_fb_source(alg, fm6_fn[(t - trk) % NTRK][FN_ENGINE]);
     uint32_t hot = ui.hot_t ? (uint32_t)cur_page()->id[ui.hot_col & 3u] : 0u;
     const uint8_t *pt = fm6_patch[(t - trk) % NTRK];
     int32_t x[6], y[6], bus, cl = 240, cr = 0, fb = clamp(pt[FP_FB] + t->p[P_E1], 0, 7);
@@ -654,8 +790,11 @@ static void graph_fm6(const track_t *t, uint16_t c)
     }
     FM6_CHART_HOOK(FMH_BUS, 0, 0);
     fm_bus(cl, cr, bus);
-    FM6_CHART_HOOK(FMH_FB, fbop, 0);
-    fm_loop(x[fbop], y[fbop], hot == P_E1 ? T_ACCENT : fb ? T_MID : T_DIM);
+    FM6_CHART_HOOK(FMH_FB, fbop, fbsrc);
+    if (fbsrc != fbop)
+        fm_stack_loop(x[fbop], y[fbsrc], y[fbop], hot == P_E1 ? T_ACCENT : fb ? T_MID : T_DIM);
+    else
+        fm_loop(x[fbop], y[fbop], hot == P_E1 ? T_ACCENT : fb ? T_MID : T_DIM);
     for (k = 0; k < 6u; k++) {
         uint32_t on = pt[(5u - k) * FP_OP + FP_OL] != 0, fill_c = (car >> k & 1u) && on;
         uint16_t f = hotset >> k & 1u ? T_ACCENT : c, fill = fill_c ? f : T_RAISE;
@@ -758,6 +897,21 @@ static uint32_t graph_signature(void)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
          ui.ppick * 1299709u;
+    if (pg->graph == GR_SCALE_PICKER) {
+        h ^= ui.scale_family * 40503u;
+        for (i = 16u; i < 32u; i++) h = (h ^ favorites.factory[14][i]) * 16777619u;
+    }
+    if (pg->graph == GR_NOTES) {
+        uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), a, b, chosen = notes_selected(t);
+        notes_window(t, period, &a, &b);
+        notes_follow(t);
+        h ^= recording_generation * 7919u + chosen * 40503u + ui.note_zoom * 104729u + ui.cursor * 613u;
+        if (song.playing && (song.rec & (1u << trk_index(t)))) h ^= ui.frame / 2u;
+        h = (h ^ steps_hash(t)) * 16777619u;
+        h ^= (uint32_t)song.g[G_SWING] * 65537u;
+        uint32_t phase = recording_prefix(t, period, t->seq_idx) + t->seq_pos;
+        h ^= (song.playing && phase >= a && phase < b ? (uint32_t)notes_x(phase, a, b) : 0xFFFFu) * 31u;
+    }
     if (pg->graph == GR_CHORD) {                     /* the last chord played */
         h = (h ^ (chord_last[song.sel].root + 131u * chord_last[song.sel].mask)) * 16777619u;
         for (i = 0; i < CHORD_MAX; i++)
@@ -777,7 +931,7 @@ static uint32_t graph_signature(void)
         h ^= (mod_ui_slot + 1u) * 40503u;
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* FM6's pages: the patch, switches, functions, bank */
         h ^= fm6_pgen[song.sel % NTRK] * 2654435761u + fm6_on[song.sel % NTRK] * 40503u + fm6_opsel * 131u +
-             fm6_bslot * 7919u + fm6_bank_gen * 104729u;
+             fm6_bslot * 7919u + up_gen * 104729u;
         for (i = 0; i < FM6_NFN; i++)
             h = (h ^ fm6_fn[song.sel % NTRK][i]) * 16777619u;
     }
@@ -797,7 +951,7 @@ static uint32_t graph_signature(void)
                                    (MELODEE_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
     if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm, levels, FB) */
-        h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u;
+        h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + fm6_fn[(t - trk) % NTRK][FN_ENGINE] * 40503u;
     if (pg->graph == GR_STEPS || pg->graph == GR_ROLL || pg->graph == GR_CHANCE) {
         uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
         if (pg->graph != GR_STEPS && ph / 16u != ui.bank)
@@ -863,6 +1017,39 @@ static void panel_note(const char *a, const char *b, const char *c)
 
 /* preset browser: the global list (every engine), the current one selected; tag DIM, name TEXT,
  * favourites starred (the accent), the selected row's suggested pattern at its right */
+static void graph_scale_picker(void)
+{
+    uint32_t scale = (uint32_t)clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u);
+    uint32_t total = scale_picker_count(), rank = scale_picker_rank();
+    char detail[32];
+    cv_text_fit(12, 3, &AF_S, SCALE_TITLE[scale], T_TEXT, T_SURF, scale_favorite(scale) ? 192 : 216);
+    if (scale_favorite(scale)) cv_icon_on(214, 5, 12, ICON_X_STAR, T_ACCENT, T_SURF);
+    fmt_int(detail, SCALE_DEGREES[scale]); str_cpy(detail + str_len(detail), " NOTES", 7);
+    cv_text_on(12, 20, &AF_S, detail, T_MID, T_SURF);
+    if (!total) {
+        note_line(57, "NO FAVORITES", T_TEXT);
+        note_line(80, "NEXT SCL PAGE: FAV ON", T_DIM);
+        return;
+    }
+    detail[0] = 0;
+    if (rank < total) { fmt_int(detail, (int32_t)rank + 1); str_cpy(detail + str_len(detail), "/", 2); }
+    fmt_int(detail + str_len(detail), (int32_t)total);
+    cv_text_r(226, 20, &AF_S, detail, T_MID, T_SURF);
+    uint32_t first = rank < total && rank > 2u ? rank - 2u : 0u;
+    if (total > 5u && first > total - 5u) first = total - 5u;
+    for (uint32_t row = 0; row < 5u && first + row < total; row++) {
+        uint32_t id = scale_picker_at(first + row);
+        int selected = id == scale;
+        int32_t y = 35 + (int32_t)row * 17;
+        uint16_t bg = selected ? T_THEME : T_SURF, fg = selected ? T_INK : T_TEXT;
+        if (selected) cv_rrect(6, y, 228, 16, 4, T_THEME, T_SURF);
+        cv_free_text(12, y + 1, &AF_S, SCALE_TITLE[id], fg, bg, 183);
+        fmt_int(detail, SCALE_DEGREES[id]);
+        cv_text_r(226, y + 1, &AF_S, detail, selected ? T_INK : T_DIM, bg);
+        if (scale_favorite(id)) cv_icon_on(196, y + 2, 12, ICON_X_STAR, selected ? T_INK : T_ACCENT, bg);
+    }
+}
+
 static void graph_browse(void)
 {
     uint32_t total, cur = preset_pos(&total), e, k;
@@ -879,7 +1066,11 @@ static void graph_browse(void)
         int32_t hint = sel ? preset_pat_hint() : -1;    /* the suggested pattern */
         if (index >= total) continue;
         e = preset_at(index, &k);
-        if (e == NENGINES) {                             /* user preset: "U07" and its name */
+        if(e==USER_NATIVE_FM || e==USER_NATIVE_CZ){
+            uint32_t eng=e==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ;
+            tag[0]=eng==ENGI_FM6?'F':'Z';tag[1]=(char)('0'+(k+1u)/100u);tag[2]=(char)('0'+(k+1u)/10u%10u);tag[3]=(char)('0'+(k+1u)%10u);tag[4]=0;
+            native_name(eng,k,nm);
+        } else if (e == NENGINES) {                             /* user preset: "U07" and its name */
             up_slot_label(tag, k);
             up_name(k, nm);
         } else {
@@ -905,9 +1096,10 @@ static void engine_sound_row(int32_t y)
     uint32_t total, cur = eng_list_pos(&total), u = user_of(TSEL);
     char tag[6], nm[13];
     int fav = preset_favorite();
-    if (u < UP_SLOTS) {
-        up_slot_label(tag, u);
-        up_name(u, nm);
+    if(u<USER_NONE && !TSEL->user_native){up_slot_label(tag,u);up_name(u,nm);}
+    else if (u < USER_NONE) {
+        user_label(tag, u);
+        user_name(u, nm);
     } else {
         tag[0] = (char)('0' + (cur + 1u) / 10u % 10u);
         tag[1] = (char)('0' + (cur + 1u) % 10u);
@@ -922,36 +1114,27 @@ static void engine_sound_row(int32_t y)
 /* user preset slots around the selected one: "U07  NAME" / EMPTY */
 static void graph_user(void)
 {
-    int32_t row, first = clamp((int32_t)ui.uslot - 3, 0, UP_SLOTS - 7);
+    ui.uslot %= user_limit();
+    int32_t row, first = clamp((int32_t)ui.uslot - 3, 0, user_limit() - 7);
     for (row = 0; row < 7; row++) {
         uint32_t k = (uint32_t)(first + row);
-        char tag[4], nm[13];
-        int used = up_used(k);
-        up_slot_label(tag, k);
+        char tag[5], nm[13];
+        int used = user_used(k);
+        user_label(tag, k);
         if (used)
-            up_name(k, nm);
+            user_name(k, nm);
         else
             str_cpy(nm, "--", sizeof nm);
         list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232);
     }
 }
-/* FM6 > STORE: the bank slots around the one picked ("B03  WOOD BARS" / --), as USER's */
+/* FM6 STORE lists the same user preset slots as SAVE > USER. */
 static void graph_fmbank(void)
 {
-    int32_t row, first = clamp((int32_t)fm6_bslot - 3, 0, FM6_BANK_N - 7);
-    for (row = 0; row < 7; row++) {
-        uint32_t k = (uint32_t)(first + row);
-        char nm[12];
-        uint8_t pk[FM6_PACKED], v[FP_SIZE + 1u];
-        int used = fm6_bank_read && !fm6_bank_read(k, pk);
-        if (used) {
-            fm6_unpack(pk, v);
-            fm6_name(nm, v);
-        } else {
-            str_cpy(nm, "--", sizeof nm);
-        }
-        list_row(LIST_Y(row), k == fm6_bslot, N_FM6BANK[k], T_MID, nm, used ? T_TEXT : T_DIM, 232);
-    }
+    uint8_t keep = ui.uslot;
+    ui.uslot = fm6_bslot;
+    graph_user();
+    ui.uslot = keep;
 }
 /* SEQ > PATTERNS: the pattern list around the one picked ("03  MELODY", "U07  MY BASS") */
 static void graph_pats(void)
@@ -1058,8 +1241,8 @@ static void trk_short_name(uint32_t c, char *b)      /* the track's sound, b hol
 {
     const track_t *t = &trk[c];
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
-    if (user_of(t) < UP_SLOTS)
-        up_name(user_of(t), b);
+    if(user_of(t)<USER_NONE && t->user_native)native_name(t->eng_req,user_of(t),b);
+    else if (user_of(t) < UP_SLOTS)up_name(user_of(t), b);
     else if (e->npresets)
         str_cpy(b, e->presets[t->preset % e->npresets].name, 13);
     else
@@ -1226,7 +1409,7 @@ static int graph_notes(void)
     if (!n) return 0;
     c = held ? T_TEXT : T_THEME;
     bass = note[0] % 12u;
-    q = chord_of(pcs, bass, &root);
+    q = micro_active(TSEL) ? 0 : chord_of(pcs, bass, &root);
     if (q) {
         int32_t x = cv_text(12, 7, &AF_L, N_NOTE[root], c);
         x = cv_text(x + 2, 19, &AF_M, q, c);
@@ -1337,7 +1520,20 @@ static void draw_graph(void)
             else
                 graph_roll(t, c);
             break;
+        case GR_NOTES:
+            cv_oy = 0;
+            graph_recorded_notes(t, c);
+            break;
+        case GR_SCALE_PICKER:
+            cv_oy = 0;
+            graph_scale_picker();
+            break;
         case GR_SCALE:
+            if (scale_settings_page(pg)) {
+                cv_oy = 0;
+                cv_text_fit(12, 3, &AF_S, SCALE_TITLE[clamp(t->p[P_SCALE], 0, SCALE_TOTAL - 1u)], T_TEXT, T_SURF, 216);
+                cv_oy = 20;
+            }
             graph_scale(t, c);
             break;
         case GR_CHORD:

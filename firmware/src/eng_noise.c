@@ -60,7 +60,7 @@ static uint32_t noise_inc(int32_t p)
         p -= 192;
         sh++;
     }
-    inc = pitch_inc((uint32_t)clamp(p, 0, 2047));
+    inc = tuned_pitch_inc((uint32_t)clamp(p, 0, 2047));
     return sh && inc >= 0x80000000u >> (sh - 1u) ? 0xFFFFFFFFu : inc << sh;
 }
 
@@ -161,6 +161,8 @@ static void noise_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const
     } else if (mode == NZ_META) {
         inc = p[P_E7] || d16 ? noise_inc(m->pitch16 + p[P_E7] * 16 + d16) : m->inc;
     }
+    if (v->scale_fine && (mode == NZ_LFSR || (mode == NZ_META && (p[P_E7] || d16))))
+        inc += (uint32_t)((int32_t)(inc >> 12) * v->scale_fine);
     for (i = 0; i < n; i++) {
         int32_t w, x, v1, v2, v3, y;
         switch (mode) {

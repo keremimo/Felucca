@@ -48,8 +48,8 @@ static int ed_cz_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
             panic_req |= (uint8_t)(1u<<index);
             fm1_irq_off();
             memcpy(cz_patch[index].raw,raw,CZ_BYTES); t->eng_req=ENGI_CZ;
-            for (uint32_t i=0;i<P_COUNT;i++) if (!param_kept(i)) t->p[i]=param_desc_of(ENGI_CZ,i)->def;
-            t->p[P_E7]=CZ_NATIVE; t->preset=0; t->user=0; cz_track_accept(t);
+            for (uint32_t i=P_E0;i<P_COUNT;i++) t->p[i]=param_desc_of(ENGI_CZ,i)->def;
+            t->p[P_E7]=CZ_NATIVE; t->preset=0; t->user=0; t->user_native=0; cz_track_accept(t);
             fm1_irq_on();
             load_end(t); sync_reload=1; ui.force=1;
         }

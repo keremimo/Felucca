@@ -306,6 +306,45 @@ static void algorithms(void)
     check("algorithms: each sounds at full levels and feedback, bounded", sound);
 }
 
+/* The only routing difference between 3 / 4 and 5 / 6 is the feedback return.
+ * Render an audible, sustained OP6 stack through the real track path; muted OP1..3
+ * keep the comparison focused on the stack. At FB 0 each pair must be identical. */
+static void algorithm_feedback(void)
+{
+    static double reference[4096];
+    static const int rates[4] = {99, 99, 99, 99}, levels[4] = {99, 99, 99, 0};
+    uint32_t eng, pair, fb, member, k;
+    for (eng = FM6_MODERN; eng <= FM6_OPL; eng++)
+        for (pair = 0; pair < 2u; pair++)
+            for (fb = 0; fb <= 7u; fb += 7u) {
+                double diff = 0, energy = 0;
+                char label[128];
+                for (member = 0; member < 2u; member++) {
+                    fresh();
+                    ED[FP_ALG] = (uint8_t)(2u + pair * 2u + member);
+                    ED[FP_FB] = (uint8_t)fb;
+                    ED[FP_OKS] = 1;
+                    for (k = 1; k <= 6u; k++)
+                        op_set(ED, k, rates, levels, k >= 4u ? 90 : 0, 1);
+                    fm6_fn_set(0, FN_ENGINE, (int32_t)eng);
+                    note_on(60, 127);
+                    render(wave, 4096);
+                    if (!member)
+                        memcpy(reference, wave, sizeof reference);
+                    else
+                        for (k = 512; k < 4096u; k++) {
+                            double d = wave[k] - reference[k];
+                            diff += d * d;
+                            energy += reference[k] * reference[k];
+                        }
+                }
+                snprintf(label, sizeof label, "algorithms: engine %u, %u / %u, FB %u: %s", eng,
+                         3u + pair * 2u, 4u + pair * 2u, fb,
+                         eng == FM6_MARK1 && fb ? "stack feedback changes the sound" : "same samples");
+                check(label, energy > 0 && (eng == FM6_MARK1 && fb ? diff > energy * 0.01 : diff == 0));
+            }
+}
+
 /* ----------------------------------------------------------- patches --- */
 static uint32_t chk(const uint8_t *p, uint32_t n)
 {
@@ -777,7 +816,7 @@ static void macros(void)
         check("PTCH F9 loads Melodee's first factory voice", !memcmp(fm6_patch[0] + FP_NAME, "TINE EP   ", 10));
         T->p[P_E7] = (int16_t)(FM6_NFAC + 3);
         fm6_poll();
-        check("PTCH B4 of an empty bank: the init voice", !memcmp(fm6_patch[0] + FP_NAME, "INIT VOICE", 10));
+        check("legacy bank slot clamps to OWN without replacing the track voice", fm6_slot[0] == FM6_OWN && T->p[P_E7] == FM6_OWN && !memcmp(fm6_patch[0] + FP_NAME, "TINE EP   ", 10));
     }
 }
 
@@ -930,6 +969,7 @@ int main(int argc, char **argv)
     uint32_t pi;
     sysex_pending();
     algorithms();
+    algorithm_feedback();
     patches();
     pitch();
     levels();

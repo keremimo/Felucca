@@ -327,7 +327,7 @@ static uint32_t foot_rename(void)
 {
     uint32_t g = ui.home ? GR_NONE : cur_page()->graph;
     if (g == GR_USER)
-        return 1u + (uint32_t)up_used(ui.uslot);
+        return 1u + (uint32_t)user_used(ui.uslot % user_limit());
     if (g == GR_SLOTS)                                 /* (the template has no name) */
         return song.g[G_SLOT] == PROJ_TMPL ? 0u : 1u + (uint32_t)graph_project_used((uint32_t)song.g[G_SLOT] - 1u);
     return 0;
@@ -338,7 +338,8 @@ static void sound_name(const track_t *t, char *b)
 {
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
     b[0] = 0;
-    if (user_of(t) < UP_SLOTS)
+    if(t->user_native && user_of(t)<USER_NONE)native_name(t->eng_req,user_of(t),b);
+    else if (user_of(t) < UP_SLOTS)
         up_name(user_of(t), b);
     else if (e->npresets)
         str_cpy(b, e->presets[t->preset % e->npresets].name, 16);
@@ -424,6 +425,8 @@ static void draw_foot(void)
     }
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
+    if (pg->graph == GR_NOTES) sig += recording_generation * 7919u + ui.note_pick * 40503u;
+    if (pg->graph == GR_SCALE_PICKER) sig += ui.scale_family * 40503u;
     if (!ui.force && sig == ui.foot_sig)
         return;
     ui.foot_sig = sig;
@@ -442,6 +445,21 @@ static void draw_foot(void)
         } else {
             cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
         }
+    } else if (pg->graph == GR_SCALE_PICKER && !ui.home) {
+        cv_text_on(8, 2, &AF_S, SCALE_FAMILY_TITLE[ui.scale_family], T_THEME, T_BG);
+        cv_key_hint(232 - kh_w(KC_KEYS, "PLAY"), 2, KC_KEYS, "PLAY", 1, T_BG);
+    } else if (pg->graph == GR_NOTES && !ui.home) {
+        uint32_t chosen = notes_selected(t), count;
+        notes_rank(t, chosen, &count);
+        char detail[24];
+        fmt_int(detail, (int32_t)count); str_cpy(detail + str_len(detail), " HITS", 6);
+        if (chosen < RECORD_MAX) {
+            str_cpy(detail + str_len(detail), " +", 3);
+            fmt_int(detail + str_len(detail), (int32_t)((uint32_t)recording[chosen].on * 100u / RECORD_UNIT));
+            str_cpy(detail + str_len(detail), "%", 2);
+        }
+        cv_key_hint(8, 2, KC_EDIT, "DELETE HIT", 1, T_BG);
+        cv_text_r(232, 2, &AF_S, detail, T_MID, T_BG);
     } else if (grid_on()) {                           /* row 1: the page, and what the keys do */
         char b[16];
         uint32_t len = (uint32_t)t->p[P_SLEN];
@@ -562,6 +580,16 @@ static void draw_columns(void)
         draw_column(3, "MUTE", t->p[P_MUTE] ? "ON" : "OFF", "", t->p[P_MUTE] ? T_ACCENT : VAL(3u), -1, ICON_AUTO);
         return;
     }
+    if (cur_page()->graph == GR_SCALE_PICKER) {
+        uint32_t scale = (uint32_t)clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u);
+        draw_column(0, "FAMILY", SCALE_FAMILY_SHORT[ui.scale_family], "", VAL(0u), -1, ICON_X_FOLDER);
+        draw_column(1, "SCALE", N_SCALE[scale], "", VAL(1u), -1, ICON_NONE);
+        param_format(&TP[P_ROOT], TSEL->p[P_ROOT], val, &unit);
+        draw_column(2, "ROOT", val, unit, VAL(2u), -1, ICON_AUTO);
+        param_format(&TP[P_QUANT], TSEL->p[P_QUANT], val, &unit);
+        draw_column(3, "QNT", val, unit, VAL(3u), -1, ICON_AUTO);
+        return;
+    }
     if (cur_page()->graph == GR_BROWSE) {
         uint32_t total, cur = preset_pos(&total);
         char u[8];
@@ -586,9 +614,10 @@ static void draw_columns(void)
         return;
     }
     if (cur_page()->graph == GR_USER) {                  /* SLOT, then three GO buttons */
-        int used = up_used(ui.uslot);
-        up_slot_label(val, ui.uslot);
-        draw_column(0, "SLOT", val, "", VAL(0u), (int32_t)ui.uslot * 1000 / (int32_t)(UP_SLOTS - 1u), ICON_AUTO);
+        ui.uslot %= user_limit();
+        int used = user_used(ui.uslot);
+        user_label(val, ui.uslot);
+        draw_column(0, "SLOT", val, "", VAL(0u), (int32_t)ui.uslot * 1000 / (int32_t)(user_limit() - 1u), ICON_AUTO);
         draw_act_column(1, "LOAD", used ? T_THEME : T_DIM, ICON_AUTO);
         draw_act_column(2, "ERASE", used ? T_THEME : T_DIM, ICON_AUTO);
         draw_act_column(3, "SAVE", T_THEME, ICON_AUTO);
@@ -624,6 +653,22 @@ static void draw_columns(void)
         draw_column(2, "DST", mod_dst_name(t, d), "", d ? VAL(2u) : T_DIM, -1, mod_dst_icon(t, d));
         param_format(&TP[id + 2u], a, val, &unit);
         draw_column(3, "AMT", val, unit, a ? VAL(3u) : T_DIM, RATIO(&TP[id + 2u], a), mod_src_icon(MS_OFF));
+        return;
+    }
+    if (cur_page()->graph == GR_NOTES) {
+        uint32_t chosen = notes_selected(TSEL), count, rank = notes_rank(TSEL, chosen, &count);
+        char sn[12], unit[12];
+        fmt_int(sn, (int32_t)ui.cursor + 1);
+        unit[0] = '/'; fmt_int(unit + 1, TSEL->p[P_SLEN]);
+        draw_column(0, "STEP", sn, unit, VAL(0u), -1, ICON_AUTO);
+        if (rank) fmt_int(sn, (int32_t)rank); else str_cpy(sn, "--", sizeof sn);
+        draw_column(1, "HIT", sn, "", rank ? VAL(1u) : T_DIM, -1, ICON_AUTO);
+        if (chosen < RECORD_MAX) {
+            note_name(sn, recording[chosen].note);
+        } else { str_cpy(sn, "--", sizeof sn); }
+        draw_column(2, "NOTE", sn, "", rank ? T_TEXT : T_DIM, -1, ICON_AUTO);
+        fmt_int(sn, (int32_t)(1u << ui.note_zoom)); str_cpy(sn + str_len(sn), "x", 2);
+        draw_column(3, "ZOOM", sn, "", VAL(3u), -1, ICON_AUTO);
         return;
     }
     if (cur_page()->scope == SC_STEP && drum_track(TSEL)) {   /* the grid: STEP LANE HIT ACC */
@@ -677,6 +722,10 @@ static void draw_columns(void)
     }
     for (c = 0; c < 4u; c++) {
         int16_t *vp;
+        if (scale_settings_page(cur_page()) && c == 1u) {
+            draw_column(c, "FAV", scale_favorite((uint32_t)TSEL->p[P_SCALE]) ? "ON" : "OFF", "", VAL(c), -1, ICON_X_STAR);
+            continue;
+        }
         const param_desc_t *d = page_desc(cur_page(), c, &vp);
         if (!d || !d->label || d->label[0] == '-') {
             draw_column(c, "", "", "", T_THEME, -1, ICON_AUTO);
@@ -764,15 +813,15 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_OVR_USER:
         str_cpy(a, "OVERWRITE ", 24);
-        up_slot_label(a + str_len(a), k);
+        user_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
-        up_name(k, b);                               /* the sound stored there */
+        user_name(k, b);                             /* the sound stored there */
         break;
     case CF_ERASE_USER:
         str_cpy(a, "ERASE ", 24);
-        up_slot_label(a + str_len(a), k);
+        user_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
-        up_name(k, b);
+        user_name(k, b);
         break;
     case CF_LOAD_PAT: {
         char tag[4];

@@ -271,7 +271,7 @@ static void trio_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
     uint32_t w1 = ws->w[0], w2 = ws->w[1], w3 = ws->w[2], i;
     uint32_t ring = ws->flags & TRIO_RING, sync = ws->flags & TRIO_SYNC;
     int32_t g1 = ws->g[0], g2 = ws->g[1], g3 = ws->g[2];
-    uint32_t base = pitch_inc(m->pitch16);
+    uint32_t base = tuned_pitch_inc(m->pitch16);
     int32_t fine = (base >> 12) ? (int32_t)(m->inc - base) / (int32_t)(base >> 12) : 0;
     uint32_t inc1 = m->inc;
     uint32_t inc2 = trio_inc(m->pitch16, p[P_E1], p[P_E3], fine);

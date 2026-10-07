@@ -75,7 +75,7 @@ static void reset(void)
     chain_defaults(&chain_config);
     pattern_init();
     memset(proj_slot, 0, sizeof proj_slot);
-    memset(up_bank, 0, sizeof up_bank);
+    memset(up_bank, 0, sizeof up_bank); memset(native_fm,0,sizeof native_fm); memset(native_cz,0,sizeof native_cz); native_pending=0;
     memset(&persist_saved, 0, sizeof persist_saved);
     memset(&settings, 0, sizeof settings);
     memset(&ui, 0, sizeof ui);
@@ -186,7 +186,7 @@ static int full_pattern_archive(void)
         ok &= ed_unpack7(rep+9u,rep_n-9u,saved+off,n)==n;
     }
     /* GET emits pack7; the XIP payload itself remains byte-identical after other object reads. */
-    ok &= !memcmp(saved,archive,sizeof saved) && !memcmp(nor+st_sector(OBJ_BANK0,0)+ST_PAYLOAD_OFF,archive,sizeof archive) && get(0,0,64)==0;
+    ok &= !memcmp(saved,archive,sizeof saved) && (st_load(OBJ_BANK0,saved,sizeof saved)==sizeof saved && !memcmp(saved,archive,sizeof saved)) && get(0,0,64)==0;
     bad+=check("saved-bank GET uses flash without overwriting the frozen runtime snapshot",ok);
     bad+=check("full archive restores a saved slot through the A/B path",put_all(3,archive,sizeof archive,st_crc32(archive,sizeof archive))==0);
     pattern_init(); memset(&motion,0,sizeof motion); memset(proj_meta,0,sizeof proj_meta); memset(proj_slot,0,sizeof proj_slot);
@@ -200,8 +200,48 @@ static int full_pattern_archive(void)
     bad+=check("full archive restores the runtime with its original active banks",put_all(0,archive,sizeof archive,st_crc32(archive,sizeof archive))==0 && trk[0].pattern==7 && trk[3].pattern==7);
     return bad;
 }
+static int native_archive(void)
+{
+    reset();up_boot();int ok=1;uint8_t fm[FM6_PACKED],cz[CZ_BYTES];
+    const uint32_t slots[4]={0,16,32,63},ids[4]={21,22,19,20};static native_fm_t saved[4];static cz_bank_t savedcz;
+    for(uint32_t b=0;b<4;b++){fm6_factory(b,fm);ok &= !native_put(ENGI_FM6,slots[b],fm);saved[b]=native_fm[b];}
+    cz_patch_init(cz);cz[128]='Z';ok &= !native_put(ENGI_CZ,127,cz);savedcz=native_cz[7];
+    for(uint32_t b=0;b<4;b++){uint32_t len;const uint8_t *raw=ed_bk_object(ids[b],&len);ok &= len==sizeof saved[b] && !memcmp(raw,&saved[b],len);ok &= !native_put(ENGI_FM6,slots[b],0);}
+    ok &= !native_put(ENGI_CZ,127,0);
+    for(uint32_t b=0;b<4;b++)ok &= !put_all(ids[b],(uint8_t *)&saved[b],sizeof saved[b],st_crc32(&saved[b],sizeof saved[b]));
+    ok &= !put_all(16,(uint8_t *)&savedcz,sizeof savedcz,st_crc32(&savedcz,sizeof savedcz));
+    memset(native_fm,0,sizeof native_fm);memset(native_cz,0,sizeof native_cz);cz_bank_cached=255;up_boot();
+    for(uint32_t b=0;b<4;b++)ok &= !memcmp(&native_fm[b],&saved[b],sizeof saved[b]);
+    ok &= native_used(ENGI_CZ,127) && !memcmp(native_raw(ENGI_CZ,127),cz,sizeof cz);
+    return check("all four native FM6 objects and Z128 restore exactly after reboot",ok);
+}
+static int expanded_recording_archive(void)
+{
+    reset();
+    for(uint32_t k=0;k<NTRK;k++)for(uint32_t b=0;b<NPAT;b++) {
+        pattern_request(&trk[k],b);
+        trk[k].step[3]=(step_t){{60},1,ST_NOTE,SF_RECORDED,100,0,0,0};
+    }
+    for(uint32_t i=0;i<RECORD_MAX;i++)recording[i]=(recorded_note_t){(uint16_t)(i*61u),1234,60,100,(uint8_t)(i%32u),3};
+    recording_reindex();
+    static recorded_note_t saved[RECORD_MAX];memcpy(saved,recording,sizeof saved);
+    int ok=!project_save_as(0,"FULL TAKE");
+    uint32_t len,crc;ok &= !list(0,&len,&crc);
+    static uint8_t archive[BANK_STORE_SIZE], readback[BANK_STORE_SIZE];memcpy(archive,ED_BK_RAW,sizeof archive);
+    for(uint32_t off=0;off<sizeof readback;off+=256u){uint32_t n=sizeof readback-off>256u?256u:sizeof readback-off;ok &= !get(2,off,n) && ed_unpack7(rep+9u,rep_n-9u,readback+off,n)==n;}
+    ok &= !memcmp(archive,readback,sizeof archive);
+    ok &= !put_all(3,archive,sizeof archive,st_crc32(archive,sizeof archive));
+    pattern_init();memset(proj_meta,0,sizeof proj_meta);project_load(1);
+    ok &= !memcmp(saved,recording,sizeof saved);
+    int bad=check("all 1024 timed notes across 32 banks survive flash, backup GET and saved-slot restore",ok);
+    ok=!put_all(0,archive,sizeof archive,st_crc32(archive,sizeof archive)) && !memcmp(saved,recording,sizeof saved);
+    bad+=check("expanded runtime archive restores every original timed note",ok);
+    return bad;
+}
 int main(void)
 {
+    int expanded_bad = expanded_recording_archive();
+
     int bad = 0;
     uint32_t len = 0, crc = 0, before;
     static project_store_t st;
@@ -210,8 +250,8 @@ int main(void)
 
     reset();
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
-    bad += check("LIST captures the runtime: 12 objects (the FM6 bank: id 8), runtime 3584 B (FUN8) with its CRC",
-                 list(0, &len, &crc) == 0 && rep[2] == 17u && len == BANK_STORE_SIZE &&
+    bad += check("LIST captures runtime and all 23 archive objects with CRC",
+                 list(0, &len, &crc) == 0 && rep[2] == 23u && len == BANK_STORE_SIZE &&
                  crc == st_crc32(ED_BK_RAW, len));
     bad += check("an empty project slot lists as length 0", list(2, &len, &crc) == 0 && len == 0);
     bad += check("GET of the runtime copy", get(0, 0, 64) == 0);
@@ -330,28 +370,33 @@ int main(void)
                  proj_import(&proj_scratch, &proj_slot[3], sizeof st) && proj_scratch.t[0].step[0].n == 4u &&
                  proj_scratch.t[0].step[0].note[0] == 127u && proj_scratch.t[0].p[P_E0] ==
                  clamp(3, param_desc_of(trk[0].engine, P_E0)->min, param_desc_of(trk[0].engine, P_E0)->max));
-    {   /* the FM6 patch bank (id 8): restored to flash and RAM, a damaged one refused, listed with its length */
-        static fm6_bank_t bk, got;
+    {   /* Old bank backups are migrated into restored presets; new backups retain owned voices. */
+        static fm6_bank_t bk;
+        static upf_t got;
+        static up_bank_t records;
         uint8_t pk[FM6_PACKED], rec[FM6_PACKED];
+        upf_empty();
+        set_engine_of(TSEL, ENGI_FM6);
+        up_store(2, "OLD FM6");
+        up_set_value(up_rec(2), P_E7, FM6_NFAC + 2u);
         memset(&bk, 0, sizeof bk);
         bk.magic = FM6_BANK_MAGIC; bk.ver = FM6_BANK_VER; bk.nslot = FM6_BANK_N; bk.used = 1u << 2;
         memcpy(bk.fn, FM6_FNDEF, FM6_NFN);
-        bk.fn[FN_PBUP] = 7;
-        fm6_factory(5, pk);
-        fm6_pack7(bk.pk[2], pk, FM6_PACKED);
-        fm6_slot[0] = 3; fm6_slot[1] = FM6_NFAC + 2u; fm6_slot[2] = 0xFFu; fm6_slot[3] = FM6_NFAC + 9u;
-        fm6_fn_reset();
-        bad += check("the FM6 bank (id 8) restores into flash and RAM (its function settings inert: the tracks' stay)",
-                     put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 0 && fm6_bank_used(2) && !fm6_bank_used(3) &&
-                     !fm6_bank_get(2, rec) && !memcmp(rec, pk, FM6_PACKED) && fm6_fn[0][FN_PBUP] == FM6_FNDEF[FN_PBUP] &&
-                     st_load(OBJ_FM6BANK, &got, sizeof got) == (int)sizeof got && !memcmp(&got, &bk, sizeof bk));
-        bad += check("an FM6 bank restore reloads only the tracks on a bank slot (a factory patch stays)",
-                     fm6_slot[0] == 3u && fm6_slot[1] == 0xFFu && fm6_slot[2] == 0xFFu && fm6_slot[3] == 0xFFu);
-        bad += check("the FM6 bank lists as id 8 with its length", list(8, &len, &crc) == 0 && len == sizeof bk &&
-                     crc == st_crc32(&bk, sizeof bk));
+        fm6_factory(5, pk); fm6_pack7(bk.pk[2], pk, FM6_PACKED);
+        bad += check("old bank backup migrates the referenced voice into U03",
+                     put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 0 && !upf_get(2, rec) && !memcmp(rec, pk, FM6_PACKED));
+        bad += check("retired bank id 8 is listed empty", list(8, &len, &crc) == 0 && !len);
+        bad += check("native voice id 21 is listed with its CRC", list(21, &len, &crc) == 0 && len == sizeof(native_fm_t) && crc == st_crc32(&native_fm[0], len));
+        memcpy(&got, &upf[0], sizeof got); upf_empty();
+        bad += check("owned voices restore through id 19", put_all(19, &got, sizeof got, st_crc32(&got, sizeof got)) == 0 && !upf_get(2, rec) && !memcmp(rec, pk, FM6_PACKED));
         bk.fn[FN_ENGINE] = 9;
-        bad += check("an FM6 bank with a function setting out of range is refused (2), the bank kept",
-                     put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 2u && fm6_bank_used(2));
+        bad += check("damaged historical bank is refused", put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 2u);
+        up_store(63, "LAST FM6");
+        bad += check("additional user record bank id 18 retains U64", list(18, &len, &crc) == 0 && len == sizeof(up_bank_t));
+        memcpy(&records, &up_bank[3], sizeof records); memset(&up_bank[3], 0, sizeof up_bank[3]);
+        bad += check("additional user record bank id 18 restores U64", put_all(18, &records, sizeof records, st_crc32(&records, sizeof records)) == 0 && up_used(63));
+        memcpy(&got, &upf[1], sizeof got); upf_empty_bank(1);
+        bad += check("additional voice bank id 20 restores U64", put_all(20, &got, sizeof got, st_crc32(&got, sizeof got)) == 0 && !upf_get(63, rec));
     }
     memcpy(&st, &proj_slot[2], sizeof st);
     erase_error = 1;
@@ -407,11 +452,12 @@ int main(void)
         bad += check("CZ-1: a saved BANK A restores and lists with its 2332 B",
                      put_all(9, &cb, sizeof cb, st_crc32(&cb, sizeof cb)) == 0 && list(9, &len, &crc) == 0 &&
                      len == sizeof cb && cz_bank_load(0)->used == 1u << 3);
-        bad += check("CZ-1: a restore of length 0 brings BANK A's factory tones back",
-                     put_all(9, &cb, 0, st_crc32(&cb, 0)) == 0 && cz_bank_load(0)->used == 0xFFFFu &&
-                     list(9, &len, &crc) == 0 && len == 0);
+        bad += check("CZ-1: length 0 clears native presets while keeping factory tones separate",
+                     put_all(9, &cb, 0, st_crc32(&cb, 0)) == 0 && !native_cz[0].used &&
+                     list(9, &len, &crc) == 0 && len == sizeof(cz_bank_t));
     }
+    bad += native_archive();
     bad += full_pattern_archive();
     printf("backup test %s\n", bad ? "FAILED" : "passed");
-    return bad != 0;
+    return (bad + expanded_bad) != 0;
 }

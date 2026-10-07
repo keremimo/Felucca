@@ -6,6 +6,7 @@
  * engine (synthesized 808 on the General MIDI map) on any part.
  * Sections: sizes, parameters, voices and engines, tracks and the song, system. */
 #include <stdint.h>
+#include "tuning.h"
 
 /* ------------------------------------------------------------ sizes --- */
 #define NVOICE 16                /* voice slots per part (FM6 plays Dexed's 16) */
@@ -27,6 +28,9 @@
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
 #define NENGINES 16               /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1 */
+#define USER_NATIVE_FM (NENGINES + 1u)
+#define USER_NATIVE_CZ (NENGINES + 2u)
+#define USER_NONE 256u
 #define ENGI_DIGITAL 1u          /* reserved without MELODEE_FM4: never selectable (eng_ok), its sounds load as FM6 */
 #define NENG_SHOWN (NENGINES - 3u - !MELODEE_FM4 - !MELODEE_SLICE)   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
@@ -35,7 +39,7 @@
 #undef SMP_USER_SLOTS
 #endif
 #define SMP_USER_SLOTS 0u        /* sample material and its upload slots are retired */
-#define UP_SLOTS 32u             /* user presets (upreset.c) */
+#define UP_SLOTS 64u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
 /* ------------------------------------------------------- parameters --- */
@@ -56,7 +60,7 @@ typedef struct {
 enum {                          /* per-track parameters */
     P_LEVEL,
     P_ATK, P_DEC, P_SUS, P_REL,
-    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: unused, kept for the formats / protocol */
+    P_ED_FLT, P_ED_PIT, P_ED_SHP, P_ED_FX,     /* P_ED_FX: reserved field now used by sequencer playback QNT */
     P_LRATE, P_LWAVE, P_LPHASE, P_LFADE,
     P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP,
     P_AMODE, P_ARATE, P_AOCT, P_AGATE,
@@ -81,6 +85,8 @@ enum {                          /* per-track parameters */
     P_COUNT
 };
 
+#define P_RECQ P_ED_FX          /* reuse an inert parameter; engine and scale ids stay fixed */
+
 enum {                          /* global parameters */
     G_BPM, G_SWING, G_CLOCK, G_TUNE,
     G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX,
@@ -88,8 +94,8 @@ enum {                          /* global parameters */
     G_MIDI, G_DRUMCH, G_ROUTE, G_INFO, /* G_ROUTE: MIDI IN, 0 CH1-4 (channels 1..4 -> parts 1..4), 1 SEL (seq.c);
                                         * G_DRUMCH (was G_SYNC, unused): a device setting (settings_drumch) */
     G_SLOT, G_BOOT, G_LOAD, G_SAVE,   /* G_BOOT (was G_NAME, unused): a device setting (settings_boot), not song.g */
-    G_ENGSEL, G_ENGGO,          /* no page: the editor switches the engine with a SET of G_ENGSEL; G_ENGGO is
-                                 * unused (ids are fixed by the formats and the protocol) */
+    G_ENGSEL, G_A4,            /* the editor switches the engine with a SET of G_ENGSEL; G_A4 reuses the unused
+                                 * G_ENGGO id, reads tuning_a4 instead of song.g (ids/count stay fixed) */
     G_CLRSEQ, G_INITSND,
     G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING (fx.c). Was G_DRCH, the GM drum part's MIDI
                                  * channel (inert since 1.0, never read); projects of formats before FUN7 load it
@@ -140,6 +146,7 @@ typedef struct {
     int32_t pitch16, pitch_cur;  /* 1/16 semitone, with glide */
     int32_t gstep;               /* glide TIME mode: 1/16 st per control tick, 0 = RATE mode */
     int32_t fine;                /* unison detune: phase increment * (1 + fine / 4096) */
+    int32_t scale_fine;          /* note-on snapshot: scale pitch below 1/16 semitone */
     uint32_t ph[3];
     int32_t s[8];                /* engine state (filters, envs) */
     uint32_t age;
@@ -226,6 +233,13 @@ static uint8_t voice_was;
 enum { ST_NOTE, ST_TIE, ST_REST };
 #define SF_ACCENT 1u
 #define SF_SLIDE 2u
+#define SF_RECORDED 4u                         /* step is a view of timed notes, played by recording.c */
+#define RECORD_MAX 1024u
+#define RECORD_UNIT 65536u                     /* fractional onset within its swung step; duration uses an exponent */
+/* owner: bank/track in low 5 bits, duration exponent in high 3. step: actual index in
+ * low 6 bits, overview rounded forward in bit 6, wrapped to zero in bit 7. */
+typedef struct { uint16_t on, duration; uint8_t note, vel, owner, step; } recorded_note_t;
+_Static_assert(sizeof(recorded_note_t) == 8u, "timed note layout");
 #define NLANE 8                  /* drum lanes of a step (the DRUM engine's: eng_drum.c DRUM_LANE_NOTE) */
 typedef struct {                 /* acid-style step: up to 4 notes (POLY), time, accent, slide; drum hits */
     uint8_t note[4];
@@ -234,7 +248,7 @@ typedef struct {                 /* acid-style step: up to 4 notes (POLY), time,
     uint8_t flags;               /* SF_ACCENT | SF_SLIDE */
     uint8_t vel;
     uint8_t hit;                 /* bit l: lane l hits (its GM note, on any engine): the DRUM grid */
-    uint8_t acc;                 /* bit l: that hit is accented (velocity 127) */
+    uint8_t acc;                 /* hit != 0: lane accents; hit == 0: recorded gate, 1..255 of a step (0 legacy) */
     uint8_t probability;         /* 0 = legacy 100%; 1..100 = percent, 101 = silent */
 } step_t;
 typedef struct {                 /* a step as formats 1..4 (projects to FUN4) stored it: no hits */
@@ -245,6 +259,8 @@ typedef struct {                 /* a step as formats 1..4 (projects to FUN4) st
 /* Probability keeps zero-initialized and legacy patterns at 100%. */
 static uint32_t step_chance(const step_t *s) { return !s->probability ? 100u : s->probability <= 100u ? s->probability : 0u; }
 static void step_set_chance(step_t *s, uint32_t chance) { s->probability = (uint8_t)(chance >= 100u ? 0u : chance ? chance : 101u); }
+static uint32_t step_gate(const step_t *s) { return s->hit ? 0u : s->acc; }
+static int step_acc_valid(const step_t *s) { return s->hit ? !(s->acc & ~s->hit) : s->time != ST_REST || !s->acc; }
 #define MOTION_MAX 64u
 /* Four tracks x64 steps fit one byte. Values retain their signed parameter range. */
 typedef struct { uint8_t place, param; int16_t value; } motion_event_t;
@@ -262,6 +278,7 @@ typedef struct track {
     uint8_t engine, preset;      /* engine: what the audio ISR renders */
     uint8_t eng_req;             /* engine the UI asked for (the ISR switches at a block start) */
     uint8_t user;                /* user preset slot + 1 the sound came from (UI), 0 = none */
+    uint8_t user_native;         /* user refers to the engine's native pool */
     voice_t v[NVOICE];
     /* LFO */
     uint32_t lfo_ph;
@@ -274,15 +291,15 @@ typedef struct track {
     uint8_t arp_phys;            /* keys physically held for the arp */
     uint8_t latched;             /* HOLD: keep notes after release */
     /* arp runtime */
-    uint32_t arp_pos;            /* q8 samples into the current arp step */
+    uint32_t arp_pos;            /* samples (INT), or MIDI musical units, into the arp step */
     uint32_t arp_idx;
     uint8_t arp_note;            /* sounding arp note, 0 = none */
-    uint32_t arp_off;            /* q8 sample time of its note-off */
+    uint32_t arp_off;            /* remaining gate in the same clock units */
     /* sequencer */
     step_t step[NSTEP];
     volatile uint8_t pattern, pattern_next;             /* active bank, queued bank (0xff: none) */
     volatile uint32_t pattern_gen;                      /* invalidates editor history even for identical banks */
-    uint32_t seq_pos;            /* q8 samples into the current step */
+    uint32_t seq_pos;            /* samples (INT), or MIDI musical units, into the step */
     uint16_t seq_idx;
     uint8_t seq_notes[4 + NLANE];   /* sounding seq notes (the step's notes, then its hits) */
     uint8_t seq_n;
@@ -298,6 +315,7 @@ typedef struct track {
     uint8_t rh_ties;             /* TIE steps written after it */
     uint8_t rh_last;             /* the last of them; rh_bak: what it held (an early release puts it back) */
     step_t rh_bak;
+    uint32_t rh_elapsed;         /* actual held duration before onset quantization */
     /* mono */
     uint8_t mono_stack[NVOICE];  /* keys held, in press order (as many as Dexed keeps voices for) */
     uint8_t nmono;
@@ -339,6 +357,8 @@ typedef struct {
 static track_t trk[NTRK];        /* the instrument: four parts */
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
+
+#include "microtonal.h"
 
 /* SWING of a track's step clock: the track's own plus the global one, at most 100 (#31). The sequencer
  * (seq.c step_samples) and the SLICER (slicer.c sl_enter) both time steps with it. At 100 the even

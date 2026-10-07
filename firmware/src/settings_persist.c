@@ -5,7 +5,8 @@
  * usb_off (the USB audio devices left out, USB AUDIO in the menu), boot (BOOT: 0 OFF, 1..4 the project power-on
  * loads), glo (CLK TUNE MIDI ROUT as last used, GLO_KEPT: restored at power-on, a project's own win), drumch
  * (GLO > SYSTEM DRUM: 0 channel 10, 1..16, 17 OFF), lights (the menu's LIGHTS: 0 MID, else OFF..FULL + 1); every
- * field 0 = the default, so spare words can take new ones. A saved template (project.c tmpl_t) follows the record.
+ * field 0 = the default, so spare words can take new ones. spare[1] holds tagged A4 concert pitch (0 = 440 Hz).
+ * A saved template (project.c tmpl_t) follows the record.
  * palette: UI_PAL_TAG + index; an old id (below 20, earlier firmware) is migrated on import.
  * bold: no longer used (one font weight); kept as it was saved, unless it holds the HOLD setting (panel.c). */
 typedef struct {
@@ -23,6 +24,7 @@ typedef struct {
 _Static_assert(sizeof(((persist_t *)0)->ext) == 32u, "ext: 8 words, new fields take spare ones");
 
 static int16_t settings_glo[4];                     /* ext.glo: project.c GLO_KEPT (glo_restore, glo_poll) */
+#define A4_TAG 0x41340000u                          /* "A4": old spare contents are not tuning */
 
 /* Normalize in place; 1 = current, 2 = migrated, 0 = invalid. */
 static int settings_import(persist_t *p, int n)
@@ -50,6 +52,11 @@ static int settings_import(persist_t *p, int n)
         p->ext.drumch = 0;
     settings_drumch = (uint8_t)(!p->ext.drumch ? 10u : p->ext.drumch == 17u ? 0u : p->ext.drumch);
     settings_lights = (uint8_t)(p->ext.lights && p->ext.lights <= LIGHTS_N ? p->ext.lights - 1u : LIGHTS_MID);
+    {
+        uint32_t hz = p->ext.spare[1] & 0xFFFFu;
+        tuning_a4 = (int16_t)((p->ext.spare[1] & 0xFFFF0000u) == A4_TAG && hz >= A4_MIN && hz <= A4_MAX
+                             ? hz : A4_DEFAULT);
+    }
     memcpy(settings_glo, p->ext.glo, sizeof settings_glo);
 #if MELODEE_USB_AUDIO
     ua_off = ua_off_want = (uint8_t)p->ext.usb_off;    /* (usb_start, after this, builds the configuration) */
@@ -63,6 +70,7 @@ static int settings_import(persist_t *p, int n)
     settings_hold = (uint8_t)hold_from_stored(p->bold);
 #ifdef MELODEE_FAVORITES
     memcpy(&favorites, &p->favorites, sizeof favorites);
+    favorites_user_hi = p->ext.spare[0];
     favorites.filter = favorites.filter == 1u;
 #if defined(FM4_NPRESETS) && !MELODEE_FM4
     {   /* DIGITAL's starred presets (engine 1, retired) -> the FM6 presets that cover them (fm4_convert.c) */
@@ -90,6 +98,7 @@ static void settings_export(persist_t *p)
     p->bold = hold_to_stored(p->bold, settings_hold);
 #ifdef MELODEE_FAVORITES
     memcpy(&p->favorites, &favorites, sizeof favorites);
+    p->ext.spare[0] = favorites_user_hi;
 #endif
 #if MELODEE_USB_AUDIO
     p->ext.usb_off = ua_off;
@@ -97,5 +106,6 @@ static void settings_export(persist_t *p)
     p->ext.boot = settings_boot;
     p->ext.drumch = settings_drumch == 10u ? 0u : !settings_drumch ? 17u : settings_drumch;
     p->ext.lights = settings_lights == LIGHTS_MID ? 0u : settings_lights + 1u;
+    p->ext.spare[1] = tuning_a4 == A4_DEFAULT ? 0u : A4_TAG | (uint32_t)tuning_a4;
     memcpy(p->ext.glo, settings_glo, sizeof settings_glo);
 }

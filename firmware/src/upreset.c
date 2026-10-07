@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* User presets (editor protocol v2, cmds 16-21; the SAVE > USER page): 32
- * slots in two storage.c objects (OBJ_UPRESET0/1, A/B sectors at
- * 0xDC000..0xDFFFF), 16 records each, mirrored in RAM so browsing never
+/* User presets (editor protocol v2, cmds 16-21; the SAVE > USER page): 64
+ * slots in four storage objects (the first two at 0xDC000..0xDFFFF,
+ * two more at 0xE5000..0xE8FFF), 16 records each, mirrored in RAM so browsing never
  * reads flash. A record: engine, name, the instrument parameters, a 16-step
- * pattern (factory PATTERNS[] format). Loading one loads the sound only; its pattern
+ * pattern (factory PATTERNS[] format). FM6 voices live beside their records
+ * (up_fm6.c). Loading one loads the sound only; its pattern
  * is offered by SEQ > PATTERNS ("U07", up_pat_load). The format is unchanged.
  *
  * Versions: a bank whose magic, record size or slot count differ reads as
@@ -55,7 +56,20 @@ typedef struct {
 } up_bank_t;
 _Static_assert(sizeof(up_rec_t) == 238, "user preset record layout");
 _Static_assert(P_COUNT <= UP_PMAX * 2u && P_COUNT < 128, "user preset record: P_COUNT");
-static up_bank_t up_bank[UP_SLOTS / UP_PER_BANK];
+static up_bank_t up_bank[UP_SLOTS / UP_PER_BANK] __attribute__((section(".pool")));
+
+#if !defined(UP_HOST) && MELODEE_FLASH
+static uint32_t up_obj(uint32_t b) { return b < 2u ? OBJ_UPRESET0 + b : OBJ_UPRESET_EXT0 + b - 2u; }
+#endif
+
+#if !defined(UP_HOST) && MELODEE_FLASH
+/* Extension banks omit the redundant eight-byte UPB1 header on flash; the object
+ * type identifies their fixed record layout. Backups retain the ordinary header. */
+static int up_save_bank(uint32_t b) {
+    return st_save(up_obj(b), b < 2u ? (const void *)&up_bank[b] : (const void *)up_bank[b].r,
+                   b < 2u ? sizeof up_bank[b] : sizeof up_bank[b].r);
+}
+#endif
 
 static up_rec_t *up_rec(uint32_t k) { return &up_bank[k / UP_PER_BANK].r[k % UP_PER_BANK]; }
 
@@ -248,17 +262,30 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
 }
 
 #include "cz_bank.c"
-#include "fm6_bank.c"                          /* the FM6 patch bank: the same kind of store */
+#include "fm6_bank.c" /* historical bank formats, migration only */
+#include "up_fm6.c"
+static void native_boot(void);
 
 static void up_boot(void)                      /* persist_boot: the banks from flash */
 {
 #if MELODEE_FLASH
     uint32_t b;
-    for (b = 0; b < UP_SLOTS / UP_PER_BANK; b++)
-        up_bank_check(b, flash_ok ? st_load(OBJ_UPRESET0 + b, &up_bank[b], sizeof up_bank[b]) : -1);
+    for (b = 0; b < UP_SLOTS / UP_PER_BANK; b++) {
+        int len;
+        if (b < 2u) len = flash_ok ? st_load(up_obj(b), &up_bank[b], sizeof up_bank[b]) : -1;
+        else {
+            len = flash_ok ? st_load(up_obj(b), up_bank[b].r, sizeof up_bank[b].r) : -1;
+            if (len == sizeof up_bank[b].r) {
+                up_bank[b].magic = UP_BANK_MAGIC; up_bank[b].rsize = sizeof(up_rec_t); up_bank[b].nslot = UP_PER_BANK;
+                len = sizeof up_bank[b];
+            } else len = -1;
+        }
+        up_bank_check(b, len);
+    }
 #endif
-    fm6_bank_boot();
+    upf_boot();
     cz_bank_boot();
+    native_boot();
 #ifdef MELODEE_FAVORITES
     for (uint32_t k = 0; k < UP_SLOTS; k++)
         if (!up_used(k)) favorite_set(NENGINES, k, 0);
@@ -296,7 +323,7 @@ static int up_put(uint32_t k, const up_rec_t *r)
     else
         memset(up_rec(k), 0, sizeof(up_rec_t));
 #if MELODEE_FLASH
-    if (flash_ok && st_save(OBJ_UPRESET0 + k / UP_PER_BANK, bk, sizeof *bk)) {
+    if (flash_ok && up_save_bank(k / UP_PER_BANK)) {
         *up_rec(k) = old;
         bk->magic = magic;
         bk->rsize = rsize;
@@ -310,7 +337,7 @@ static int up_put(uint32_t k, const up_rec_t *r)
 #endif
         uint32_t i;
         for (i = 0; i < NTRK; i++)
-            if (trk[i].user == k + 1u)
+            if (!trk[i].user_native && trk[i].user == k + 1u)
                 trk[i].user = 0;
     }
     up_gen++;
@@ -357,6 +384,7 @@ static void up_set_name(up_rec_t *r, uint32_t k, const char *name)
 /* the selected part's sound -> slot k; name 0 or "": the automatic name (up_auto_name); up_put's result */
 static int up_store(uint32_t k, const char *name)
 {
+    if (k >= UP_SLOTS) return 1;
     up_rec_t r;
     uint32_t i;
     memset(&r, 0, sizeof r);
@@ -384,7 +412,19 @@ static int up_store(uint32_t k, const char *name)
             }
         }
     }
-    return up_put(k, &r);
+    if (r.engine == ENGI_FM6) {
+        /* A fresh nonce prevents an interrupted save of the same macros from
+         * pairing the new record with the previous voice. Renames keep it. */
+        uint32_t nonce = upf_bank(k)->e[k % UPF_SLOTS].tag + 1u;
+        do { memcpy(r.cz_extra, &nonce, sizeof nonce); nonce++; }
+        while (upf_tag(&r) == upf_bank(k)->e[k % UPF_SLOTS].tag);
+    }
+    int rc = up_put(k, &r);
+    if ((rc == 0 || rc == 3) && r.engine == ENGI_FM6) {
+        int u = upf_store(k, (uint32_t)(TSEL - trk));
+        if (u == 2) rc = 2;
+    }
+    return rc;
 }
 
 /* slot k renamed (name 0 or "": the automatic one), the sound and its pattern as they are; up_put's result, 1 for
@@ -432,9 +472,10 @@ static int up_load(uint32_t k)
         if (up_native_cz(r)||up_legacy_cz(r))up_cz_raw(r,cz_patch[song.sel % NTRK].raw);
         cz_track_accept(t);
         fm1_irq_on();
-        fm6_track_loaded(t);                            /* FM6: a user preset holds the PTCH and the macros */
+        upf_track_load(t, k); /* FM6: load the preset's actual voice */
     }
     t->user = (uint8_t)(k + 1u);
+    t->user_native=0;
     load_end(t);
     sync_reload = 1;
     ui.force = 1;
@@ -548,4 +589,5 @@ static void up_ui_named(uint32_t op, uint32_t k, const char *name)   /* 0 load, 
     ui.force = 1;
 }
 static void up_ui(uint32_t op, uint32_t k) { up_ui_named(op, k, 0); }
+#include "native_presets.c"
 #endif

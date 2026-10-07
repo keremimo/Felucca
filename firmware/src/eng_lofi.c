@@ -143,7 +143,8 @@ static void lofi_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         v->s[3] += p[P_E4] / 8;
     v->s[5]++;
     pitch = m->pitch16 - v->s[3] + ARPS[ar & 3][(v->s[5] / 28) % 3] * 16;   /* ~50 Hz, chip-style */
-    inc = pitch_inc(clamp(pitch, 0, 2047));
+    inc = tuned_pitch_inc(clamp(pitch, 0, 2047));
+    if (v->scale_fine) inc += (uint32_t)((int32_t)(inc >> 12) * v->scale_fine);
     if (p[P_E5])
         inc += (uint32_t)(((int32_t)(inc >> 12) * (((osc_sine(v->ph[1]) >> 8) * p[P_E5]) >> 4)) >> 4);   /* no overflow */
     v->ph[1] += 0x01000000u;

@@ -128,7 +128,8 @@ static void fmp_check(uint32_t alg)
                         fmp_find(alg, "FM6 part through a box", i, x, y, j);
                     else if (x >= bx0[j] - 1 && x <= bx1[j] + 1 && y >= by0[j] - 1 && y <= by1[j] + 1 &&
                              !((fmp_kind[i] == FMH_ROUTE && (fmp_a[i] == fmp_a[j] || fmp_b[i] == fmp_a[j])) ||
-                               ((fmp_kind[i] == FMH_CAR || fmp_kind[i] == FMH_FB) && fmp_a[i] == fmp_a[j])))
+                               (fmp_kind[i] == FMH_CAR && fmp_a[i] == fmp_a[j]) ||
+                               (fmp_kind[i] == FMH_FB && (fmp_a[i] == fmp_a[j] || fmp_b[i] == fmp_a[j]))))
                         fmp_find(alg, "FM6 part touches a box", i, x, y, j);
                 }
                 for (dy = -1; dy <= 1; dy++)              /* another net on this pixel or next to it */
@@ -414,7 +415,8 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_SLICES_BREAK, S_SLICES_USR,
 #endif
        S_ROLL_EMPTY, S_ROLL_ACID, S_ROLL_CHORDS, S_ROLL_TIES, S_ROLL_LEN32, S_ROLL_HIGH, S_ROLL_LOW, S_ROLL_WIDE, S_ROLL_PLAYING,
-       S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_COUNT };
+       S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_NATIVE_FM_USER, S_NATIVE_CZ_USER,
+       S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "user",
     "phrases", "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -431,7 +433,8 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "slices_break", "slices_usr",
 #endif
     "roll_empty", "roll_acid", "roll_chords", "roll_ties", "roll_len32_p2", "roll_high", "roll_low", "roll_wide", "roll_playing",
-    "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu"};
+    "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
+    "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -578,7 +581,7 @@ static void roll_scene(int s)
 static void setup(int s)
 {
     memset(kb_chn, 0, sizeof kb_chn);               /* no key held (roll_playing holds one) */
-    if (s >= S_MOCK_HOME) {
+    if (s >= S_MOCK_HOME && s <= S_MOCK_MENU) {
         mock_state(s);
         return;
     }
@@ -623,6 +626,34 @@ static void setup(int s)
         chain_config.row[0] = (chain_row_t){0, 2}; chain_config.row[1] = (chain_row_t){1, 4}; chain_config.row[2] = (chain_row_t){2, 1};
         memset(chain_patterns[1], 1, NTRK); memset(chain_patterns[2], 2, NTRK); ui.song_row = 1; go_page(GR_SONG); chain_prepare(); events_block(32);
         break;
+    case S_NOTES_EMPTY:
+    case S_NOTES_RAW:
+    case S_NOTES_ZOOM:
+    case S_NOTES_LOOP:
+    case S_NOTES_DRUM:
+    case S_NOTES_DENSE: {
+        song.sel=0; song.rec=0; song.playing=0;
+        track_t *t=TSEL;
+        if(s==S_NOTES_DRUM){set_engine_of(t,ENGI_DRUM);t->engine=t->eng_req;}
+        recording_reset();track_defaults_steps(t);t->p[P_SLEN]=16;t->p[P_SDIV]=2;t->p[P_SSWING]=24;
+        for(uint32_t i=0;i<NSTEP;i++)step_clear(&t->step[i]);
+        uint32_t count=s==S_NOTES_EMPTY?0:s==S_NOTES_DENSE?RECORD_MAX:5;
+        for(uint32_t i=0;i<count;i++) {
+            static const uint16_t on[]={8192,24576,49152,16384,60000};
+            static const uint8_t step[]={0,0,64,1,15|64|128}, note[]={60,64,60,67,72};
+            uint32_t start=count==RECORD_MAX?(i+1u)*60u:on[i];
+            uint8_t pos=count==RECORD_MAX?(start>=32768u?64u:0u):step[i];
+            recording[i]=(recorded_note_t){(uint16_t)start,(uint16_t)(count==RECORD_MAX?96:32768),
+                (uint8_t)(s==S_NOTES_DRUM?(i%2u?38:36):count==RECORD_MAX?60:note[i]),(uint8_t)(90+i%38u),(uint8_t)recording_owner(t),pos};
+            uint32_t view=recording_view(t,&recording[i]);t->step[view].time=ST_NOTE;t->step[view].flags=SF_RECORDED;
+        }
+        recording_reindex();
+        for(uint32_t i=0;i<NSTEP;i++)if(t->step[i].flags&SF_RECORDED)notes_rebuild(t,i);
+        go_page(GR_NOTES);cursor_set(s==S_NOTES_LOOP?15:0);
+        ui.note_zoom=s==S_NOTES_RAW||s==S_NOTES_EMPTY?0:s==S_NOTES_LOOP?2:4;
+        notes_selected(t);if(s==S_NOTES_DENSE)ui.note_pick=RECORD_MAX;else if(s==S_NOTES_ZOOM)notes_cycle(2);
+        break;
+    }
     case S_STEP: song.rec = 1; go_page(GR_ROLL); ui.cursor = 6; break;
     case S_PATTERN: go_title("PATTERN"); ui.cursor = 3; break;
     case S_CHANCE: go_page(GR_CHANCE); step_set_chance(&TSEL->step[0], 65); break;
@@ -650,6 +681,29 @@ static void setup(int s)
     case S_SLICER: TSEL->p[P_SLCR] = 1; go_title("SLICER"); break;
     case S_DLY: go_title("DLY"); break;
     case S_SCL: TSEL->p[P_SCALE] = 2; go_title("SCL"); break;
+    case S_SCALE_PICKER_EDO:
+    case S_SCALE_PICKER_HIST:
+    case S_SCALE_PICKER_FAV:
+    case S_SCALE_PICKER_EMPTY:
+        go_page(GR_SCALE_PICKER); TSEL->p[P_QUANT] = Q_ALL; TSEL->p[P_ROOT] = 6;
+        TSEL->p[P_SCALE] = s == S_SCALE_PICKER_HIST ? 50 : 39;
+        ui.scale_family = s == S_SCALE_PICKER_HIST ? 5 : 2;
+        if (s == S_SCALE_PICKER_FAV || s == S_SCALE_PICKER_EMPTY) {
+            ui.scale_family = SCALE_FAMILIES + 1u;
+            if (s == S_SCALE_PICKER_FAV) { scale_favorite_set(39, 1); scale_favorite_set(50, 1); scale_favorite_set(63, 1); }
+        }
+        break;
+    case S_SCALE_SETTINGS_FAV:
+        go_title("SCL"); TSEL->p[P_SCALE] = 50; TSEL->p[P_ROOT] = 6; TSEL->p[P_QUANT] = Q_ALL;
+        scale_favorite_set(50, 1); break;
+    case S_SCL_MICRO:
+        for (uint32_t i = 0; i < SCALE_TOTAL; i++) if (!strcmp(N_SCALE[i], "53EDO")) TSEL->p[P_SCALE] = (int16_t)i;
+        TSEL->p[P_QUANT] = Q_ALL; go_title("SCL"); break;
+    case S_SCL_MICRO_LAYER:
+        go_home(); ui.layer = LAYER_SCL; TSEL->p[P_SCALE] = SCALE_TOTAL - 1; break;
+    case S_SCL_MICRO_CHORD:
+        for (uint32_t i = 0; i < SCALE_TOTAL; i++) if (!strcmp(N_SCALE[i], "24EDO")) TSEL->p[P_SCALE] = (int16_t)i;
+        TSEL->p[P_QUANT] = Q_ALL; TSEL->p[P_CHRD] = CH_DIA7; TSEL->p[P_VOICE] = V_POLY; go_title("CHORD"); break;
     case S_CHORD:                                    /* A minor DIA7, the last chord on B: Bm7b5 */
     case S_CHORD_WIDE: {                             /* A harmonic minor DIA7 +OCT on G#: G#dim7 over three octaves */
         uint8_t out[CHORD_MAX];
@@ -692,8 +746,8 @@ static void setup(int s)
     case S_FM6_PEG: eng(ENGI_FM6); fm6_factory(3, fm6_buf); fm6_unpack(fm6_buf, fm6_patch[song.sel]); fm6_pgen[song.sel]++;
         go_title("PITCH EG"); break;
     case S_FM6_STORE:
-        eng(ENGI_FM6); song.playing = 0; fm6_factory(5, fm6_buf); (void)fm6_bank_put(2, fm6_buf);
-        go_title("STORE"); fm6_bslot = 2;
+        eng(ENGI_FM6); song.playing = 0; fm6_factory(5, fm6_buf); (void)native_store(ENGI_FM6, 63, song.sel, "WOOD BARS");
+        go_title("STORE"); fm6_bslot = 63;
         break;
     case S_CZ1_ENV: eng(ENGI_CZ); go_title("C1 WAV R1-4"); break;   /* INIT TONE: R1 R2 live, R3 R4 dim (END 2) */
     case S_CONFIRM_SEQ: ui.confirm = CF_CLEAR_SEQ; ui.confirm_trk = 2; break;
@@ -806,6 +860,8 @@ static void setup(int s)
         ui.hot_col = 1; ui.hot_t = 30;
         break;
 #endif
+    case S_NATIVE_FM_USER: eng(ENGI_FM6); song.playing=0; native_store(ENGI_FM6,63,song.sel,"LAST VOICE"); ui.uslot=63; go_page(GR_USER); break;
+    case S_NATIVE_CZ_USER: eng(ENGI_CZ); song.playing=0; native_store(ENGI_CZ,127,song.sel,"LAST CZ TONE"); ui.uslot=127; go_page(GR_USER); break;
     default: break;
     }
 }
@@ -1055,17 +1111,24 @@ int main(int argc, char **argv)
                 if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], S_NAME[s]);
         }
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */
-        uint32_t a, c0 = fmp_charts;
+        uint32_t a, e, c0 = fmp_charts;
+        for (e = FM6_MODERN; e <= FM6_OPL; e++)
         for (a = 1; a <= 32u; a++) {
             char name[32];
-            snprintf(name, sizeof name, "FM6 ALG %u", a);
+            snprintf(name, sizeof name, "FM6 engine %u ALG %u", e, a);
             cur_name = name;
             state(); pal(UI_MONO_INDEX); eng(ENGI_FM6); TSEL->p[P_E0] = (int16_t)a; go_title("EDIT 1");
+            fm6_fn_set(song.sel, FN_ENGINE, (int32_t)e);
             draw(-1);
             lint();
             mono_check();
+            if (a >= 3u && a <= 6u) {
+                char image[32];
+                snprintf(image, sizeof image, "fm6_engine_%u_alg_%02u", e, a);
+                write_ppm(out, "MONO", image);
+            }
         }
-        if (fmp_charts - c0 != 32u) { fprintf(stderr, "ui_render: %u FM6 charts drawn of 32\n", fmp_charts - c0); return 1; }
+        if (fmp_charts - c0 != 96u) { fprintf(stderr, "ui_render: %u FM6 charts drawn of 96\n", fmp_charts - c0); return 1; }
     }
     sweep_columns();
     roll_frames(argc > 2 ? argv[2] : 0);
