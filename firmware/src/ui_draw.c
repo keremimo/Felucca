@@ -425,6 +425,7 @@ static void draw_foot(void)
     }
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
+    if (pg->graph == GR_NOTES) sig += recording_generation * 7919u + ui.note_pick * 40503u;
     if (!ui.force && sig == ui.foot_sig)
         return;
     ui.foot_sig = sig;
@@ -443,6 +444,18 @@ static void draw_foot(void)
         } else {
             cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
         }
+    } else if (pg->graph == GR_NOTES && !ui.home) {
+        uint32_t chosen = notes_selected(t), count;
+        notes_rank(t, chosen, &count);
+        char detail[24];
+        fmt_int(detail, (int32_t)count); str_cpy(detail + str_len(detail), " HITS", 6);
+        if (chosen < RECORD_MAX) {
+            str_cpy(detail + str_len(detail), " +", 3);
+            fmt_int(detail + str_len(detail), (int32_t)((uint32_t)recording[chosen].on * 100u / RECORD_UNIT));
+            str_cpy(detail + str_len(detail), "%", 2);
+        }
+        cv_key_hint(8, 2, KC_EDIT, "DELETE HIT", 1, T_BG);
+        cv_text_r(232, 2, &AF_S, detail, T_MID, T_BG);
     } else if (grid_on()) {                           /* row 1: the page, and what the keys do */
         char b[16];
         uint32_t len = (uint32_t)t->p[P_SLEN];
@@ -626,6 +639,22 @@ static void draw_columns(void)
         draw_column(2, "DST", mod_dst_name(t, d), "", d ? VAL(2u) : T_DIM, -1, mod_dst_icon(t, d));
         param_format(&TP[id + 2u], a, val, &unit);
         draw_column(3, "AMT", val, unit, a ? VAL(3u) : T_DIM, RATIO(&TP[id + 2u], a), mod_src_icon(MS_OFF));
+        return;
+    }
+    if (cur_page()->graph == GR_NOTES) {
+        uint32_t chosen = notes_selected(TSEL), count, rank = notes_rank(TSEL, chosen, &count);
+        char sn[12], unit[12];
+        fmt_int(sn, (int32_t)ui.cursor + 1);
+        unit[0] = '/'; fmt_int(unit + 1, TSEL->p[P_SLEN]);
+        draw_column(0, "STEP", sn, unit, VAL(0u), -1, ICON_AUTO);
+        if (rank) fmt_int(sn, (int32_t)rank); else str_cpy(sn, "--", sizeof sn);
+        draw_column(1, "HIT", sn, "", rank ? VAL(1u) : T_DIM, -1, ICON_AUTO);
+        if (chosen < RECORD_MAX) {
+            note_name(sn, recording[chosen].note);
+        } else { str_cpy(sn, "--", sizeof sn); }
+        draw_column(2, "NOTE", sn, "", rank ? T_TEXT : T_DIM, -1, ICON_AUTO);
+        fmt_int(sn, (int32_t)(1u << ui.note_zoom)); str_cpy(sn + str_len(sn), "x", 2);
+        draw_column(3, "ZOOM", sn, "", VAL(3u), -1, ICON_AUTO);
         return;
     }
     if (cur_page()->scope == SC_STEP && drum_track(TSEL)) {   /* the grid: STEP LANE HIT ACC */

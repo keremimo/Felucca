@@ -2536,10 +2536,10 @@ static int test_tempo_select(void)
     go_title("STEP");
     cursor_set(4);
     turn(EN_SELECT, 1);
-    ok = str_eq(cur_page()->title, "PATTERN") && ui.cursor == 4u;
+    ok = str_eq(cur_page()->title, "NOTES") && ui.cursor == 4u;
     turn(EN_SELECT, -1);
     turn(EN_K1, 3);
-    bad += check("SELECT on STEP: the pages (PATTERN and back), the cursor KNOB 1's (5 -> 8)",
+    bad += check("SELECT on STEP: the pages (NOTES and back), the cursor KNOB 1's (5 -> 8)",
                  ok && ui.cursor == 7u && str_eq(cur_page()->title, "STEP"));
     go_title("TEMPO");
     turn(EN_K1, 4);

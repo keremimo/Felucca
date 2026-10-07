@@ -277,6 +277,96 @@ static void graph_roll(const track_t *t, uint16_t c)
         }
     }
 }
+/* NOTES draws original sample times on a timeline. Swing changes the grid
+ * spacing; playback QNT never changes the displayed or selected take. */
+static void notes_window(const track_t *t, uint32_t period, uint32_t *a, uint32_t *b)
+{
+    uint32_t base = notes_base(), end = base + notes_span();
+    if (end > (uint32_t)t->p[P_SLEN]) end = (uint32_t)t->p[P_SLEN];
+    *a = recording_prefix(t, period, base);
+    *b = recording_prefix(t, period, end);
+}
+static int32_t notes_x(uint32_t at, uint32_t a, uint32_t b)
+{
+    /* Callers clip to the visible interval before converting to pixels. */
+    return PR_X0 + (int32_t)((uint64_t)(at - a) * (16 * PR_CW) / (b - a));
+}
+static void notes_follow(const track_t *t)
+{
+    uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), a, b, chosen = notes_selected(t);
+    notes_window(t, period, &a, &b);
+    int32_t lo = 127, hi = -1;
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
+        if (!recording_active(t, i)) continue;
+        uint32_t at = recording_raw_on(t, &recording[i], period);
+        if (at < a || at >= b) continue;
+        int32_t note = recording[i].note;
+        if (note < lo) lo = note;
+        if (note > hi) hi = note;
+    }
+    int32_t center = hi < 0 ? last_note : (lo + hi + 1) / 2;
+    if (hi - lo >= PR_ROWS && chosen < RECORD_MAX) center = recording[chosen].note;
+    proll.lo = (uint8_t)clamp(center - PR_ROWS / 2, 0, 128 - PR_ROWS);
+}
+static void notes_bar(const track_t *t, uint32_t i, uint32_t period, uint32_t a, uint32_t b, uint16_t c, int selected)
+{
+    recorded_note_t snapshot = recording_snapshot(i);
+    const recorded_note_t *r = &snapshot;
+    uint32_t loop = recording_loop(t, period), at = recording_raw_on(t, r, period);
+    uint64_t gate = (uint64_t)r->duration * (1u << (r->owner >> 5)) * period / RECORD_UNIT;
+    if (!gate) gate = 1;
+    if (gate > loop) gate = loop;
+    int32_t y = pr_row_y(r->note), bottom = PR_Y0 + PR_ROWS * PR_RH;
+    for (int32_t wrap = -1; wrap <= 0; wrap++) {
+        int64_t start = (int64_t)at + (int64_t)wrap * loop, end = start + gate;
+        if (end <= a || start >= b) continue;
+        int32_t x = notes_x(start < a ? a : start, a, b), xe = notes_x(end > b ? b : end, a, b);
+        if (xe < x + 2) xe = x + 2;
+        if (xe > PR_X0 + 16 * PR_CW) xe = PR_X0 + 16 * PR_CW;
+        if (y < PR_Y0 || y >= bottom) {
+            cv_rect(x, y < PR_Y0 ? PR_Y0 : bottom - 1, xe - x, 1, c);
+        } else {
+            cv_rect(x, y + 1, xe - x, PR_RH - 2, c);
+            if (selected) cv_frame(x, y, xe - x, PR_RH, T_TEXT);
+            /* An onset tick keeps two close hits visible when tails overlap. */
+            if (start >= a) cv_rect(x, y, 1, PR_RH, selected ? T_TEXT : T_MID);
+        }
+    }
+}
+static void graph_recorded_notes(const track_t *t, uint16_t c)
+{
+    uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), a, b, chosen = notes_selected(t);
+    notes_window(t, period, &a, &b);
+    notes_follow(t);
+    int32_t bottom = PR_Y0 + PR_ROWS * PR_RH;
+    for (int32_t row = 0; row < PR_ROWS; row++) {
+        int32_t note = (int32_t)proll.lo + PR_ROWS - 1 - row, y = PR_Y0 + row * PR_RH;
+        if (!KEY_BLACK[note % 12]) cv_rect(PR_X0, y, 16 * PR_CW + 1, PR_RH, T_LANE);
+        cv_rect(PR_KX, y, KEY_BLACK[note % 12] ? 5 : 9, PR_RH - 1, KEY_BLACK[note % 12] ? T_DIM : T_RAISE);
+        if (note % 12 == 0) {
+            char name[8]; note_name(name, (uint32_t)note);
+            cv_text_r(23, y - 5, &AF_S, name, T_DIM, T_SURF);
+        }
+    }
+    uint32_t base = notes_base(), end = base + notes_span();
+    if (end > (uint32_t)t->p[P_SLEN]) end = (uint32_t)t->p[P_SLEN];
+    for (uint32_t step = base; step <= end; step++) {
+        int32_t x = notes_x(recording_prefix(t, period, step), a, b);
+        cv_rect(x, PR_Y0, 1, bottom - PR_Y0, step % 4u ? T_GRID : T_RAISE);
+        if (step == ui.cursor) {
+            int32_t xe = notes_x(recording_prefix(t, period, step + 1u), a, b);
+            cv_frame(x, PR_Y0 - 2, xe - x + 1, bottom - PR_Y0 + 4, T_MID);
+        }
+    }
+    if (song.playing) {
+        uint32_t phase = recording_prefix(t, period, t->seq_idx) + t->seq_pos;
+        if (phase >= a && phase < b) cv_rect(notes_x(phase, a, b), PR_Y0, 1, bottom - PR_Y0, T_ACCENT);
+    }
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+        if (i != chosen && recording_active(t, i)) notes_bar(t, i, period, a, b, c, 0);
+    if (chosen < RECORD_MAX) notes_bar(t, chosen, period, a, b, T_ACCENT, 1);
+}
+
 /* SEQ > STEP on a DRUM track: the grid, 8 lanes x the 16 steps of the page shown. Lanes by their two-letter
  * names (BD SD CP CH OH TM RS CB; CG CL CY on the other kits). A hit is a rounded square (accented: the
  * accent), an empty step a dot (brighter on the beats and on the selected lane); the selected lane is
@@ -758,6 +848,17 @@ static uint32_t graph_signature(void)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
          ui.ppick * 1299709u;
+    if (pg->graph == GR_NOTES) {
+        uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), a, b, chosen = notes_selected(t);
+        notes_window(t, period, &a, &b);
+        notes_follow(t);
+        h ^= recording_generation * 7919u + chosen * 40503u + ui.note_zoom * 104729u + ui.cursor * 613u;
+        if (song.playing && (song.rec & (1u << trk_index(t)))) h ^= ui.frame / 2u;
+        h = (h ^ steps_hash(t)) * 16777619u;
+        h ^= (uint32_t)song.g[G_SWING] * 65537u;
+        uint32_t phase = recording_prefix(t, period, t->seq_idx) + t->seq_pos;
+        h ^= (song.playing && phase >= a && phase < b ? (uint32_t)notes_x(phase, a, b) : 0xFFFFu) * 31u;
+    }
     if (pg->graph == GR_CHORD) {                     /* the last chord played */
         h = (h ^ (chord_last[song.sel].root + 131u * chord_last[song.sel].mask)) * 16777619u;
         for (i = 0; i < CHORD_MAX; i++)
@@ -1332,6 +1433,10 @@ static void draw_graph(void)
                 graph_grid(t, c);
             else
                 graph_roll(t, c);
+            break;
+        case GR_NOTES:
+            cv_oy = 0;
+            graph_recorded_notes(t, c);
             break;
         case GR_SCALE:
             graph_scale(t, c);

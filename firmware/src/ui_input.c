@@ -354,6 +354,13 @@ static void grid_keys(uint32_t pressed)
 
 static void step_edit(uint32_t slot, int32_t steps)
 {
+    if (cur_page()->graph == GR_NOTES) {
+        if (slot == 0u) cursor_set(ui.cursor + steps);
+        else if (slot == 1u) notes_cycle(steps);
+        else if (slot == 3u) ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + steps, 0, 4);
+        ui.force = 1;
+        return;
+    }
     step_t *st = &TSEL->step[ui.cursor];
     uint32_t i;
     if (drum_track(TSEL)) {
@@ -701,14 +708,23 @@ static int step_page(void) { return !ui.home && cur_page()->scope == SC_STEP; } 
  * deletes), armed and playing too. EDIT's quick layer: off the synth STEP */
 static int step_modifier_context(void)
 {
-    return step_page() && !drum_track(TSEL) && !ui.menu && !ui.confirm && !ui.ly && !name_on();
+    return step_page() && (!drum_track(TSEL) || cur_page()->graph == GR_NOTES) &&
+           !ui.menu && !ui.confirm && !ui.ly && !name_on();
 }
 /* .. and OCT taps move the cursor, but not while recording live: the keys played need the octave buttons then */
 static int step_oct_context(void) { return step_modifier_context() && !live_rec_sel(); }
 static uint32_t step_modifier_mask(void)                /* (EDIT: STEP only, not CHANCE) */
 {
+    if (cur_page()->graph == GR_NOTES) return 1u << panel.btn[B_EDIT];
     return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) |
            (cur_page()->graph == GR_ROLL ? 1u << panel.btn[B_EDIT] : 0u);
+}
+
+/* An EDIT chord is not a delete tap. Remember it across page/track changes
+ * and through release-frame encoder detents, just like undo/redo chords. */
+static void step_edit_combo(void)
+{
+    ui.step_used |= (uint16_t)(ui.step_mods & (1u << panel.btn[B_EDIT]));
 }
 
 static void step_length_edit(int32_t delta)
@@ -747,8 +763,43 @@ static void step_move_edit(int32_t delta)
     ui.force = 1;
 }
 
+static void notes_delete_edit(void)
+{
+    if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+    if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
+    step_history_end();
+    step_history_finish();
+    fm1_irq_off();
+    step_history_sync_locked(); /* a recorder ISR could have run since the frame's first sync */
+    uint32_t i = notes_selected(TSEL);
+    if (i >= RECORD_MAX) {
+        fm1_irq_on();
+        ui_message("NO RECORDED NOTE");
+        return;
+    }
+    /* One event delta per history entry keeps undo bounded without copying
+     * all 1,024 events for each of the eight edits. */
+    step_history.state[step_history_index()].selection = ui.note_pick;
+    step_history.state[step_history_index()].cursor = ui.cursor;
+    step_history.removed = recording_snapshot(i);
+    step_history.removed_index = (uint16_t)i;
+    step_history.has_removed = 1;
+    uint32_t view = recording_view(TSEL, &recording[i]);
+    notes_cycle(1);
+    recording_remove(TSEL, i);
+    notes_rebuild(TSEL, view);
+    step_history.recording_gen = recording_generation; /* accept only this protected UI mutation */
+    ui.note_generation = recording_generation;
+    if (ui.note_pick == i + 1u) ui.note_pick = 0;
+    notes_selected(TSEL);
+    fm1_irq_on();
+    ui_message("NOTE DELETED");
+    ui.force = 1;
+}
+
 static void step_delete_edit(void)
 {
+    if (cur_page()->graph == GR_NOTES) { notes_delete_edit(); return; }
     uint32_t at;
     step_history_end();                              /* deletion is separate from a held entry */
     step_history_finish();
@@ -989,6 +1040,8 @@ static void ui_input(void)
     int32_t s, ks[4] = {0, 0, 0, 0};
     if (step_modifier_context()) {
         ui.step_mods |= (uint16_t)(pressed & step_modifier_mask());
+        uint32_t ed = 1u << panel.btn[B_EDIT];
+        if ((ui.step_mods & ed) && ((pressed & ~ed) || notes || step_midi_r != step_midi_w)) step_edit_combo();
     } else {
         ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
     }
@@ -1158,7 +1211,7 @@ static void ui_input(void)
     if (home == BT_TAP)                                 /* HOME acts on release: a hold opens the menu */
         go_home();
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
-    if (step_page() && live_rec_sel() && !ui.step_mods) {   /* armed and playing: the cursor on the step recording
+    if (step_page() && cur_page()->graph != GR_NOTES && live_rec_sel() && !ui.step_mods) { /* armed: follow recording
                                                          * (not while ENV / SCL / FX are held: a note edit) */
         uint32_t idx = TSEL->seq_pos == 0x7FFFFFFFu ? 0u : TSEL->seq_idx;
         if (ui.cursor != idx)
@@ -1266,7 +1319,9 @@ static void ui_input(void)
         seq_midi_events(0);                             /* (MIDI enters steps on SEQ > STEP only) */
     }
 
-    if ((s = panel_enc(EN_PRESET)) != 0 && (ui.home || cur_page()->graph == GR_BROWSE)) {
+    s = panel_enc(EN_PRESET);
+    if (s) step_edit_combo();
+    if (s && (ui.home || cur_page()->graph == GR_BROWSE)) {
         /* PRESETS browses the selected part's sounds (all engines, then user presets) on HOME and the
          * PRESETS page only (never the steps); elsewhere (TRACKS too, where one records) a stray turn
          * would throw away the sound being edited */
@@ -1275,10 +1330,12 @@ static void ui_input(void)
         fm6_opsel = (uint8_t)clamp((int32_t)fm6_opsel + (s > 0 ? 1 : -1), 0, 5);
         ui.force = 1;
     }
-    if ((s = panel_enc(EN_ALGO)) != 0)             /* ALGORITHM: the selected track, on every page */
+    if ((s = panel_enc(EN_ALGO)) != 0) {           /* ALGORITHM: the selected track, on every page */
+        step_edit_combo();
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
+    }
     if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT: pages; with SEQ / a step key / ENV / SCL: below */
-        uint32_t env = 1u << panel.btn[B_ENV], scl = 1u << panel.btn[B_SCL];
+        step_edit_combo();
         if (pattern_keys_on()) {
             ui.seq_t0 |= 2u;
             uint32_t from = TSEL->pattern_next < NPAT ? TSEL->pattern_next : TSEL->pattern;
@@ -1295,6 +1352,7 @@ static void ui_input(void)
         int16_t *hv;
         if ((s = panel_enc(EN_K1 + k)) == 0)
             continue;
+        step_edit_combo();
         if (k == 0u && pg->graph == GR_ROLL && step_gesture(s))   /* KNOB 1 too, as SELECT (ENV / SCL / a key held) */
             continue;
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||

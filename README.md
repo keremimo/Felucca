@@ -183,6 +183,23 @@ and live monitoring always keep the original timing, even when playback quantiza
 This is independent of the scale/key-map QNT on SCL. Track GATE continues to control manually
 entered steps; it does not replace captured note lengths.
 
+**SEQ > NOTES**, beside STEP, edits individual recorded hits on synth and drum tracks:
+
+- **KNOB 1 STEP** selects the interval where the note actually started. A note between steps 4 and 5
+  belongs to step 4 here, even if the STEP overview rounds it to step 5.
+- **KNOB 2 HIT** selects each hit in time order, including repeated pitches and separate chord notes.
+  The **NOTE** card shows its pitch and is read-only. The footer shows the hit count and the selected
+  hit's start offset as a percentage into that step.
+- **KNOB 4 ZOOM** changes the visible span from 16 steps down to one. The highlighted note and its
+  length stay at their original positions, including notes crossing the loop boundary.
+- Tap **EDIT** to delete only that hit. The cursor stays put so the next hit is ready to select.
+  Using another control while EDIT is held consumes the tap; letting go then does not delete a hit.
+  **SAVE** held undoes; **EDIT/SAVE + OCT− / OCT+** undo/redo up to eight edits, restoring exact timing,
+  velocity and length. Deletion works during playback; stop live recording before deleting hits.
+
+NOTES always shows the original take, including when playback QNT is on. It leaves neighbouring
+hits intact; deletion is included in project saves, backups and bank copies.
+
 The STEP page is an overview grouped onto nearby steps; its cursor follows playback. Editing a
 recorded overview step by entering/transposing notes, changing TIME/FLAG, moving or resizing it
 replaces that group's timing with ordinary step sequencing. Delete silences its recorded notes;
