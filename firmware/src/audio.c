@@ -115,11 +115,18 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
             shed_voice();
         }
         for (b = 0; b < HALF_FRAMES; b += CTL) {
+            /* A fixed one-half lookback makes input available before its
+             * block renders; four CTL blocks follow audio time, not CPU time.
+             * MIDI-to-output latency is two halves (~5.8 ms), independent of
+             * synth load. Queued later events wait for their own block. */
+            midi_render_time = t0 - (HALF_FRAMES - b) * DAC_TICKS;
+            midi_render_timed = 1;
 #ifdef FM1_INPUT_LAT
             kb_out_tick = t0 + (HALF_FRAMES + b) * DAC_TICKS;   /* when this block plays (seq.c kb_lat) */
 #endif
             audio_block(o + 2u * b, CTL);
         }
+        midi_render_timed = 0;
         fm1_audio_ack_half();
         audio_halves++;
         us = shed_check(fm1_ticks() - t0);

@@ -777,7 +777,7 @@ static uint32_t graph_signature(void)
         h ^= (mod_ui_slot + 1u) * 40503u;
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* FM6's pages: the patch, switches, functions, bank */
         h ^= fm6_pgen[song.sel % NTRK] * 2654435761u + fm6_on[song.sel % NTRK] * 40503u + fm6_opsel * 131u +
-             fm6_bslot * 7919u + fm6_bank_gen * 104729u;
+             fm6_bslot * 7919u + up_gen * 104729u;
         for (i = 0; i < FM6_NFN; i++)
             h = (h ^ fm6_fn[song.sel % NTRK][i]) * 16777619u;
     }
@@ -879,7 +879,11 @@ static void graph_browse(void)
         int32_t hint = sel ? preset_pat_hint() : -1;    /* the suggested pattern */
         if (index >= total) continue;
         e = preset_at(index, &k);
-        if (e == NENGINES) {                             /* user preset: "U07" and its name */
+        if(e==USER_NATIVE_FM || e==USER_NATIVE_CZ){
+            uint32_t eng=e==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ;
+            tag[0]=eng==ENGI_FM6?'F':'Z';tag[1]=(char)('0'+(k+1u)/100u);tag[2]=(char)('0'+(k+1u)/10u%10u);tag[3]=(char)('0'+(k+1u)%10u);tag[4]=0;
+            native_name(eng,k,nm);
+        } else if (e == NENGINES) {                             /* user preset: "U07" and its name */
             up_slot_label(tag, k);
             up_name(k, nm);
         } else {
@@ -905,9 +909,10 @@ static void engine_sound_row(int32_t y)
     uint32_t total, cur = eng_list_pos(&total), u = user_of(TSEL);
     char tag[6], nm[13];
     int fav = preset_favorite();
-    if (u < UP_SLOTS) {
-        up_slot_label(tag, u);
-        up_name(u, nm);
+    if(u<USER_NONE && !TSEL->user_native){up_slot_label(tag,u);up_name(u,nm);}
+    else if (u < USER_NONE) {
+        user_label(tag, u);
+        user_name(u, nm);
     } else {
         tag[0] = (char)('0' + (cur + 1u) / 10u % 10u);
         tag[1] = (char)('0' + (cur + 1u) % 10u);
@@ -922,36 +927,27 @@ static void engine_sound_row(int32_t y)
 /* user preset slots around the selected one: "U07  NAME" / EMPTY */
 static void graph_user(void)
 {
-    int32_t row, first = clamp((int32_t)ui.uslot - 3, 0, UP_SLOTS - 7);
+    ui.uslot %= user_limit();
+    int32_t row, first = clamp((int32_t)ui.uslot - 3, 0, user_limit() - 7);
     for (row = 0; row < 7; row++) {
         uint32_t k = (uint32_t)(first + row);
-        char tag[4], nm[13];
-        int used = up_used(k);
-        up_slot_label(tag, k);
+        char tag[5], nm[13];
+        int used = user_used(k);
+        user_label(tag, k);
         if (used)
-            up_name(k, nm);
+            user_name(k, nm);
         else
             str_cpy(nm, "--", sizeof nm);
         list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232);
     }
 }
-/* FM6 > STORE: the bank slots around the one picked ("B03  WOOD BARS" / --), as USER's */
+/* FM6 STORE lists the same user preset slots as SAVE > USER. */
 static void graph_fmbank(void)
 {
-    int32_t row, first = clamp((int32_t)fm6_bslot - 3, 0, FM6_BANK_N - 7);
-    for (row = 0; row < 7; row++) {
-        uint32_t k = (uint32_t)(first + row);
-        char nm[12];
-        uint8_t pk[FM6_PACKED], v[FP_SIZE + 1u];
-        int used = fm6_bank_read && !fm6_bank_read(k, pk);
-        if (used) {
-            fm6_unpack(pk, v);
-            fm6_name(nm, v);
-        } else {
-            str_cpy(nm, "--", sizeof nm);
-        }
-        list_row(LIST_Y(row), k == fm6_bslot, N_FM6BANK[k], T_MID, nm, used ? T_TEXT : T_DIM, 232);
-    }
+    uint8_t keep = ui.uslot;
+    ui.uslot = fm6_bslot;
+    graph_user();
+    ui.uslot = keep;
 }
 /* SEQ > PATTERNS: the pattern list around the one picked ("03  MELODY", "U07  MY BASS") */
 static void graph_pats(void)
@@ -1058,8 +1054,8 @@ static void trk_short_name(uint32_t c, char *b)      /* the track's sound, b hol
 {
     const track_t *t = &trk[c];
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
-    if (user_of(t) < UP_SLOTS)
-        up_name(user_of(t), b);
+    if(user_of(t)<USER_NONE && t->user_native)native_name(t->eng_req,user_of(t),b);
+    else if (user_of(t) < UP_SLOTS)up_name(user_of(t), b);
     else if (e->npresets)
         str_cpy(b, e->presets[t->preset % e->npresets].name, 13);
     else

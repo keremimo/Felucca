@@ -123,7 +123,7 @@ int main(void)
     printf("],\n\"TRK_DEF\":[");
     for (k = 0; k < NPART; k++)
         printf("%s[%d,%d,%d]", k ? "," : "", TRK_DEF[k][0], TRK_DEF[k][1], TRK_DEF[k][2]);
-    printf("],\n\"FM6\":{\"bank\":%u,\"init\":", (unsigned)FM6_BANK_N);   /* FM6: the packed patches */
+    printf("],\n\"FM6\":{\"bank\":%u,\"init\":", 0u);   /* FM6: the packed patches */
     for (i = 0; i < FM6_PACKED; i++)
         printf("%s%d", i ? "," : "[", FM6_INIT[i]);
     printf("],\"factory\":[");

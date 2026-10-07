@@ -120,5 +120,37 @@ ok(await athrows(()=>restoreBackup(protectedTarget.request,badBank)) && !protect
 const oldToCz=device([[9,czBank]],{ids:czIds});await restoreBackup(oldToCz.request,bankFile);
 ok(!oldToCz.log.includes(9) && oldToCz.objs.get(9)===czBank,"backup: older archives preserve dedicated CZ banks absent from archive");
 
+const largeObjects=[[0,rnd(27200,20)],[1,rnd(1200,21)],[2,rnd(27200,22)]];
+// The ownership backport appends user-record and voice objects after the CZ banks.
+const ownedIds=Array.from({length:21},(_,i)=>i);
+const ownedData=[[17,rnd(3816,20)],[18,rnd(3816,21)],[19,rnd(3728,22)],[20,rnd(3728,23)]];
+const ownedFile=await captureBackup(device([...bankObjects,...ownedData],{ids:ownedIds}).request,"OWNED FM6");
+const ownedTarget=device([],{ids:ownedIds});await restoreBackup(ownedTarget.request,ownedFile);
+ok(readBackup(ownedFile).objects.length===21 && ownedData.every(([id,bytes])=>ownedTarget.objs.get(id).every((v,i)=>v===bytes[i])),"backup: all 64 preset records and their owned FM6 voices round trip");
+ok(ownedTarget.log.at(-1)===0 && ownedTarget.log.indexOf(18)<ownedTarget.log.indexOf(20),"backup: user records restore before their voices, live music last");
+const largeFile=await captureBackup(device(largeObjects,{ids:czIds,runtimeSize:27200}).request,"1024 NOTES");
+const largeTarget=device([],{ids:czIds,runtimeSize:27200});await restoreBackup(largeTarget.request,largeFile);
+ok(largeTarget.objs.get(2).every((v,i)=>v===largeObjects[2][1][i]),"backup: expanded 1024-note projects capture and restore completely");
+const smallTarget=device([],{ids:czIds,runtimeSize:20224});
+ok(await athrows(()=>restoreBackup(smallTarget.request,largeFile)) && !smallTarget.log.length,"backup: expanded archives are refused by 152-note firmware before any write");
+const mixed=JSON.parse(JSON.stringify(largeFile));mixed.objects[0]=bankFile.objects[0];
+const mixedTarget=device([],{ids:czIds,runtimeSize:20224});
+ok(await athrows(()=>restoreBackup(mixedTarget.request,mixed)) && !mixedTarget.log.length,"backup: preflight checks saved slots too when runtime is an older format");
+
+const nativeIds=Array.from({length:23},(_,i)=>i),nativeFM=new Uint8Array(2060),nv=new DataView(nativeFM.buffer);
+nv.setUint32(0,0x314d464e,true);nv.setUint16(4,1,true);nv.setUint16(6,16,true);nv.setUint32(8,0x8001,true);
+for(const slot of [0,15])for(let i=0;i<128;i++)nativeFM[12+slot*128+i]=(i*17+slot)&127;
+const nativeCZ=czBank.slice();new DataView(nativeCZ.buffer).setUint16(4,2,true);
+const nativeObjects=[[9,nativeCZ],...[19,20,21,22].map(id=>[id,nativeFM.slice()])];
+const nativeFile=await captureBackup(device([...bankObjects,...nativeObjects],{ids:nativeIds}).request,"NATIVE PRESETS");
+const nativeTarget=device([],{ids:nativeIds});await restoreBackup(nativeTarget.request,nativeFile);
+ok(readBackup(nativeFile).objects.length===23 && nativeObjects.every(([id,bytes])=>nativeTarget.objs.get(id).every((v,i)=>v===bytes[i])),"backup: independent native FM6/CZ pools round trip in 23-object archive");
+const badNative=JSON.parse(JSON.stringify(nativeFile)),invalidFM=nativeFM.slice();invalidFM[12]=128;
+badNative.objects[21]={...badNative.objects[21],crc:bkCrc(invalidFM),data:Buffer.from(invalidFM).toString("base64")};
+const nativeProtected=device([],{ids:nativeIds});
+ok(await athrows(()=>restoreBackup(nativeProtected.request,badNative)) && !nativeProtected.log.length,"backup: malformed native voice refused before any restore writes");
+const oldOwnedTarget=device([],{ids:nativeIds});await restoreBackup(oldOwnedTarget.request,ownedFile);
+ok(oldOwnedTarget.log.includes(19) && !oldOwnedTarget.log.includes(21),"backup: old owned-voice archives reach firmware migration without clearing new objects");
+
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
 process.exit(fails ? 1 : 0);

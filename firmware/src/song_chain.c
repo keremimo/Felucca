@@ -92,7 +92,7 @@ static void chain_tick(uint32_t n)
     uint32_t length;
     if (!chain.running || t->seq_pos >= 0x7FFFFFFFu || t->seq_idx + 1u != (uint32_t)t->p[P_SLEN])
         return;
-    length = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx);
+    length = step_samples(t, seq_div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx);
     if (t->seq_pos + n < length)
         return;
     if (chain.remaining > 1u) {

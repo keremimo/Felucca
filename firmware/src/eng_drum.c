@@ -89,7 +89,7 @@ static uint32_t step_lanes(const step_t *s)
 }
 
 /* .. and which of them are accented */
-static uint32_t step_accents(const step_t *s) { return s->flags & SF_ACCENT ? step_lanes(s) : s->acc & step_lanes(s); }
+static uint32_t step_accents(const step_t *s) { return s->flags & SF_ACCENT ? step_lanes(s) : s->hit ? s->acc & step_lanes(s) : 0u; }
 
 /* a step's notes that are a lane's note become that lane's hits (the same note, the same velocity: nothing
  * sounds different). Other notes (a low tom 41, a crash 49) stay notes, shown on their lane. A step accent
@@ -97,6 +97,7 @@ static uint32_t step_accents(const step_t *s) { return s->flags & SF_ACCENT ? st
  * before the grid, the grid's edits */
 static void step_to_grid(step_t *s)
 {
+    if (!s->hit) s->acc = 0;                       /* recorded synth gate is not a drum accent */
     uint32_t i, k = 0;
     if (s->time != ST_NOTE)
         return;

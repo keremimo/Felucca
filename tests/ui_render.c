@@ -414,7 +414,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_SLICES_BREAK, S_SLICES_USR,
 #endif
        S_ROLL_EMPTY, S_ROLL_ACID, S_ROLL_CHORDS, S_ROLL_TIES, S_ROLL_LEN32, S_ROLL_HIGH, S_ROLL_LOW, S_ROLL_WIDE, S_ROLL_PLAYING,
-       S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_COUNT };
+       S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_NATIVE_FM_USER, S_NATIVE_CZ_USER, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "user",
     "phrases", "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -431,7 +431,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "slices_break", "slices_usr",
 #endif
     "roll_empty", "roll_acid", "roll_chords", "roll_ties", "roll_len32_p2", "roll_high", "roll_low", "roll_wide", "roll_playing",
-    "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu"};
+    "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -578,7 +578,7 @@ static void roll_scene(int s)
 static void setup(int s)
 {
     memset(kb_chn, 0, sizeof kb_chn);               /* no key held (roll_playing holds one) */
-    if (s >= S_MOCK_HOME) {
+    if (s >= S_MOCK_HOME && s <= S_MOCK_MENU) {
         mock_state(s);
         return;
     }
@@ -692,8 +692,8 @@ static void setup(int s)
     case S_FM6_PEG: eng(ENGI_FM6); fm6_factory(3, fm6_buf); fm6_unpack(fm6_buf, fm6_patch[song.sel]); fm6_pgen[song.sel]++;
         go_title("PITCH EG"); break;
     case S_FM6_STORE:
-        eng(ENGI_FM6); song.playing = 0; fm6_factory(5, fm6_buf); (void)fm6_bank_put(2, fm6_buf);
-        go_title("STORE"); fm6_bslot = 2;
+        eng(ENGI_FM6); song.playing = 0; fm6_factory(5, fm6_buf); (void)native_store(ENGI_FM6, 63, song.sel, "WOOD BARS");
+        go_title("STORE"); fm6_bslot = 63;
         break;
     case S_CZ1_ENV: eng(ENGI_CZ); go_title("C1 WAV R1-4"); break;   /* INIT TONE: R1 R2 live, R3 R4 dim (END 2) */
     case S_CONFIRM_SEQ: ui.confirm = CF_CLEAR_SEQ; ui.confirm_trk = 2; break;
@@ -806,6 +806,8 @@ static void setup(int s)
         ui.hot_col = 1; ui.hot_t = 30;
         break;
 #endif
+    case S_NATIVE_FM_USER: eng(ENGI_FM6); song.playing=0; native_store(ENGI_FM6,63,song.sel,"LAST VOICE"); ui.uslot=63; go_page(GR_USER); break;
+    case S_NATIVE_CZ_USER: eng(ENGI_CZ); song.playing=0; native_store(ENGI_CZ,127,song.sel,"LAST CZ TONE"); ui.uslot=127; go_page(GR_USER); break;
     default: break;
     }
 }

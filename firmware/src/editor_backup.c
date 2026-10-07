@@ -8,7 +8,7 @@
 #ifndef ED_BK_FLASH_PTR
 #define ED_BK_FLASH_PTR(off) fm1_xip_ptr(off)
 #endif
-static const uint8_t ED_BK_IDS[17] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16};
+static const uint8_t ED_BK_IDS[23] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22};
 #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
 #define ED_BK_MAX ((uint32_t)sizeof proj_wire_u)
 #define ED_BK_RAW ((uint8_t *)&proj_wire_u)  /* reuse the existing serialized main-loop scratch */
@@ -17,6 +17,9 @@ static struct { persist_t p; tmpl_t t; } ed_bk_set;   /* id 1: the settings
 static uint32_t ed_bk_set_len;
 static uint8_t ed_bk_valid, ed_bk_put, ed_bk_id, ed_bk_gen;
 static uint32_t ed_bk_len, ed_bk_crc, ed_bk_pos, ed_bk_ms, ed_bk_usb;
+#if MELODEE_FLASH
+static uint32_t ed_bk_source_obj, ed_bk_source_copy, ed_bk_source_crc;
+#endif
 static void ed_bk_u32(uint32_t n) { for (uint32_t i = 0; i < 5u; i++) ed_b((n >> (i * 7u)) & 127u); }
 static uint32_t ed_bk_r32(const uint8_t *p)
 {
@@ -35,16 +38,22 @@ static void ed_bk_pack(const uint8_t *p, uint32_t n)
 static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
 {
     *len = 0;
+#if MELODEE_FLASH
+    ed_bk_source_obj = OBJ_COUNT;
+#endif
     if (id == 0u) { *len = BANK_STORE_SIZE; return ED_BK_RAW; }
     if (id == 1u) { *len = ed_bk_set_len; return (const uint8_t *)&ed_bk_set; }
     if (id >= 2u && id <= 5u) {
         uint32_t slot = id - 2u;
 #if MELODEE_FLASH
         st_hdr_t h;
-        int copy = st_current(OBJ_BANK0 + slot, &h);
-        if (copy >= 0) { *len = h.len; return ED_BK_FLASH_PTR(st_sector(OBJ_BANK0 + slot, (uint32_t)copy) + ST_PAYLOAD_OFF); }
-        copy = st_current(OBJ_PROJECT0 + slot, &h);
-        if (copy >= 0) { *len = h.len; return ED_BK_FLASH_PTR(st_sector(OBJ_PROJECT0 + slot, (uint32_t)copy) + ST_PAYLOAD_OFF); }
+        uint32_t obj = OBJ_BANK0 + slot;
+        int copy = st_current(obj, &h);
+        if (copy < 0) { obj = OBJ_PROJECT0 + slot; copy = st_current(obj, &h); }
+        if (copy >= 0) {
+            *len = h.len; ed_bk_source_obj = obj; ed_bk_source_copy = (uint32_t)copy; ed_bk_source_crc = h.crc;
+            return ED_BK_FLASH_PTR(st_sector(obj, (uint32_t)copy) + ST_PAYLOAD_OFF);
+        }
         return ED_BK_RAW;                   /* empty: a valid pointer, zero length */
 #else
         if (bank_valid(proj_bank_slot[slot], BANK_STORE_SIZE) &&
@@ -55,15 +64,21 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
         return (const uint8_t *)&proj_slot[slot];
 #endif
     }
-    if (id == 6u || id == 7u) {
-        if (up_bank[id - 6u].magic == UP_BANK_MAGIC) *len = sizeof up_bank[0];
-        return (const uint8_t *)&up_bank[id - 6u];
+    if (id == 6u || id == 7u || id == 17u || id == 18u) {
+        uint32_t b = id < 8u ? id - 6u : id - 15u;
+        if (up_bank[b].magic == UP_BANK_MAGIC) *len = sizeof up_bank[0];
+        return (const uint8_t *)&up_bank[b];
     }
-    if (id == 8u) {                                 /* the FM6 patch bank */
-        if (fm6_bank.magic == FM6_BANK_MAGIC) *len = sizeof fm6_bank;
-        return (const uint8_t *)&fm6_bank;
+    if (id == 8u) return ED_BK_RAW; /* retired bank: older archives may still restore it */
+    if (id >= 19u && id <= 22u) {
+        uint32_t nb=id<21u?id-17u:id-21u;
+        if(native_fm_valid(&native_fm[nb])){*len=sizeof(native_fm_t);return (const uint8_t *)&native_fm[nb];}
+        if(id>=21u)return ED_BK_RAW;
+        uint32_t b = id - 19u;
+        if (upf_valid(&upf[b])) *len = sizeof upf[b];
+        return (const uint8_t *)&upf[b];
     }
-    if(id>=9u && id<=16u){cz_bank_t *b=cz_bank_load(id-9u);if(cz_bank_saved)*len=sizeof *b;return (const uint8_t *)b;}   /* (a default bank: none) */
+    if(id>=9u && id<=16u){if(cz_bank_valid(&native_cz[id-9u])){*len=sizeof(cz_bank_t);return (const uint8_t *)&native_cz[id-9u];}cz_bank_t *b=cz_bank_load(id-9u);if(cz_bank_saved)*len=sizeof *b;return (const uint8_t *)b;}
     return 0;
 }
 static uint32_t ed_bk_capture(void)
@@ -136,20 +151,42 @@ static uint32_t ed_bk_commit(void)
             p->lowcut > 2u || p->zoom > 1u || !hold_stored_ok(p->bold) || p->favorites.filter > 1u || !ed_bk_panel_valid(&p->panel)) return 2;
         if(tl && ed_bk_len>sizeof *p && !tmpl_blob_valid(t,tl))return 2;
         obj = OBJ_SETTINGS;
-    } else if (ed_bk_id == 6u || ed_bk_id == 7u) {
+    } else if (ed_bk_id == 6u || ed_bk_id == 7u || ed_bk_id == 17u || ed_bk_id == 18u) {
         const up_bank_t *p = (const up_bank_t *)raw;
-        if (ed_bk_len && (!up_bank_shape(ed_bk_len,p->rsize) || p->magic != UP_BANK_MAGIC || p->nslot != UP_PER_BANK)) return 2;
+        if ((ed_bk_id >= 17u && ed_bk_len && (ed_bk_len != sizeof(up_bank_t) || p->rsize != sizeof(up_rec_t))) ||
+            (ed_bk_len && (!up_bank_shape(ed_bk_len,p->rsize) || p->magic != UP_BANK_MAGIC || p->nslot != UP_PER_BANK))) return 2;
         /* Unknown record versions remain inert bytes, preserving future/older bank data. */
-        obj = OBJ_UPRESET0 + ed_bk_id - 6u;
+        obj = ed_bk_id < 8u ? OBJ_UPRESET0 + ed_bk_id - 6u : OBJ_UPRESET_EXT0 + ed_bk_id - 17u;
     } else if (ed_bk_id == 8u) {
-        if (ed_bk_len && (ed_bk_len != sizeof fm6_bank || !fm6_bank_valid((const fm6_bank_t *)raw))) return 2;
-        obj = OBJ_FM6BANK;
+        if (!ed_bk_len) return 0;
+        if (ed_bk_len != sizeof fm6_bank || !fm6_bank_valid((const fm6_bank_t *)raw)) return 2;
+        upf_migrate((const fm6_bank_t *)raw);
+        if(native_import_owned(0) || native_import_owned(1))return 4;
+        return 0;
+    } else if (ed_bk_id >= 19u && ed_bk_id <= 22u && (ed_bk_len==sizeof(native_fm_t) || !ed_bk_len)) {
+        uint32_t b=ed_bk_id<21u?ed_bk_id-17u:ed_bk_id-21u;
+        if(ed_bk_len && !native_fm_valid((const native_fm_t *)raw))return 2;
+        native_fm_t old=native_fm[b];if(ed_bk_len)memcpy(&native_fm[b],raw,sizeof native_fm[b]);else native_fm_empty(b);
+        if(native_save_bank(ENGI_FM6,b)==2){native_fm[b]=old;return 4;}
+        up_gen++;sync_reload=1;ui.force=1;return 0;
+    } else if (ed_bk_id == 19u || ed_bk_id == 20u) {
+        uint32_t b = ed_bk_id - 19u;
+        if (ed_bk_len && (ed_bk_len != sizeof(upf_t) || !upf_valid((const upf_t *)raw))) return 2;
+        if (ed_bk_len) memcpy(&upf[b], raw, sizeof upf[b]); else upf_empty_bank(b);
+        if(native_import_owned(b))return 4;
+        sync_reload = 1; ui.force = 1;
+        return 0;
     } else if(ed_bk_id>=9u && ed_bk_id<=16u){
         if(ed_bk_len && (ed_bk_len!=sizeof(cz_bank_t)||!cz_bank_valid((const cz_bank_t *)raw)))return 2;
-        obj=OBJ_CZBANK0+ed_bk_id-9u;
+        uint32_t b=ed_bk_id-9u;cz_bank_t old=native_cz[b];
+        if(ed_bk_len)memcpy(&native_cz[b],raw,sizeof(cz_bank_t));else {cz_bank_empty(&native_cz[b],b);native_cz[b].ver=2;}
+        if(native_save_bank(ENGI_CZ,b)==2){native_cz[b]=old;return 4;}
+        cz_bank_import(b,(const uint8_t *)&native_cz[b],sizeof(cz_bank_t));
+        up_gen++;sync_reload=1;ui.force=1;return 0;
     } else return 1;
 #if MELODEE_FLASH
-    if (!flash_ok || st_save(obj, raw, ed_bk_len)) return 4;
+    if (!flash_ok || st_save(obj, ed_bk_id == 17u || ed_bk_id == 18u ? raw + 8u : raw,
+                            (ed_bk_id == 17u || ed_bk_id == 18u) && ed_bk_len ? ed_bk_len - 8u : ed_bk_len)) return 4;
 #else
     (void)obj;
 #endif
@@ -165,16 +202,12 @@ static uint32_t ed_bk_commit(void)
 #if MELODEE_FLASH
         persist_saved = ed_bk_set.p; persist_pending = 0;
 #endif
-    } else if (ed_bk_id == 8u) {
-        memset(&fm6_bank, 0, sizeof fm6_bank);
-        if (ed_bk_len) memcpy(&fm6_bank, raw, ed_bk_len);
-        fm6_bank_check((int)ed_bk_len);
-        for (uint32_t t = 0; t < NTRK; t++)                /* tracks on PTCH B..: the restored patches (fm6_bank_put); */
-            if (fm6_slot[t] >= FM6_NFAC) fm6_slot[t] = 0xFFu;   /* a factory patch, or the track's own, stays */
-    } else if(ed_bk_id>=9u){
+    } else if(ed_bk_id>=9u && ed_bk_id<=16u){
         cz_bank_import(ed_bk_id-9u,raw,ed_bk_len);
+        if(ed_bk_len)memcpy(&native_cz[ed_bk_id-9u],raw,sizeof(cz_bank_t));else {cz_bank_empty(&native_cz[ed_bk_id-9u],ed_bk_id-9u);native_cz[ed_bk_id-9u].ver=2;}
+        up_gen++;
     } else {
-        uint32_t b = ed_bk_id - 6u;
+        uint32_t b = ed_bk_id < 8u ? ed_bk_id - 6u : ed_bk_id - 15u;
         memset(&up_bank[b], 0, sizeof up_bank[b]);
         if (ed_bk_len) memcpy(&up_bank[b], raw, ed_bk_len);
         up_bank_check(b, (int)ed_bk_len); up_gen++;
@@ -184,18 +217,19 @@ static uint32_t ed_bk_commit(void)
 }
 static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
 {
-    if (n < 2u || a[0] > 3u || a[1] > 16u) return 1;
+    if (n < 2u || a[0] > 3u || a[1] > 22u) return 1;
     if (ed_flash_stop()) return 3;
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
-        if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+        if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != PROJ_STORE_V12 && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set &&
-             len != sizeof(persist_t)+TMPL_CZ_OLD && len != sizeof(persist_t)+TMPL_CZ_NEXT && len != sizeof(persist_t) + TMPL_SIZE5 && len != sizeof(persist_t) + TMPL_SIZE6) ||
-            (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
-            ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t) && len!=UP_BANK_LEGACY_SIZE) ||
+             len != sizeof(persist_t)+TMPL_SIZE_A && len != sizeof(persist_t)+TMPL_CZ_OLD && len != sizeof(persist_t)+TMPL_CZ_NEXT && len != sizeof(persist_t) + TMPL_SIZE5 && len != sizeof(persist_t) + TMPL_SIZE6) ||
+            (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != PROJ_STORE_V12 && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+            ((a[1] == 6u || a[1] == 7u || a[1] == 17u || a[1] == 18u) && len && len != sizeof(up_bank_t) && len!=UP_BANK_LEGACY_SIZE) ||
             (a[1] == 8u && len && len != sizeof(fm6_bank_t)) ||
-            (a[1]>=9u && len && len!=sizeof(cz_bank_t))) return 1;
+            (a[1]>=9u && a[1]<=16u && len && len!=sizeof(cz_bank_t)) ||
+            (a[1]>=19u && len && len!=sizeof(native_fm_t) && !(a[1]<=20u && len==sizeof(upf_t)))) return 1;
         ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;
         ed_bk_crc = ed_bk_r32(a + 7); ed_bk_pos = 0;
         ed_bk_usb = usb.resets; ed_bk_ms = fm1_ms;
@@ -225,7 +259,13 @@ static int ed_backup_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         if (!rc) for (uint32_t i = 0; i < ED_BK_N; i++) {
             uint32_t len;
             const uint8_t *p = ed_bk_object(ED_BK_IDS[i], &len);
-            ed_b(ED_BK_IDS[i]); ed_bk_u32(len); ed_bk_u32(st_crc32(p, len));
+            uint32_t crc;
+#if MELODEE_FLASH
+            if (ed_bk_source_obj < OBJ_COUNT) crc = ed_bk_source_crc;
+            else
+#endif
+                crc = st_crc32(p, len);
+            ed_b(ED_BK_IDS[i]); ed_bk_u32(len); ed_bk_u32(crc);
             fm1_wdt_feed();
         }
         return 1;
@@ -236,8 +276,15 @@ static int ed_backup_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         const uint8_t *p = n ? ed_bk_object(a[0], &len) : 0;
         uint32_t rc = (!ed_bk_valid || ed_bk_usb != usb.resets || (n && !a[0] && ed_bk_gen != proj_wire_gen)) ? 5u : transport_busy() ? 3u :
             n != 8u || a[5] > 15u || !p || !count || count > 256u || off > len || count > len - off ? 1u : 0u;
+        uint32_t data_off = off;
+#if MELODEE_FLASH
+        if (!rc && ed_bk_source_obj < OBJ_COUNT) {
+            if (st_read_range(ed_bk_source_obj, ed_bk_source_copy, off, ed_smp_buf, count)) rc = 4;
+            p = ed_smp_buf; data_off = 0;
+        }
+#endif
         ed_b(n ? a[0] : 127u); ed_b(rc); ed_bk_u32(off); ed_b(rc ? 0u : count & 127u); ed_b(rc ? 0u : count >> 7);
-        if (!rc) ed_bk_pack(p + off, count);
+        if (!rc) ed_bk_pack(p + data_off, count);
         return 1;
     }
     if (cmd == ED_BACKUP_PUT) {

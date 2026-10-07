@@ -13,7 +13,7 @@ static cz_bank_t cz_banks_host[CZ_BANK_N];
 #endif
 static int cz_bank_valid(const cz_bank_t *b)
 {
-    if(b->magic!=CZ_BANK_MAGIC || b->ver!=1 || b->slots!=16 || (b->used>>16) || !b->name[0])return 0;
+    if(b->magic!=CZ_BANK_MAGIC || (b->ver!=1 && b->ver!=2) || b->slots!=16 || (b->used>>16) || !b->name[0])return 0;
     for(uint32_t i=0;i<16;i++)if((uint8_t)b->name[i]>126 || (b->name[i] && (uint8_t)b->name[i]<32))return 0;
     for(uint32_t i=0;i<16;i++)if((b->used>>i)&1u)if(!cz_patch_valid(b->tone[i].raw))return 0;
     return 1;

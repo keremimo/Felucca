@@ -48,7 +48,7 @@ static const preset_t CZ_PRESETS[] = {
 static const engine_t ENG_CZ = {
     .name = "CZ-1", .page_title = {"CZ-1", "TONE"},
     .edit = {
-        {"BANK", F_ENUM, 0, 7, 0, N_CZ_BANK, 0}, {"PTCH", F_INT, 0, 16, 0, 0, 0},
+        {"-", F_INT, 0, 7, 0, 0, 0}, {"-", F_INT, 0, 16, 0, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0}, {"-", F_INT, 0, 0, 0, 0, 0},
         {"-", F_INT, 0, 0, 0, 0, 0}, {"TONE", F_INT, CZ_NATIVE, CZ_NATIVE, CZ_NATIVE, 0, 0},

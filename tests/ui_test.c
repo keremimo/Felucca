@@ -113,7 +113,7 @@ static void ui_power_on(void)
     memset(&undo, 0, sizeof undo);
     memset(pat_last, 0, sizeof pat_last);
     memset(proj_slot, 0, sizeof proj_slot);
-    memset(up_bank, 0, sizeof up_bank);
+    memset(up_bank, 0, sizeof up_bank); memset(native_fm,0,sizeof native_fm); memset(native_cz,0,sizeof native_cz); native_pending=0;
     for (i = 0; i < G_COUNT; i++)
         song.g[i] = GP[i].def;
     undo_depth++;
@@ -988,15 +988,15 @@ static int test_grid(void)
     fm1_in.notes = 0;
     keyboard_block();
     ok = t->step[5].hit == 1u << DV_HATO && !t->step[5].n && t->rskip_n == 0u;
-    t->seq_pos = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), 5) - 10u;   /* late in step 6: still step 6 */
+    t->seq_pos = step_samples(t, div_samples((uint32_t)t->p[P_SDIV]), 5) - 10u;   /* late: rounds to step 7 */
     fm1_in.notes = 1u << key_at(1, 0);
     keyboard_block();
-    ok &= t->step[5].hit == ((1u << DV_HATO) | (1u << DV_KICK)) && !t->step[6].hit && t->rskip_n == 0u;
+    ok &= t->step[5].hit == (1u << DV_HATO) && t->step[6].hit == (1u << DV_KICK) && t->rskip_n == 1u && t->rskip_idx == 6;
     rec_hold(t, 7, 16);
     fm1_in.notes = 0;
     keyboard_block();
     ok &= t->step[7].time == ST_REST && !t->rh_n;
-    bad += check("REC on the grid: lane keys record hits on the step playing (late too), no TIE holds", ok);
+    bad += check("REC on the grid: lane keys round to the nearest step, no TIE holds", ok);
     /* live recording elsewhere (HOME): the GM keys; a lane's note a hit, another GM drum a note */
     go_home();
     frame();
@@ -1913,7 +1913,7 @@ static int test_layer(void)
         turn(EN_K1, -12); turn(EN_K2, 30);
         ok = perf_k[0] == -12 && perf_k[1] == 30 && TSEL->p[P_ATK] == atk && motion.count == ev && ui.layer == LAYER_FX;
         turn(EN_PRESET, 3);
-        ok &= user_of(TSEL) == UP_SLOTS && TSEL->preset == trk[0].preset;
+        ok &= user_of(TSEL) == USER_NONE && TSEL->preset == trk[0].preset;
         btn_up(B_FX); frame();
         bad += check("FX + KNOB 1 / 2: the macros, not ATK, not recorded; FX let go: back to 0, no tap",
                      ok && !perf_k[0] && !perf_k[1] && str_eq(cur_page()->title, "ENV"));
@@ -2237,7 +2237,7 @@ static int engine_cycle(const char *const *want, uint32_t n)   /* EDIT tapped fr
  * page copies a line, compares with the tone as loaded, names the tone */
 static int test_cz1_pages(void)
 {
-    static const char *const CYC[] = {"EDIT 1", "EDIT 2", "CZ TOOLS", "CZ LINE", "CZ DETUNE", "CZ VIBRATO",
+    static const char *const CYC[] = {"CZ TOOLS", "CZ LINE", "CZ DETUNE", "CZ VIBRATO",
         "CZ WINDOW", "CZ1 WAVE", "CZ1 TOUCH",
         "C1 PIT R1-4", "C1 PIT R5-8", "C1 PIT L1-4", "C1 PIT L5-8", "C1 PIT POINT",
         "C1 WAV R1-4", "C1 WAV R5-8", "C1 WAV L1-4", "C1 WAV L5-8", "C1 WAV POINT",
@@ -2246,7 +2246,7 @@ static int test_cz1_pages(void)
         "C2 PIT R1-4", "C2 PIT R5-8", "C2 PIT L1-4", "C2 PIT L5-8", "C2 PIT POINT",
         "C2 WAV R1-4", "C2 WAV R5-8", "C2 WAV L1-4", "C2 WAV L5-8", "C2 WAV POINT",
         "C2 AMP R1-4", "C2 AMP R5-8", "C2 AMP L1-4", "C2 AMP L5-8", "C2 AMP POINT",
-        "VOICE", "VOICE 2", "EDIT 1"};
+        "VOICE", "VOICE 2", "CZ TOOLS"};
     uint8_t p[LCZ_PACKED], q[LCZ_PACKED], raw[CZ_BYTES], before[CZ_BYTES];
     uint32_t tr, id, v, i, ok = 1, sane = 1, kept = 1;
     int bad = 0;
@@ -2255,7 +2255,7 @@ static int test_cz1_pages(void)
     tr = song.sel % NTRK;
     set_engine_of(TSEL, ENGI_CZ);
     frame();
-    bad += check("CZ-1 EDIT cycle: EDIT 1 EDIT 2, 39 tone pages, VOICE VOICE 2", engine_cycle(CYC, NELEM(CYC)));
+    bad += check("CZ-1 EDIT cycle: tone pages and VOICE, without bank/patch pages", engine_cycle(CYC, NELEM(CYC)));
     /* every value, every setting: what is put reads back; the others stay (END's level, a SUS past END aside) */
     for (id = 0; id < LCZ_NP; id++) {
         if (!CZ_PD[id].label)
@@ -2377,8 +2377,8 @@ static int test_cz1_factory(void)
     cz_bank_boot();                                      /* (power-on: persist_boot -> up_boot) */
     set_engine_of(TSEL, ENGI_CZ);
     TSEL->p[P_E0] = 2; TSEL->p[P_E1] = 7; frame();
-    bad += check("CZ-1 BANK C PTCH 7 on the device: the default bank's tone (CZ-1 E-7, VOICE 2)",
-                 !memcmp(cz_patch[tr].raw, CZ_FACTORY[2u * 16u + 6u], CZ_BYTES));
+    bad += check("CZ-1 retired BANK / PTCH values cannot replace the current tone",
+                 !memcmp(cz_patch[tr].raw + 128,"INIT",4));
     cz_bank_empty(&mine, 0);
     memcpy(mine.tone[0].raw, CZ_FACTORY[63], CZ_BYTES); mine.used = 1u;
     cz_bank_import(0, (const uint8_t *)&mine, sizeof mine);
@@ -2763,19 +2763,20 @@ static int test_fm6_pages(void)
     press(B_OCTUP);
     fm6_name(a, fm6_patch[tr]);
     b[0] = 0;
-    if (!fm6_bank_get(4, pk)) {
+    if (native_used(ENGI_FM6,4)) {
+        memcpy(pk,native_raw(ENGI_FM6,4),FM6_PACKED);
         fm6_unpack(pk, v);
         fm6_name(b, v);
     }
-    bad += check("STORE onto B5: the bank slot, PTCH B5", fm6_bslot == 4u && fm6_bank_used(4) && str_eq(a, b) &&
-                 TSEL->p[P_E7] == (int16_t)(FM6_NFAC + 4u));
+    bad += check("STORE onto F005: native voice in its own preset slot", fm6_bslot == 4u && native_used(ENGI_FM6,4) && str_eq(a, b) &&
+                 TSEL->p[P_E7] == FM6_OWN);
     song.playing = 1;
     ui.msg_t = 0;
     turn(EN_K1, 1);
     turn(EN_K2, 1);
     press(B_OCTUP);
-    bad += check("  STORE while playing: STOP TO SAVE, B6 empty", msg_is("STOP TO SAVE") && !fm6_bank_used(5) &&
-                 TSEL->p[P_E7] == (int16_t)(FM6_NFAC + 4u));
+    bad += check("  STORE while playing: STOP TO SAVE, U06 empty", msg_is("STOP TO SAVE") && !up_used(5) &&
+                 TSEL->p[P_E7] == FM6_OWN);
     stop_transport();
     turn(EN_K4, 1);
     press(B_OCTUP);
@@ -3857,8 +3858,8 @@ static int test_fm4_retired(void)
     fm4_convert(p, v);
     up_load(7);
     bad += check("a DIGITAL user preset loads as FM6: the converted patch, PTCH and preset = FM6 PAD",
-                 TSEL->eng_req == ENGI_FM6 && TSEL->preset == 4u && TSEL->p[P_E7] == 4 && !TSEL->p[P_E0] &&
-                 !memcmp(fm6_patch[song.sel], v, FP_SIZE) && fm6_slot[song.sel] == 4u && TSEL->user == 8u);
+                 TSEL->eng_req == ENGI_FM6 && TSEL->preset == 4u && TSEL->p[P_E7] == FM6_OWN && !TSEL->p[P_E0] &&
+                 !memcmp(fm6_patch[song.sel], v, FP_SIZE) && fm6_slot[song.sel] == FM6_OWN && TSEL->user == 8u);
     frame();
     bad += check("  .. and the main loop keeps that patch (not PTCH's factory one)", !memcmp(fm6_patch[song.sel], v, FP_SIZE));
     eng_list_pos(&total);
@@ -3867,7 +3868,7 @@ static int test_fm4_retired(void)
                  total == ENGINES[ENGI_FM6]->npresets + 1u);
     up_store(8, "AGAIN");
     bad += check("  saved again: an FM6 user preset (its PTCH the FM6 PAD)", up_rec(8)->engine == ENGI_FM6 &&
-                 up_value(up_rec(8), P_E7) == 4);
+                 up_value(up_rec(8), P_E7) == FM6_OWN);
     /* preset numbers of engine 1 */
     set_engine_of(TSEL, ENGI_DIGITAL);
     bad += check("engine 1 asked for: DIGITAL E.PIANO converted (FM6, PTCH TINE EP, the patch named E.PIANO)",

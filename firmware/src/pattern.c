@@ -8,6 +8,9 @@ static pattern_t pattern_ram[2][NPAT];
 static uint8_t chain_patterns[CHAIN_ROWS][NTRK];
 static uint8_t motion_pattern[MOTION_MAX];
 static void seq_release(track_t *t);
+static void recording_reset(void);
+static void recording_stop(track_t *t);
+static int recording_owns(const track_t *t, uint32_t note);
 static void motion_restore(track_t *t);
 static pattern_t *pattern_at(uint32_t track, uint32_t bank)
 {
@@ -23,6 +26,7 @@ static void pattern_apply(track_t *t, uint32_t bank)
 {
     const pattern_t *p = pattern_at(t - trk, bank);
     seq_release(t);
+    recording_stop(t);
     motion_restore(t);
     memcpy(t->step, p->step, sizeof t->step);
     memcpy(&t->p[P_SLEN], p->timing, sizeof p->timing);
@@ -34,6 +38,7 @@ static void pattern_apply(track_t *t, uint32_t bank)
 static void pattern_init(void)
 {
     uint32_t k, b, i;
+    recording_reset();
     memset(pattern_retained, 0, sizeof pattern_retained);
     memset(pattern_ram, 0, sizeof pattern_ram);
     memset(chain_patterns, 0, sizeof chain_patterns);

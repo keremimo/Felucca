@@ -75,7 +75,7 @@ static void reset(void)
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
     memset(proj_slot, 0, sizeof proj_slot);
-    memset(up_bank, 0, sizeof up_bank);
+    memset(up_bank, 0, sizeof up_bank); memset(native_fm,0,sizeof native_fm); memset(native_cz,0,sizeof native_cz); native_pending=0;
     memset(&persist_saved, 0, sizeof persist_saved);
     memset(&settings, 0, sizeof settings);
     memset(&ui, 0, sizeof ui);
@@ -105,6 +105,7 @@ static int cz_bank_persistence(void)
     bad+=check("CZ bank writes leave neighbouring project objects untouched",st_sector(OBJ_BANK0+3,1)+5u*ST_SECTOR==st_sector(OBJ_CZBANK0,0));
     return bad;
 }
+#ifndef PERSISTENCE_TEST_NO_MAIN
 int main(void)
 {
     int bad = 0, ok;
@@ -340,3 +341,5 @@ int main(void)
     printf("%s\n", bad ? "PERSISTENCE TEST FAILED" : "persistence test passed");
     return bad != 0;
 }
+
+#endif

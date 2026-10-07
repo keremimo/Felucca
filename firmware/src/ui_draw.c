@@ -327,7 +327,7 @@ static uint32_t foot_rename(void)
 {
     uint32_t g = ui.home ? GR_NONE : cur_page()->graph;
     if (g == GR_USER)
-        return 1u + (uint32_t)up_used(ui.uslot);
+        return 1u + (uint32_t)user_used(ui.uslot % user_limit());
     if (g == GR_SLOTS)                                 /* (the template has no name) */
         return song.g[G_SLOT] == PROJ_TMPL ? 0u : 1u + (uint32_t)graph_project_used((uint32_t)song.g[G_SLOT] - 1u);
     return 0;
@@ -338,7 +338,8 @@ static void sound_name(const track_t *t, char *b)
 {
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
     b[0] = 0;
-    if (user_of(t) < UP_SLOTS)
+    if(t->user_native && user_of(t)<USER_NONE)native_name(t->eng_req,user_of(t),b);
+    else if (user_of(t) < UP_SLOTS)
         up_name(user_of(t), b);
     else if (e->npresets)
         str_cpy(b, e->presets[t->preset % e->npresets].name, 16);
@@ -586,9 +587,10 @@ static void draw_columns(void)
         return;
     }
     if (cur_page()->graph == GR_USER) {                  /* SLOT, then three GO buttons */
-        int used = up_used(ui.uslot);
-        up_slot_label(val, ui.uslot);
-        draw_column(0, "SLOT", val, "", VAL(0u), (int32_t)ui.uslot * 1000 / (int32_t)(UP_SLOTS - 1u), ICON_AUTO);
+        ui.uslot %= user_limit();
+        int used = user_used(ui.uslot);
+        user_label(val, ui.uslot);
+        draw_column(0, "SLOT", val, "", VAL(0u), (int32_t)ui.uslot * 1000 / (int32_t)(user_limit() - 1u), ICON_AUTO);
         draw_act_column(1, "LOAD", used ? T_THEME : T_DIM, ICON_AUTO);
         draw_act_column(2, "ERASE", used ? T_THEME : T_DIM, ICON_AUTO);
         draw_act_column(3, "SAVE", T_THEME, ICON_AUTO);
@@ -764,15 +766,15 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_OVR_USER:
         str_cpy(a, "OVERWRITE ", 24);
-        up_slot_label(a + str_len(a), k);
+        user_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
-        up_name(k, b);                               /* the sound stored there */
+        user_name(k, b);                             /* the sound stored there */
         break;
     case CF_ERASE_USER:
         str_cpy(a, "ERASE ", 24);
-        up_slot_label(a + str_len(a), k);
+        user_label(a + str_len(a), k);
         str_cpy(a + str_len(a), "?", 2);
-        up_name(k, b);
+        user_name(k, b);
         break;
     case CF_LOAD_PAT: {
         char tag[4];

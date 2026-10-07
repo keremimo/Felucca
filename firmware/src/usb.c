@@ -90,10 +90,20 @@ static volatile uint32_t so_w, so_r;
 #define MQ 64u
 static uint32_t midi_in_q[MQ], midi_out_q[MQ];
 static uint32_t midi_in_ms[MQ];
+static uint32_t midi_in_time[MQ];
 static uint8_t midi_in_source[MQ];                    /* 1 USB, 2 TRS */
 static volatile uint32_t fm1_ms;                    /* also declared by core.h; parser-only host tests */
 static volatile uint32_t mi_w, mi_r, mo_w, mo_r;
 static volatile uint8_t midi_in_overflow;               /* audio ISR discards a broken stream and releases notes */
+
+/* Firmware: raw TIMER4 ticks (wrap-safe differences). Parser-only host tests
+ * retain their simulated millisecond clock. */
+#ifndef MIDI_TIME_NOW
+#define MIDI_TIME_NOW() fm1_ms
+#define MIDI_TICKS_PER_MS 1u
+#endif
+static uint32_t midi_render_time;
+static uint8_t midi_render_timed;                  /* audio ISR supplies the block's timeline */
 
 static int midi_enqueue(uint32_t pkt, uint32_t source)
 {
@@ -106,6 +116,7 @@ static int midi_enqueue(uint32_t pkt, uint32_t source)
     }
     midi_in_q[at] = pkt;
     midi_in_ms[at] = fm1_ms;
+    midi_in_time[at] = MIDI_TIME_NOW();
     midi_in_source[at] = (uint8_t)source;
     RING_PUBLISH();
     mi_w++;

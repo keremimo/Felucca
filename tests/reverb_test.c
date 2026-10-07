@@ -52,23 +52,20 @@ static int32_t noise(int32_t amp)
 }
 
 /* ------------------------------------------------- the buses before SPRING --- */
-static int16_t ref_dly[DLY_LEN], ref_cho[CHO_LEN], ref_comb[1116 + 1188 + 1277 + 1356], ref_ap[556 + 441];
+static int16_t ref_cho[CHO_LEN], ref_comb[1116 + 1188 + 1277 + 1356], ref_ap[556 + 441];
 static struct {
-    uint32_t dly_w, cho_w, cho_ph;
-    int32_t dly_lp;
+    uint32_t cho_w, cho_ph;
     uint16_t comb_i[4], ap_i[2];
     int32_t comb_lp[4];
 } rf;
-static void ref_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t *rev_in, int32_t *wet, uint32_t n)
+static void ref_buses(const int32_t *cho_in, const int32_t *rev_in, int32_t *wet, uint32_t n)
 {
-    uint32_t i, k, dl = delay_samples();
-    int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
-    int32_t dmix = song.g[G_DMIX] * 258;
+    uint32_t i, k;
     int32_t size = 25000 + song.g[G_RSIZE] * 50, damp = 32767 - song.g[G_RDAMP] * 200;
     int32_t cdepth = song.g[G_CDEPTH] * 6;
     uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
     for (i = 0; i < n; i++) {
-        int32_t y = 0, x, r, a;
+        int32_t y = 0, r, a;
         ref_cho[rf.cho_w & (CHO_LEN - 1u)] = (int16_t)clamp(cho_in[i] >> 1, -32768, 32767);
         rf.cho_ph += cinc;
         r = (400 << 8) + ((osc_sine(rf.cho_ph) + 32768) * cdepth >> 8);
@@ -79,11 +76,6 @@ static void ref_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_
             y += (c0 + (((c1 - c0) * f) >> 8)) << 1;
         }
         rf.cho_w++;
-        x = ref_dly[(rf.dly_w - dl) & (DLY_LEN - 1u)];
-        rf.dly_lp += mulq15(x - rf.dly_lp, col);
-        ref_dly[rf.dly_w & (DLY_LEN - 1u)] = (int16_t)clamp((dly_in[i] >> 1) + mulq15(rf.dly_lp, fb), -32768, 32767);
-        rf.dly_w++;
-        y += mulq15(x << 1, dmix);
         a = 0;
         {
             int16_t *c = ref_comb;
@@ -132,8 +124,8 @@ static void test_room_identical(void)
             d[i] = on ? noise(60000) : 0;
             r[i] = on ? noise(b % 2000u < 1000u ? 90000 : 4000) : 0;
         }
-        fx_buses(c, d, r, w0, CTL);
-        ref_buses(c, d, r, w1, CTL);
+        fx_buses(c, r, w0, CTL);
+        ref_buses(c, r, w1, CTL);
         for (i = 0; i < CTL; i++)
             diff += w0[i] != w1[i];
     }
@@ -290,7 +282,6 @@ static void test_switch(void)
     char what[200];
     host_tracks_init();
     rev_clear();
-    memset(dly_buf, 0, sizeof dly_buf);                         /* (the delay and chorus quiet: only the reverb) */
     memset(cho_buf, 0, sizeof cho_buf);
     fx.rtype = 0;
     for (b = 0; b < 4u * FS / CTL; b++) {
@@ -300,7 +291,7 @@ static void test_switch(void)
             c[i] = d[i] = 0;
             r[i] = b < FS / CTL ? (int32_t)(30000 * sin(2 * M_PI * 220 * (b * CTL + i) / FS)) : 0;
         }
-        fx_buses(c, d, r, w, CTL);
+        fx_buses(c, r, w, CTL);
         for (i = 0; i < CTL; i++) {
             int32_t s = abs(w[i] - prev);
             if (b >= 2u * FS / CTL - 4u && b <= 2u * FS / CTL + 4u)
@@ -316,7 +307,7 @@ static void test_switch(void)
              step, own, after);
     check(what, step <= 2 * own + 64 && after == 0 && fx.rtype == 1);
     song.g[G_RTYPE] = 0;
-    fx_buses(c, d, r, w, CTL);
+    fx_buses(c, r, w, CTL);
     check("  and back to ROOM", fx.rtype == 0);
 }
 
@@ -338,7 +329,7 @@ static double cost_of(int what)              /* 0 rev_room, 1 rev_spring, 2 fx_b
     i0 = instr_now();
     for (b = 0; b < nb; b++) {
         if (what >= 2)
-            fx_buses(c, d, r, w, CTL);
+            fx_buses(c, r, w, CTL);
         else if (what)
             rev_spring(r, w, CTL);
         else

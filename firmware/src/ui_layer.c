@@ -169,7 +169,7 @@ static void layer_tap(uint32_t l)
 
 /* EDIT: a sound load in the layer. The first one takes the undo copy as the track is now (when the layer
  * opened, unless KNOB 2 / 3 had loaded already), so OCT- and SAVE held go back to it */
-static uint32_t snd_id(void) { return TSEL->eng_req | (uint32_t)TSEL->preset << 8 | (uint32_t)TSEL->user << 16; }
+static uint32_t snd_id(void) { return TSEL->eng_req | (uint32_t)TSEL->preset << 8 | (uint32_t)TSEL->user << 16 | (uint32_t)TSEL->user_native << 24; }
 static void edit_load(uint32_t e, int32_t step)
 {
     uint32_t id = snd_id();
@@ -502,7 +502,7 @@ static void layer_cards(uint32_t l)
                     perf_k[1] * 10, ICON_BITS);
         fmt_int(val, perf_k[2]);
         draw_column(2, "THROW", perf_k[2] ? val : "OFF", perf_k[2] ? "%" : "", perf_k[2] ? VAL(2u) : T_DIM,
-                    perf_k[2] * 10, ICON_DELAY);
+                    perf_k[2] * 10, ICON_REVERB);
         if (perf_harm_on()) {                           /* OCT UP / DN playing: KNOB 4 is its shimmer (SHIMR) */
             fmt_int(val, perf_k[3]);
             draw_column(3, "SHIMR", perf_k[3] ? val : "OFF", perf_k[3] ? "%" : "", perf_k[3] ? VAL(3u) : T_DIM,

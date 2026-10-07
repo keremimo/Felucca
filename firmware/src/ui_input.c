@@ -72,7 +72,7 @@ static uint32_t grid_leds(void)
  * 2 no ARP playing */
 static uint32_t arp_led(void)
 {
-    uint32_t k, on = 0, b = beat_samples();
+    uint32_t k, on = 0, b = seq_beat_samples();
     for (k = 0; k < NPART; k++)
         on |= trk[k].p[P_AMODE] && trk[k].nheld;
     return !on ? 2u : beat_pos < (beat_n ? b / 6u : b / 2u);
@@ -101,7 +101,7 @@ static void pattern_keys(uint32_t notes)
             else if (ui.pat_key != b + 1u) {
                 int rc = pattern_copy(TSEL, ui.pat_key - 1u, b);
                 ui.pat_copy = 1;
-                ui_message(rc == 2 ? "MOTION FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
+                ui_message(rc == 2 ? "PATTERN DATA FULL" : rc ? "STOP TO COPY" : "PATTERN COPIED");
                 ui.force = 1;
             }
         }
@@ -366,6 +366,7 @@ static void step_edit(uint32_t slot, int32_t steps)
             cursor_set(ui.cursor + steps);
         break;
     case 1:                                               /* NOTE: transpose the step */
+        st->flags &= (uint8_t)~SF_RECORDED;
         if (!st->n) {
             st->note[0] = last_note;
             st->n = 1;
@@ -378,9 +379,12 @@ static void step_edit(uint32_t slot, int32_t steps)
         last_note = st->note[0];
         break;
     case 2:                                               /* TIME: NOTE / TIE / REST (length: PRESETS) */
+        st->flags &= (uint8_t)~SF_RECORDED;
         st->time = (uint8_t)clamp((int32_t)st->time + (steps > 0 ? 1 : -1), ST_NOTE, ST_REST);
+        if (!st->hit && st->time == ST_REST) st->acc = 0;
         break;
     default: {                                            /* FLAG: - / ACC / SLD / A+S */
+        st->flags &= (uint8_t)~SF_RECORDED;
         uint32_t f = (st->flags & SF_ACCENT ? 1u : 0u) | (st->flags & SF_SLIDE ? 2u : 0u);
         f = (uint32_t)clamp((int32_t)f + (steps > 0 ? 1 : -1), 0, 3);
         st->flags = (uint8_t)((st->flags & ~(SF_ACCENT | SF_SLIDE)) | (f & 1u ? SF_ACCENT : 0u) | (f & 2u ? SF_SLIDE : 0u));
@@ -474,7 +478,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     if (pg->graph == GR_USER) {                           /* KNOB 1 the slot */
         if (slot == 0u)
-            ui.uslot = (uint8_t)clamp((int32_t)ui.uslot + steps, 0, UP_SLOTS - 1);
+            ui.uslot = (uint8_t)clamp((int32_t)ui.uslot + steps, 0, user_limit() - 1);
         return;
     }
     if (pg->graph == GR_PATS) {                          /* KNOB 1 the pattern */
@@ -607,8 +611,11 @@ static void act_do(void)
     }
 #endif
     if (cur_page()->graph == GR_FMSTORE) {                /* FM6: 1 STORE (into fm6_bslot), 2 SEND, 3 INIT */
-        if (c == 1u)
-            fm6_store(fm6_bslot);
+        if (c == 1u) {
+            if (transport_busy()) ui_message("STOP TO SAVE");
+            else if (native_used(ENGI_FM6,fm6_bslot)) confirm_open(CF_OVR_USER, fm6_bslot);
+            else fm6_store(fm6_bslot);
+        }
         else if (c == 2u)
             fm6_send();
         else if (c == 3u)
@@ -619,13 +626,14 @@ static void act_do(void)
     if (cur_page()->graph == GR_USER) {                   /* 1 LOAD, 2 ERASE, 3 SAVE (the NAME screen first) */
         if (c > 1u)
             ui.act = 0;
-        if (c == 2u && up_used(ui.uslot) && !transport_busy())
+        ui.uslot %= user_limit();
+        if (c == 2u && user_used(ui.uslot) && !transport_busy())
             confirm_open(CF_ERASE_USER, ui.uslot);        /* ERASE: the dialog first */
         else if (c != 3u)
-            up_ui(c - 1u, ui.uslot);
+            user_ui_named(c - 1u, ui.uslot, 0);
         else if (transport_busy())
             ui_message("STOP TO SAVE");
-        else if (up_used(ui.uslot))
+        else if (user_used(ui.uslot))
             confirm_open(CF_OVR_USER, ui.uslot);
         else
             name_open(NK_USER_SAVE, ui.uslot);
@@ -765,6 +773,7 @@ static void seq_entry_notes(const uint8_t *n, uint32_t cnt)
         step_history.cursor_before = ui.cursor;
         ui.entry_open = 1;
         st->n = 0;
+        st->flags &= (uint8_t)~SF_RECORDED;
         st->time = ST_NOTE;
     }
     if (t->p[P_VOICE] && !ENGINES[t->engine]->oneshot) {   /* (drums: hits stack as a chord) */
@@ -983,7 +992,6 @@ static void ui_input(void)
     } else {
         ui.step_mods = ui.step_used = ui.step_oct_used = ui.step_move = 0;
     }
-    cz_bank_poll();
     fm6_poll();                                         /* FM6: PTCH turned -> its patch */
 #if !MELODEE_FM4
     for (k = 0; k < NTRK; k++)                          /* a DIGITAL sound any other way (the paths convert it */
@@ -1094,7 +1102,7 @@ static void ui_input(void)
             } else if (kind == CF_OVR_USER) {
                 name_open(NK_USER_SAVE, ui.confirm_trk);
             } else if (kind == CF_ERASE_USER) {
-                up_ui(1u, ui.confirm_trk);
+                user_ui_named(1u, ui.confirm_trk, 0);
             } else if (kind == CF_LOAD_PAT) {
                 pat_load_ui(&trk[ui.confirm_trk % NTRK], pat_pick());
                 str_cpy(ui.msg2, "[SAVE] HOLD TO UNDO", sizeof ui.msg2);
@@ -1341,6 +1349,7 @@ static void ui_input(void)
         }
         ui.step_move = (ui.step_mods & ui.step_used) != 0u;
     }
+    if (recording_full) { recording_full = 0; ui_message("RECORDING FULL"); }
     step_history_end();                                 /* (seq_undo.c: this frame's STEP edit) */
     ui_notices();
 }

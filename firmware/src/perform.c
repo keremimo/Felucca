@@ -18,7 +18,7 @@
  * The buffer: the SLICER's recordings (sl_buf, 32 KB) borrowed as one stereo loop of 8192 frames at 22.05 kHz
  * (371 ms). While borrowed, STUT tracks play live; their recordings are dropped afterwards. A REPEAT 1/8 or
  * REVERSE longer than the loop at the tempo (below 81 BPM) does nothing (the map shows it dimmed).
- * KNOB 1..4 with FX: the macros FILTER (the LPF / HPF), CRUSH, THROW (the dry mix into the delay and reverb
+ * KNOB 1..4 with FX: the macros FILTER (the LPF / HPF), CRUSH, THROW (the dry mix into the reverb
  * sends), DEPTH (the buffer effects' level; OCT UP / DN: the shimmer).
  * Chain: [REPEAT / REVERSE / TAPE / FREEZE] -> LPF -> HPF -> CRUSH, after the master level and before
  * master_out (the limiter); THROW and the mutes act before the buses (fx.c mix_block / mix_part).
@@ -290,8 +290,8 @@ static __attribute__((noinline)) void perf_mute(uint32_t k, int32_t *b, uint32_t
     pf.mg[k] = g;
 }
 
-/* before the buses: THROW (KNOB 3) adds the dry mix to the delay and reverb sends */
-static __attribute__((noinline)) void perf_pre(const int32_t *ml, const int32_t *mr, int32_t *sd, int32_t *sr,
+/* before the buses: THROW (KNOB 3) adds the dry mix to the reverb sends */
+static __attribute__((noinline)) void perf_pre(const int32_t *ml, const int32_t *mr, int32_t *sr,
                                                uint32_t n)
 {
     uint32_t i;
@@ -300,7 +300,6 @@ static __attribute__((noinline)) void perf_pre(const int32_t *ml, const int32_t 
         pf.td += clamp(m - pf.td, -SL_SLOPE, SL_SLOPE);
         if (pf.td) {
             int32_t x = mulq16((ml[i] + mr[i]) >> 1, (uint32_t)pf.td << 1);
-            sd[i] += x;
             sr[i] += x;
         }
     }

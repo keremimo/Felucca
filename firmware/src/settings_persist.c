@@ -63,6 +63,7 @@ static int settings_import(persist_t *p, int n)
     settings_hold = (uint8_t)hold_from_stored(p->bold);
 #ifdef MELODEE_FAVORITES
     memcpy(&favorites, &p->favorites, sizeof favorites);
+    favorites_user_hi = p->ext.spare[0];
     favorites.filter = favorites.filter == 1u;
 #if defined(FM4_NPRESETS) && !MELODEE_FM4
     {   /* DIGITAL's starred presets (engine 1, retired) -> the FM6 presets that cover them (fm4_convert.c) */
@@ -90,6 +91,7 @@ static void settings_export(persist_t *p)
     p->bold = hold_to_stored(p->bold, settings_hold);
 #ifdef MELODEE_FAVORITES
     memcpy(&p->favorites, &favorites, sizeof favorites);
+    p->ext.spare[0] = favorites_user_hi;
 #endif
 #if MELODEE_USB_AUDIO
     p->ext.usb_off = ua_off;

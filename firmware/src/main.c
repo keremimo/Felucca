@@ -10,8 +10,9 @@ extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
 /* TIMER5 outranks ALNK0, so the scan keeps its 100 us pace while a half buffer renders: before,
  * the ticks stopped for the whole render (0.7 ms idle, several ms loaded), the column lit when it
  * began stayed lit that long (a ~16 Hz flicker over all LEDs, beating with the scan) and the
- * encoders lost frames. Nested in ALNK0 it only scans (GPIO + fm1_in, nothing the audio ISR touches)
- * and counts ms; USB and UART polls wait for the first tick after the render, as they always did,
+ * encoders lost frames. Nested in ALNK0 it scans GPIO, counts ms and receives TRS MIDI;
+ * USB MIDI polls wait for the first tick after the render,
+ * while UART input keeps polling into its single-producer MIDI queue,
  * and the time spent nested is handed to the audio ISR so its load figures stay render-only.
  * The USB audio streams cannot wait for the render (a packet each way per 1 ms frame, a render takes up to
  * ~5 ms): ua_service also runs nested, by elapsed time (every 250 us at most: work spanning ticks does not
@@ -57,6 +58,14 @@ void fm1_timer5_irq(void)
         }
     }
 #endif
+    /* TRS RX only touches its DMA ring and publishes timestamped input. It
+     * can safely nest in audio; deferring it made clock jitter depend on load. */
+#if MELODEE_UART
+    if (owed & 2u) {
+        uart_midi_poll();
+        owed &= ~2u;
+    }
+#endif
     if (melodee_dbg.in_audio) {
         melodee_dbg.nested++;
         t5_nested_ticks += fm1_ticks() - t0;
@@ -64,10 +73,6 @@ void fm1_timer5_irq(void)
     }
     if (owed & 1u)
         usb_poll();
-#if MELODEE_UART
-    if (owed & 2u)
-        uart_midi_poll();
-#endif
     owed = 0;
 }
 extern void isr_timer5(void);

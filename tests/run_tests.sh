@@ -86,6 +86,9 @@ run() { echo "== $1"; shift; "$@" || fail=1; }
 $CC -o "$OUT/storage_test" tests/storage_test.c
 run "flash storage (A/B, torn writes)" "$OUT/storage_test"
 
+$CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_preset_test" tests/fm6_preset_test.c -lm
+run "native FM6/CZ user presets, scrolling, migration and interrupted saves" "$OUT/fm6_preset_test"
+
 $CC -o "$OUT/upreset_test" tests/upreset_test.c
 run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM -> DRUM, grid records, DIGITAL kept)" "$OUT/upreset_test"
 
@@ -132,6 +135,10 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "32 pattern banks: chords, ties, independent loop switching, copy and persistence" "$OUT/pattern_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_control_test" tests/midi_control_test.c -lm
     run "USB/TRS clock, bend, sustain, ownership and panic recovery" "$OUT/midi_control_test"
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_timing_test" tests/midi_timing_test.c -lm
+    run "MIDI timing: quantized TRS/USB recording, audio timeline, tempo changes and timer wrap" "$OUT/midi_timing_test"
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/recording_test" tests/recording_test.c -lm
+    run "MIDI recording: raw events, reversible quantization, independent releases, banks and capacity" "$OUT/recording_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_scale_test" tests/midi_scale_test.c -lm
     run "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" "$OUT/midi_scale_test"
     $CC -O1 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/digital_test" tests/digital_test.c -lm

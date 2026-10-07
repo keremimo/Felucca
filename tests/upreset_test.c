@@ -96,8 +96,8 @@ int main(void)
         bad += check("short optional tail rejected", up_parse(a, n + 1u, &r, &slot) == 1 &&
                                                        !memcmp(&r, &keep, sizeof r));
     }
-    n = put_frame(a, 32, 0, "X", 0);
-    bad += check("UP_PUT slot 32 -> args", up_parse(a, n, &r, &slot) == 1);
+    n = put_frame(a, UP_SLOTS, 0, "X", 0);
+    bad += check("UP_PUT past last slot -> args", up_parse(a, n, &r, &slot) == 1);
     n = put_frame(a, 0, NENGINES, "X", 0);
     bad += check("UP_PUT bad engine -> args", up_parse(a, n, &r, &slot) == 1);
     n = put_frame(a, 3, ENGI_DIGITAL, "OLD FM", 0);   /* (DIGITAL, retired: a record keeps it, its load converts) */
