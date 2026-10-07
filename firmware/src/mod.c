@@ -196,7 +196,7 @@ static __attribute__((noinline)) void mod_voice(track_t *t, voice_t *v, vmod_t *
     }
     if (pit) {
         m->pitch16 = clamp(m->pitch16 + pit, 0, 2047);
-        m->inc = pitch_inc(m->pitch16);
+        m->inc = tuned_pitch_inc(m->pitch16);
         if (fine)
             m->inc += (uint32_t)((int32_t)(m->inc >> 12) * fine);
     }

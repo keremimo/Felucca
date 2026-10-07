@@ -148,7 +148,7 @@ static __attribute__((noinline)) void phys_symp_pitches(const track_t *t, const 
         int32_t p16 = PHYS_DETUNE[k];
         p16 += c < 7u ? m->pitch16 + ((PHYS_CHORDS[c][k] * 41) >> 8)   /* cents -> 1/16 semitones (0.16) */
                       : (48 + t->p[P_ROOT] + (k == 1u ? 7 : k == 2u ? 12 : 0)) * 16;
-        f[k] = pitch_inc(clamp(p16, 0, 2047));
+        f[k] = tuned_pitch_inc(clamp(p16, 0, 2047));
     }
 }
 

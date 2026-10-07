@@ -60,7 +60,7 @@ static uint32_t noise_inc(int32_t p)
         p -= 192;
         sh++;
     }
-    inc = pitch_inc((uint32_t)clamp(p, 0, 2047));
+    inc = tuned_pitch_inc((uint32_t)clamp(p, 0, 2047));
     return sh && inc >= 0x80000000u >> (sh - 1u) ? 0xFFFFFFFFu : inc << sh;
 }
 

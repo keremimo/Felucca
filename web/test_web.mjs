@@ -256,6 +256,14 @@ async function editorMock() {
   ok(st.n === 2 && st.notes[1] === 64 && st.vel === 100, "editor: STEP_SET");
   const pj = E.parse[E.CMD.PROJECT](await rq(E.req.project(1, 2), { timeout: 4000, retries: 0 }));
   ok(pj.used === 1, "editor: PROJECT save");
+  {
+    const desc = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 21)));
+    const set = E.parse[E.CMD.SET](await rq(E.req.set(1, 21, 432)));
+    await rq(E.req.project(0, 2));
+    const got = E.parse[E.CMD.GET](await rq(E.req.get(1, 21)));
+    ok(desc.label === "A4" && desc.unit === "Hz" && desc.min === 400 && desc.max === 480 &&
+       set.value === 432 && got.value === 432, "editor: A4=432 Hz is independent of project loads");
+  }
   /* sample upload as smpUpload() does it */
   const s = Int16Array.from({ length: 3000 }, (_, i) => Math.round(8000 * Math.sin(i / 7)));
   const { hdr, data } = E.buildSlot("test", [{ s, root: 60 }]);

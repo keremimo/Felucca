@@ -143,6 +143,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" "$OUT/seq_notes_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_scale_test" tests/midi_scale_test.c -lm
     run "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" "$OUT/midi_scale_test"
+    $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/tuning_test" tests/tuning_test.c -lm
+    run "Concert pitch: A4 frequency, engines, modulation, held notes and project-independent settings" "$OUT/tuning_test"
     $CC -O1 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/digital_test" tests/digital_test.c -lm
     run "DIGITAL (retired, built here with MELODEE_FM4=1): operator envelopes/levels" "$OUT/digital_test"
     $CC -O2 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/fm4_test" tests/fm4_test.c -lm

@@ -100,7 +100,10 @@ static struct {
     uint32_t tpos, pattern_gen;
 } ed_w;
 
-static int16_t *ed_val(uint32_t i) { return i < P_COUNT ? &TSEL->p[i] : &song.g[i - P_COUNT]; }
+static int16_t *ed_val(uint32_t i)
+{
+    return i < P_COUNT ? &TSEL->p[i] : i == P_COUNT + G_A4 ? &tuning_a4 : &song.g[i - P_COUNT];
+}
 static uint32_t ed_step_sig(const step_t *s)
 {
     return ((uint32_t)s->note[0] | (uint32_t)s->note[1] << 7 | (uint32_t)s->note[2] << 14 | (uint32_t)s->note[3] << 21) ^
@@ -215,7 +218,7 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
         return ed_tdesc(TSEL, id);
     }
     if (scope == 1 && id < G_COUNT) {
-        *vp = &song.g[id];
+        *vp = ed_val(P_COUNT + id);
         return &GP[id];
     }
     return 0;
@@ -423,6 +426,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                 set_engine((uint32_t)clamp(ed_rv(a + 2), 0, NENGINES - 1));
             } else if (d->max > d->min) {
                 *vp = (int16_t)enum_orig(d, clamp(ed_rv(a + 2), d->min, d->max));
+                if (a[0] == 1 && a[1] == G_A4)
+                    settings_save();
                 if (a[0] == 0) {
                     (void)motion_capture(TSEL, a[1], *vp);
                     load_extend(TSEL);                      /* (ui.c undo: an audition's values after G_ENGSEL) */
@@ -445,7 +450,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         for (i = 0; i < P_COUNT; i++)
             ed_v(motion_base_value(TSEL, i));
         for (i = 0; i < G_COUNT; i++)
-            ed_v(song.g[i]);
+            ed_v(*ed_val(P_COUNT + i));
         break;
     case ED_DESC:
         if (na < 2u || !(d = ed_desc(a[0], a[1], &vp)))
