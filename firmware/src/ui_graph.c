@@ -539,6 +539,15 @@ static void fm_loop(int32_t x, int32_t y, uint16_t c)
     cv_rect(x, y - 4, 1, 4, c);
     cv_line(x - 2, y - 3, x - 1, y - 2, c); cv_line(x + 2, y - 3, x + 1, y - 2, c);
 }
+/* A return from a lower operator, outside the right edge of the whole stack. */
+static void fm_stack_loop(int32_t x, int32_t from_y, int32_t to_y, uint16_t c)
+{
+    cv_rect(x + 11, from_y + 5, 5, 1, c);
+    cv_rect(x + 15, to_y - 4, 1, from_y + 10 - to_y, c);
+    cv_rect(x, to_y - 4, 15, 1, c);
+    cv_rect(x, to_y - 4, 1, 4, c);
+    cv_line(x - 2, to_y - 3, x - 1, to_y - 2, c); cv_line(x + 2, to_y - 3, x + 1, to_y - 2, c);
+}
 /* the output bus under the carriers (the leftmost at cl, the rightmost at cr) at y bus, an arrow out on the right */
 static void fm_bus(int32_t cl, int32_t cr, int32_t bus)
 {
@@ -590,6 +599,16 @@ static uint32_t fm6_fb_op(uint32_t a)
         ;
     return k;
 }
+/* MARK I returns OP4 / OP5 in algorithms 4 / 6; MODERN and OPL return OP6 itself. */
+static uint32_t fm6_fb_source(uint32_t a, uint32_t eng)
+{
+    uint32_t k, src = fm6_fb_op(a);
+    if (eng == FM6_MARK1)
+        for (k = 0; k < 6u; k++)
+            if (FM6_ALG[a & 31u][k] & FM6_FBOUT)
+                src = 5u - k;
+    return src;
+}
 /* the carriers of algorithm a: bit k operator k + 1 (fm6_carriers counts the sixth first) */
 static uint32_t fm6_car_ops(uint32_t a)
 {
@@ -610,6 +629,7 @@ static uint32_t fm6_alg_of(const track_t *t)
 static void graph_fm6(const track_t *t, uint16_t c)
 {
     uint32_t alg = fm6_alg_of(t), k, j, car = fm6_car_ops(alg), top = 0, hi = 0, fbop = fm6_fb_op(alg), hotset = 0;
+    uint32_t fbsrc = fm6_fb_source(alg, fm6_fn[(t - trk) % NTRK][FN_ENGINE]);
     uint32_t hot = ui.hot_t ? (uint32_t)cur_page()->id[ui.hot_col & 3u] : 0u;
     const uint8_t *pt = fm6_patch[(t - trk) % NTRK];
     int32_t x[6], y[6], bus, cl = 240, cr = 0, fb = clamp(pt[FP_FB] + t->p[P_E1], 0, 7);
@@ -654,8 +674,11 @@ static void graph_fm6(const track_t *t, uint16_t c)
     }
     FM6_CHART_HOOK(FMH_BUS, 0, 0);
     fm_bus(cl, cr, bus);
-    FM6_CHART_HOOK(FMH_FB, fbop, 0);
-    fm_loop(x[fbop], y[fbop], hot == P_E1 ? T_ACCENT : fb ? T_MID : T_DIM);
+    FM6_CHART_HOOK(FMH_FB, fbop, fbsrc);
+    if (fbsrc != fbop)
+        fm_stack_loop(x[fbop], y[fbsrc], y[fbop], hot == P_E1 ? T_ACCENT : fb ? T_MID : T_DIM);
+    else
+        fm_loop(x[fbop], y[fbop], hot == P_E1 ? T_ACCENT : fb ? T_MID : T_DIM);
     for (k = 0; k < 6u; k++) {
         uint32_t on = pt[(5u - k) * FP_OP + FP_OL] != 0, fill_c = (car >> k & 1u) && on;
         uint16_t f = hotset >> k & 1u ? T_ACCENT : c, fill = fill_c ? f : T_RAISE;
@@ -797,7 +820,7 @@ static uint32_t graph_signature(void)
                                    (MELODEE_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
     if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm, levels, FB) */
-        h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u;
+        h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + fm6_fn[(t - trk) % NTRK][FN_ENGINE] * 40503u;
     if (pg->graph == GR_STEPS || pg->graph == GR_ROLL || pg->graph == GR_CHANCE) {
         uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
         if (pg->graph != GR_STEPS && ph / 16u != ui.bank)

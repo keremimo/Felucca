@@ -3736,8 +3736,8 @@ static int test_fm_charts(void)
 
 /* The FM6 algorithm charts (ui_graph.c graph_fm6: FM6_CELL, its routes fm6_routes and feedback operator
  * fm6_fb_op read from fm6_core.c FM6_ALG) against the 32 algorithms of 6-operator FM written out here as
- * "source>destination" routes, the carriers and the operator with feedback (fm6_core.c's: on algorithms 4 and
- * 6 the loop is the sixth operator's own, as msfa plays it). Also against the core itself: the carriers
+ * "source>destination" routes, the carriers and the feedback destination. MARK I's feedback return comes
+ * from OP4 / OP5 on algorithms 4 / 6, while MODERN and OPL return OP6. Also against the core itself: the carriers
  * fm6_carriers (fm6_car_ops), the feedback flags. The layout: the carriers on the bottom row and only they, a modulator one
  * row above everything it modulates, one operator per cell, columns 0..5, at most 4 rows. (The charts as drawn:
  * tests/ui_render.c's lint, fm6_lint.) */
@@ -3755,7 +3755,7 @@ static int test_fm6_charts(void)
         {"6>4 6>5", "12345", '6'}, {"3>2 5>4 6>4", "124", '6'}, {"3>2 5>4 6>4", "124", '3'},
         {"2>1 4>3 5>4", "136", '5'}, {"4>3 6>5", "1235", '6'}, {"4>3 5>4", "1236", '5'},
         {"6>5", "12345", '6'}, {"", "123456", '6'}};
-    uint32_t a, k, j, routes = 1, layout = 1, core = 1;
+    uint32_t a, k, j, routes = 1, layout = 1, core = 1, feedback = 1;
     for (a = 0; a < 32u; a++) {
         uint8_t m[6], want[6] = {0, 0, 0, 0, 0, 0};
         uint32_t car = 0, ok = 1, fbs = 0;
@@ -3774,6 +3774,9 @@ static int test_fm6_charts(void)
             printf("ui: FM6 algorithm %u: fm6_core.c's carriers / feedback differ\n", a + 1u);
             core = 0;
         }
+        feedback &= fm6_fb_source(a, FM6_MARK1) == (a == 3u ? 3u : a == 5u ? 4u : (uint32_t)(ALGS[a].fb - '1'));
+        feedback &= fm6_fb_source(a, FM6_MODERN) == (uint32_t)(ALGS[a].fb - '1');
+        feedback &= fm6_fb_source(a, FM6_OPL) == (uint32_t)(ALGS[a].fb - '1');
         for (k = 0; k < 6u; k++) {
             uint32_t row = FM6_CELL[a][k] >> 4, outs = 0;
             if ((row == 0u) != ((car >> k) & 1u) || (FM6_CELL[a][k] & 0x0Fu) > 5u || row > 3u) ok = 0;
@@ -3786,7 +3789,8 @@ static int test_fm6_charts(void)
         if (!ok) { printf("ui: FM6 algorithm %u: the chart's layout is off\n", a + 1u); layout = 0; }
     }
     return check("FM6 charts: the 32 algorithms' routes, carriers and feedback operator equal fm6_core.c's", routes && core) +
-           check("FM6 charts: carriers on the bottom row, modulators a row up, one per cell, at most 4 rows", layout);
+           check("FM6 charts: carriers on the bottom row, modulators a row up, one per cell, at most 4 rows", layout) +
+           check("FM6 charts: MARK I returns OP4 / OP5 in 4 / 6; MODERN and OPL return the feedback operator", feedback);
 }
 
 #if !MELODEE_FM4
