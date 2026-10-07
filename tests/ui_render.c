@@ -128,7 +128,8 @@ static void fmp_check(uint32_t alg)
                         fmp_find(alg, "FM6 part through a box", i, x, y, j);
                     else if (x >= bx0[j] - 1 && x <= bx1[j] + 1 && y >= by0[j] - 1 && y <= by1[j] + 1 &&
                              !((fmp_kind[i] == FMH_ROUTE && (fmp_a[i] == fmp_a[j] || fmp_b[i] == fmp_a[j])) ||
-                               ((fmp_kind[i] == FMH_CAR || fmp_kind[i] == FMH_FB) && fmp_a[i] == fmp_a[j])))
+                               (fmp_kind[i] == FMH_CAR && fmp_a[i] == fmp_a[j]) ||
+                               (fmp_kind[i] == FMH_FB && (fmp_a[i] == fmp_a[j] || fmp_b[i] == fmp_a[j]))))
                         fmp_find(alg, "FM6 part touches a box", i, x, y, j);
                 }
                 for (dy = -1; dy <= 1; dy++)              /* another net on this pixel or next to it */
@@ -1055,17 +1056,24 @@ int main(int argc, char **argv)
                 if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], S_NAME[s]);
         }
     {   /* every FM6 chart (the lint above, fmp_check, runs on each), in MONO: gray */
-        uint32_t a, c0 = fmp_charts;
+        uint32_t a, e, c0 = fmp_charts;
+        for (e = FM6_MODERN; e <= FM6_OPL; e++)
         for (a = 1; a <= 32u; a++) {
             char name[32];
-            snprintf(name, sizeof name, "FM6 ALG %u", a);
+            snprintf(name, sizeof name, "FM6 engine %u ALG %u", e, a);
             cur_name = name;
             state(); pal(UI_MONO_INDEX); eng(ENGI_FM6); TSEL->p[P_E0] = (int16_t)a; go_title("EDIT 1");
+            fm6_fn_set(song.sel, FN_ENGINE, (int32_t)e);
             draw(-1);
             lint();
             mono_check();
+            if (a >= 3u && a <= 6u) {
+                char image[32];
+                snprintf(image, sizeof image, "fm6_engine_%u_alg_%02u", e, a);
+                write_ppm(out, "MONO", image);
+            }
         }
-        if (fmp_charts - c0 != 32u) { fprintf(stderr, "ui_render: %u FM6 charts drawn of 32\n", fmp_charts - c0); return 1; }
+        if (fmp_charts - c0 != 96u) { fprintf(stderr, "ui_render: %u FM6 charts drawn of 96\n", fmp_charts - c0); return 1; }
     }
     sweep_columns();
     roll_frames(argc > 2 ? argv[2] : 0);
