@@ -33,10 +33,10 @@ runs Felucca.
 - **CZ-1**, a new engine playing native Casio CZ-1 tones: two lines, each with its own eight-step pitch,
   timbre and volume envelopes, the CZ's waveforms and windows, ring and noise modulation, detune, vibrato,
   key follow, line levels and velocity sensitivity (from MIDI)
-- **Casio's 64 CZ-1 preset tones** (A-1 BRASS 1 to H-8 TYPHOON SOUND) as CZ-1's presets, and in banks A–D
-  until you save your own there
-- **Eight CZ-1 banks** of 16 tones, kept on the device: import and export Casio .syx tones and banks in the
-  web editor, pick them with BANK / PTCH on the device; full backups include them
+- **Casio's 64 CZ-1 preset tones** (A-1 BRASS 1 to H-8 TYPHOON SOUND) as CZ-1's factory presets
+- **Native user presets:** 64 FM6 voices and 128 CZ-1 tones in separate collections, alongside 64 general
+  user presets. Scroll and favorite them in PRESETS; import/export Dexed/DX7 and Casio .syx in the editor.
+  Native slots store only the tone, so loading keeps the track's effects and patterns
 - **Every tone value on the device:** 38 EDIT pages for the lines, detune, vibrato, windows and the six
   envelopes, and CZ TOOLS (NAME, copy line 1 > 2 or 2 > 1, COMPARE). A value that has no effect on the
   tone as it is (line 2 in LINE1, steps after END, vibrato without DEPTH) is drawn dim
@@ -100,7 +100,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   (OCT UP / OCT DN with shimmer), and mutes on the black keys
 - **Quick layers:** hold FX, GLO, SCL or EDIT for shortcuts on the keys and knobs; one-step undo
   (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
-- **Presets:** factory presets, 32 user preset slots and 4 projects, named on the device;
+- **Presets:** factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots and 4 projects, named on the device;
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
 - **Screen:** flat UI with Inter Tight and Fukiai icons, 8 palettes including grayscale and high contrast;
   HOME shows the played notes and recognized chords above the live waveform, retaining the last voicing after release
@@ -116,7 +116,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   and the keys send on the track's channel; pitch bend, sustain, panic; clock from internal, USB or TRS;
   GLO > SYSTEM KNOB 1 shows the USB or the TRS input's status (RX while it receives; both always play)
 - **Web:** editor for every parameter (with a 6-operator FM patch editor), step grid, mixer,
-  preset library and FM6 bank; full backup and restore; return to the official firmware
+  preset library and FM6 voice editor; full backup and restore; return to the official firmware
 
 ## Controls
 
@@ -219,7 +219,19 @@ multi-pattern projects/settings/templates and incompatible 58/62-parameter user 
 User sample slots USR1–3 and sample uploads are removed; their flash space now stores projects.
 SAMPLE, GRAIN, SLICE, OBXF and the custom drum kit are removed; only synthesized 808 drums remain. Earlier sample data is overwritten as projects
 are saved. Complete backups with nonempty user samples require firmware that supports those slots.
-The FM6 bank has explicit conversion for earlier Melodee and Felucca banks.
+FM6 and CZ-1 have independent native user collections: F001–F064 store the 128-byte Dexed/DX7
+voice, and Z001–Z128 store the complete 144-byte Casio tone. They appear alongside factory tones
+in normal global and engine-specific preset scrolling, and can be favorited. SAVE > USER selects
+the current engine's collection; FM6 > STORE uses those same FM6 slots. Native saves exclude
+Felucca effects, envelopes, modulation settings and patterns. Loading keeps these track settings;
+when changing engines, only engine-specific controls receive their defaults.
+
+The 64 general U01–U64 slots remain available for other engines. First boot copies saved FM6
+voices and saved CZ banks into their native collections, imports embedded CZ user tones into free
+CZ slots, and releases successfully migrated general slots. If CZ's collection is full, unmatched
+legacy tones stay in their general slots. Migration and saves use atomic flash writes; full backups
+include both collections. The editor's User presets collection selector imports/exports .syx directly.
+Going back to older firmware cannot access these new native FM6 slots or U33–U64.
 
 ## Engines
 
@@ -248,18 +260,17 @@ as FM6 sounds converted from them.
 **SLICER** (FX page, every track): a tempo-synced 16-step gate or stutter, with 16 patterns.
 
 CZ-1 opens with a native INIT TONE; PRESETS then lists Casio's 64 CZ-1 preset tones (A-1 BRASS 1 to
-H-8 TYPHOON SOUND), which also fill BANK A–D until you save your own bank there. Imported Casio tones use
+H-8 TYPHOON SOUND). The separate 128-slot user collection starts empty. Imported Casio tones use
 their original oscillator and six eight-point envelope parameters. PHASE remains independently selectable with its
 LINK/SPLIT controls and six factory presets.
 
 **Native CZ-1 SysEx**: choose CZ-1 in the web editor, then **CZ-1 native patches → Import .syx**.
 Select a tone from the imported bank and **Send to track**. **Read track** retrieves its original tone;
-**Export .syx** writes a CZ-1-compatible tone. **Add to library** and the library's device-bank upload
-save native tones. CZ-1 also has eight dedicated banks of 16 tones (128 slots),
-with named banks, complete .syx bank import/export and persistent device storage.
-BANK / PTCH on the device choose bank A–H and slot 1–16 (0 initializes a tone); a bank never saved holds
-the factory tones (A: CZ-1 A-1..B-8, B: C-1..D-8, C: E-1..F-8, D: G-1..H-8; E–H empty).
-Full backups include these banks. Both lines have separate eight-point DCO/DCW/DCA envelopes, including sustain,
+**Export .syx** writes a CZ-1-compatible tone. **Add to library** retains it for later use.
+In **User presets**, choose **CZ-1**, then import .syx into free native slots or save the current track's
+native tone. Export writes the collection as Casio frames. The device scrolls these tones in PRESETS;
+there is no BANK / PTCH selection page. Full backups include all 128 slots.
+Both lines have separate eight-point DCO/DCW/DCA envelopes, including sustain,
 end points, velocity sensitivity and key follow. The original 144-byte CZ-1 tone survives user presets,
 projects, templates and library export; it is not reduced to common ADSR values. Compatible 128-byte
 CZ tones are accepted with CZ-1 defaults for fields they lack. See [format and fidelity notes](docs/CZ1_SYSEX.md).

@@ -39,8 +39,8 @@ static inline void *fl_far(void *p) { void *volatile q = p; return q; }
 #define FL_DATA_HI      0x000E0000u
 #define FL_GLOB_LO      0x000FC000u                /* Melodee superblock / globals */
 #define FL_GLOB_HI      0x000FF000u
-#define FL_BANK_EXT_LO  0x000EA000u                /* project extension copies, unused USR area */
-#define FL_BANK_EXT_HI  0x000FA000u
+#define FL_BANK_EXT_LO  0x000E5000u                /* expanded presets and project extension copies; after OTA staging */
+#define FL_BANK_EXT_HI  0x000FB000u
 #define FL_OTA_LO       0x000E0000u                /* M-UPGRADE loader staging, ota.c */
 #define FL_OTA_HI       0x000E5000u
 /* [off, off + n) inside [lo, hi), without wrapping: off + n can overflow, and

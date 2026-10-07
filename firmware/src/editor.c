@@ -273,6 +273,7 @@ static int ed_flash_stop(void)
 #include "editor_backup.c"
 #include "editor_fm6.c"
 #include "editor_cz.c"
+#include "editor_native.c"
 
 static void ed_motion_reply(uint32_t k, uint32_t rc)
 {
@@ -332,6 +333,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_cz_handle(cmd, a, na)) { ed_send(); return; }
+    if (ed_native_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
 #if MELODEE_USB_AUDIO
     case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 adds voice counters (schema 3); otherwise schema 2 */
@@ -407,8 +409,9 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x4d); ed_b(1); ed_b(MOTION_MAX); ed_b(1); /* motion + chance v1 */
         ed_b(0x42); ed_b(1); ed_b(3); /* bounded full-backup read + restore */
         ed_b(0x50); ed_b(1); ed_b(NPAT); ed_b(CHAIN_ROWS);     /* bank controls: 73/74 */
-        ed_b(0x46); ed_b(1); ed_b(FM6_NFAC); ed_b(FM6_BANK_N);   /* FM6 patches: cmds 68..71 */
-        ed_b(0x43); ed_b(1); ed_b(CZ_BYTES & 127u); ed_b(CZ_BYTES >> 7); ed_b(CZ_BANK_N); ed_b(CZ_BANK_SLOTS); /* native CZ + banks: 75..77 */
+        ed_b(0x46); ed_b(1); ed_b(FM6_NFAC); ed_b(0);   /* FM6 patches: cmds 68..71 */
+        ed_b(0x43); ed_b(1); ed_b(CZ_BYTES & 127u); ed_b(CZ_BYTES >> 7); ed_b(0); ed_b(0); /* old CZ bank controls retired */
+        ed_b(0x4e); ed_b(1); ed_b(NATIVE_FM_SLOTS); ed_b(0); ed_b(NATIVE_CZ_SLOTS&127u); ed_b(NATIVE_CZ_SLOTS>>7); /* native user pools, command 78 */
         break;
     case ED_GET:
     case ED_SET:

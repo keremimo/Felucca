@@ -27,7 +27,10 @@
  * Existing flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..): settings 0xFC000, projects 0x97000..0x9EFFF,
  * user sample slots 0xA0000..0xDBFFF (sample_data.c), user preset banks 0xDC000..0xDFFFF (upreset.c), the FM6
  * patch bank (fm6_bank.c): copy A 0x9F000, copy B 0xFE000 (the two free sectors) */
-enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_BANK0, OBJ_CZBANK0 = OBJ_BANK0 + 4, OBJ_COUNT = OBJ_CZBANK0 + 8 };
+/* Object numbers 0..19 stay fixed. U33..U64 use E5000..E8FFF;
+ * owned FM6 U01..U32 reuse the old bank pair, U33..U64 use E9000/FA000.
+ * E0000..E4FFF remains reserved for OTA loader staging. */
+enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK = OBJ_UPRESET0 + 2, OBJ_BANK0, OBJ_CZBANK0 = OBJ_BANK0 + 4, OBJ_UPRESET_EXT0 = OBJ_CZBANK0 + 8, OBJ_UPFM6_EXT = OBJ_UPRESET_EXT0 + 2, OBJ_NATIVEFM0, OBJ_COUNT = OBJ_NATIVEFM0 + 2 };
 
 typedef struct {
     uint32_t magic;
@@ -58,6 +61,9 @@ static uint32_t st_crc32(const void *p, uint32_t n)   /* zlib CRC-32, 4 bits per
 
 static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy A (0) / B (1) */
 {
+    if (obj >= OBJ_NATIVEFM0) return 0xD8000u + (obj - OBJ_NATIVEFM0) * 2u * ST_SECTOR + copy * ST_SECTOR;
+    if (obj == OBJ_UPFM6_EXT) return copy ? 0xFA000u : 0xE9000u;
+    if (obj >= OBJ_UPRESET_EXT0) return 0xE5000u + (obj - OBJ_UPRESET_EXT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj >= OBJ_CZBANK0)
         return 0xC8000u + (obj - OBJ_CZBANK0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     if (obj >= OBJ_BANK0)
@@ -72,7 +78,10 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
 }
 
 static int st_banked(uint32_t obj) { return obj >= OBJ_BANK0 && obj < OBJ_CZBANK0; }
-static uint32_t st_capacity(uint32_t obj) { return st_banked(obj) ? ST_BANK_BASE_MAX + ST_BANK_EXT_MAX : ST_PAYLOAD_MAX; }
+/* New preset objects start directly after the commit header, leaving the last
+ * 256 bytes erased so the SPL/update loader cannot interpret musical data as OTA. */
+static uint32_t st_payload_off(uint32_t obj) { return obj >= OBJ_UPRESET_EXT0 ? sizeof(st_hdr_t) : ST_PAYLOAD_OFF; }
+static uint32_t st_capacity(uint32_t obj) { return st_banked(obj) ? ST_BANK_BASE_MAX + ST_BANK_EXT_MAX : obj >= OBJ_UPRESET_EXT0 ? ST_SECTOR - 256u - sizeof(st_hdr_t) : ST_PAYLOAD_MAX; }
 static uint32_t st_extension(uint32_t obj, uint32_t copy)
 {
     return ST_BANK_EXT_LO + ((obj - OBJ_BANK0) * 2u + copy) * 2u * ST_SECTOR;
@@ -84,8 +93,8 @@ static uint32_t st_extension(uint32_t obj, uint32_t copy)
 static uint32_t st_address(uint32_t obj, uint32_t copy, uint32_t off, uint32_t *span)
 {
     if (!st_banked(obj) || off < ST_BANK_BASE_MAX) {
-        *span = (st_banked(obj) ? ST_BANK_BASE_MAX : ST_PAYLOAD_MAX) - off;
-        return st_sector(obj, copy) + ST_PAYLOAD_OFF + off;
+        *span = (st_banked(obj) ? ST_BANK_BASE_MAX : st_capacity(obj)) - off;
+        return st_sector(obj, copy) + st_payload_off(obj) + off;
     }
     off -= ST_BANK_BASE_MAX;
     *span = ST_PAYLOAD_MAX - off % ST_PAYLOAD_MAX;

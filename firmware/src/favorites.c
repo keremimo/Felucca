@@ -7,21 +7,25 @@ typedef struct {
     uint32_t user, filter;
 } favorites_t;
 static favorites_t favorites;
+static uint32_t favorites_user_hi;
 static int favorite_has(uint32_t engine, uint32_t preset)
 {
+    if(engine==USER_NATIVE_FM || engine==USER_NATIVE_CZ){if(preset>=(engine==USER_NATIVE_FM?64u:128u))return 0;preset+=engine==USER_NATIVE_FM?24u:65u;engine=engine==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ;}
     if (engine == NENGINES)
-        return preset < UP_SLOTS && ((favorites.user >> preset) & 1u);
+        return preset < UP_SLOTS && (((preset < 32u ? favorites.user : favorites_user_hi) >> (preset % 32u)) & 1u);
     return engine < NENGINES && engine < 16u && preset < 256u &&
         ((favorites.factory[engine][preset / 8u] >> (preset % 8u)) & 1u);
 }
 static int favorite_set(uint32_t engine, uint32_t preset, int on)
 {
+    if(engine==USER_NATIVE_FM || engine==USER_NATIVE_CZ){if(preset>=(engine==USER_NATIVE_FM?64u:128u))return 0;preset+=engine==USER_NATIVE_FM?24u:65u;engine=engine==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ;}
     if (engine > NENGINES || (engine == NENGINES ? preset >= UP_SLOTS : engine >= 16u || preset >= 256u))
         return 0;
     if (favorite_has(engine, preset) == !!on) return 0;
     if (engine == NENGINES) {
-        if (on) favorites.user |= 1u << preset;
-        else favorites.user &= ~(1u << preset);
+        uint32_t *word = preset < 32u ? &favorites.user : &favorites_user_hi;
+        if (on) *word |= 1u << (preset % 32u);
+        else *word &= ~(1u << (preset % 32u));
     } else {
         uint8_t *b = &favorites.factory[engine][preset / 8u];
         if (on) *b |= (uint8_t)(1u << (preset % 8u));

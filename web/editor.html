@@ -305,6 +305,8 @@
         <h2 data-t="bank" data-ic="port_disk"></h2>
         <p class="dim" id="bankhint"></p>
         <div id="bankpane" hidden>
+          <p class="bar"><label>Preset collection <select id="presetpool"><option value="0">General presets</option><option value="12">FM6 voices</option><option value="15">CZ-1 tones</option></select></label></p>
+          <p class="dim" id="nativehint" hidden>Native tones appear in the preset browser. Effects and track settings stay unchanged when loaded.</p>
           <div class="bar"><b id="bankhead"></b></div>
           <div class="list" id="banklist"></div>
           <p class="bar" style="margin-top:6px">
@@ -314,6 +316,7 @@
             <button id="bkerase" data-t="erase" data-ic="symbol_trash"></button>
           </p>
           <p class="bar">
+            <button id="bknativeimport" hidden>Import .syx</button><input id="bknativefile" type="file" accept=".syx" hidden>
             <button id="bkrefresh" data-t="reload" data-ic="control_arrow_loop"></button>
             <button id="bkexport" data-t="exportBank" data-ic="symbol_download"></button>
             <span class="dim" data-t="dndHelp"></span>
@@ -374,7 +377,7 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   TRACK_PARAM: 31, TRACK_CHANGED: 32, SONG: 33, PATTERN: 73, BANK_SONG: 74,
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
-  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77 };
+  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77, NATIVE: 78 };
 /* frames the device sends on its own (while WATCH is on); never replies */
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
 /* Native CZ-1 tones: the original 144 bytes, not the common parameter array. */
@@ -501,6 +504,14 @@ class Reader {
 }
 
 const parse = {
+  [CMD.NATIVE](a) {
+    const r=new Reader(a),o={engine:r.b(),op:r.b(),index:r.b(),rc:r.b()};
+    if(o.rc)return o;
+    if(o.op===0){o.count=r.b();o.total=r.b()|r.b()<<7;o.slots=Array.from({length:o.count},(_,i)=>({slot:o.index+i,engine:o.engine,used:!!r.b(),name:r.s()}));}
+    if(o.op===1)o.raw=o.engine===15?CZ.bytes(a.slice(4)):Array.from(a.slice(4));
+    if(o.op===7)o.user=r.b()|r.b()<<7;
+    return o;
+  },
   [CMD.CZ_BANK](a) { const r=new Reader(a),o={bank:r.b(),rc:r.b()};if(!o.rc){o.name=r.s();o.slots=Array.from({length:16},()=>({used:!!r.b(),name:r.s()}));}return o; },
   [CMD.CZ_GET](a) { if (a.length<3) throw new Error("Short CZ reply"); const r={target:a[0],index:a[1],rc:a[2]}; if(!r.rc)r.raw=CZ.bytes(a.slice(3));else if(a.length!==3)throw new Error("Invalid CZ reply");return r; },
   [CMD.CZ_PUT](a) { if(a.length!==3)throw new Error("Invalid CZ reply");return {target:a[0],index:a[1],rc:a[2]}; },
@@ -526,6 +537,8 @@ const parse = {
     if (o.patterns) o.chainRows = trailer[14] === 16 ? 16 : 0;
     o.cz = !!o.motionMax && [12,15,19].some(p=>trailer[p]===0x43 && trailer[p+1]===1 && (trailer[p+2]|trailer[p+3]<<7)===CZ.BYTES);
     o.czBanks=o.cz && [12,15,19].some(p=>trailer[p]===0x43 && trailer[p+4]===8 && trailer[p+5]===16)?8:0;
+    const np=trailer.findIndex((x,i)=>i>=25 && x===0x4e && trailer[i+1]===1);
+    o.native=np>=0?{12:trailer[np+2]|trailer[np+3]<<7,15:trailer[np+4]|trailer[np+5]<<7}:null;
     return o;
   },
   [CMD.UI_STATE](a) {
@@ -676,6 +689,7 @@ const parse = {
 function upName(s) { return String(s ?? "").replace(/[^\x20-\x7E]/g, "").trim().slice(0, UP.NAME_MAX) || "PATCH"; }
 
 const req = {
+  native: (engine,op,index,...args) => [CMD.NATIVE,[engine,op,index,...args]],
   czBank: bank => [CMD.CZ_BANK,[bank]],
   czGet: (target,index) => [CMD.CZ_GET,[target,index]],
   czPut: (target,index,raw,pattern=null) => [CMD.CZ_PUT,[target,index,...CZ.nibbles(raw),...(pattern?Array.from({length:16},(_,i)=>patNorm(...(pattern[i]||[0,0]))).flat():[])]],
@@ -767,6 +781,7 @@ function replyMatches(cmd, args, a) {
     case CMD.SMP_WRITE: return a[0] === args[0] && a[1] === args[1] && a[2] === args[2] && a[3] === args[3];
     case CMD.BANK_SONG: case CMD.SONG: return a[0] === args[0];
     case CMD.PATTERN: return a[0] === args[0] && a[1] === args[1];
+    case CMD.NATIVE: return a[0]===args[0] && a[1]===args[1] && a[2]===args[2];
     case CMD.CZ_BANK: return a[0]===args[0];
     case CMD.CZ_GET: case CMD.CZ_PUT: case CMD.FM6_GET: case CMD.FM6_PUT: return a[0] === args[0] && a[1] === args[1];
     case CMD.FM6_ERASE: return a[0] === args[0];
@@ -1307,6 +1322,33 @@ function readLibraryFile(obj, ctx) {
 
 /* device side; rq(r, opt) -> reply args (Link.request), info from INFO */
 const FLASH_OPT = { timeout: 2500, retries: 0 };
+const nativeBank = {
+  async list(rq,engine) {
+    const slots=[];let total;
+    do {const r=parse[CMD.NATIVE](await rq(req.native(engine,0,slots.length,16)));if(r.rc || !r.count)throw Error("Cannot list native presets");total=r.total;slots.push(...r.slots);}while(slots.length<total);
+    return {engine,total,slots};
+  },
+  async get(rq,info,engine,slot) {
+    const r=parse[CMD.NATIVE](await rq(req.native(engine,1,slot)));if(r.rc===2)return {used:false,engine,slot};if(r.rc)throw Error("Cannot read native preset");
+    const p=Array(info.pcount).fill(null);if(engine===15)p[info.pe0+7]=2;
+    return {used:true,engine,slot,name:engine===15?CZ.name(r.raw):FM6.name(FM6.unpack(r.raw)),p,pattern:null,grid:null,...(engine===15?{cz:r.raw}:{fm6:r.raw})};
+  },
+  async put(rq,engine,slot,pt) {
+    let raw=engine===15?pt.cz:pt.fm6;
+    if(pt.engine!==engine || !raw)throw Error("Choose a preset for this native collection");
+    raw=Array.from(raw);if(engine===15){if(!CZ.valid(raw))throw Error("Invalid CZ tone");}else if(raw.length!==128 || raw.some(x=>!Number.isInteger(x)||x<0||x>127))throw Error("Invalid DX7 voice");
+    if(pt.name){const clean=String(pt.name).replace(/[^ -~]/g," ").trim();if(engine===15)CZ.setName(raw,clean);else {const name=clean.slice(0,10).padEnd(10," ");raw.splice(118,10,...Array.from(name,x=>x.charCodeAt(0)));}}
+    return parse[CMD.NATIVE](await rq(req.native(engine,2,slot,...(engine===15?CZ.nibbles(raw):raw)),FLASH_OPT)).rc;
+  },
+  async store(rq,engine,slot,track,name="") {
+    name=String(name).replace(/[^ -~]/g," ").trim().slice(0,engine===15?16:10);
+    const rc=parse[CMD.NATIVE](await rq(req.native(engine,3,slot,track),FLASH_OPT)).rc;
+    if(rc || !name)return rc;
+    return parse[CMD.NATIVE](await rq(req.native(engine,6,slot,...strEnc(String(name).replace(/[^ -~]/g," ").trim().slice(0,engine===15?16:10)).slice(0,-1)),FLASH_OPT)).rc;
+  },
+  async load(rq,engine,slot,track) { return parse[CMD.NATIVE](await rq(req.native(engine,4,slot,track))).rc; },
+  async erase(rq,engine,slot) { return parse[CMD.NATIVE](await rq(req.native(engine,5,slot),FLASH_OPT)).rc; },
+};
 const bank = {
   async list(rq) {
     const first = parse[CMD.UP_LIST](await rq(req.upList(0, UP.LIST_MAX)));
@@ -1320,10 +1362,18 @@ const bank = {
   },
   async get(rq, info, slot) {
     const p=parse[CMD.UP_GET](await rq(req.upGet(slot)),info);
-    if(p.used && p.engine===15 && p.p[info.pe0+7]===2) { if(!info.cz)throw new Error("Firmware lacks native CZ support");const r=parse[CMD.CZ_GET](await rq(req.czGet(1,slot)));if(r.rc)throw new Error("Cannot read native CZ patch");p.cz=r.raw; }return p;
+    if(p.used && p.engine===15 && p.p[info.pe0+7]===2) { if(!info.cz)throw new Error("Firmware lacks native CZ support");const r=parse[CMD.CZ_GET](await rq(req.czGet(1,slot)));if(r.rc)throw new Error("Cannot read native CZ patch");p.cz=r.raw; }
+    if (p.used && info.engines[p.engine] === "FM6" && info.fm6?.bank === 0) { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.USER,slot)));if(!r.rc)p.fm6=Array.from(r.packed);else if(r.rc!==2)throw new Error("Cannot read FM6 preset"); }
+    return p;
   },
   /* -> rc (0 ok) */
-  async put(rq, slot, pt) { return pt.cz ? parse[CMD.CZ_PUT](await rq(req.czPut(1,slot,pt.cz,pt.pattern),FLASH_OPT)).rc : parse[CMD.UP_PUT](await rq(req.upPut(slot, pt), FLASH_OPT)).rc; },
+  async put(rq, slot, pt, info = null) {
+    if (pt.fm6 && pt.engine === 12 && info && info.fm6?.bank !== 0) throw new Error("Update firmware to save whole FM6 voices in user presets");
+    if (pt.cz) return parse[CMD.CZ_PUT](await rq(req.czPut(1,slot,pt.cz,pt.pattern),FLASH_OPT)).rc;
+    const rc = parse[CMD.UP_PUT](await rq(req.upPut(slot, pt), FLASH_OPT)).rc;
+    if (rc || !pt.fm6 || pt.engine !== 12) return rc;
+    return parse[CMD.FM6_PUT](await rq(req.fm6Put(FM6.TARGET.USER,slot,pt.fm6),FLASH_OPT)).rc;
+  },
   async store(rq, slot, name) { return parse[CMD.UP_STORE](await rq(req.upStore(slot, name), FLASH_OPT)).rc; },
   async load(rq, slot) { return parse[CMD.UP_LOAD](await rq(req.upLoad(slot), { timeout: 1000 })).rc; },
   async erase(rq, slot) { return parse[CMD.UP_ERASE](await rq(req.upErase(slot), FLASH_OPT)).rc; },
@@ -1337,7 +1387,9 @@ async function capturePatch(rq, info, name) {
   const drum = info.engines[dump.engine] === "DRUM";   /* (a DRUM track that strikes a lane: its grid) */
   let cz=null;
   if(dump.engine===15 && dump.p[info.pe0+7]===2) { if(!info.cz)throw new Error("Firmware lacks native CZ support");const r=parse[CMD.CZ_GET](await rq(req.czGet(0,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read CZ patch");cz=r.raw; }
-  return { patch: cleanPatch({ cz, name, engine: dump.engine, engineName: info.engines[dump.engine], p: dump.p, pattern: patternFromSteps(steps),
+  let fm6=null;
+  if(info.engines[dump.engine]==="FM6") { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.TRACK,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read FM6 voice");fm6=Array.from(r.packed); }
+  return { patch: cleanPatch({ cz, fm6, name, engine: dump.engine, engineName: info.engines[dump.engine], p: dump.p, pattern: patternFromSteps(steps),
     grid: drum ? gridFromSteps(steps) : null }), dump, steps };
 }
 
@@ -1435,7 +1487,7 @@ const mixer = {
    and the engine sources (test_web.mjs checks them against the firmware's, tests/descdump.c). Used with ?mock=1 (add &legacy=1 for a firmware without cmds 16..26).
    opt: {legacy: no user bank / WATCH, v3: no TRACK_PARAM / TRACK_CHANGED (firmware 0.8),
          auto: false = no simulated knobs (tests drive sim.*),
-         watchMs: how long WATCH lasts after the last request (3000), slots: user bank size (32)} */
+         watchMs: how long WATCH lasts after the last request (3000), slots: user bank size (64)} */
 /* ------------------------------------------------------------------- FM6 --- */
 /* The FM6 engine's patches (eng_fm6.c, EDITOR_PROTOCOL.md "FM6 patches"): the generic 6-operator voice.
    voice: 155 bytes, 6 x 21 operator bytes (the sixth operator first, as the format has them), then 19 voice bytes
@@ -1590,7 +1642,7 @@ const FM6 = (() => {
   const factory = (k) => unpack(FACTORY_PK[k]);
   return { OP, VOICE, OPI, VI, NAME, SIZE, PACKED, max, at, sanitize, unpack, pack, name, setName, checksum, parseSysex,
     singleSysex, bankSysex, ALG, carriers, feedbackOp, freqText, INIT_PK, FACTORY_PK, init, factory,
-    TARGET: { TRACK: 0, BANK: 1, FACTORY: 2 } };
+    TARGET: { TRACK: 0, BANK: 1, FACTORY: 2, USER: 3 } };
 })();
 
 /* ----------------------------------------------------------------- DIGITAL --- */
@@ -1733,7 +1785,7 @@ const FM4 = (() => {
     const same = PRESETS.find((pr) => pr.env.every((x, i) => x === tv(ATK + i)) && pr.e.slice(0, 7).every((x, i) => x === ev[i]));
     FM6.setName(v, same ? same.name : `4OP ALG ${alg + 1}`);
     for (let k = 0; k < 7; k++) p[pe0 + k] = 0;
-    p[pe0 + 7] = TO_FM6[near];
+    p[pe0 + 7] = FM6.FACTORY_PK.length;
     if (op) for (let i = 0; i < 20; i++) p[OPENV + i] = i % 5 === 2 || i % 5 === 4 ? 127 : 0;
     return { p, voice: FM6.sanitize(v), preset: TO_FM6[near] };
   }
@@ -1861,7 +1913,7 @@ function makeMockDevice(opt = {}) {
         P("ARCADE", [2, 0, 127, 0, 127, 112, 0, 84], [0, 80, 0, 50], 0, 3), P("METAL", [3, 0, 100, 40, 100, 32, 0, 0], [0, 75, 40, 60], 0, 7)] },
     { name: "FM6", titles: ["OPS", "PATCH"], edit: [D("ALG", F.INT, 0, 32, 0), D("FB", F.INT, -7, 7, 0), D("MLVL", F.BIPCT, -64, 63, 0),
         D("MRAT", F.INT, -16, 16, 0), D("MEG", F.BIPCT, -64, 63, 0), D("VMOD", F.INT, -7, 7, 0), D("DTUN", F.PCT, 0, 127, 0),
-        D("PTCH", F.INT, 0, FM6.FACTORY_PK.length + 32 - 1, 0)],
+        D("SLOT", F.INT, 0, FM6.FACTORY_PK.length, 0)],
       presets: [P("TINE EP", [0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 127, 0], 0, 6), P("BELL", [0, 0, 0, 0, 0, 0, 0, 1], [0, 0, 127, 0], 0, 7),
         P("FM BASS", [0, 0, 0, 0, 0, 0, 0, 2], [0, 0, 127, 0], 1, 2), P("BRASS", [0, 0, 0, 0, 0, 0, 0, 3], [0, 0, 127, 0], 0, 4),
         P("PAD", [0, 0, 0, 0, 0, 0, 30, 4], [0, 0, 127, 0], 0, 5), P("MARIMBA", [0, 0, 0, 0, 0, 0, 0, 5], [0, 0, 127, 0], 0, 3),
@@ -1884,12 +1936,12 @@ function makeMockDevice(opt = {}) {
         P("TUBULAR", [0, 0, 0, 0, 0, 0, 0, 23], [0, 0, 127, 0], 0)] },
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
     {name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]},
-    {name:"CZ-1",titles:["CZ-1","TONE"],edit:[E("BANK",["A","B","C","D","E","F","G","H"],0),D("PTCH",F.INT,0,16,0),...Array(5).fill(NONE),D("TONE",F.INT,2,2,2)],
+    {name:"CZ-1",titles:["CZ-1","TONE"],edit:[D("-",F.INT,0,7,0),D("-",F.INT,0,16,0),...Array(5).fill(NONE),D("TONE",F.INT,2,2,2)],
       presets:[P("INIT TONE",[0,0,0,0,0,0,0,2],[0,70,127,60],0,1),   // + Casio's 64 CZ-1 preset tones: BANK A..D, PTCH 1..16
         ...["BRASS 1","BRASS 2","BRASS 3","STRINGS 1","STRINGS 2","STRINGS 3","STRINGS 4","ORCHESTRA","ACO.GUITAR","JAZZ GUITAR","ELEC.GUITAR","SLAP BASS","SYNTH.BASS","ELEC.BASS 1","ELEC.BASS 2","HARP","BRASS 4","SAXOPHONE","CELLO","FLUTE","WHISTLE","HARMONICA","RECORDER","KOTO","PIANO 1","PIANO 2","PIANO 3","ELEC.PIANO","HONKY-TONK","FUNKY CLAV 1","FUNKY CLAV 2","HARPSICHORD","JAZZ ORGAN 1","JAZZ ORGAN 2","PIPE ORGAN 1","PIPE ORGAN 2","ACCORDION","VOICE 1","VOICE 2","VOICE 3","MUSIC BOX","VIBRAPHONE","XYLOPHONE","MARIMBA","MALLET LOG","AFRO PERC","BELLS","METALLIC","SYN STRINGS","FAT ENSEMBLE","SITAR","SYNTH.LEAD 1","SYNTH.LEAD 2","SYNTH.LEAD 3","SYNTH.LEAD 4","SWEEP 1","SYN DRUMS 1","SYN DRUMS 2","CONGA","STEEL DRUM","SWEEP 2","JET ROAR","MOTORCYCLE","TYPHOON"]
           .map((n,k)=>P(n,[k>>4,(k&15)+1,0,0,0,0,0,2],[0,70,127,60],0,+"4445555533322223443344336666666666556555777773775534444533375555"[k]))]},
   ];
-  const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_BANK = 32;
+  const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_BANK = 0;
   /* factory PATTERNS[] (engines.c; the device loads them from SEQ > PATTERNS, presets only suggest one): absolute
      notes, 0 rest; flags 1 accent, 2 slide, 4 tie (holds the previous note) */
   const T_ = 4;
@@ -1923,16 +1975,16 @@ function makeMockDevice(opt = {}) {
     step: Array.from({ length: NSTEP }, () => ({ chance: 100, n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 })) });
   const st = {
     tracks: [0, 1, 2, 3].map(newTrack), sel: 0, rec: 0,
+    native:{12:Array(64).fill(null),15:Array(128).fill(null)},
     czbanks:Array.from({length:8},(_,i)=>czBankEncode({name:`BANK ${String.fromCharCode(65+i)}`,tones:[]})),
     g: GP.map((d) => d.def),
     slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
     smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, name: "", len: 0, next: SMP.DATA_OFF })),
-    bank: new Array(opt.slots || 32).fill(null),     /* user presets: {engine, name, p, pattern, grid} */
-    fm6bank: new Array(FM6_BANK).fill(null),           /* the FM6 patch bank: packed records */
+    bank: new Array(opt.slots || 64).fill(null),     /* user presets: {engine, name, p, pattern, grid} */
     uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 9,
     palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0,
     palettes: ["MONO", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON"],
-    favorites: Array.from({ length: ENG.length + 1 }, () => []),
+    favorites: Array.from({ length: ENG.length + 3 }, () => []),
     watch: false, v4: false, lastReq: 0,
   };
   for (const k of ["engine", "preset", "p", "step"]) {
@@ -1960,6 +2012,7 @@ function makeMockDevice(opt = {}) {
   }
   const loadPattern = (k) => loadPat16(PATTERNS[k][0].map((n, i) => [n, PATTERNS[k][1][i]]));
   function applyPreset(pi) {
+    st.tracks[st.sel].user=0;
     const e = ENG[st.engine];
     if(!e.presets.length){st.preset=0;return;}
     pi = aliasOf(e.presets.map((x) => x.name), pi % e.presets.length);
@@ -1978,10 +2031,21 @@ function makeMockDevice(opt = {}) {
     }
     if (st.engine === FM6_E) fm6Slot(st.tracks[st.sel], st.p[P_E0 + 7]);   /* eng_fm6.c fm6_track_loaded */
   }
-  /* PTCH s -> the track's patch: F1..F8 factory, then the bank (empty: the init voice) */
+  function fm6Adopt(t) {
+    const f = FM6.FACTORY_PK.findIndex(pk => JSON.stringify(Array.from(pk)) === JSON.stringify(Array.from(t.fm6)));
+    t.p[P_E0 + 7] = f < 0 ? FM6.FACTORY_PK.length : f;
+    t.fm6own = null; t.fm6slot = t.p[P_E0 + 7];
+  }
   function fm6Slot(t, s) {
     const nf = FM6.FACTORY_PK.length;
-    t.fm6 = (s < nf ? FM6.FACTORY_PK[s] : st.fm6bank[s - nf] || FM6.INIT_PK).slice();
+    if (s < nf) {
+      if (t.fm6slot === nf && !t.fm6own) t.fm6own = t.fm6.slice();
+      t.fm6 = FM6.FACTORY_PK[s].slice();
+    } else {
+      if (t.fm6own) t.fm6 = t.fm6own.slice();
+      t.fm6own = null; t.p[P_E0 + 7] = nf;
+    }
+    t.fm6slot = Math.min(s, nf);
   }
   function setEngine(ei) {
     if (ei % ENG.length === 1) { fm4Load(0); return; }   /* DIGITAL (retired): its first preset, as FM6 (ui.c set_engine_of) */
@@ -2002,8 +2066,9 @@ function makeMockDevice(opt = {}) {
   const snapshot = (name) => {                   /* (upreset.c up_store: a DRUM track that strikes a lane: its grid) */
     const grid = isDrum() ? gridFromSteps(st.step) : null;
     const cz=st.engine===15 && st.p[P_E0+7]===2 ? st.tracks[st.sel].cz.slice() : null;
-    return patternUsed(grid) ? { cz, engine: st.engine, name, p: st.p.slice(), pattern: null, grid }
-      : { cz, engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null };
+    const fm6 = st.engine === FM6_E ? st.tracks[st.sel].fm6.slice() : null;
+    return patternUsed(grid) ? { cz, fm6, engine: st.engine, name, p: st.p.slice(), pattern: null, grid }
+      : { cz, fm6, engine: st.engine, name, p: st.p.slice(), pattern: patternFromSteps(st.step), grid: null };
   };
   const stepOut = (x, b) => { b(x.n); x.notes.forEach(b); b(x.time); b(x.flags); b(x.vel); hitsEnc(x.hit, x.acc).forEach(b); if (!opt.legacy && !opt.v3 && !opt.v5) b(x.chance ?? 100); };
   function stepIn(x, a) {                         /* editor.c ed_step_put: n, 4 notes, time, flags, vel [, hits (3)] */
@@ -2105,7 +2170,7 @@ function makeMockDevice(opt = {}) {
           const own = st.p.slice();                 /* parameters (TRACK_OWN: mix, ARP, SCL, LEN.., SLICER) stay */
           const p = u.p.map((x, i) => (trackOwn(i, P_E0) ? own[i] : x));
           if (u.engine === 1) fm4Apply(p);          /* a DIGITAL record (kept as it is): FM6 */
-          else { st.engine = u.engine; st.preset = 0; st.p = p; if(u.cz)st.tracks[st.sel].cz=u.cz.slice(); }
+          else { st.engine = u.engine; st.preset = 0; st.p = p; if(u.cz)st.tracks[st.sel].cz=u.cz.slice(); if(st.engine===FM6_E) { st.tracks[st.sel].fm6=(u.fm6 || FM6.FACTORY_PK[p[P_E0+7]] || FM6.INIT_PK).slice(); fm6Adopt(st.tracks[st.sel]); } }
         }
         b(a[0]); b(u ? 0 : 1);
         break;
@@ -2135,7 +2200,7 @@ function makeMockDevice(opt = {}) {
       case CMD.FAV_GET: case CMD.FAV_SET: {
         if (!(st.uiCaps & 8)) { b(2); break; }
         const engine = a[0], preset = v14dec(a[1], a[2]), count = a[3];
-        const limit = engine === ENG.length ? st.bank.length : engine < ENG.length ? ENG[engine].presets.length : 0;
+        const limit = engine>ENG.length?st.native[engine===ENG.length+1?12:15]?.length||0:engine === ENG.length ? st.bank.length : engine < ENG.length ? ENG[engine].presets.length : 0;
         if (a.length !== 4 || preset < 0 || preset >= limit ||
             (cmd === CMD.FAV_GET ? !count || count > 32 || preset + count > limit : count > 1 || engine === ENG.length && count && !st.bank[preset])) { b(1); break; }
         if (cmd === CMD.FAV_SET) st.favorites[engine][preset] = !!count;
@@ -2158,6 +2223,24 @@ function makeMockDevice(opt = {}) {
         }
         [a[0],rc,+m.on,m.events.length,64].forEach(b);
         m.events.forEach(e => {b(e.step);b(e.param);v(e.value);});
+        break;
+      }
+      case CMD.NATIVE: {
+        const [engine,op,index]=a,pool=st.native[engine];let rc=!pool||op>7||index>=(op===7?NTRK:pool.length)?1:0;
+        if(!rc){
+          if(op===0){if(a.length!==4||a[3]<1||a[3]>16)rc=1;}
+          else if(op===1){if(a.length!==3)rc=1;else if(!pool[index])rc=2;}
+          else if(op===2){try{const raw=engine===15?CZ.bytes(a.slice(3)):a.slice(3);if(engine===12 && (raw.length!==128||raw.some(x=>x>127)))throw Error();pool[index]=raw.slice();}catch{rc=1;}}
+          else if(op===3||op===4){const tr=st.tracks[a[3]];if(a.length!==4 || !tr)rc=1;else if(op===3){if(tr.engine!==engine)rc=1;else pool[index]=(engine===15?tr.cz:tr.fm6).slice();}else if(!pool[index])rc=1;else {const previous=tr.engine;tr.engine=engine;tr.user=index+1;tr.preset=0;if(previous!==engine)for(let j=0;j<8;j++)tr.p[P_E0+j]=ENG[engine].edit[j].def;if(engine===15)tr.cz=pool[index].slice();else {tr.fm6=pool[index].slice();fm6Adopt(tr);}}}
+          else if(op===5){if(a.length!==3)rc=1;else {pool[index]=null;st.favorites[ENG.length+(engine===12?1:2)][index]=false;st.tracks.forEach(tr=>{if(tr.engine===engine&&tr.user===index+1)tr.user=0;});}}
+          else if(op===6){if(!pool[index]||a.length<4||a.length>3+(engine===12?10:16))rc=1;else if(engine===15)CZ.setName(pool[index],String.fromCharCode(...a.slice(3)));else pool[index].splice(118,10,...Array.from(String.fromCharCode(...a.slice(3)).padEnd(10," "),x=>x.charCodeAt(0)));}
+          else if(a.length!==3)rc=1;
+          if(!rc&&[2,3,5,6].includes(op))st.bankSig++;
+        }
+        [engine,op,index,rc].forEach(b);
+        if(!rc&&op===0){const count=Math.min(a[3],pool.length-index);b(count);b(pool.length&127);b(pool.length>>7);for(let j=index;j<index+count;j++){b(pool[j]?1:0);s(pool[j]?(engine===15?CZ.name(pool[j]):FM6.name(FM6.unpack(pool[j]))):"");}}
+        if(!rc&&op===1)(engine===15?CZ.nibbles(pool[index]):pool[index]).forEach(b);
+        if(!rc&&op===7){const tr=st.tracks[index],user=tr.engine===engine&&pool[tr.user-1]?tr.user:0;b(user&127);b(user>>7);}
         break;
       }
       case CMD.CZ_BANK: {
@@ -2189,8 +2272,8 @@ function makeMockDevice(opt = {}) {
         ENG.forEach((e) => s(e.name));
         if (!opt.legacy) b(NTRK);
         if (!opt.legacy && !opt.v3 && !opt.v5) {
-          b(16);
-          if (st.uiCaps) { b(0x55); b(1); b(st.uiCaps); b(0x4d); b(1); b(64); b(1); if (!opt.noFm6) { b(0x46); b(1); b(FM6.FACTORY_PK.length); b(FM6_BANK); b(0x43); b(1); b(16); b(1); b(8); b(16); } }
+          b(0);
+          if (st.uiCaps) { [0x55,1,st.uiCaps,0x4d,1,64,1,0x42,1,3,0x50,1,8,16].forEach(b); if (!opt.noFm6) [0x46,1,FM6.FACTORY_PK.length,FM6_BANK,0x43,1,16,1,0,0,0x4e,1,64,0,0,1].forEach(b); }
         }
         break;
       case CMD.GET: case CMD.SET: {
@@ -2259,35 +2342,31 @@ function makeMockDevice(opt = {}) {
         b(a[0]); stepOut(x, b);
         break;
       }
-      case CMD.FM6_GET: case CMD.FM6_PUT: case CMD.FM6_LIST: case CMD.FM6_ERASE: {   /* editor_fm6.c */
+      case CMD.FM6_GET: case CMD.FM6_PUT: case CMD.FM6_LIST: case CMD.FM6_ERASE: {
         if (opt.noFm6 || !st.uiCaps) return null;
         const nf = FM6.FACTORY_PK.length;
         if (cmd === CMD.FM6_LIST) {
           if (a.length) return null;
-          b(nf); b(FM6_BANK);
-          for (let i = 0; i < nf + FM6_BANK; i++) {
-            const pk = i < nf ? FM6.FACTORY_PK[i] : st.fm6bank[i - nf];
-            b(pk ? 1 : 0); s(pk ? FM6.name(FM6.unpack(pk)) : "");
+          b(nf); b(0);
+          for (const pk of FM6.FACTORY_PK) { b(1); s(FM6.name(FM6.unpack(pk))); }
+        } else if (cmd === CMD.FM6_ERASE) { b(a[0] ?? 127); b(a.length === 1 ? 3 : 1); }
+        else if (cmd === CMD.FM6_GET) {
+          let rc = a.length !== 2 || a[0] > 3 ? 1 : a[0] === 1 ? 3 : 0, pk;
+          if (!rc) {
+            if (a[0] === 0 && a[1] < NTRK) pk = st.tracks[a[1]].fm6;
+            else if (a[0] === 2 && a[1] < nf) pk = FM6.FACTORY_PK[a[1]];
+            else if (a[0] === 3 && a[1] < NB) { pk = st.bank[a[1]]?.engine === FM6_E ? st.bank[a[1]].fm6 : null; if (!pk) rc = 2; }
+            else rc = 1;
           }
-        } else if (cmd === CMD.FM6_ERASE) {
-          const rc = a.length !== 1 || a[0] >= FM6_BANK ? 1 : 0;
-          if (!rc) st.fm6bank[a[0]] = null;
-          b(a[0] ?? 127); b(rc);
-        } else if (cmd === CMD.FM6_GET) {
-          let rc = a.length !== 2 || a[0] > 2 ? 1 : 0, pk = null;
-          if (!rc) pk = a[0] === 0 ? (a[1] < NTRK ? st.tracks[a[1]].fm6 : null) : a[0] === 1 ? (a[1] < FM6_BANK ? st.fm6bank[a[1]] : undefined)
-            : (a[1] < nf ? FM6.FACTORY_PK[a[1]] : null);
-          if (!rc) rc = pk === undefined || (pk === null && a[0] !== 1) ? 1 : pk === null ? 2 : 0;
-          b(a[0] ?? 127); b(a[1] ?? 127); b(rc);
-          if (!rc) pk.forEach(b);
+          b(a[0] ?? 127); b(a[1] ?? 127); b(rc); if (!rc) pk.forEach(b);
         } else {
-          let rc = a.length !== 2 + 128 ? 1 : 0;
-          const pk = rc ? null : FM6.pack(FM6.unpack(a.slice(2)));   /* (every value into its range) */
-          if (!rc && a[0] === 0 && a[1] < NTRK) st.tracks[a[1]].fm6 = pk;
-          else if (!rc && a[0] === 1 && a[1] < FM6_BANK) {
-            st.fm6bank[a[1]] = pk;
-            st.tracks.forEach((t) => { if (t.engine === FM6_E && t.p[P_E0 + 7] === nf + a[1]) t.fm6 = pk.slice(); });
-          } else rc = 1;
+          let rc = a.length !== 130 ? 1 : a[0] === 1 ? 3 : 0;
+          if (!rc) {
+            const pk = FM6.pack(FM6.unpack(a.slice(2)));
+            if (a[0] === 0 && a[1] < NTRK) { const tr = st.tracks[a[1]]; tr.fm6 = pk; fm6Adopt(tr); }
+            else if (a[0] === 3 && a[1] < NB && st.bank[a[1]]?.engine === FM6_E) st.bank[a[1]].fm6 = pk;
+            else rc = 1;
+          }
           b(a[0] ?? 127); b(a[1] ?? 127); b(rc);
         }
         break;
@@ -2490,13 +2569,16 @@ async function readDevicePreferences(rq, info, names, previous = null) {
   if (!info.uiCaps) return null;
   const state = parse[CMD.UI_STATE](await rq(req.uiState()));
   const palettes = previous ? previous.palettes : parse[CMD.UI_PALETTES](await rq(req.uiPalettes()));
-  let favorites = previous ? previous.favorites : [], slots = previous ? previous.slots : null;
+  let favorites = previous ? previous.favorites : [], slots = previous ? previous.slots : null, nativeSlots=previous?.nativeSlots||{};
   if (state.caps & 8) {
-    if (!previous || state.bankSig !== previous.state.bankSig) slots = await bank.list(rq);
+    if (!previous || state.bankSig !== previous.state.bankSig) {
+      slots = await bank.list(rq);
+      if(info.native)for(const engine of [12,15])nativeSlots[engine]=await nativeBank.list(rq,engine);
+    }
     if (!previous || state.favoriteSig !== previous.state.favoriteSig || state.bankSig !== previous.state.bankSig) {
       favorites = [];
-      for (let engine = 0; engine <= info.nengines; engine++) {
-        const total = engine === info.nengines ? slots.total : (names[engine] || []).length;
+      for (let engine = 0; engine <= info.nengines+(info.native?2:0); engine++) {
+        const total = engine>info.nengines?info.native[engine===info.nengines+1?12:15]:engine === info.nengines ? slots.total : (names[engine] || []).length;
         const flags = favorites[engine] = [];
         for (let start = 0; start < total; start += 32) {
           const count = Math.min(32, total - start);
@@ -2507,7 +2589,7 @@ async function readDevicePreferences(rq, info, names, previous = null) {
       }
     }
   }
-  return { state, palettes, favorites, slots };
+  return { state, palettes, favorites, slots, nativeSlots };
 }
 /* an enum value or a preset named like an earlier one is an alias kept for stored numbers (SAMPLE / GRAIN 1,
    once TRANH: PIANO): the device loads the earlier one, the lists hide it. -> the first index with names[i] */
@@ -2528,6 +2610,7 @@ function devicePresetRows(info, names, preferences) {
   if (!preferences || !(preferences.state.caps & 8)) return [];
   const rows = engineOrder(info.engines).filter((engine) => names[engine]).flatMap((engine) => names[engine]
     .map((name, preset) => ({ engine, preset, name, user: false })).filter((row) => aliasOf(names[engine], row.preset) === row.preset));
+  if(info.native)for(const engine of [12,15])for(const slot of preferences.nativeSlots?.[engine]?.slots||[])if(slot.used)rows.push({engine:info.nengines+(engine===12?1:2),preset:slot.slot,name:slot.name,user:true,nativeEngine:engine});
   for (const slot of preferences.slots.slots) if (slot.used)
     rows.push({ engine: info.nengines, preset: slot.slot, name: slot.name, user: true });
   return rows.map((row) => ({ ...row, favorite: !!(preferences.favorites[row.engine] || [])[row.preset] }))
@@ -2592,7 +2675,7 @@ function setLabel(e, txt) { e.replaceChildren(...(e.dataset.ic ? [icon(e.dataset
 
 const TEXT = {
   ja: {
-    tabFm6: "6-OP FM", fm6Help: "FM6 エンジンの音色（6 オペレーター）をまるごと編集します。本体のノブはこの音色の上にかかるマクロです。トラックへ送るとすぐ鳴り、プロジェクトに保存されます。バンク（B1〜B32）に保存すると PTCH で呼び出せます。",
+    tabFm6: "6-OP FM", fm6Help: "FM6 の音色を編集・SysEx から読み込み、トラックへ送ります。ユーザープリセットまたはプロジェクトへ保存すると、音色全体が保存されます。",
     fm6Source: "音色の出し入れ", fm6ReadBtn: "トラックから読む", fm6SendBtn: "トラックへ送る", fm6Live: "編集しながら送る",
     fm6StoreBtn: "バンクに保存", fm6Import: "SysEx を読み込む", fm6Export: "SysEx に書き出し", fm6BankExport: "バンクを SysEx に書き出し",
     fm6Init: "初期音色", fm6Voice: "ボイス", fm6Ops: "オペレーター", fm6Carriers: "キャリア", fm6Feedback: "フィードバック",
@@ -2686,7 +2769,7 @@ const TEXT = {
     smpSlots: "サンプルスロット", userBank: "ユーザープリセット", none: "なし",
   },
   en: {
-    tabFm6: "6-OP FM", fm6Help: "Edit the whole patch of the FM6 engine (six operators). The device's knobs are macros on top of it. Sending it to a track plays it at once and a project keeps it; stored in the bank (B1..B32) it is a PTCH value.",
+    tabFm6: "6-OP FM", fm6Help: "Edit an FM6 voice, or import a SysEx file and pick a voice. Send it to a track, then save it in User presets or save the project. Each preset keeps its whole voice.",
     fm6Source: "Patches in and out", fm6ReadBtn: "Read from track", fm6SendBtn: "Send to track", fm6Live: "Send while editing",
     fm6StoreBtn: "Store in bank", fm6Import: "Import SysEx", fm6Export: "Export SysEx", fm6BankExport: "Export bank as SysEx",
     fm6Init: "Init voice", fm6Voice: "Voice", fm6Ops: "Operators", fm6Carriers: "carriers", fm6Feedback: "feedback",
@@ -3026,7 +3109,11 @@ async function sessionRequest(d, r, opt) {
 }
 const rq = (r, opt) => sessionRequest(dev, r, opt);
 async function getDesc(scope, id, d = dev) { return parse[CMD.DESC](await sessionRequest(d, req.desc(scope, id))); }
-async function getDump(d = dev) { const reply = await sessionRequest(d, req.dump()); lastDump = Date.now(); return parse[CMD.DUMP](reply, d.info); }
+async function getDump(d = dev) {
+  const reply=await sessionRequest(d,req.dump());lastDump=Date.now();const out=parse[CMD.DUMP](reply,d.info);
+  if(d.info.native?.[out.engine]){const r=parse[CMD.NATIVE](await sessionRequest(d,req.native(out.engine,7,d.sel||0)));if(!r.rc)out.user=r.user;}
+  return out;
+}
 async function getStep(i, d = dev) { return parse[CMD.STEP_GET](await sessionRequest(d, req.stepGet(i))); }
 
 /* the whole connect sequence */
@@ -3155,11 +3242,12 @@ function updateBrowser() {
   if (document.activeElement !== sel) sel.value = String(e);
   const ps = $("preset");
   const names = dev.names[e] || [];
-  if (ps.dataset.engine !== String(e)) {
-    ps.replaceChildren(...names.map((n, i) => el("option", { value: i, text: n, hidden: aliasOf(names, i) !== i })));
-    ps.dataset.engine = String(e);
+  const pool=dev.nativePools?.[e],sig=JSON.stringify([e,pool]);
+  if(ps.dataset.engine!==sig){
+    ps.replaceChildren(...names.map((n,i)=>el("option",{value:i,text:n,hidden:aliasOf(names,i)!==i})),...(pool?.slots||[]).filter(x=>x.used).map(x=>el("option",{value:`u:${x.slot}`,text:`${slotName(x.slot,e)} ${x.name}`})));
+    ps.dataset.engine=sig;
   }
-  if (document.activeElement !== ps) ps.value = String(dev.dump.preset);
+  if(document.activeElement!==ps)ps.value=dev.dump.user?`u:${dev.dump.user-1}`:String(dev.dump.preset);
 }
 
 function visible(d) { return d && d.max > d.min && d.label !== "-"; }
@@ -3324,13 +3412,14 @@ async function sendSet(s, id, k) {
 
 /* engine / preset browser */
 $("engine").addEventListener("change", () => choosePreset(+$("engine").value, 0));
-$("preset").addEventListener("change", () => { if (dev) choosePreset(dev.dump.engine, +$("preset").value); });
+$("preset").addEventListener("change", () => { if (dev) choosePreset(dev.dump.engine, $("preset").value); });
 async function choosePreset(e, p) {
   if (!dev) return;
   const releaseBusy = beginBusy();
   try {
     selfLoad();
-    parse[CMD.PRESET](await rq(req.preset(e, p)));
+    if(String(p).startsWith("u:"))checkRc(await nativeBank.load(rq,e,+String(p).slice(2),dev.sel||0));
+    else parse[CMD.PRESET](await rq(req.preset(e, +p)));
     await afterSoundChange();
   } catch (err) { report(err); } finally { releaseBusy(); }
 }
@@ -4008,7 +4097,7 @@ async function syncPreferences(d) {
   const preferences = await readDevicePreferences((r, o) => sessionRequest(d, r, o), d.info, d.names, d.preferences);
   if (dev !== d) return;
   d.preferences = preferences;
-  if (preferences.slots) { d.bank = preferences.slots; renderBank(); }
+  if (preferences.slots) { d.bank = preferences.slots; d.nativePools=preferences.nativeSlots; renderBank(); updateBrowser(); }
   renderPreferences();
 }
 function preferenceResult(rc) {
@@ -4070,11 +4159,11 @@ function renderPreferences(force = false) {
   const table = el("table");
   table.append(el("colgroup", {}, el("col", { style: "width:40px" }), el("col"), el("col", { style: "width:110px" })));
   for (const row of rows) {
-    const name = row.user ? slotName(row.preset) + " " + row.name : row.name;
+    const name = row.user ? slotName(row.preset,row.nativeEngine||0) + " " + row.name : row.name;
     const star = el("button", { text: row.favorite ? "\u2605" : "\u2606", "aria-label": t(row.favorite ? "deviceUnstar" : "deviceStar") + ": " + name, "aria-pressed": String(row.favorite) });
     star.addEventListener("click", () => changeFavorite(row));
     const load = el("button", { text: name });
-    load.addEventListener("click", () => { if (!dev || busy) return; row.user ? bankLoad(row.preset) : choosePreset(row.engine, row.preset); });
+    load.addEventListener("click", () => { if (!dev || busy) return; row.user ? bankLoad(row.preset,row.nativeEngine||0) : choosePreset(row.engine, row.preset); });
     table.append(el("tr", {}, el("td", {}, star), el("td", {}, load), el("td", { text: row.user ? t("bank") : d.info.engines[row.engine] })));
   }
   $("device-preset-list").replaceChildren(rows.length ? table : el("p", { class: "dim", text: t("deviceEmpty") }));
@@ -4138,6 +4227,7 @@ $("savefile").addEventListener("click", () => op(async () => {
     engine, preset, p: dev.dump.p.slice(), g: dev.dump.g.slice(),
     steps: dev.steps.map((s) => ({ n: s.n, notes: s.notes.slice(), time: s.time, flags: s.flags, vel: s.vel })) };
   if(data.engine===15 && data.p[dev.info.pe0+7]===2) { const r=parse[CMD.CZ_GET](await rq(req.czGet(0,dev.sel||0)));if(r.rc)throw new Error("Cannot read native CZ patch");data.cz=r.raw; }
+  if(data.engineName === "FM6") { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.TRACK,dev.sel||0)));if(r.rc)throw new Error("Cannot read FM6 voice");data.fm6=Array.from(r.packed); }
   download(`melodee-${fileSlug(data.engineName || "patch")}-${fileSlug(data.presetName || preset)}.json`, data);
 }));
 $("loadfile").addEventListener("click", () => { $("file").value = ""; $("file").click(); });
@@ -4150,6 +4240,7 @@ $("file").addEventListener("change", async () => {
     data = JSON.parse(await f.text());
     assertSession(session);
     if(data.cz != null && (!CZ.valid(data.cz)||!session.info.cz))throw new Error("Invalid CZ patch or unsupported firmware");
+    if(data.fm6 != null && (!Array.isArray(data.fm6) || data.fm6.length !== FM6.PACKED || data.fm6.some(v=>!Number.isInteger(v)||v<0||v>127) || data.engine !== 12 || !session.info.fm6))throw new Error("Invalid FM6 voice or unsupported firmware");
     if (!Number.isInteger(data.engine) || !Number.isInteger(data.preset) || !Array.isArray(data.p)) throw new Error("engine / preset / p");
     if (data.engine < 0 || data.engine >= dev.info.nengines) throw new Error("engine " + data.engine);
   } catch (e) { if (e.message !== "closed") sayK("badfile", e.message); return; }
@@ -4167,6 +4258,7 @@ $("file").addEventListener("change", async () => {
       if (i % 8 === 0) sayK("applying", `${i}/${n}`);
       await rq(req.set(0, i, data.p[i]));
     }
+    if(data.fm6) { const r=parse[CMD.FM6_PUT](await rq(req.fm6Put(FM6.TARGET.TRACK,dev.sel||0,data.fm6)));if(r.rc)throw new Error("FM6 voice rejected"); }
     if (Array.isArray(data.steps)) {
       const m = Math.min(data.steps.length, dev.info.nstep);
       for (let i = 0; i < m; i++) {
@@ -4227,7 +4319,10 @@ let libSel = null, bankSel = null;
 let libBusy = false;           /* a library / bank operation is running */
 const newId = () => (self.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 const nowIso = () => new Date().toISOString();
-const slotName = (i) => "U" + String(i + 1).padStart(2, "0");
+const poolEngine = () => dev?.info.native ? +$("presetpool").value : 0;
+const bankView = (d=dev,engine=poolEngine()) => engine?d?.nativePools?.[engine]:d?.bank;
+const slotName = (i,engine=poolEngine()) => (engine===12?"F":engine===15?"Z":"U") + String(i + 1).padStart(engine?3:2, "0");
+$("presetpool").addEventListener("change",()=>{bankSel=null;renderBank();renderLib();});
 const libCtx = () => (dev && dev.keys ? { keys: dev.keys, engines: dev.info.engines, firmware: dev.info.version, pe0: dev.info.pe0 }
   : { keys: libMeta.keys, engines: libMeta.engines, firmware: "", pe0: libMeta.pe0 });
 
@@ -4346,7 +4441,7 @@ function renderLib() {
   const sel = lib.find((p) => p.id === libSel);
   for (const id of ["libren", "libtags", "libdup", "libdel", "libexp1"]) $(id).disabled = !sel;
   $("libaud").disabled = !sel || !dev || libBusy;
-  $("libput").disabled = !sel || !dev || !dev.bank || bankSel == null || libBusy;
+  $("libput").disabled = !sel || !dev || !bankView() || bankSel == null || libBusy;
   $("libsave").disabled = !dev || libBusy;
   $("libexport").disabled = !lib.length;
 }
@@ -4356,9 +4451,12 @@ function renderBank() {
   const pane = $("bankpane");
   $("bankhint").hidden = !!(dev && dev.bank);
   $("bankhint").textContent = t(!dev || !dev.dump ? "bankConnect" : "bankNone");
-  if (!dev || !dev.bank) { pane.hidden = true; return; }
+  if (!dev || !bankView()) { pane.hidden = true; return; }
   pane.hidden = false;
-  const b = dev.bank, used = b.slots.filter((x) => x.used).length;
+  $("presetpool").parentElement.hidden=!dev.info.native;
+  $("nativehint").hidden=!poolEngine();
+  $("bknativeimport").hidden=!poolEngine();
+  const b = bankView(), used = b.slots.filter((x) => x.used).length;
   $("bankhead").textContent = `${used} / ${b.total} ${t("used")}`;
   const tb = el("table", {}, el("colgroup", {}, el("col", { class: "n" }), el("col"), el("col", { class: "e" })),
     el("tr", {}, el("th", { text: "#" }), el("th", { text: t("name") }), el("th", { text: t("engine") })));
@@ -4410,9 +4508,9 @@ async function libOp(fn) {
   try { await fn(d, (r, o) => sessionRequest(d, r, o)); } catch (err) { report(err); } finally { releaseBusy(); libBusy = false; renderLib(); renderBank(); }
 }
 const checkRc = (rc) => { if (rc) throw new Error(t("flashFail").replace("{rc}", rc)); };
-async function refreshSlot(slot, d = dev) {
-  const r = parse[CMD.UP_LIST](await sessionRequest(d, req.upList(slot, 1)));
-  if (d.bank && r.slots[0]) d.bank.slots[slot] = r.slots[0];
+async function refreshSlot(slot,d=dev,engine=poolEngine()) {
+  const r=engine?parse[CMD.NATIVE](await sessionRequest(d,req.native(engine,0,slot,1))):parse[CMD.UP_LIST](await sessionRequest(d,req.upList(slot,1)));
+  const view=bankView(d,engine);if(view&&r.slots?.[0])view.slots[slot]=r.slots[0];updateBrowser();
 }
 
 function libAudition(id) {
@@ -4442,6 +4540,10 @@ $("libsave").addEventListener("click", () => libOp(async (d, rqf) => {
 /* factory preset -> library: PRESET (the sound only), then DUMP; no pattern (the steps are the track's,
    not the preset's) */
 $("factlib").addEventListener("click", () => libOp(async (d, rqf) => {
+  if($("preset").value.startsWith("u:")){
+    const pt=await nativeBank.get(rqf,d.info,d.dump.engine,+$("preset").value.slice(2));
+    await libAdd([{...pt,engineName:d.info.engines[pt.engine],tags:["device"]}]);sayK("copiedLib",pt.name);return;
+  }
   const e = dev.dump.engine, pi = $("preset").value === "" ? dev.dump.preset : +$("preset").value;
   const name = (dev.names[e] || [])[pi] || "PRESET";
   selfLoad();
@@ -4457,17 +4559,19 @@ $("factlib").addEventListener("click", () => libOp(async (d, rqf) => {
 
 function libPut(id, slot) {
   const p = lib.find((x) => x.id === id);
-  if (!p || !dev || !dev.bank || slot == null || libBusy) return;
+  if (!p || !dev || !bankView() || slot == null || libBusy) return;
   if(p.cz && !dev.info.cz) {say("Install firmware with native CZ support first");return;}
-  const s = dev.bank.slots[slot];
+  const engine=poolEngine();
+  if(dev.info.native && (engine || dev.info.native[p.engine]) && engine!==p.engine){say("Select the matching preset collection first");return;}
+  const s = bankView().slots[slot];
   if (!engineOk(p)) { sayK("badEngine", p.engineName || p.engine); return; }
   if (s.used && !confirm(t("confirmOverwrite").replace("{n}", slotName(slot)).replace("{name}", s.name))) return;
   libOp(async (d, rqf) => {
     const keep4 = p.fm4 && dev.info.engines[1] === "-" && p.fm4.length === dev.info.pcount;   /* a converted DIGITAL sound:
                                                      its DIGITAL values as engine 1 (the device converts them on load) */
-    checkRc(await bank.put(rqf, slot, keep4 ? { ...p, engine: 1, name: upName(p.name), p: fullParams({ ...p, p: p.fm4 }) }
-      : { ...p, name: upName(p.name), p: fullParams(p) }));
-    await refreshSlot(slot, d);
+    checkRc(engine?await nativeBank.put(rqf,engine,slot,p):await bank.put(rqf, slot, keep4 ? { ...p, engine: 1, name: upName(p.name), p: fullParams({ ...p, p: p.fm4 }) }
+      : { ...p, name: upName(p.name), p: fullParams(p) }, d.info));
+    await refreshSlot(slot,d,engine);
     sayK("putDone", `${slotName(slot)} ${upName(p.name)}`);
   });
 }
@@ -4540,75 +4644,92 @@ $("libfile").addEventListener("change", async () => {
 });
 
 /* device bank */
-function bankLoad(slot) {
-  if (!dev || !dev.bank || slot == null || libBusy) return;
-  const s = dev.bank.slots[slot];
+function bankLoad(slot,engine=poolEngine()) {
+  if (!dev || !bankView(dev,engine) || slot == null || libBusy) return;
+  const s = bankView(dev,engine).slots[slot];
   libOp(async (d, rqf) => {
     selfLoad();
-    const rc = await bank.load(rqf, slot);
+    const rc = engine?await nativeBank.load(rqf,engine,slot,d.sel||0):await bank.load(rqf,slot);
     if (rc) { sayK("emptySlot", slotName(slot)); return; }
     await afterSoundChange("ready", d);
-    sayK("loadedUser", `${slotName(slot)} ${s.name}`);
+    sayK("loadedUser", `${slotName(slot,engine)} ${s.name}`);
   });
 }
 $("bkload").addEventListener("click", () => bankLoad(bankSel));
 $("bkstore").addEventListener("click", () => {
-  const slot = bankSel;
-  if (!dev || !dev.bank || slot == null) return;
-  const s = dev.bank.slots[slot];
+  const slot = bankSel,engine=poolEngine();
+  if (!dev || !bankView() || slot == null) return;
+  const matching=dev.info.native?.[dev.dump?.engine]?dev.dump.engine:0;
+  if(dev.info.native && matching!==engine){say("Select the current track's preset collection first");return;}
+  const s = bankView().slots[slot];
   const name = prompt(t("promptNameAuto"), s.used ? s.name : "");
   if (name == null) return;
   if (s.used && !confirm(t("confirmOverwrite").replace("{n}", slotName(slot)).replace("{name}", s.name))) return;
   libOp(async (d, rqf) => {
-    checkRc(await bank.store(rqf, slot, name.trim()));
-    await refreshSlot(slot, d);
-    sayK("storedSlot", `${slotName(slot)} ${dev.bank.slots[slot].name}`);
+    checkRc(engine?await nativeBank.store(rqf,engine,slot,d.sel||0,name.trim()):await bank.store(rqf,slot,name.trim()));
+    await refreshSlot(slot,d,engine);
+    sayK("storedSlot", `${slotName(slot)} ${bankView().slots[slot].name}`);
   });
 });
 function bankGet(slot) {
-  if (!dev || !dev.bank || slot == null || libBusy) return;
+  const engine=poolEngine();
+  if (!dev || !bankView() || slot == null || libBusy) return;
   libOp(async (d, rqf) => {
-    const u = await bank.get(rqf, dev.info, slot);
+    const u=engine?await nativeBank.get(rqf,d.info,engine,slot):await bank.get(rqf,d.info,slot);
     if (!u.used) { sayK("emptySlot", slotName(slot)); return; }
-    const pt = { name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, cz:u.cz, pattern: u.pattern, grid: u.grid, tags: ["device"] };
+    const pt = { name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, cz:u.cz, fm6:u.fm6, pattern: u.pattern, grid: u.grid, tags: ["device"] };
     await libAdd([reservedFm4(dev.info.engines, u.engine) ? fromDigital(pt, dev.info.engines, dev.info.pe0) : pt]);
     sayK("copiedLib", u.name);
   });
 }
 $("bkget").addEventListener("click", () => bankGet(bankSel));
 $("bkerase").addEventListener("click", () => {
-  const slot = bankSel;
-  if (!dev || !dev.bank || slot == null) return;
-  const s = dev.bank.slots[slot];
+  const slot = bankSel,engine=poolEngine();
+  if (!dev || !bankView() || slot == null) return;
+  const s = bankView().slots[slot];
   if (!s.used || !confirm(t("confirmEraseSlot").replace("{n}", slotName(slot)).replace("{name}", s.name))) return;
   libOp(async (d, rqf) => {
-    checkRc(await bank.erase(rqf, slot));
-    await refreshSlot(slot, d);
+    checkRc(engine?await nativeBank.erase(rqf,engine,slot):await bank.erase(rqf,slot));
+    await refreshSlot(slot,d,engine);
     sayK("erasedSlot", slotName(slot));
   });
 });
 $("bkrefresh").addEventListener("click", () => libOp(async (d, rqf) => {
   sayK("readingBank");
-  dev.bank = await bank.list(rqf);
+  const engine=poolEngine();if(engine)dev.nativePools[engine]=await nativeBank.list(rqf,engine);else dev.bank=await bank.list(rqf);
   sayK("ready");
 }));
 $("bkexport").addEventListener("click", () => libOp(async (d, rqf) => {
-  const out = [];
-  for (const x of dev.bank.slots) {
+  const out = [],engine=poolEngine();
+  for (const x of bankView().slots) {
     if (!x.used) continue;
     sayK("readingBank", ` ${slotName(x.slot)}`);
-    const u = await bank.get(rqf, dev.info, x.slot);
-    if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, cz:u.cz, pattern: u.pattern, grid: u.grid, slot: x.slot,
+    const u=engine?await nativeBank.get(rqf,d.info,engine,x.slot):await bank.get(rqf,d.info,x.slot);
+    if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, cz:u.cz, fm6:u.fm6, pattern: u.pattern, grid: u.grid, slot: x.slot,
       engineName: reservedFm4(dev.info.engines, u.engine) ? "DIGITAL" : dev.info.engines[u.engine] });   /* (DIGITAL's values) */
   }
-  download(`melodee-bank-${today()}.json`, libraryFile("bank", out, libCtx()));
+  if(engine===12){for(let i=0;i<out.length;i+=32)downloadBytes(`fm6-presets-${i/32+1}.syx`,FM6.bankSysex(out.slice(i,i+32).map(x=>FM6.unpack(x.fm6))));}
+  else if(engine===15)downloadBytes(`cz1-presets-${today()}.syx`,new Uint8Array(out.flatMap(x=>Array.from(CZ.sysex(x.cz)))));
+  else download(`melodee-bank-${today()}.json`,libraryFile("bank",out,libCtx()));
   sayK("ready");
 }));
+
+$("bknativeimport").addEventListener("click",()=>$("bknativefile").click());
+$("bknativefile").addEventListener("change",async()=>{
+  const file=$("bknativefile").files[0],engine=poolEngine();$("bknativefile").value="";if(!file||!engine)return;
+  try{
+    const bytes=new Uint8Array(await file.arrayBuffer()),parsed=engine===15?CZ.read(bytes,file.name):FM6.parseSysex(bytes);
+    if(!parsed.voices.length || parsed.badSum)throw Error("Invalid SysEx file");
+    const tones=parsed.voices.map(v=>({engine,name:v.name,...(engine===15?{cz:v.raw}:{fm6:Array.from(FM6.pack(v.v))})}));
+    const empty=bankView().slots.filter(x=>!x.used);if(tones.length>empty.length)throw Error(`Need ${tones.length} empty preset slots; ${empty.length} available`);
+    await libOp(async(d,rqf)=>{for(let i=0;i<tones.length;i++){checkRc(await nativeBank.put(rqf,engine,empty[i].slot,tones[i]));say(`Saved ${i+1}/${tones.length} native presets`);}d.nativePools[engine]=await nativeBank.list(rqf,engine);updateBrowser();});
+  }catch(e){report(e);}
+});
 
 /* ------------------------------------------------------------------ FM6 --- */
 /* The 6-OP FM tab (firmware with FM6: INFO's fm6 tag): the whole patch of an FM6 track, which the device
    only reaches through its macros. Read a track's patch or a slot, edit it, send it to a track (live while
-   editing), store it in the bank (B1..B32), import the generic 155-byte single-voice and 4096-byte 32-voice
+   editing), save it as a user preset, import the generic 155-byte single-voice and 4096-byte 32-voice
    SysEx files, export them. */
 let fm6v = FM6.init();                 /* the patch being edited (155 bytes) */
 let fm6Imported = [];                  /* voices of the last imported file: [{name, v}] */
@@ -4673,6 +4794,8 @@ function renderFm6() {
   const ts = $("fm6trk"), keepT = ts.value, ss = $("fm6slot"), keepS = ss.value;
   ts.replaceChildren(...Array.from({ length: dev.info.ntrk || 1 }, (_, i) => el("option", { value: i, text: String(i + 1) })));
   ts.value = keepT || (dev.sel ?? 0);
+  const owned = dev.info.fm6.bank === 0;
+  $("fm6store").hidden = owned; $("fm6erase").hidden = owned; $("fm6bankexp").hidden = owned;
   const n = dev.info.fm6.factory + dev.info.fm6.bank;
   ss.replaceChildren(...Array.from({ length: n }, (_, i) => {
     const s = fm6List && fm6List.slots[i];

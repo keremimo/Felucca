@@ -27,6 +27,9 @@
                                   * by default; replaced by FM6, its sounds convert (fm4_convert.c) */
 #endif
 #define NENGINES 16               /* 13 SLICE and 14 OBXF reserved; 15 native CZ-1 */
+#define USER_NATIVE_FM (NENGINES + 1u)
+#define USER_NATIVE_CZ (NENGINES + 2u)
+#define USER_NONE 256u
 #define ENGI_DIGITAL 1u          /* reserved without MELODEE_FM4: never selectable (eng_ok), its sounds load as FM6 */
 #define NENG_SHOWN (NENGINES - 3u - !MELODEE_FM4 - !MELODEE_SLICE)   /* the engines one can pick: PRESETS, the EDIT
                                                 * layer, the editor, in the display order of engines.c ENGINE_ORDER */
@@ -35,7 +38,7 @@
 #undef SMP_USER_SLOTS
 #endif
 #define SMP_USER_SLOTS 0u        /* sample material and its upload slots are retired */
-#define UP_SLOTS 32u             /* user presets (upreset.c) */
+#define UP_SLOTS 64u             /* user presets (upreset.c) */
 #define NELEM(a) (sizeof(a) / sizeof((a)[0]))
 
 /* ------------------------------------------------------- parameters --- */
@@ -273,6 +276,7 @@ typedef struct track {
     uint8_t engine, preset;      /* engine: what the audio ISR renders */
     uint8_t eng_req;             /* engine the UI asked for (the ISR switches at a block start) */
     uint8_t user;                /* user preset slot + 1 the sound came from (UI), 0 = none */
+    uint8_t user_native;         /* user refers to the engine's native pool */
     voice_t v[NVOICE];
     /* LFO */
     uint32_t lfo_ph;

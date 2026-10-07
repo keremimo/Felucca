@@ -29,7 +29,7 @@ const html = readFileSync(join(HERE, "editor.html"), "utf8");
 const proto = html.slice(html.indexOf("/*PROTO-BEGIN*/"), html.indexOf("/*PROTO-END*/"));
 const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
-   UP, bank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
+   UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6,
    FM4, fromDigital, CZ, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
@@ -59,7 +59,7 @@ async function czTests() {
   ok(await E.bank.put(rq,8,pt)===0,"CZ: upload to user preset bank");const saved=await E.bank.get(rq,info,8);ok(eq(saved.cz,b),"CZ: user preset bank returns all 144 tone bytes");
   const ctx={keys:Array.from({length:92},(_,i)=>`P${i}`),pe0:84,engines:info.engines};const lib=E.libraryFile("library",[captured.patch],ctx);const imported=E.readLibraryFile(lib,ctx);ok(eq(imported.patches[0].cz,b),"CZ: library JSON round trip retains native bytes");
   let calls=0;try{await E.auditionPatch(async()=>{calls++;}, {...info,cz:false},pt);}catch{}ok(!calls,"CZ: unsupported firmware is rejected before changing sound");
-  ok(info.czBanks===8,"CZ: eight dedicated device banks advertised");
+  ok(info.czBanks===0 && info.native?.[15]===128 && info.native?.[12]===64,"CZ: independent native preset collections advertised");
   const tones=Array.from({length:16},(_,i)=>{const t=b.slice();E.CZ.setName(t,`TONE ${i+1}`);return t;});
   await E.czBankUpload(rq,0,{name:"FIRST BANK",tones});await E.czBankUpload(rq,7,{name:"LAST BANK",tones:[b]});
   const first=await E.czBankRead(rq,0),last=await E.czBankRead(rq,7);
@@ -78,6 +78,36 @@ async function czTests() {
   link.close();m.close?.();
 }
 await czTests();
+
+async function nativeTests() {
+  const m=E.makeMockDevice(), inp=[...m.access.inputs.values()][0], out=[...m.access.outputs.values()][0];
+  const link=new E.Link(d=>out.send(d),{timeout:500});inp.onmidimessage=e=>link.receive(e.data);const rq=(r,o)=>link.request(r,o);
+  const info=E.parse[E.CMD.INFO](await rq(E.req.info()));
+  const cz=E.CZ.init(),fm=Array.from(E.FM6.INIT_PK);E.CZ.setName(cz,"FULL CZ NAME XY!");
+  ok((await E.nativeBank.list(rq,12)).total===64 && (await E.nativeBank.list(rq,15)).total===128,"native: independent 64 FM6 and 128 CZ preset lists");
+  await E.nativeBank.put(rq,12,63,{engine:12,fm6:fm});await E.nativeBank.put(rq,15,127,{engine:15,cz});
+  const a=await E.nativeBank.get(rq,info,12,63),b=await E.nativeBank.get(rq,info,15,127);
+  ok(eq(a.fm6,fm) && eq(b.cz,cz) && b.name==="FULL CZ NAME XY!","native: highest slots return exact native bytes and full CZ name");
+  ok(a.p.every(x=>x===null) && !a.pattern && !b.grid,"native: returned presets contain no Felucca effects or pattern");
+  await rq(E.req.set(0,34,77));await rq(E.req.set(0,13,12));const before=JSON.stringify(m.state.tracks[0].step);
+  await E.nativeBank.load(rq,15,127,0);const sound=E.parse[E.CMD.DUMP](await rq(E.req.dump()),info);
+  ok(sound.engine===15 && sound.p[34]===77 && sound.p[13]===12 && JSON.stringify(m.state.tracks[0].step)===before,"native: loading changes the tone and keeps effects, modulation and steps");
+  await rq(E.req.set(0,info.pe0,3));await E.nativeBank.load(rq,15,127,0);
+  ok(E.parse[E.CMD.DUMP](await rq(E.req.dump()),info).p[info.pe0]===3,"native: scrolling within CZ keeps track macros");
+  const status=E.parse[E.CMD.NATIVE](await rq(E.req.native(15,7,0)));ok(status.user===128,"native: Z128 current slot survives 7-bit protocol encoding");
+  await E.nativeBank.store(rq,15,126,0,"SECOND CZ");const stored=await E.nativeBank.get(rq,info,15,126);
+  ok(stored.name==="SECOND CZ" && eq(stored.cz.slice(0,128),cz.slice(0,128)),"native: saving the playing tone and rename preserve the complete sound");
+  await rq(E.req.favSet(info.nengines+2,127,true));const names=[];
+  const prefs=await E.readDevicePreferences(rq,info,names);const rows=E.devicePresetRows(info,names,prefs);
+  ok(rows.some(r=>r.nativeEngine===15 && r.preset===127 && r.favorite),"native: normal preset browser includes CZ user favorites");
+  let writes=0;const counted=(...args)=>{writes++;return rq(...args);};
+  for(const [engine,pt] of [[12,{engine:15,cz}],[15,{engine:15,cz:cz.slice(0,128)}],[12,{engine:12,fm6:[...fm.slice(0,127),128]}]])try{await E.nativeBank.put(counted,engine,0,pt);}catch{}
+  ok(!writes,"native: wrong collection and malformed tones are rejected before writing");
+  await rq(E.req.preset(0,0));ok(E.parse[E.CMD.NATIVE](await rq(E.req.native(15,7,0))).user===0,"native: choosing a factory preset clears native origin");
+  await E.nativeBank.erase(rq,15,127);ok(!(await E.nativeBank.get(rq,info,15,127)).used && !(await E.nativeBank.list(rq,15)).slots[127].used,"native: erase removes the slot from the scrollable collection");
+  link.close();m.stop();
+}
+await nativeTests();
 
 async function editorMock() {
   const m = E.makeMockDevice();
@@ -448,8 +478,8 @@ async function editorLibrarian() {
   ok(keys[6] === "PIT" && keys[13] === "PIT#2" && keys[info.pe0] === "E0" && new Set(keys).size === keys.length, "librarian: parameter keys unique (label#n, E0..E7)");
 
   const b = await E.bank.list(rq);
-  ok(b.total === 32 && b.slots.length === 32 && b.slots[1].used && b.slots[1].name === "GLASS BELL" && !b.slots[3].used
-    && b.slots[31].slot === 31, "librarian: UP_LIST, 32 slots in 2 frames");
+  ok(b.total === 64 && b.slots.length === 64 && b.slots[1].used && b.slots[1].name === "GLASS BELL" && !b.slots[3].used
+    && b.slots[63].slot === 63, "librarian: UP_LIST, 64 slots in 4 frames");
 
   const cap = (await E.capturePatch(rq, info, "acid test")).patch;
   ok(cap.engine === 0 && cap.p.length === info.pcount && cap.pattern && cap.pattern[0][0] === 45 && cap.pattern[0][1] === 1,
@@ -458,7 +488,7 @@ async function editorLibrarian() {
   const g = await E.bank.get(rq, info, 10);
   ok(rc === 0 && g.used && g.name === "acid test" && g.engine === 0 && eq(g.p, cap.p) && js(g.pattern) === js(cap.pattern),
     "librarian: UP_PUT -> UP_GET round trip");
-  const bad = E.parse[C.UP_PUT](await rq(E.req.upPut(60, cap), { timeout: 2500, retries: 0 }));
+  const bad = E.parse[C.UP_PUT](await rq(E.req.upPut(64, cap), { timeout: 2500, retries: 0 }));
   ok(bad.rc === 1, "librarian: UP_PUT to a slot past the bank -> rc 1");
   ok(E.upName("") === "PATCH" && E.upName("abcdefghijklmnop") === "abcdefghijkl" && E.upName("Bäss") === "Bss", "librarian: device names (ASCII, 1..12)");
 
@@ -904,30 +934,33 @@ async function editorFm6() {
   [...m.access.inputs.values()][0].onmidimessage = (e) => link.receive(e.data);
   const rq = (x) => link.request(x), C = E.CMD;
   const info = E.parse[C.INFO](await rq(E.req.info()));
-  ok(info.fm6 && info.fm6.factory === 24 && info.fm6.bank === 32, "FM6: INFO tag (24 factory, 32 bank slots)");
-  let list = E.parse[C.FM6_LIST](await rq(E.req.fm6List()));
-  ok(list.slots.length === 56 && list.slots[0].name === "TINE EP" && list.slots[9].name === "BRASS SECT" && !list.slots[24].used,
-    "FM6: LIST names the factory patches (Felucca's, then Melodee's), the bank empty");
+  ok(info.fm6 && info.fm6.factory === 24 && info.fm6.bank === 0, "FM6: INFO tag (24 factory, no patch bank)");
+  const list = E.parse[C.FM6_LIST](await rq(E.req.fm6List()));
+  ok(list.slots.length === 24 && list.slots[0].name === "TINE EP" && list.slots[9].name === "BRASS SECT", "FM6: factory voice list");
+  let p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(1,4,F6.INIT_PK)));
+  ok(p.rc === 3, "FM6: retired bank writes report no bank");
   const mine = F6.setName(F6.factory(2), "my bass");
-  let p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(1, 4, F6.pack(mine))));
-  list = E.parse[C.FM6_LIST](await rq(E.req.fm6List()));
-  ok(!p.rc && list.slots[28].used && list.slots[28].name === "MY BASS", "FM6: PUT into bank B5, listed by name");
-  let g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(1, 4)));
-  ok(!g.rc && eq(g.packed, F6.pack(mine)), "FM6: GET bank B5 as stored");
-  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(1, 5)));
-  ok(g.rc === 2 && !g.packed, "FM6: GET of an empty slot: rc 2");
-  /* the selected track to FM6, PTCH B5 (at the pe0 INFO gives): the track plays that patch */
-  const eng = info.engines.indexOf("FM6");
-  await rq(E.req.set(1, 20, eng));
-  await rq(E.req.set(0, info.pe0 + 7, 24 + 4));
-  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
-  ok(!g.rc && F6.name(F6.unpack(g.packed)) === "MY BASS", `FM6: PTCH (P_E0 + 7 = ${info.pe0 + 7}) B5 loads the bank patch into the track`);
-  const edited = F6.unpack(g.packed); edited[F6.VI.ALG] = 31;
-  p = E.parse[C.FM6_PUT](await rq(E.req.fm6Put(0, 0, F6.pack(edited))));
-  g = E.parse[C.FM6_GET](await rq(E.req.fm6Get(0, 0)));
-  ok(!p.rc && F6.unpack(g.packed)[F6.VI.ALG] === 31, "FM6: PUT to the track: its own patch changed");
-  const e = E.parse[C.FM6_ERASE](await rq(E.req.fm6Erase(4)));
-  ok(!e.rc && !E.parse[C.FM6_LIST](await rq(E.req.fm6List())).slots[28].used, "FM6: ERASE empties B5");
+  await rq(E.req.set(1, 20, info.engines.indexOf("FM6")));
+  await rq(E.req.fm6Put(0,0,F6.pack(mine)));
+  let cap = (await E.capturePatch(rq, info, "MY BASS")).patch;
+  ok(eq(cap.fm6,Array.from(F6.pack(mine))),"FM6: library capture includes whole voice");
+  let wrote=false, blocked=false;
+  try { await E.bank.put(()=>{wrote=true;},0,cap,{fm6:{bank:32}}); } catch { blocked=true; }
+  ok(blocked && !wrote,"FM6: older firmware rejected before writing a voice-bearing preset");
+  await E.bank.store(rq,63,"MY BASS");
+  const saved = await E.bank.get(rq,info,63);
+  ok(eq(saved.fm6,Array.from(F6.pack(mine))),"FM6: U64 stores and reads its whole voice");
+  await E.bank.put(rq,62,saved);
+  await rq(E.req.set(0,info.pe0+7,0));
+  await E.bank.load(rq,62);
+  let g=E.parse[C.FM6_GET](await rq(E.req.fm6Get(0,0)));
+  ok(eq(g.packed,F6.pack(mine)),"FM6: library upload and reload retain voice");
+  await rq(E.req.set(0,info.pe0+7,0));
+  await rq(E.req.set(0,info.pe0+7,24));
+  g=E.parse[C.FM6_GET](await rq(E.req.fm6Get(0,0)));
+  ok(eq(g.packed,F6.pack(mine)),"FM6: OWN returns after factory audition");
+  const e=E.parse[C.FM6_ERASE](await rq(E.req.fm6Erase(4)));
+  ok(e.rc===3,"FM6: retired bank erase reports no bank");
   p = E.parse[C.FM6_PUT](await rq([C.FM6_PUT, [0, 9, 1, 2, 3]]));
   ok(p.rc === 1, "FM6: a short record or a fifth track: rc 1");
   link.close(); m.stop();

@@ -216,7 +216,7 @@ case), all P_COUNT instrument parameters (v14 each, the same order as `DUMP`), a
 the parameters of the sound, as a factory preset (the track's own parameters, the steps and LEN stay; see
 "Sound loads and undo"). The stored pattern is kept and returned by `UP_GET`; on the device SEQ > PHRASES
 lists it as "U07" and loads it, with the stored LEN (at most 16), DIV, SWING and GATE. The slots are
-numbered 0..31 (the device shows U01..U32).
+numbered 0..63 (the device shows U01..U64).
 
 - `UP_LIST`: count is cut at 16 and at the last slot (start ≥ 32: count 0, no entries).
 - `UP_GET` of an empty slot has the same shape with used 0, engine 0, name "" and all values 0.
@@ -434,7 +434,7 @@ project-based SONG cleared. USR1–3 are removed; sample commands refuse uploads
 reports zero slots. Recorded material and SAMPLE/GRAIN/SLICE are removed. DRUM provides only synthesized 808.
 
 Current BACKUP_LIST has nine objects: 0 runtime (FBK9), 1 settings/template, 2..5 saved projects (FBK9 or
-an older format before first save), 6..7 user presets and 8 FM6 bank. PUT accepts 20224-byte FBK9, 3584-byte
+an older format before first save), 6..7 original user presets, 8 retired FM6 bank, 17..18 expanded user records and 19..20 owned FM6 voices. PUT accepts 20224-byte FBK9, 3584-byte
 FUN8 and 3388-byte FUN7/FUN6 project records; saved legacy restores become FBK9. Full validation precedes
 publication. The web restore checks the target inventory before writes; nonempty samples cannot restore
 onto this firmware. Empty sample objects in an older archive are skipped.
@@ -536,7 +536,9 @@ this firmware sends 3. Requests name objects, never flash addresses.
 | 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, USB audio devices, BOOT, CLK TUNE MIDI ROUT, ...), then the template (SAVE > PROJECT, SLOT TMPL) when one is saved; Felucca 1.0's record (PER4, no ext) restores too | the settings record's size: 604, or 1924 with the template |
 | 2..5 | PROJECT slots 1..4 (FUN8) | 3584, or 0 if empty |
 | 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size, or 0 if empty |
-| 8 | the FM6 patch bank (B1..B32; its function settings block is kept but no longer read: those are each track's, in the projects; Felucca 1.0: B1..B27, 3472) | 3612, or 0 if empty |
+| 8 | retired FM6 bank; accepts older backups for migration | 0 when listed |
+| 17, 18 | user records U33..U48, U49..U64 | 3816 or 0 |
+| 19, 20 | owned FM6 voices U01..U32, U33..U64 | 3728 or 0 |
 | 32..34 | user sample slots 1..3: header (512 bytes) then ADPCM data | 512 + data length, or 0 if empty |
 
 Reading: `BACKUP_LIST` (no arguments) stops the transport, then takes a snapshot of the runtime object and
@@ -570,12 +572,10 @@ A `LIST` replaces the snapshot, and a `PUT` begin ends it: a `GET` after a begin
 
 ## FM6 patches (68-71)
 
-The FM6 engine (12) plays a 6-operator patch per track; its eight EDIT parameters are macros on top of it
-(ALG 0 = the patch's algorithm, 1..32 another; FB, MLVL, MRAT, MEG, VMOD offsets; DTUN; PTCH 0..55 = F1..F24
-the factory patches (F1..F8 Felucca's, F9..F24 Melodee's), then B1..B32 the bank: setting PTCH loads that patch
-into the track). The patch itself travels through these commands (and as DX7 SysEx, below). INFO advertises
-`46 01 nfactory nbank` after the backup tag (this firmware: `46 01 18 20`; Felucca 1.0: `46 01 08 1B`); firmware
-without it has no FM6 and does not answer 68..71.
+The FM6 engine (12) plays one 6-operator voice per track. Its EDIT values are macros
+(ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN), followed by SLOT: 0..23 selects F1..F24,
+24 is OWN. User presets retain the actual voice; factory audition and return to OWN
+restores that voice. INFO advertises `46 01 18 00` (24 factory, zero bank slots).
 
 A patch is the 128-byte packed record of the generic 6-operator voice (the 32-voice bank's record; every byte is
 7-bit, so it travels as it is, no pack7). Operators come sixth first: per operator 17 bytes (R1..R4, L1..L4,
@@ -587,15 +587,18 @@ The device stores every value clamped into its range.
 | cmd | Request args | Reply args |
 | --- | --- | --- |
 | 68 FM6_GET | target, index | target, index, rc, then (rc 0) the 128 bytes |
-| 69 FM6_PUT | target, index, the 128 bytes | target, index, rc (target 0, a track: that track's patch from now on, PTCH as it is: the device does not reload PTCH's patch over it) |
+| 69 FM6_PUT | target, index, the 128 bytes | target, index, rc (target 0, a track: that track's patch from now on, SLOT OWN or matching factory: polling preserves the adopted voice) |
 | 70 FM6_LIST | — | nfactory, nbank, then per slot (factory first): used (0/1), name string ("" if empty) |
 | 71 FM6_ERASE | bank index | index, rc |
 
-target: 0 a track's own patch (index 0..3: what it plays and what its project saves; a PUT is heard at once and
-keeps PTCH as it is), 1 a bank slot (index 0..31 = B1..B32; a PUT writes flash: it stops the transport, allow
-1 s; tracks playing that slot reload it), 2 a factory patch (0..23, GET only). rc: 0 ok, 1 arguments (an unknown
-target, an index out of range, a record that is not 128 bytes), 2 an empty bank slot (GET) or a flash error /
-transport that did not stop (PUT, ERASE). The bank is in flash (A 0x9F000, B 0xFE000) and in a full backup (id 8).
+Targets: 0 track (index 0..3), 1 retired bank (GET/PUT always rc 3),
+2 factory (index 0..23, GET only), 3 user preset voice (index 0..63).
+Target 3 GET returns rc 2 for a preset without a stored FM6 voice. Target 3 PUT
+requires an existing FM6 user record and writes the owned voice to flash. Library
+transfers send UP_PUT first, then FM6_PUT target 3. UP_STORE saves both automatically.
+FM6_LIST lists only factory voices; FM6_ERASE always returns rc 3 for the retired bank.
+Erase a user sound through UP_ERASE. Track PUT adopts the voice (SLOT OWN or matching F n).
+Other rc values: 0 success, 1 bad arguments, 2 empty voice or flash/transport error.
 
 The web editor (6-OP FM tab) reads and writes these, and imports / exports the generic SysEx files of the
 format: a single voice `F0 43 0n 00 01 1B`, the 155-byte unpacked voice, checksum, `F7` (163 bytes), and 32
@@ -604,8 +607,7 @@ of the data's sum, 7 bits. Raw 155 / 4096-byte files are read too.
 
 The device itself also takes these as MIDI SysEx on its USB-MIDI port (any channel `n`), so Dexed or a DX7
 librarian can edit a track live: a single voice replaces the FM6 track's patch (the selected track when it plays
-FM6, else track n + 1, else the first FM6 track; the notes stop, as a DX7 program change), 32 voices fill the bank
-B1..B32 (saved; not while the transport runs), a voice parameter change `F0 43 1n gg pp dd F7` edits one byte of
+FM6, else track n + 1, else the first FM6 track; the notes stop, as a DX7 program change), 32-voice dumps prompt import through the editor, a voice parameter change `F0 43 1n gg pp dd F7` edits one byte of
 the patch (pp + 128 gg; 155: the six operator switches, OP1 = bit 5), a function parameter change
 `F0 43 1n 08 pp dd F7` sets the FM6 function settings (64 mono, 65 bend range, 66 step, 68 glissando, 69
 portamento time, 70..77 wheel / foot / breath / aftertouch range and target: that track's own, saved with the
@@ -677,7 +679,7 @@ no longer upload material; SMP_INFO reports zero factory and user slots.
 
 Invalid lengths, nibble values and native synthesis parameters are rejected before
 changing the track or flash. An unused/non-native preset GET returns an error.
-Track PUT selects engine 15 (CZ-1), native tone marker 2, resets the ordinary sound controls to
+Track PUT selects engine 15 (CZ-1), native tone marker 2, resets engine-specific controls to
 neutral defaults, and preserves the track's musical/routing settings.
 Preset record version 8 preserves all native bytes in a 238-byte record. Earlier 192-byte banks and next’s v6/v7 CZ records remain readable.
 FUN13 projects (12352 bytes), FBKG pattern banks (27200 bytes) and TPLB templates preserve each track's native
@@ -688,16 +690,13 @@ Older custom KIT values render the 808. No 909 is included.
 
 OBXF is removed from synthesis, presets, editing and patch storage. Engine 14 stays reserved.
 
-### Dedicated CZ banks
+### Legacy CZ bank compatibility
 
-INFO appends bank count 8 and slots per bank 16 after the native CZ tone tag.
-Command 77 takes a bank index (0–7); reply is bank, rc, bank-name NUL, then 16
-pairs of used-byte and tone-name NUL. CZ_GET target 2 reads bank slot index
-`bank * 16 + slot`. CZ_PUT target 2 is refused; bank writes use bounded atomic
-BACKUP_PUT objects 9–16. Each CZBK object is 2332 bytes: LE magic 0x42435A43,
-u16 version 1, u16 slot count 16, u32 used mask, 16 bank-name bytes, then 16
-144-byte native tones. Unused slots are zero. Full-backup inventory has 17
-objects; earlier 9-object and sample-era inventories are still accepted.
+INFO advertises zero bank count and zero slots per bank. Command 77 and CZ_GET target 2 remain
+readable for older clients, but the current editor uses command 78. Backup objects 9–16 retain their
+2332-byte CZBK layout: LE magic 0x42435A43, u16 version 1 or 2, u16 slot count 16, u32 used mask,
+16 bank-name bytes, then 16 complete 144-byte native tones. Version 2 marks completion of native-slot
+migration, including empty collections. Factory tones are separate; unsaved user slots start empty.
 
 Earlier next FUNA/FUNB, FBKB/FBKC and TPL8/TPL9 CZ sounds are migrated to raw native tones; common sound settings and patterns are retained.
 
@@ -753,3 +752,66 @@ The shared FX delay is retired. Track parameter 35 and global parameters 4..7 re
 original IDs and ranges but advertise `-` and have no effect. The device hides the old delay
 page; web editors hide it when the device advertises those retired descriptors. Modulation
 destination 8 and old delay-send automation remain inert. THROW feeds reverb only.
+
+## Legacy owned FM6 presets and expanded user storage
+
+UP_LIST reports 64 shared user slots, U01..U64. All slot indices remain 7-bit.
+BACKUP_LIST now lists ids 0..20. Ids 0..7 and 9..16 keep their established meanings;
+id 8 is empty (retired bank). Restoring an older id 8 migrates bank voices into
+referencing user records already restored through ids 6 and 7.
+Ids 17 and 18 hold user records U33..U48 and U49..U64 (3816-byte UPB1 banks);
+ids 19 and 20 formerly held owned FM6 voices U01..U32 and U33..U64 (3728 bytes each).
+Each UPF6 object has magic 0x36465055, version 1, 32 slots, a used mask and reserved
+word, then 32 entries: a u32 FNV-1a record tag and 112 packed bytes. Tags cover the
+238-byte Melodee user record except name bytes 4..15. Renames preserve the tag;
+saving a whole FM6 sound writes a fresh nonce into the otherwise unused cz_extra
+bytes 0..3 before tagging. A mismatched tag never attaches an older voice.
+
+On flash, extension user banks omit their eight-byte UPB1 header (3808 record
+bytes), which is reconstructed at boot and included in backups. New storage objects
+start payloads at byte 32 and leave bytes 3840..4095 erased for OTA record scanning.
+Existing user record banks and storage object numbers remain in place.
+
+
+## Native FM6 and CZ-1 user presets (command 78)
+
+INFO appends `4E 01 40 00 00 01`: tag N, version 1, FM6 capacity u14 = 64, CZ capacity u14 = 128.
+These are unsigned low-first 7-bit pairs (unlike signed v14). Native slots appear after each engine's
+factory presets in global and engine-specific scrolling; only used slots are listed for playing.
+SAVE > USER and FM6 STORE write to these collections. They store no common Felucca parameters,
+effects, patterns or function settings. Loading preserves those track settings and same-engine macros;
+changing engine initializes only its engine-specific controls. General UP_* commands retain 64 legacy/general
+slots for compatibility. New native transfers use command 78 rather than UP_PUT + a sidecar voice.
+
+Request: `engine op index [data]`, engine 12 FM6 or 15 CZ-1. Reply: `engine op index rc [data]`.
+Indices are zero-based 7-bit bytes, including CZ index 127. rc 0 success, 1 invalid/empty load,
+2 empty GET or flash error, 3 transport could not stop. Writes stop transport before touching flash.
+
+| op | request data | successful reply data |
+|---|---|---|
+| 0 list | count 1..16, index is page start | count clamped to capacity, capacity u14, count × (used, name NUL) |
+| 1 get | none | FM6: 128 raw 7-bit VMEM bytes; CZ: 144 low-first nibble pairs (288 bytes) |
+| 2 put | native bytes as above | none |
+| 3 store track tone | track 0..3 | none |
+| 4 load slot to track | track 0..3 | none |
+| 5 erase | none | none |
+| 6 rename | ASCII name, 1..10 FM6 or 1..16 CZ bytes; no terminator | none |
+| 7 current slot | none; index is track 0..3 | slot+1 u14, or zero if no native origin |
+
+List names use at most 12 characters for display; GET preserves the full native name (10 FM6, 16 CZ).
+The web editor imports DX7/Dexed .syx voices into free FM6 slots and Casio .syx frames into free CZ slots;
+collection exports use those same native formats. Native favorites use categories NENGINES+1 (17, FM6)
+and NENGINES+2 (18, CZ), through FAV_GET/SET with their existing signed v14 index encoding.
+
+Complete backup inventories now contain 23 objects, ids 0..22. General ids 6,7,17,18 are unchanged.
+CZ ids 9..16 retain the layout above. FM6 ids 21,22,19,20 hold F001..F016, F017..F032, F033..F048,
+F049..F064 respectively. Each is 2060 bytes: LE magic 0x314D464E (NFM1), u16 version 1, u16 slot count
+16, u32 used mask (low 16 bits), then 16 × 128 native VMEM bytes. Used voices must contain only 7-bit
+bytes. Empty restore writes a valid empty object so erased slots cannot resurrect on reboot.
+Old 3728-byte UPF6 objects 19/20 and retired bank object 8 remain accepted for migration.
+
+Native FM6 storage uses new objects 23/24 (A/B pairs 0xD8000..0xDBFFF) for slots 1..32, and reuses
+old objects 7/22 for slots 33..64. Migration commits the new objects before reusing old voice sectors,
+then clears successfully migrated shared records. Existing CZ bank tones keep their indices; embedded
+CZ user tones move into free native slots, without overwriting existing tones. If the CZ collection is full,
+unmatched general records remain accessible. All new objects use the existing CRC-checked A/B save path.

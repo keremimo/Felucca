@@ -4,8 +4,12 @@
 #include <string.h>
 #include <assert.h>
 #define __attribute__(x)
-#define NENGINES 9u
-#define UP_SLOTS 32u
+#define NENGINES 16u
+#define UP_SLOTS 64u
+#define USER_NATIVE_FM (NENGINES+1u)
+#define USER_NATIVE_CZ (NENGINES+2u)
+#define ENGI_FM6 12u
+#define ENGI_CZ 15u
 static uint8_t fx_lowcut;
 static void fm1_led_key(unsigned k, int on) { (void)k; (void)on; }
 static int fm1_enc_take(unsigned k) { (void)k; return 0; }
@@ -47,6 +51,11 @@ int main(void)
 #ifdef MELODEE_FAVORITES
     assert(favorite_has(8, 0) && favorite_has(NENGINES, 31) && favorites.filter);
 #endif
+    favorite_set(USER_NATIVE_FM,63,1);favorite_set(USER_NATIVE_CZ,127,1);favorite_set(NENGINES,63,1);
+    settings_export(&p);memset(&favorites,0,sizeof favorites);favorites_user_hi=0;settings_import(&p,sizeof p);
+    assert(favorite_has(USER_NATIVE_FM,63) && favorite_has(USER_NATIVE_CZ,127) && favorite_has(NENGINES,63));
+    assert(!favorite_has(USER_NATIVE_FM,64) && !favorite_has(USER_NATIVE_CZ,128));
+    p=original;settings_import(&p,sizeof p);
     settings.lowcut = 0;
     settings_export(&p);
     assert(!p.lowcut && p.bold == 1 && p.favorites.user == (1u << 31));   /* bold: kept as saved */

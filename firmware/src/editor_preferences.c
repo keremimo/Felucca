@@ -34,6 +34,8 @@ static void ed_ui_state(void)
     sig = 2166136261u;
     for (uint32_t i = 0; i < sizeof favorites; i++)
         sig = (sig ^ ((const uint8_t *)&favorites)[i]) * 16777619u;
+    for (uint32_t i = 0; i < sizeof favorites_user_hi; i++)
+        sig = (sig ^ ((const uint8_t *)&favorites_user_hi)[i]) * 16777619u;
 #else
     ed_b(127);
 #endif
@@ -100,9 +102,9 @@ static int ed_ui_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         return 1;
     case ED_FAV_GET:
 #ifdef MELODEE_FAVORITES
-        if (n == 4u && a[0] <= NENGINES) {
+        if (n == 4u && a[0] <= USER_NATIVE_CZ) {
             int32_t start = ed_rv(a + 1);
-            uint32_t limit = a[0] == NENGINES ? UP_SLOTS : ENGINES[a[0]]->npresets;
+            uint32_t limit = a[0] > NENGINES ? native_limit(a[0]==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ) : a[0] == NENGINES ? UP_SLOTS : ENGINES[a[0]]->npresets;
             if (start >= 0 && a[3] && a[3] <= 32u && (uint32_t)start + a[3] <= limit) {
                 ed_b(0); ed_b(a[0]); ed_v(start); ed_b(a[3]);
                 for (uint32_t i = 0; i < a[3]; i++) ed_b(favorite_has(a[0], (uint32_t)start + i));
@@ -116,11 +118,12 @@ static int ed_ui_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         return 1;
     case ED_FAV_SET:
 #ifdef MELODEE_FAVORITES
-        if (n == 4u && a[0] <= NENGINES && a[3] <= 1u) {
+        if (n == 4u && a[0] <= USER_NATIVE_CZ && a[3] <= 1u) {
             int32_t preset = ed_rv(a + 1);
-            uint32_t limit = a[0] == NENGINES ? UP_SLOTS : ENGINES[a[0]]->npresets;
+            uint32_t limit = a[0] > NENGINES ? native_limit(a[0]==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ) : a[0] == NENGINES ? UP_SLOTS : ENGINES[a[0]]->npresets;
             if (preset >= 0 && (uint32_t)preset < limit &&
-                (a[0] != NENGINES || !a[3] || up_used((uint32_t)preset))) {
+                (a[0] != NENGINES || !a[3] || up_used((uint32_t)preset)) &&
+                (a[0]<=NENGINES || !a[3] || native_used(a[0]==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ,(uint32_t)preset))) {
                 favorite_set(a[0], (uint32_t)preset, a[3]);
                 ui.force = 1;
                 ed_b(ed_ui_save()); ed_b(a[0]); ed_v(preset); ed_b(a[3]);

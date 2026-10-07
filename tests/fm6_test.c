@@ -777,7 +777,7 @@ static void macros(void)
         check("PTCH F9 loads Melodee's first factory voice", !memcmp(fm6_patch[0] + FP_NAME, "TINE EP   ", 10));
         T->p[P_E7] = (int16_t)(FM6_NFAC + 3);
         fm6_poll();
-        check("PTCH B4 of an empty bank: the init voice", !memcmp(fm6_patch[0] + FP_NAME, "INIT VOICE", 10));
+        check("legacy bank slot clamps to OWN without replacing the track voice", fm6_slot[0] == FM6_OWN && T->p[P_E7] == FM6_OWN && !memcmp(fm6_patch[0] + FP_NAME, "TINE EP   ", 10));
     }
 }
 

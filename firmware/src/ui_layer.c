@@ -169,7 +169,7 @@ static void layer_tap(uint32_t l)
 
 /* EDIT: a sound load in the layer. The first one takes the undo copy as the track is now (when the layer
  * opened, unless KNOB 2 / 3 had loaded already), so OCT- and SAVE held go back to it */
-static uint32_t snd_id(void) { return TSEL->eng_req | (uint32_t)TSEL->preset << 8 | (uint32_t)TSEL->user << 16; }
+static uint32_t snd_id(void) { return TSEL->eng_req | (uint32_t)TSEL->preset << 8 | (uint32_t)TSEL->user << 16 | (uint32_t)TSEL->user_native << 24; }
 static void edit_load(uint32_t e, int32_t step)
 {
     uint32_t id = snd_id();

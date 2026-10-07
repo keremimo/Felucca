@@ -921,7 +921,7 @@ static int project_restore_runtime(const project_t *input)
         const proj_trk_t *s = &p->t[k];
         uint32_t e = s->engine % NENGINES;
         t->eng_req = (uint8_t)e;
-        t->user = 0;                                    /* (no user preset slot is saved) */
+        t->user = 0; t->user_native=0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
             const param_desc_t *d = param_desc_of(e, i);
             t->p[i] = (int16_t)clamp(s->p[i], d->min, d->max);
@@ -937,7 +937,7 @@ static int project_restore_runtime(const project_t *input)
             cz_patch[k] = p->cz[k];
             cz_track_accept(t);
             fm6_set_patch(k, v);
-            fm6_slot[k] = (uint8_t)t->p[P_E7];
+            fm6_adopt(k);
             memcpy(fm6_fn[k], p->fm6_fn_ok && fm6_fn_ok(p->fm6_fn[k]) ? p->fm6_fn[k] : FM6_FNDEF, FM6_NFN);
         }
     }

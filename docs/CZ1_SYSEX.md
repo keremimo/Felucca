@@ -23,10 +23,9 @@ are rejected before sending anything to the device. For 128-byte compatible
 tones only, missing CZ-1 line levels, velocity and name are initialized and the
 DCW key-follow table is translated. Native 144-byte tones are retained verbatim.
 
-Editor commands 75/76 transfer raw tones to tracks or ordinary preset slots.
-Preset version 8 stores all 144 tone bytes;
-its pattern and browser name remain separate. These compact preset records
-store the native tone, not additional Felucca effect/modulation controls.
+Editor command 78 transfers tones to the separate native CZ user collection, storing only the
+144 native bytes. Commands 75/76 still transfer track tones and read/write legacy general slots
+for older clients. Legacy preset version 8 stores the complete native tone in its compact record.
 Projects and templates store both the native tone and all ordinary controls.
 FUN10 / FBKD / TPLA add native tones and continue to read deployed FUN8/FBK9/TPL6 and earlier formats.
 Native tone names remain 16 bytes even though the preset browser shows 12.
@@ -50,26 +49,27 @@ Sources:
 - [Devin Acker's uPD933 device model](https://github.com/mamedev/mame/blob/master/src/devices/sound/upd933.cpp), chip phase functions, envelope rate domains and logarithmic DCA; BSD-3-Clause.
 - [Michael Rickard's CZ-1 hardware investigation](https://www.kasploosh.com/cz/11800-spelunking/), hidden waveform/window combinations.
 
-## Dedicated user banks
+## Native user presets
 
-Eight named banks (A–H), each holding 16 native tones, are independent of the
-shared user presets and FM6 bank. In Sound choose CZ-1, import a .syx file, select
-a starting bank and press **Save imported bank(s)**. Files larger than 16 tones
-fill consecutive banks after checking capacity; replacing banks asks for confirmation.
-Each bank commits atomically. A multi-bank transfer commits banks individually,
-so an interrupted transfer may have saved earlier banks.
+CZ-1 has 128 separate native user slots, Z001–Z128. In the editor's User presets section,
+choose CZ-1 and import a .syx file into free slots, save the current track tone, or upload a library tone.
+Read, load, save, erase and export use this collection; export concatenates complete Casio tone frames.
+Each save commits atomically. A multi-tone import commits one tone at a time, so an interrupted import
+may have saved earlier tones. Capacity is checked before the import starts, and occupied slots stay intact.
 
-Read, load, save, erase, rename and export controls operate on the selected bank.
-Full backups retain bank names, empty slots and every native tone byte. Device
-BANK and PTCH controls select A–H and 1–16; PTCH 0 selects INIT.
+The device scrolls used slots after CZ-1 factory tones in PRESETS and the engine's preset knob.
+Favorites work for these slots. SAVE > USER opens this collection when the selected track is CZ-1.
+Loading recalls only the native tone: Felucca effects, modulation and patterns remain the track's.
+There is no BANK / PTCH page. Full backups retain all native bytes and empty slots.
+
+Existing saved CZ banks migrate with their tone indices intact. Embedded general CZ presets move into
+free native slots; if the collection is full, unmatched general records remain accessible. Factory tones
+stay in the factory preset list, and unsaved user slots start empty.
 
 ## Factory tones
 
 Casio's 64 CZ-1 preset tones are built into the firmware (`assets/cz1-factory/`, see its README for
-where they come from). A bank that was never saved shows them: BANK A holds the CZ-1's A-1..B-8,
-B C-1..D-8, C E-1..F-8, D G-1..H-8 (16 a bank, in the CZ-1's order); E–H start empty. Saving a bank
-(even emptied) keeps yours; a backup carries only saved banks, so restoring one without a bank brings
-the factory tones back. PRESETS 1–64 load the same tones (BANK / PTCH follow) whatever the banks hold.
+where they come from). PRESETS 1–64 load these factory tones independently of the native user collection.
 
 ## Device pages: dim values
 

@@ -31,13 +31,28 @@ static uint32_t up_pat_rank(uint32_t slot);
 static void up_pat_load(track_t *t, uint32_t k);
 static void up_auto_name(char *b, uint32_t e, uint32_t k);   /* naming (ui_name.c) */
 static void up_ui_named(uint32_t op, uint32_t k, const char *name);
+static uint32_t native_limit(uint32_t e);
+static int native_used(uint32_t e, uint32_t k);
+static uint32_t native_count(uint32_t e);
+static uint32_t native_nth(uint32_t e, uint32_t n);
+static uint32_t native_rank(uint32_t e, uint32_t k);
+static void native_name(uint32_t e, uint32_t k, char *out);
+static int native_load(uint32_t e, uint32_t k, uint32_t tr);
+static const uint8_t *native_raw(uint32_t e, uint32_t k);
+static int native_put(uint32_t e, uint32_t k, const uint8_t *raw);
+static int native_fm_active(void);
+static uint32_t user_limit(void);
+static int user_used(uint32_t k);
+static void user_name(uint32_t k, char *out);
+static void user_label(char *out, uint32_t k);
+static void user_ui_named(uint32_t op, uint32_t k, const char *name);
 static int project_save_as(uint32_t slot, const char *name);
 static int project_name(uint32_t slot, char *b);
 static int project_rename(uint32_t slot, const char *name);
 static void project_cur_name(char *b);
-static uint32_t user_of(const track_t *t)    /* user preset slot its sound came from, UP_SLOTS = none */
+static uint32_t user_of(const track_t *t)    /* user preset slot its sound came from, USER_NONE = none */
 {
-    return t->user && up_used(t->user - 1u) ? t->user - 1u : UP_SLOTS;
+    return t->user && (t->user_native ? native_used(t->eng_req,t->user-1u) : up_used(t->user-1u)) ? t->user-1u : USER_NONE;
 }
 static uint32_t up_gen;                      /* bumped on every user bank change (redraws) */
 #include "favorites.c"
@@ -132,6 +147,7 @@ static uint32_t layer_btn(void);
  * a SLICE track's (ui_slice.c) */
 static int page_visible(uint32_t i)
 {
+    if(TSEL->eng_req==ENGI_CZ && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
     if (PAGES[i].scope == SC_GLOBAL && PAGES[i].id[0] == G_DTIME) return 0;
     if (PAGES[i].scope == SC_CZ)
         return TSEL->eng_req == 2u && TSEL->p[P_E7] == 1;
@@ -156,7 +172,7 @@ static uint32_t page_first(uint32_t fam)
 {
     uint32_t i;
     for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].fam == fam)
+        if (PAGES[i].fam == fam && page_visible(i))
             return i;
     return 0;
 }
@@ -422,7 +438,7 @@ static struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
     uint8_t keep;                /* the track is as the last load left it (undo.after): a next load keeps the copy */
     uint8_t what;                /* UNDO_SOUND | UNDO_PAT: what the loads since the copy changed (undo_swap) */
-    uint8_t eng, preset, user, patn;
+    uint8_t eng, preset, user, user_native, patn;
     uint8_t fm6_slot;            /* the track's FM6 patch and its PTCH slot (eng_fm6.c): an edited or a project's */
     uint8_t fm6[FP_SIZE + 1u];   /* patch is the track's own, not PTCH's factory one */
     cz_patch_t cz;
@@ -450,7 +466,7 @@ static uint32_t fnv(uint32_t h, const void *p, uint32_t n)
 static uint32_t steps_sig(const track_t *t) { return fnv(2166136261u, t->step, sizeof t->step); }
 static uint32_t track_sig(const track_t *t)      /* the sound (an FM6 track's patch too), the steps */
 {
-    uint8_t id[3] = {t->eng_req, t->preset, t->user};
+    uint8_t id[4] = {t->eng_req, t->preset, t->user, t->user_native};
     uint32_t h = fnv(fnv(steps_sig(t), t->p, sizeof t->p), id, 3), k = trk_index(t);
     h = fnv(h, fm6_patch[k], sizeof fm6_patch[k]); /* (a patch the editor sent between two loads) */
     h = fnv(h, cz_patch[k].raw, CZ_BYTES);
@@ -476,6 +492,7 @@ static void load_begin(track_t *t, uint32_t what)
     undo.eng = t->eng_req;
     undo.preset = t->preset;
     undo.user = t->user;
+    undo.user_native=t->user_native;
     memcpy(undo.p, t->p, sizeof undo.p);
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
@@ -533,14 +550,16 @@ static void undo_swap(void)
     undo.motion_backup = current_motion;
     fm1_irq_off();                                /* the audio ISR must not see half a sound */
     if (undo.what & UNDO_SOUND) {
-        uint8_t e = t->eng_req, pr = t->preset, u = t->user;
+        uint8_t e = t->eng_req, pr = t->preset, u = t->user, un=t->user_native;
         panic_req |= (uint8_t)(1u << trk_index(t));
         t->eng_req = undo.eng;
         t->preset = undo.preset;
         t->user = undo.user;
+        t->user_native=undo.user_native;
         undo.eng = e;
         undo.preset = pr;
         undo.user = u;
+        undo.user_native=un;
         for (i = 0; i < P_COUNT; i++)
             if (!param_kept(i)) {
                 int16_t v = t->p[i];
@@ -727,12 +746,12 @@ static void fm4_apply(track_t *t, int16_t *p)
     uint8_t v[FP_SIZE + 1u];
     uint32_t pr = fm4_convert(p, v), tr = trk_index(t), f;
     fm6_set_patch(tr, v);
-    fm6_slot[tr] = (uint8_t)p[P_E7];                  /* (fm6_poll: the patch stays the converted one) */
     f = motion_guard();                               /* the audio ISR sees the old sound or the new one */
     memcpy(t->p, p, sizeof t->p);
     t->eng_req = ENGI_FM6;
     t->preset = (uint8_t)pr;
     motion_unguard(f);
+    fm6_adopt(tr);
 }
 static void fm4_track(track_t *t)                     /* t holds a DIGITAL sound (engine 1): convert it */
 {
@@ -748,7 +767,7 @@ static void fm4_load_preset(track_t *t, uint32_t k)
     uint32_t i;
     load_begin(t, UNDO_SOUND);
     panic_req |= (uint8_t)(1u << trk_index(t));
-    t->user = 0;
+    t->user = 0; t->user_native=0;
     if (t == TSEL)
         sync_reload = 1;
     memcpy(p, t->p, sizeof p);
@@ -774,7 +793,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
 #endif
     load_begin(t, UNDO_SOUND);
     panic_req |= (uint8_t)(1u << trk_index(t));       /* MONO/POLY may change: release what sounds */
-    t->user = 0;
+    t->user = 0; t->user_native=0;
     if (t == TSEL)
         sync_reload = 1;
     if (!e->npresets) {
@@ -852,33 +871,39 @@ static void select_engine(uint32_t e)
 static uint32_t preset_all_pos(uint32_t *total)          /* list index of the selected track's preset */
 {
     uint32_t n = 0, cur = 0, e, r;
+    uint32_t u=user_of(TSEL);
     for (r = 0; r < NENG_SHOWN; r++) {                  /* (engines.c ENGINE_ORDER) */
         const engine_t *en = ENGINES[e = eng_vis(r)];
         if (e == TSEL->eng_req)
             cur = n + preset_rank(en, preset_orig(en, TSEL->preset % (en->npresets ? en->npresets : 1u)));
         n += preset_shown(e);
+        if(native_limit(e)){
+            if(e==TSEL->eng_req && TSEL->user_native && u<USER_NONE)cur=n+native_rank(e,u);
+            n+=native_count(e);
+        }
     }
-    if (user_of(TSEL) < UP_SLOTS)
-        cur = n + up_rank(user_of(TSEL));
-    *total = n + up_count();
+    if (!TSEL->user_native && u < UP_SLOTS)cur=n+up_rank(u);
+    *total=n+up_count();
     return cur;
 }
 
 /* list index n (< total) -> engine, *k its preset; NENGINES = user preset, *k its slot */
 static uint32_t preset_all_at(uint32_t n, uint32_t *k)
 {
-    uint32_t e = 0, i, r;
-    for (r = 0; r < NENG_SHOWN && n >= preset_shown(eng_vis(r)); r++)
-        n -= preset_shown(eng_vis(r));
-    if (r == NENG_SHOWN) {
-        *k = up_nth(n);
-        return NENGINES;
+    uint32_t e, i, r;
+    for(r=0;r<NENG_SHOWN;r++){
+        e=eng_vis(r);
+        if(n<preset_shown(e)){
+            for(i=0;preset_orig(ENGINES[e],i)!=i || n--;i++);
+            *k=i;return e;
+        }
+        n-=preset_shown(e);
+        uint32_t count=native_count(e);
+        if(n<count){*k=native_nth(e,n);return e==ENGI_FM6?USER_NATIVE_FM:USER_NATIVE_CZ;}
+        n-=count;
     }
-    e = eng_vis(r);
-    for (i = 0; preset_orig(ENGINES[e], i) != i || n--; i++)    /* the n-th shown preset */
-        ;
-    *k = i;
-    return e;
+    for(i=0;i<UP_SLOTS;i++)if(up_used(i) && !n--){*k=i;return NENGINES;}
+    *k=UP_SLOTS;return NENGINES;
 }
 
 static uint32_t preset_pos(uint32_t *total)
@@ -909,13 +934,14 @@ static uint32_t preset_at(uint32_t n, uint32_t *k)
 static int preset_favorite(void)
 {
     uint32_t k = user_of(TSEL);
-    return favorite_has(k < UP_SLOTS ? NENGINES : TSEL->eng_req,
-                                        k < UP_SLOTS ? k : TSEL->preset);
+    uint32_t e=TSEL->eng_req;
+    return favorite_has(k<USER_NONE ? (TSEL->user_native?(e==ENGI_FM6?USER_NATIVE_FM:USER_NATIVE_CZ):NENGINES) : e,k<USER_NONE?k:TSEL->preset);
 }
 static void preset_mark(int on)
 {
     uint32_t k = user_of(TSEL);
-    if (favorite_set(k < UP_SLOTS ? NENGINES : TSEL->eng_req, k < UP_SLOTS ? k : TSEL->preset, on)) {
+    uint32_t e=TSEL->eng_req;
+    if (favorite_set(k<USER_NONE ? (TSEL->user_native?(e==ENGI_FM6?USER_NATIVE_FM:USER_NATIVE_CZ):NENGINES) : e,k<USER_NONE?k:TSEL->preset,on)) {
         ui.force = 1;
         settings_save();
     }
@@ -927,6 +953,7 @@ static int32_t preset_pat_hint(void)
 {
     const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
     uint32_t u = user_of(TSEL);
+    if (TSEL->user_native && u<USER_NONE)return -1;
     if (u < UP_SLOTS)
         return up_has_pat(u) ? (int32_t)(NPATTERNS + up_pat_rank(u)) : -1;
     if (!e->npresets)
@@ -946,7 +973,8 @@ static void preset_hinted(void)                     /* after a sound load: SEQ >
 static void preset_go(uint32_t n)                    /* load list index n into the selected track (the sound only) */
 {
     uint32_t k, e = preset_at(n, &k);
-    if (e == NENGINES) {
+    if(e==USER_NATIVE_FM || e==USER_NATIVE_CZ){native_load(e==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ,k,song.sel);}
+    else if (e == NENGINES) {
         up_load(k);
     } else {
         if (e != TSEL->eng_req)
@@ -962,13 +990,15 @@ static uint32_t eng_list_pos(uint32_t *total)
 {
     uint32_t e = TSEL->eng_req % NENGINES, np = ENGINES[e]->npresets, u = user_of(TSEL), k, n = 0;
     uint32_t cur = np ? TSEL->preset % np : 0u;
+    uint32_t nn=native_count(e);
+    if(TSEL->user_native && u<USER_NONE)cur=np+native_rank(e,u);
     for (k = 0; k < UP_SLOTS; k++)
         if (up_used(k) && up_engine(k) == e) {
-            if (k == u)
-                cur = np + n;
+            if (!TSEL->user_native && k == u)
+                cur = np + nn + n;
             n++;
         }
-    *total = np + n;
+    *total = np + nn + n;
     return cur;
 }
 
@@ -982,6 +1012,8 @@ static void eng_list_step(int32_t direction)         /* the next / previous soun
         apply_preset(n);
     } else {
         n -= np;
+        if(n<native_count(e)){native_load(e,native_nth(e,n),song.sel);preset_hinted();return;}
+        n-=native_count(e);
         for (k = 0; k < UP_SLOTS; k++)
             if (up_used(k) && up_engine(k) == e && !n--) {
                 up_load(k);
@@ -1119,7 +1151,7 @@ static int act_ready(void)
     if (cur_page()->graph == GR_PATS)
         return pat_last[s] != pat_pick() + 1u || steps_sig(TSEL) != pat_sig[s];
     if (cur_page()->graph == GR_USER)
-        return c == 3u ? !song.playing : up_used(ui.uslot) && (c == 1u || !song.playing);
+        return c == 3u ? !song.playing : user_used(ui.uslot % user_limit()) && (c == 1u || !song.playing);
 #if MELODEE_SLICE
     if (cur_page()->graph == GR_SLICES)
         return slice_act_ready(c);
