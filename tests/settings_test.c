@@ -57,6 +57,18 @@ int main(void)
     assert(favorite_has(USER_NATIVE_FM,63) && favorite_has(USER_NATIVE_CZ,127) && favorite_has(NENGINES,63));
     assert(!favorite_has(USER_NATIVE_FM,64) && !favorite_has(USER_NATIVE_CZ,128));
     p=original;settings_import(&p,sizeof p);
+    {
+        uint8_t legacy[16]; memset(favorites.factory[14], 0xA5, 32);
+        memcpy(legacy, favorites.factory[14], sizeof legacy);
+        assert(!scale_favorite(0) && !scale_favorite(69));
+        assert(scale_favorite_set(0, 1) && scale_favorite_set(69, 1) && scale_favorite_set(95, 1));
+        assert(!scale_favorite_set(96, 1) && !scale_favorite_set(69, 1));
+        assert(!memcmp(legacy, favorites.factory[14], sizeof legacy));
+        settings_export(&p); memset(&favorites, 0, sizeof favorites); settings_import(&p, sizeof p);
+        assert(scale_favorite(0) && scale_favorite(69) && scale_favorite(95));
+        assert(scale_favorite_set(69, 0) && !scale_favorite(69) && scale_favorite(95));
+        p=original;settings_import(&p,sizeof p);
+    }
     settings.lowcut = 0;
     settings_export(&p);
     assert(!p.lowcut && p.bold == 1 && p.favorites.user == (1u << 31));   /* bold: kept as saved */

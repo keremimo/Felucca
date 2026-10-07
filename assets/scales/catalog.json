@@ -1,0 +1,605 @@
+[
+  {
+    "name": "CHR",
+    "group": "Original",
+    "notes": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "title": "Chromatic"
+  },
+  {
+    "name": "MAJ",
+    "group": "Original",
+    "notes": [
+      0,
+      2,
+      4,
+      5,
+      7,
+      9,
+      11
+    ],
+    "title": "Major"
+  },
+  {
+    "name": "MIN",
+    "group": "Original",
+    "notes": [
+      0,
+      2,
+      3,
+      5,
+      7,
+      8,
+      10
+    ],
+    "title": "Natural minor"
+  },
+  {
+    "name": "DOR",
+    "group": "Original",
+    "notes": [
+      0,
+      2,
+      3,
+      5,
+      7,
+      9,
+      10
+    ],
+    "title": "Dorian"
+  },
+  {
+    "name": "MIX",
+    "group": "Original",
+    "notes": [
+      0,
+      2,
+      4,
+      5,
+      7,
+      9,
+      10
+    ],
+    "title": "Mixolydian"
+  },
+  {
+    "name": "PEN",
+    "group": "Original",
+    "notes": [
+      0,
+      2,
+      4,
+      7,
+      9
+    ],
+    "title": "Major pentatonic"
+  },
+  {
+    "name": "MPEN",
+    "group": "Original",
+    "notes": [
+      0,
+      3,
+      5,
+      7,
+      10
+    ],
+    "title": "Minor pentatonic"
+  },
+  {
+    "name": "HARM",
+    "group": "Original",
+    "notes": [
+      0,
+      2,
+      3,
+      5,
+      7,
+      8,
+      11
+    ],
+    "title": "Harmonic minor"
+  },
+  {
+    "name": "PHRY",
+    "group": "Original",
+    "notes": [
+      0,
+      1,
+      3,
+      5,
+      7,
+      8,
+      10
+    ],
+    "title": "Phrygian"
+  },
+  {
+    "name": "LYD",
+    "group": "Original",
+    "notes": [
+      0,
+      2,
+      4,
+      6,
+      7,
+      9,
+      11
+    ],
+    "title": "Lydian"
+  },
+  {
+    "name": "LOC",
+    "group": "Original",
+    "notes": [
+      0,
+      1,
+      3,
+      5,
+      6,
+      8,
+      10
+    ],
+    "title": "Locrian"
+  },
+  {
+    "name": "MEL",
+    "group": "Original",
+    "notes": [
+      0,
+      2,
+      3,
+      5,
+      7,
+      9,
+      11
+    ],
+    "title": "Melodic minor"
+  },
+  {
+    "name": "BLUES",
+    "group": "Original",
+    "notes": [
+      0,
+      3,
+      5,
+      6,
+      7,
+      10
+    ],
+    "title": "Blues"
+  },
+  {
+    "name": "WHOLE",
+    "group": "Original",
+    "notes": [
+      0,
+      2,
+      4,
+      6,
+      8,
+      10
+    ],
+    "title": "Whole tone"
+  },
+  {
+    "name": "DIMHW",
+    "group": "Original",
+    "notes": [
+      0,
+      1,
+      3,
+      4,
+      6,
+      7,
+      9,
+      10
+    ],
+    "title": "Half-whole diminished"
+  },
+  {
+    "name": "DIMWH",
+    "group": "Original",
+    "notes": [
+      0,
+      2,
+      3,
+      5,
+      6,
+      8,
+      9,
+      11
+    ],
+    "title": "Whole-half diminished"
+  },
+  {
+    "name": "5EDO",
+    "group": "Equal divisions",
+    "edo": 5,
+    "title": "5-tone equal division"
+  },
+  {
+    "name": "7EDO",
+    "group": "Equal divisions",
+    "edo": 7,
+    "title": "7-tone equal division"
+  },
+  {
+    "name": "9EDO",
+    "group": "Equal divisions",
+    "edo": 9,
+    "title": "9-tone equal division"
+  },
+  {
+    "name": "10EDO",
+    "group": "Equal divisions",
+    "edo": 10,
+    "title": "10-tone equal division"
+  },
+  {
+    "name": "13EDO",
+    "group": "Equal divisions",
+    "edo": 13,
+    "title": "13-tone equal division"
+  },
+  {
+    "name": "14EDO",
+    "group": "Equal divisions",
+    "edo": 14,
+    "title": "14-tone equal division"
+  },
+  {
+    "name": "15EDO",
+    "group": "Equal divisions",
+    "edo": 15,
+    "title": "15-tone equal division"
+  },
+  {
+    "name": "16EDO",
+    "group": "Equal divisions",
+    "edo": 16,
+    "title": "16-tone equal division"
+  },
+  {
+    "name": "17EDO",
+    "group": "Equal divisions",
+    "edo": 17,
+    "title": "17-tone equal division"
+  },
+  {
+    "name": "18EDO",
+    "group": "Equal divisions",
+    "edo": 18,
+    "title": "18-tone equal division"
+  },
+  {
+    "name": "19EDO",
+    "group": "Equal divisions",
+    "edo": 19,
+    "title": "19-tone equal division"
+  },
+  {
+    "name": "20EDO",
+    "group": "Equal divisions",
+    "edo": 20,
+    "title": "20-tone equal division"
+  },
+  {
+    "name": "21EDO",
+    "group": "Equal divisions",
+    "edo": 21,
+    "title": "21-tone equal division"
+  },
+  {
+    "name": "22EDO",
+    "group": "Equal divisions",
+    "edo": 22,
+    "title": "22-tone equal division"
+  },
+  {
+    "name": "23EDO",
+    "group": "Equal divisions",
+    "edo": 23,
+    "title": "23-tone equal division"
+  },
+  {
+    "name": "24EDO",
+    "group": "Equal divisions",
+    "edo": 24,
+    "title": "24-tone equal division"
+  },
+  {
+    "name": "26EDO",
+    "group": "Equal divisions",
+    "edo": 26,
+    "title": "26-tone equal division"
+  },
+  {
+    "name": "27EDO",
+    "group": "Equal divisions",
+    "edo": 27,
+    "title": "27-tone equal division"
+  },
+  {
+    "name": "29EDO",
+    "group": "Equal divisions",
+    "edo": 29,
+    "title": "29-tone equal division"
+  },
+  {
+    "name": "31EDO",
+    "group": "Equal divisions",
+    "edo": 31,
+    "title": "31-tone equal division"
+  },
+  {
+    "name": "34EDO",
+    "group": "Equal divisions",
+    "edo": 34,
+    "title": "34-tone equal division"
+  },
+  {
+    "name": "36EDO",
+    "group": "Equal divisions",
+    "edo": 36,
+    "title": "36-tone equal division"
+  },
+  {
+    "name": "41EDO",
+    "group": "Equal divisions",
+    "edo": 41,
+    "title": "41-tone equal division"
+  },
+  {
+    "name": "53EDO",
+    "group": "Equal divisions",
+    "edo": 53,
+    "title": "53-tone equal division"
+  },
+  {
+    "name": "JI-MAJ",
+    "group": "Just intonation",
+    "file": "ptolemy.scl",
+    "title": "Just major"
+  },
+  {
+    "name": "JI-MIN",
+    "group": "Just intonation",
+    "file": "ptolemy_diat.scl",
+    "title": "Just minor"
+  },
+  {
+    "name": "JI-12",
+    "group": "Just intonation",
+    "file": "ji_12.scl",
+    "title": "Just chromatic"
+  },
+  {
+    "name": "JI-7L",
+    "group": "Just intonation",
+    "file": "ji_12a.scl",
+    "title": "7-limit chromatic"
+  },
+  {
+    "name": "JI-7",
+    "group": "Just intonation",
+    "file": "ji_7.scl",
+    "title": "Just diatonic"
+  },
+  {
+    "name": "HARM8",
+    "group": "Harmonic",
+    "file": "harm8.scl",
+    "title": "Harmonic series 8"
+  },
+  {
+    "name": "HARM16",
+    "group": "Harmonic",
+    "file": "harm16.scl",
+    "title": "Harmonic series 16"
+  },
+  {
+    "name": "PARTCH",
+    "group": "Just intonation",
+    "file": "partch_43.scl",
+    "title": "Partch 43-tone"
+  },
+  {
+    "name": "HARRIS",
+    "group": "Just intonation",
+    "file": "harrison_8.scl",
+    "title": "Harrison 8-tone"
+  },
+  {
+    "name": "PYTH",
+    "group": "Historical",
+    "file": "pyth_12.scl",
+    "title": "Pythagorean"
+  },
+  {
+    "name": "MT-1/4",
+    "group": "Historical",
+    "file": "meanquar.scl",
+    "title": "Quarter-comma meantone"
+  },
+  {
+    "name": "MT-1/3",
+    "group": "Historical",
+    "file": "meanthird.scl",
+    "title": "Third-comma meantone"
+  },
+  {
+    "name": "MT-1/6",
+    "group": "Historical",
+    "file": "meansixth.scl",
+    "title": "Sixth-comma meantone"
+  },
+  {
+    "name": "WERCK3",
+    "group": "Historical",
+    "file": "werck3.scl",
+    "title": "Werckmeister III"
+  },
+  {
+    "name": "KIRN3",
+    "group": "Historical",
+    "file": "kirnberger3.scl",
+    "title": "Kirnberger III"
+  },
+  {
+    "name": "VALLOT",
+    "group": "Historical",
+    "file": "vallotti.scl",
+    "title": "Vallotti"
+  },
+  {
+    "name": "YOUNG2",
+    "group": "Historical",
+    "file": "young2.scl",
+    "title": "Young II"
+  },
+  {
+    "name": "RAST-J",
+    "group": "Regional",
+    "file": "rast_11-limit.scl",
+    "title": "Rast 11-limit"
+  },
+  {
+    "name": "SABA-J",
+    "group": "Regional",
+    "file": "saba_sup.scl",
+    "title": "Saba just"
+  },
+  {
+    "name": "SHRUTI",
+    "group": "Regional",
+    "file": "indian.scl",
+    "title": "Indian 22 shruti"
+  },
+  {
+    "name": "SLENDR",
+    "group": "Regional",
+    "file": "slendro_av.scl",
+    "title": "Slendro average"
+  },
+  {
+    "name": "PELOG",
+    "group": "Regional",
+    "file": "alves_pelog.scl",
+    "title": "Pelog"
+  },
+  {
+    "name": "BP-ET",
+    "group": "Non-octave",
+    "file": "bohlen-p_et.scl",
+    "title": "Bohlen-Pierce equal"
+  },
+  {
+    "name": "BP-JI",
+    "group": "Non-octave",
+    "file": "bohlen-p.scl",
+    "title": "Bohlen-Pierce just"
+  },
+  {
+    "name": "RAST",
+    "group": "Maqam models",
+    "cents": [
+      200,
+      350,
+      500,
+      700,
+      900,
+      1050,
+      1200
+    ],
+    "description": "Idealised 24-EDO model; regional intonation varies.",
+    "title": "Rast"
+  },
+  {
+    "name": "BAYATI",
+    "group": "Maqam models",
+    "cents": [
+      150,
+      300,
+      500,
+      700,
+      800,
+      1000,
+      1200
+    ],
+    "description": "Idealised 24-EDO model; regional intonation varies.",
+    "title": "Bayati"
+  },
+  {
+    "name": "HIJAZ",
+    "group": "Maqam models",
+    "cents": [
+      100,
+      400,
+      500,
+      700,
+      800,
+      1100,
+      1200
+    ],
+    "description": "Idealised 24-EDO model; regional intonation varies.",
+    "title": "Hijaz"
+  },
+  {
+    "name": "SABA",
+    "group": "Maqam models",
+    "cents": [
+      150,
+      300,
+      400,
+      700,
+      800,
+      1000,
+      1200
+    ],
+    "description": "Idealised 24-EDO model; regional intonation varies.",
+    "title": "Saba"
+  },
+  {
+    "name": "HUSAYN",
+    "group": "Maqam models",
+    "cents": [
+      150,
+      300,
+      500,
+      700,
+      850,
+      1000,
+      1200
+    ],
+    "description": "Idealised 24-EDO model; regional intonation varies.",
+    "title": "Husayni"
+  },
+  {
+    "name": "SIKAH",
+    "group": "Maqam models",
+    "cents": [
+      150,
+      350,
+      550,
+      700,
+      850,
+      1050,
+      1200
+    ],
+    "description": "Idealised 24-EDO model; regional intonation varies.",
+    "title": "Sikah"
+  }
+]

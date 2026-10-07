@@ -86,6 +86,8 @@ static struct {
     uint16_t note_pick;          /* NOTES: event index + 1; zero chooses the first hit */
     uint8_t note_zoom;           /* 16, 8, 4, 2 or 1 steps across the panel */
     uint8_t note_track;
+    uint8_t scale_picker_seen;
+    uint8_t scale_family;        /* 0 ALL, 1..SCALE_FAMILIES, last FAV */
     uint32_t note_pattern_gen, note_generation;
     recorded_note_t note_identity; /* retain focus when unrelated event storage changes */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
@@ -235,6 +237,10 @@ static void seq_midi_reset(void)                    /* a new page/track ends MID
 static void page_entered(void)
 {
     const page_t *pg = cur_page();
+    if (pg->graph == GR_SCALE_PICKER && !ui.scale_picker_seen) {
+        ui.scale_family = (uint8_t)(SCALE_FAMILY[clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u)] + 1u);
+        ui.scale_picker_seen = 1;
+    }
     song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
     ui.entry_open = 0;
     ui.note_pick = 0;
@@ -353,6 +359,17 @@ static void cursor_fix(void)                           /* LEN got shorter: onto 
 
 static void note_name(char *b, uint32_t n)
 {
+    if (micro_active(TSEL)) {
+        int32_t d = (int32_t)n - 60, count = micro_scale(TSEL)->count, cycle = micro_floor(d, count);
+        b[0] = 'D';
+        fmt_int(b + 1, d - cycle * count + 1);
+        if (cycle) {
+            uint32_t at = str_len(b);
+            b[at] = cycle < 0 ? '-' : '+';
+            fmt_int(b + at + 1, cycle < 0 ? -cycle : cycle);
+        }
+        return;
+    }
     str_cpy(b, N_NOTE[n % 12u], 4);
     fmt_int(b + str_len(b), (int32_t)(n / 12u) - 1);
 }
@@ -738,6 +755,8 @@ static void scale_share(const track_t *from)
         trk[k].p[P_MPCDEG] = (int16_t)clamp(from->p[P_MPCDEG], 1, (int32_t)scale_count(from));
     }
 }
+
+#include "scale_picker.c"
 
 /* a retired preset kept as an alias, so stored preset numbers stay valid: SAMPLE 1, once TRANH, is PIANO
  * (tools/gen_samples.py SMP_SET_ORIG). It loads as the original; browsing skips it. -> the preset k stands for */

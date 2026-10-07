@@ -314,11 +314,24 @@ as the synthesized 808 kit. SLICER remains a gate/stutter effect on synthesized 
 
 ## Scale keyboard
 
+The first **SCL** page is **SCALES**, a browser with full names and note counts.
+**KNOB 1** selects a family (or ALL / FAV), **KNOB 2** browses that list,
+**KNOB 3** sets ROOT beside SCALE, and **KNOB 4** sets QNT.
+The **PRESETS** knob also browses scales on this page. Family changes select the first
+matching scale when the current one is outside the family; an empty favorites list keeps
+that scale and shows how to add it. Device favorites survive power-off.
+Press **SCL** again for the settings page: ROOT, FAV, QNT and TRN. **KNOB 2** there
+saves or removes the active scale as a favorite without changing its tuning.
+Press **SCL** once more for CHORD.
+The web editor adds family filtering, search by full or short name, and favorites saved
+in that browser. Its filters keep the active tuning until a scale is selected;
+browser favorites and device favorites are separate.
+
 On the **SCL** page, set **QNT** to WHITE to play the selected scale using only the
 white keys (SNAP keeps every key and rounds it down to the scale). C4 plays **ROOT**; consecutive white keys play consecutive scale notes
 above and below it. Black keys are silent, including during live recording and
 step entry. **TRN** transposes the resulting notes; the octave buttons shift them
-by full octaves. Set QNT to OFF for the normal chromatic keyboard.
+by full repeat periods (octaves for the original scales). Set QNT to OFF for the normal chromatic keyboard.
 
 Available scales: chromatic (CHR), major (MAJ), natural minor (MIN), Dorian (DOR),
 Mixolydian (MIX), major pentatonic (PEN), minor pentatonic (MPEN), harmonic minor
@@ -327,13 +340,25 @@ minor blues (BLUES), whole tone (WHOLE), half-whole diminished (DIMHW), and
 whole-half diminished (DIMWH). Scales with other than seven notes continue across
 the white keys without repeating notes; their roots need not fall on every C key.
 
+The list also includes **54 microtonal selections**, for **70 scales in total**:
+selected equal divisions from 5 to 53, just intonation, harmonic scales, Partch, historical temperaments,
+maqam models, shruti, gamelan examples and Bohlen–Pierce. See the [complete catalogue and
+playing notes](assets/scales/README.md). QNT WHITE, ALL and MPC play consecutive degrees;
+SNAP rounds the keyboard and incoming MIDI pitches down to a scale degree. QNT OFF bypasses
+microtonal tuning. ROOT and TRN shift pitch in ordinary semitones. The octave buttons,
+ARP OCT and chord voicings move by the scale's repeat period (3:1 for Bohlen–Pierce).
+Microtonal notes display as degrees, such as D1 and D3+1, and retain separate identities
+when several degrees fit inside one semitone. Recordings and projects retain these degrees.
+MIDI OUT carries degree addresses; an external synth needs the same tuning and mapping to
+reproduce these pitches.
+
 QNT **ALL** plays the next scale note on every key, black keys included. QNT **MPC** maps an
 MPC's Bank H pads (MIDI 20–35, H01–H16 of MPC Sample's default map) to successive scale notes;
 the **MPC** page in the SCL family sets **DEG**, the degree pad H02 plays. Incoming MIDI follows
 WHITE, ALL and MPC the way the keys do (without the octave buttons). SCL, QNT and DEG are shared by
 all four tracks; ROOT and TRN stay per track. Drum kits keep their own note mapping.
 
-Press **SCL** again for the **CHORD** page: CHRD picks the chord keys (OFF, the scale's triads or
+On the **CHORD** page, CHRD picks the chord keys (OFF, the scale's triads or
 sevenths, or a fixed shape) and VOIC the voicing.
 
 ## Layout

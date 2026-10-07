@@ -8,6 +8,32 @@ typedef struct {
 } favorites_t;
 static favorites_t favorites;
 static uint32_t favorites_user_hi;
+/* Scale favorites use the upper half of retired engine 14's PER5 row. Keep
+ * old preset bits 0..127 intact; tagged storage ignores unrecognized bytes.
+ * No settings/template layout change. */
+#define SCALE_FAV_CAP 96u
+static int scale_fav_valid(void)
+{
+    const uint8_t *p = favorites.factory[14];
+    return p[28] == 'S' && p[29] == 'C' && p[30] == 'L' && p[31] == 1;
+}
+static int scale_favorite(uint32_t scale)
+{
+    return scale < SCALE_FAV_CAP && scale_fav_valid() &&
+        ((favorites.factory[14][16u + scale / 8u] >> (scale % 8u)) & 1u);
+}
+static int scale_favorite_set(uint32_t scale, int on)
+{
+    if (scale >= SCALE_FAV_CAP || scale_favorite(scale) == !!on) return 0;
+    uint8_t *p = favorites.factory[14];
+    if (!scale_fav_valid()) {
+        memset(p + 16, 0, 12);
+        p[28] = 'S'; p[29] = 'C'; p[30] = 'L'; p[31] = 1;
+    }
+    if (on) p[16u + scale / 8u] |= (uint8_t)(1u << (scale % 8u));
+    else p[16u + scale / 8u] &= (uint8_t)~(1u << (scale % 8u));
+    return 1;
+}
 static int favorite_has(uint32_t engine, uint32_t preset)
 {
     if(engine==USER_NATIVE_FM || engine==USER_NATIVE_CZ){if(preset>=(engine==USER_NATIVE_FM?64u:128u))return 0;preset+=engine==USER_NATIVE_FM?24u:65u;engine=engine==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ;}

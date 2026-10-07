@@ -457,6 +457,14 @@ static void edit_param(uint32_t slot, int32_t steps)
         tracks_edit(slot, steps);
         return;
     }
+    if (pg->graph == GR_SCALE_PICKER) {
+        scale_picker_edit(slot, steps);
+        return;
+    }
+    if (scale_settings_page(pg) && slot == 1u) {
+        scale_picker_mark(steps > 0);
+        return;
+    }
     if (pg->graph == GR_BROWSE) {                         /* KNOB 1: one preset, KNOB 2: the next / previous engine */
         if (slot == 0u) {
             preset_step(steps);
@@ -1325,7 +1333,9 @@ static void ui_input(void)
 
     s = panel_enc(EN_PRESET);
     if (s) step_edit_combo();
-    if (s && (ui.home || cur_page()->graph == GR_BROWSE)) {
+    if (s && !ui.home && cur_page()->graph == GR_SCALE_PICKER) {
+        scale_picker_step(s);
+    } else if (s && (ui.home || cur_page()->graph == GR_BROWSE)) {
         /* PRESETS browses the selected part's sounds (all engines, then user presets) on HOME and the
          * PRESETS page only (never the steps); elsewhere (TRACKS too, where one records) a stray turn
          * would throw away the sound being edited */
@@ -1361,7 +1371,8 @@ static void ui_input(void)
             continue;
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
-            || pg->graph == GR_SONG || (pg->graph == GR_SLICES && k < 2u)) {   /* (not an empty column) */
+            || pg->graph == GR_SONG || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
+            || (pg->graph == GR_SLICES && k < 2u)) {   /* (not an empty column) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
         }

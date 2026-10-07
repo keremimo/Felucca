@@ -235,16 +235,16 @@ static void graph_roll(const track_t *t, uint16_t c)
     for (r = 0; r < PR_ROWS; r++) {                 /* rows: the lane, the key, the C names */
         int32_t n = (int32_t)proll.lo + PR_ROWS - 1 - r, y = PR_Y0 + r * PR_RH;
         uint32_t pc = (uint32_t)n % 12u;
-        int in = mask == 0xFFFu ? !KEY_BLACK[pc] : (int)((mask >> ((uint32_t)(n - t->p[P_ROOT] + 120) % 12u)) & 1u);
+        int in = micro_active(t) ? ((n - 60) & 1) == 0 : mask == 0xFFFu ? !KEY_BLACK[pc] : (int)((mask >> ((uint32_t)(n - t->p[P_ROOT] + 120) % 12u)) & 1u);
         if (in)
             cv_rect(PR_X0, y, gw, PR_RH, T_LANE);
         if ((held >> r) & 1u)
             cv_rect(PR_KX, y, 9, PR_RH - 1, T_ACCENT);
         else
-            cv_rect(PR_KX, y, KEY_BLACK[pc] ? 5 : 9, PR_RH - 1, KEY_BLACK[pc] ? T_DIM : T_RAISE);
-        if (pc == 0u) {
+            cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[pc] ? 5 : 9, PR_RH - 1, !micro_active(t) && KEY_BLACK[pc] ? T_DIM : T_RAISE);
+        if (micro_active(t) ? ((n - 60) % (int32_t)scale_note_period(t) == 0) : pc == 0u) {
             cv_rect(PR_X0, y + PR_RH - 1, gw, 1, T_RAISE);
-            note_name(nb, (uint32_t)n);
+            if (micro_active(t)) str_cpy(nb, "D1", sizeof nb); else note_name(nb, (uint32_t)n);
             cv_text_r(23, y - 5, &AF_S, nb, T_DIM, T_SURF);   /* (the widest, "C-1", inside the panel: x 3..21) */
         }
     }
@@ -341,10 +341,11 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
     int32_t bottom = PR_Y0 + PR_ROWS * PR_RH;
     for (int32_t row = 0; row < PR_ROWS; row++) {
         int32_t note = (int32_t)proll.lo + PR_ROWS - 1 - row, y = PR_Y0 + row * PR_RH;
-        if (!KEY_BLACK[note % 12]) cv_rect(PR_X0, y, 16 * PR_CW + 1, PR_RH, T_LANE);
-        cv_rect(PR_KX, y, KEY_BLACK[note % 12] ? 5 : 9, PR_RH - 1, KEY_BLACK[note % 12] ? T_DIM : T_RAISE);
-        if (note % 12 == 0) {
-            char name[8]; note_name(name, (uint32_t)note);
+        if (micro_active(t) ? ((note - 60) & 1) == 0 : !KEY_BLACK[note % 12]) cv_rect(PR_X0, y, 16 * PR_CW + 1, PR_RH, T_LANE);
+        cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[note % 12] ? 5 : 9, PR_RH - 1, !micro_active(t) && KEY_BLACK[note % 12] ? T_DIM : T_RAISE);
+        if (micro_active(t) ? ((note - 60) % (int32_t)scale_note_period(t) == 0) : note % 12 == 0) {
+            char name[8];
+            if (micro_active(t)) str_cpy(name, "D1", sizeof name); else note_name(name, (uint32_t)note);
             cv_text_r(23, y - 5, &AF_S, name, T_DIM, T_SURF);
         }
     }
@@ -402,6 +403,19 @@ static void graph_grid(const track_t *t, uint16_t c)
 static void graph_scale(const track_t *t, uint16_t c)
 {
     static const uint8_t BLACK[12] = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0};
+    const micro_scale_t *s = micro_scale(t);
+    if (s) {
+        char label[24];
+        fmt_int(label, s->count);
+        str_cpy(label + str_len(label), " DEGREES / PERIOD", 20);
+        cv_text_c(120, 8, &AF_S, label, T_MID, T_SURF);
+        cv_rect(12, 91, 216, 1, T_RAISE);
+        for (uint32_t d = 0; d <= s->count; d++) {
+            int32_t x = 12 + s->pitch[d] * 216 / s->pitch[s->count];
+            cv_rect(x, d ? 48 : 36, 2, d ? 42 : 54, d ? c : T_ACCENT);
+        }
+        return;
+    }
     uint32_t i, mask = scale_mask(t);
     for (i = 0; i < 12u; i++) {
         uint32_t deg = (i + 12u - (uint32_t)t->p[P_ROOT]) % 12u;
@@ -429,6 +443,18 @@ static void graph_chord(const track_t *t, uint16_t c)
     }
     if (chord_kit(t)) {
         panel_note("NO CHORDS ON KITS", 0, 0);
+        return;
+    }
+    if (micro_active(t)) {
+        if (chord_last[k].n) {
+            n = chord_last[k].n;
+            for (i = 0; i < n; i++) nn[i] = chord_last[k].note[i];
+        } else n = chord_make(t, 60u, nn, &r, &mask);
+        cv_text_c(120, 10, &AF_S, "SCALE DEGREES", T_MID, T_SURF);
+        for (i = 0; i < n; i++) {
+            note_name(b, nn[i]);
+            cv_text_c(30 + (int32_t)i * 60, 55, &AF_S, b, i ? c : T_ACCENT, T_SURF);
+        }
         return;
     }
     if (chord_last[k].n) {
@@ -871,6 +897,10 @@ static uint32_t graph_signature(void)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
          ui.ppick * 1299709u;
+    if (pg->graph == GR_SCALE_PICKER) {
+        h ^= ui.scale_family * 40503u;
+        for (i = 16u; i < 32u; i++) h = (h ^ favorites.factory[14][i]) * 16777619u;
+    }
     if (pg->graph == GR_NOTES) {
         uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), a, b, chosen = notes_selected(t);
         notes_window(t, period, &a, &b);
@@ -987,6 +1017,39 @@ static void panel_note(const char *a, const char *b, const char *c)
 
 /* preset browser: the global list (every engine), the current one selected; tag DIM, name TEXT,
  * favourites starred (the accent), the selected row's suggested pattern at its right */
+static void graph_scale_picker(void)
+{
+    uint32_t scale = (uint32_t)clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u);
+    uint32_t total = scale_picker_count(), rank = scale_picker_rank();
+    char detail[32];
+    cv_text_fit(12, 3, &AF_S, SCALE_TITLE[scale], T_TEXT, T_SURF, scale_favorite(scale) ? 192 : 216);
+    if (scale_favorite(scale)) cv_icon_on(214, 5, 12, ICON_X_STAR, T_ACCENT, T_SURF);
+    fmt_int(detail, SCALE_DEGREES[scale]); str_cpy(detail + str_len(detail), " NOTES", 7);
+    cv_text_on(12, 20, &AF_S, detail, T_MID, T_SURF);
+    if (!total) {
+        note_line(57, "NO FAVORITES", T_TEXT);
+        note_line(80, "NEXT SCL PAGE: FAV ON", T_DIM);
+        return;
+    }
+    detail[0] = 0;
+    if (rank < total) { fmt_int(detail, (int32_t)rank + 1); str_cpy(detail + str_len(detail), "/", 2); }
+    fmt_int(detail + str_len(detail), (int32_t)total);
+    cv_text_r(226, 20, &AF_S, detail, T_MID, T_SURF);
+    uint32_t first = rank < total && rank > 2u ? rank - 2u : 0u;
+    if (total > 5u && first > total - 5u) first = total - 5u;
+    for (uint32_t row = 0; row < 5u && first + row < total; row++) {
+        uint32_t id = scale_picker_at(first + row);
+        int selected = id == scale;
+        int32_t y = 35 + (int32_t)row * 17;
+        uint16_t bg = selected ? T_THEME : T_SURF, fg = selected ? T_INK : T_TEXT;
+        if (selected) cv_rrect(6, y, 228, 16, 4, T_THEME, T_SURF);
+        cv_free_text(12, y + 1, &AF_S, SCALE_TITLE[id], fg, bg, 183);
+        fmt_int(detail, SCALE_DEGREES[id]);
+        cv_text_r(226, y + 1, &AF_S, detail, selected ? T_INK : T_DIM, bg);
+        if (scale_favorite(id)) cv_icon_on(196, y + 2, 12, ICON_X_STAR, selected ? T_INK : T_ACCENT, bg);
+    }
+}
+
 static void graph_browse(void)
 {
     uint32_t total, cur = preset_pos(&total), e, k;
@@ -1346,7 +1409,7 @@ static int graph_notes(void)
     if (!n) return 0;
     c = held ? T_TEXT : T_THEME;
     bass = note[0] % 12u;
-    q = chord_of(pcs, bass, &root);
+    q = micro_active(TSEL) ? 0 : chord_of(pcs, bass, &root);
     if (q) {
         int32_t x = cv_text(12, 7, &AF_L, N_NOTE[root], c);
         x = cv_text(x + 2, 19, &AF_M, q, c);
@@ -1461,7 +1524,16 @@ static void draw_graph(void)
             cv_oy = 0;
             graph_recorded_notes(t, c);
             break;
+        case GR_SCALE_PICKER:
+            cv_oy = 0;
+            graph_scale_picker();
+            break;
         case GR_SCALE:
+            if (scale_settings_page(pg)) {
+                cv_oy = 0;
+                cv_text_fit(12, 3, &AF_S, SCALE_TITLE[clamp(t->p[P_SCALE], 0, SCALE_TOTAL - 1u)], T_TEXT, T_SURF, 216);
+                cv_oy = 20;
+            }
             graph_scale(t, c);
             break;
         case GR_CHORD:

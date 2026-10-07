@@ -570,10 +570,23 @@ static int concert_pitch(void)
     tuning_a4 = 440;
     return bad;
 }
+static int scale_catalogue(void)
+{
+    reset(); uint8_t a[2] = {0, P_SCALE};
+    uint32_t n = request(ED_DESC, a, 2), at = 14;
+    while (at < n && host_wire[at++]); /* label */
+    while (at < n && host_wire[at++]); /* unit */
+    int good = ed_rv(host_wire + 10) == SCALE_TOTAL - 1;
+    for (uint32_t i = 0; i < SCALE_TOTAL; i++) {
+        good &= at < n && strcmp((const char *)host_wire + at, N_SCALE[i]) == 0;
+        while (at < n && host_wire[at++]);
+    }
+    return check("SCL DESC carries every legacy and microtonal name in one complete frame", good && at == n - 1);
+}
 int main(void)
 {
     int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
-              native_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex() + concert_pitch();
+              native_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex() + concert_pitch() + scale_catalogue();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

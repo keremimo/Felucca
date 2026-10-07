@@ -416,7 +416,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
 #endif
        S_ROLL_EMPTY, S_ROLL_ACID, S_ROLL_CHORDS, S_ROLL_TIES, S_ROLL_LEN32, S_ROLL_HIGH, S_ROLL_LOW, S_ROLL_WIDE, S_ROLL_PLAYING,
        S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_NATIVE_FM_USER, S_NATIVE_CZ_USER,
-       S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_COUNT };
+       S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "user",
     "phrases", "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -434,7 +434,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
 #endif
     "roll_empty", "roll_acid", "roll_chords", "roll_ties", "roll_len32_p2", "roll_high", "roll_low", "roll_wide", "roll_playing",
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
-    "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense"};
+    "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -681,6 +681,29 @@ static void setup(int s)
     case S_SLICER: TSEL->p[P_SLCR] = 1; go_title("SLICER"); break;
     case S_DLY: go_title("DLY"); break;
     case S_SCL: TSEL->p[P_SCALE] = 2; go_title("SCL"); break;
+    case S_SCALE_PICKER_EDO:
+    case S_SCALE_PICKER_HIST:
+    case S_SCALE_PICKER_FAV:
+    case S_SCALE_PICKER_EMPTY:
+        go_page(GR_SCALE_PICKER); TSEL->p[P_QUANT] = Q_ALL; TSEL->p[P_ROOT] = 6;
+        TSEL->p[P_SCALE] = s == S_SCALE_PICKER_HIST ? 50 : 39;
+        ui.scale_family = s == S_SCALE_PICKER_HIST ? 5 : 2;
+        if (s == S_SCALE_PICKER_FAV || s == S_SCALE_PICKER_EMPTY) {
+            ui.scale_family = SCALE_FAMILIES + 1u;
+            if (s == S_SCALE_PICKER_FAV) { scale_favorite_set(39, 1); scale_favorite_set(50, 1); scale_favorite_set(63, 1); }
+        }
+        break;
+    case S_SCALE_SETTINGS_FAV:
+        go_title("SCL"); TSEL->p[P_SCALE] = 50; TSEL->p[P_ROOT] = 6; TSEL->p[P_QUANT] = Q_ALL;
+        scale_favorite_set(50, 1); break;
+    case S_SCL_MICRO:
+        for (uint32_t i = 0; i < SCALE_TOTAL; i++) if (!strcmp(N_SCALE[i], "53EDO")) TSEL->p[P_SCALE] = (int16_t)i;
+        TSEL->p[P_QUANT] = Q_ALL; go_title("SCL"); break;
+    case S_SCL_MICRO_LAYER:
+        go_home(); ui.layer = LAYER_SCL; TSEL->p[P_SCALE] = SCALE_TOTAL - 1; break;
+    case S_SCL_MICRO_CHORD:
+        for (uint32_t i = 0; i < SCALE_TOTAL; i++) if (!strcmp(N_SCALE[i], "24EDO")) TSEL->p[P_SCALE] = (int16_t)i;
+        TSEL->p[P_QUANT] = Q_ALL; TSEL->p[P_CHRD] = CH_DIA7; TSEL->p[P_VOICE] = V_POLY; go_title("CHORD"); break;
     case S_CHORD:                                    /* A minor DIA7, the last chord on B: Bm7b5 */
     case S_CHORD_WIDE: {                             /* A harmonic minor DIA7 +OCT on G#: G#dim7 over three octaves */
         uint8_t out[CHORD_MAX];
