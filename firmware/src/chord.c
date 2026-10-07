@@ -41,6 +41,24 @@ static int chord_kit(const track_t *t)
 static uint32_t chord_tones(const track_t *t, uint32_t mode, int32_t *root, int32_t *iv)
 {
     uint32_t n = 0, i;
+    if (micro_active(t)) {
+        if (mode < CH_MAJ) {
+            n = mode == CH_DIA7 ? 4u : 3u;
+            for (i = 0; i < n; i++) iv[i] = 2 * (int32_t)i;
+        } else {
+            for (i = 0; i < CHORD_MAX && CHORD_SHAPE[mode - CH_MAJ][i] >= 0; i++) {
+                int32_t target = micro_pitch(t, *root) + CHORD_SHAPE[mode - CH_MAJ][i] * 10000;
+                int32_t lo = 0, hi = 127;
+                while (lo < hi) {
+                    int32_t mid = (lo + hi) / 2;
+                    if (micro_pitch(t, mid) < target) lo = mid + 1; else hi = mid;
+                }
+                if (lo && target - micro_pitch(t, lo - 1) < micro_pitch(t, lo) - target) lo--;
+                iv[n++] = lo - *root;
+            }
+        }
+        return n;
+    }
     if (mode >= CH_MAJ) {
         for (i = 0; i < CHORD_MAX && CHORD_SHAPE[mode - CH_MAJ][i] >= 0; i++)
             iv[n++] = CHORD_SHAPE[mode - CH_MAJ][i];
@@ -74,6 +92,7 @@ static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_
 {
     int32_t iv[CHORD_MAX + 1u], r = (int32_t)root, x;
     uint32_t mode = (uint32_t)t->p[P_CHRD], n, i, j, m = 0;
+    int32_t period = (int32_t)scale_note_period(t);
     uint16_t mask = 0;
     *rp = r;
     *maskp = 0;
@@ -83,7 +102,8 @@ static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_
     }
     n = chord_tones(t, mode, &r, iv);
     for (i = 0; i < n; i++)
-        mask |= (uint16_t)(1u << (iv[i] % 12));
+        mask |= (uint16_t)(1u << (micro_active(t) ?
+            ((micro_pitch(t, r + iv[i]) - micro_pitch(t, r) + 5000) / 10000 % 12) : iv[i] % 12));
     *rp = r;
     *maskp = mask;
     if (trk_vmode(t) != V_POLY) {                       /* one voice: the root */
@@ -93,12 +113,12 @@ static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_
     switch (t->p[P_VOIC]) {
     case VC_OPEN:                                       /* 1-5-3(-7): the second tone an octave up */
         if (n >= 3u)
-            iv[1] += 12;
+            iv[1] += period;
         break;
     case VC_INV2:
     case VC_INV1:
         for (j = 0; j < (t->p[P_VOIC] == VC_INV2 ? 2u : 1u); j++) {   /* the lowest tone an octave up */
-            x = iv[0] + 12;
+            x = iv[0] + period;
             for (i = 1; i < n; i++)
                 iv[i - 1u] = iv[i];
             iv[n - 1u] = x;
@@ -111,7 +131,7 @@ static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_
         }
         for (i = n; i > 0; i--)
             iv[i] = iv[i - 1u];
-        iv[0] = -12;
+        iv[0] = -period;
         n++;
         break;
     default:
@@ -127,6 +147,7 @@ static uint32_t chord_make(const track_t *t, uint32_t root, uint8_t *out, int32_
         x = r + iv[i];
         if (x < 0 || x > 127 || (m && out[m - 1u] == (uint8_t)x))
             continue;
+        if (micro_active(t) && (micro_pitch(t, x) < 0 || micro_pitch(t, x) > 1270000)) continue;
         out[m++] = (uint8_t)x;
     }
     if (!m) {

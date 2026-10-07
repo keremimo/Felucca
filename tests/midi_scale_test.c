@@ -53,7 +53,7 @@ static int mapping_test(void)
     int bad = 0;
     scale_reset();
     song.octave = 2;                                  /* MIDI notes ignore the octave buttons */
-    for (s = 0; s <= (uint32_t)TP[P_SCALE].max; s++)
+    for (s = 0; s < SCALE_LEGACY; s++)
         for (root = 0; root < 12; root++)
             for (trans = -24; trans <= 24; trans += 24) {
                 t->p[P_SCALE] = (int16_t)s; t->p[P_ROOT] = (int16_t)root; t->p[P_TRANS] = (int16_t)trans;
@@ -145,12 +145,13 @@ static int share_test(void)
     int bad = 0;
     uint32_t k, ok = 1;
     scale_reset();
-    ui.home = 0; ui.page = (uint8_t)page_first(FAM_SCL);
+    ui.home = 0;
+    ui.page = (uint8_t)page_first(FAM_SCL);
     edit_param(1, 3);                                 /* SCL */
-    edit_param(2, 1);                                 /* QNT */
+    edit_param(3, 1);                                 /* QNT */
     for (k = 0; k < NPART; k++) ok &= trk[k].p[P_SCALE] == TSEL->p[P_SCALE] && trk[k].p[P_QUANT] == TSEL->p[P_QUANT];
     bad += check("SCL and QNT turned on one track are every part's", ok && TSEL->p[P_SCALE] == 3 && TSEL->p[P_QUANT] == 1);
-    edit_param(0, 5);                                 /* ROOT: the track's own */
+    edit_param(2, 5);                                 /* ROOT: the track's own */
     bad += check("ROOT stays the track's", TSEL->p[P_ROOT] == 5 && trk[1].p[P_ROOT] == 0);
     return bad;
 }

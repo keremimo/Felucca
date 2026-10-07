@@ -14,25 +14,6 @@
  * snaps playback only, leaving the original performance intact. With the ARP on, the notes the arp
  * plays are recorded, not the keys held (what plays back is what was heard). A key or MIDI note plays a
  * chord when the track's CHRD is on (chord.c): its notes go through the same input as so many keys. */
-static const uint16_t SCALE_MASK[] = {
-    0xFFF,                                   /* CHR */
-    (1 << 0) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 11),   /* MAJ */
-    (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 8) | (1 << 10),   /* MIN */
-    (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 10),   /* DOR */
-    (1 << 0) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 10),   /* MIX */
-    (1 << 0) | (1 << 2) | (1 << 4) | (1 << 7) | (1 << 9),                          /* PEN */
-    (1 << 0) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 10),                         /* MPEN */
-    (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 8) | (1 << 11),   /* HARM */
-    (1 << 0) | (1 << 1) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 8) | (1 << 10),   /* PHRY */
-    (1 << 0) | (1 << 2) | (1 << 4) | (1 << 6) | (1 << 7) | (1 << 9) | (1 << 11),   /* LYD */
-    (1 << 0) | (1 << 1) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 8) | (1 << 10),   /* LOC */
-    (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 11),   /* MEL (ascending) */
-    (1 << 0) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 10),              /* BLUES (minor) */
-    (1 << 0) | (1 << 2) | (1 << 4) | (1 << 6) | (1 << 8) | (1 << 10),              /* WHOLE */
-    (1 << 0) | (1 << 1) | (1 << 3) | (1 << 4) | (1 << 6) | (1 << 7) | (1 << 9) | (1 << 10), /* DIMHW */
-    (1 << 0) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 8) | (1 << 9) | (1 << 11), /* DIMWH */
-};
-
 #define KB_SILENT 255u
 static uint32_t kb_prev;
 static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on which track */
@@ -97,11 +78,19 @@ enum { GK_ACC = NLANE, GK_PGDN, GK_PGUP };       /* black keys 9..11 on the grid
 
 static uint32_t scale_mask(const track_t *t)
 {
-    return SCALE_MASK[clamp(t->p[P_SCALE], 0, sizeof SCALE_MASK / sizeof SCALE_MASK[0] - 1)];
+    const micro_scale_t *s = micro_scale(t);
+    if (s) { /* approximate pitch classes for the keyboard LEDs only */
+        uint32_t mask = 0;
+        for (uint32_t i = 0; i < s->count; i++)
+            mask |= 1u << ((s->pitch[i] + 5000) / 10000 % 12);
+        return mask;
+    }
+    return SCALE_MASK[clamp(t->p[P_SCALE], 0, SCALE_LEGACY - 1)];
 }
 
 static uint32_t scale_count(const track_t *t)
 {
+    if (micro_scale(t)) return micro_scale(t)->count;
     uint32_t mask = scale_mask(t), count = 0;
     while (mask) {
         count += mask & 1u;
@@ -116,6 +105,7 @@ static int32_t mpc_degree(const track_t *t) { return clamp(t->p[P_MPCDEG], 1, (i
  * note off the MIDI range is silent (else clamped). Scales of 5, 6, 8 or 12 notes repeat no degree */
 static uint32_t scale_degree_map(const track_t *t, int32_t degree, int32_t offset, int strict)
 {
+    if (micro_active(t)) return micro_degree_map(t, degree, offset, strict);
     uint32_t mask = scale_mask(t), i;
     int32_t count = (int32_t)scale_count(t), oct, n;
     oct = degree / count;
@@ -160,6 +150,10 @@ static uint32_t kb_map(const track_t *t, uint32_t k)
         return (uint32_t)n;
     n = 53 + (int32_t)k;
     if (t->p[P_QUANT] == Q_SNAP) {                     /* SNAP: every key, rounded down to the scale */
+        if (micro_active(t)) {
+            uint32_t note = micro_snap(t, n + t->p[P_TRANS]);
+            return note == KB_SILENT ? note : micro_degree_map(t, (int32_t)note - 60, 12 * song.octave, 1);
+        }
         uint32_t mask = scale_mask(t), guard = 12;
         n += 12 * song.octave + t->p[P_TRANS];
         while (guard-- && !((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u))
@@ -183,6 +177,8 @@ static uint32_t midi_map(const track_t *t, uint32_t note)
         return scale_degree_map(t, (int32_t)note - 21 + mpc_degree(t) - 1, 12 * song.octave, 1);
     if (t->p[P_QUANT] == Q_WHITE || t->p[P_QUANT] == Q_ALL)
         return scale_map(t, (int32_t)note, 0);
+    if (micro_active(t) && t->p[P_QUANT] == Q_SNAP)
+        return micro_snap(t, (int32_t)note + t->p[P_TRANS]);
     return note;
 }
 
@@ -275,7 +271,13 @@ static void arp_step(track_t *t, uint32_t n, uint32_t gate_n)
             }
     for (o = 0; o < (uint32_t)t->p[P_AOCT]; o++)
         for (i = 0; i < cnt && len < 64u; i++)
-            list[len++] = clamp((int32_t)list[i] + 12 * (int32_t)o, 0, 127);
+            if (micro_active(t)) {
+                uint32_t note = micro_degree_map(t, (int32_t)list[i] - 60 + (int32_t)scale_note_period(t) * (int32_t)o, 0, 1);
+                if (note < 128u) list[len++] = note;
+            } else {
+                list[len++] = clamp((int32_t)list[i] + 12 * (int32_t)o, 0, 127);
+            }
+    if (!len) return;
     if (t->p[P_AMODE] == 6) { list[0] = t->held[t->nheld - 1u]; len = 1; } /* REPEAT: last played note, no octave traversal */
     t->arp_idx++;
     switch (t->p[P_AMODE]) {

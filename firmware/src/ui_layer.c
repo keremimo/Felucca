@@ -464,12 +464,12 @@ static void layer_glo(void)
 }
 static void layer_scl(void)                             /* KNOB 2's scales, 4 x 4, the one now selected */
 {
-    uint32_t i, sc = (uint32_t)TSEL->p[P_SCALE];
-    for (i = 0; i < 16u && i <= (uint32_t)TP[P_SCALE].max; i++) {
+    uint32_t i, sc = (uint32_t)TSEL->p[P_SCALE], base = sc / 16u * 16u;
+    for (i = 0; i < 16u && base + i <= (uint32_t)TP[P_SCALE].max; i++) {
         int32_t x = LC_X(i % 4u), y = 4 + 29 * (int32_t)(i / 4u);
-        uint16_t ink, fill = lc_fill(i == sc ? LS_SEL : LS_OFF, &ink);
+        uint16_t ink, fill = lc_fill(base + i == sc ? LS_SEL : LS_OFF, &ink);
         cv_rrect(x, y, LC_W, 25, 4, fill, T_SURF);
-        cv_text_c(x + LC_W / 2, y + 7, &AF_S, TP[P_SCALE].names[i], ink, fill);
+        cv_text_c(x + LC_W / 2, y + 7, &AF_S, TP[P_SCALE].names[base + i], ink, fill);
     }
 }
 static void layer_edit(void)                            /* the engines from F3, INIT next (LY_INIT), the sound under them */

@@ -146,6 +146,7 @@ typedef struct {
     int32_t pitch16, pitch_cur;  /* 1/16 semitone, with glide */
     int32_t gstep;               /* glide TIME mode: 1/16 st per control tick, 0 = RATE mode */
     int32_t fine;                /* unison detune: phase increment * (1 + fine / 4096) */
+    int32_t scale_fine;          /* note-on snapshot: scale pitch below 1/16 semitone */
     uint32_t ph[3];
     int32_t s[8];                /* engine state (filters, envs) */
     uint32_t age;
@@ -356,6 +357,8 @@ typedef struct {
 static track_t trk[NTRK];        /* the instrument: four parts */
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
+
+#include "microtonal.h"
 
 /* SWING of a track's step clock: the track's own plus the global one, at most 100 (#31). The sequencer
  * (seq.c step_samples) and the SLICER (slicer.c sl_enter) both time steps with it. At 100 the even

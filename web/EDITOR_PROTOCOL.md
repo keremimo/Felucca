@@ -815,3 +815,12 @@ old objects 7/22 for slots 33..64. Migration commits the new objects before reus
 then clears successfully migrated shared records. Existing CZ bank tones keep their indices; embedded
 CZ user tones move into free native slots, without overwriting existing tones. If the CZ collection is full,
 unmatched general records remain accessible. All new objects use the existing CRC-checked A/B save path.
+
+### Microtonal SCL selections
+
+Track parameter 26 (SCL) now has 70 names (IDs 0–69); the original 0–15 retain their meanings.
+DESC replies carry up to 96 enum names within the existing 1024-byte response buffer. Consumers
+should read the names present in the reply, allowing older firmware's shorter descriptors.
+With a new scale and QNT enabled, note addresses are scale degrees around address 60 = ROOT at
+C4 + TRN. Recordings and STEP/NOTES keep these 7-bit addresses. MIDI OUT does not send tuning
+messages. See [the catalogue](../assets/scales/README.md) for mapping and register limits.

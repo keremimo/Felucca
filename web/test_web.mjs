@@ -31,8 +31,20 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6,
-   FM4, fromDigital, CZ, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
+   FM4, fromDigital, CZ, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
+
+{
+  const d = {min: 0, max: E.SCALE_INFO.length - 1, names: E.SCALE_INFO.map(r => r.name)};
+  ok(E.scaleRows(d).length === 70, "scale picker: every supported scale available");
+  ok(E.scaleRows(d, "Equal divisions").length === 24, "scale picker: family filtering");
+  ok(E.scaleRows(d, "All scales", "quarter-comma")[0]?.name === "MT-1/4", "scale picker: readable names searchable");
+  ok(E.scaleRows(d, "All scales", "53EDO")[0]?.count === 53, "scale picker: short names and note counts searchable");
+  ok(E.scaleRows(d, "Favorites", "", ["BP-JI", "24EDO"]).map(r => r.name).join() === "24EDO,BP-JI", "scale picker: favorites retain catalogue IDs");
+  ok(E.scaleRows(d, "Favorites").length === 0 && E.scaleRows(d, "All scales", "missing scale").length === 0, "scale picker: empty favorites and search");
+  const old = E.scaleRows({min: 0, max: 1, names: ["MAJ", "UNKNOWN"]});
+  ok(old[0].title === "Major" && old[1].title === "UNKNOWN" && old[1].id === 1 && old[1].family === "Other", "scale picker: old firmware and unknown scale fallback");
+}
 
 async function czTests() {
   const b=E.CZ.init();E.CZ.setName(b,"EIGHT POINT TEST");b[20]=0x37;b[16]=0x42;b[17]=17;b[18]=5;b[19]=83;
@@ -225,10 +237,18 @@ async function editorMock() {
   ok(none === null, "editor: old firmware receives no unsupported preference requests");
   await rq(E.req.uiSet(3, 0));
   const scale = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 26)));
-  const scaleNames = ["CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM", "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"];
-  ok(scale.label === "SCL" && scale.max === 15 && eq(scale.names, scaleNames), "editor: all 16 scale names exposed");
-  const scaleSet = E.parse[E.CMD.SET](await rq(E.req.set(0, scale.id, 15)));
-  ok(scaleSet.value === 15, "editor: new scale selection is not clamped to the old range");
+  const scaleNames = JSON.parse(readFileSync(new URL("../assets/scales/catalog.json", import.meta.url), "utf8")).map(s => s.name);
+  ok(scale.label === "SCL" && scale.max === scaleNames.length - 1 && eq(scale.names, scaleNames), "editor: full microtonal scale catalogue exposed");
+  const scaleSet = E.parse[E.CMD.SET](await rq(E.req.set(0, scale.id, scaleNames.length - 1)));
+  ok(scaleSet.value === scaleNames.length - 1, "editor: new scale selection is not clamped to the old range");
+  await rq(E.req.set(0, scale.id, scaleNames.indexOf("53EDO")));
+  const degree = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 83)));
+  const degreeSet = E.parse[E.CMD.SET](await rq(E.req.set(0, 83, 53)));
+  ok(degree.max === 53 && degreeSet.value === 53, "editor: MPC degree range follows the selected microtonal scale");
+  await rq(E.req.set(0, scale.id, 1));
+  const smallDegree = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 83)));
+  const smallValue = E.parse[E.CMD.GET](await rq(E.req.get(0, 83)));
+  ok(smallDegree.max === 7 && smallValue.value === 7, "editor: changing to a smaller scale clamps MPC degree");
   const dump = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
   ok(dump.p.length === info.pcount && dump.g.length === info.gcount, "editor: DUMP");
   const set = E.parse[E.CMD.SET](await rq(E.req.set(0, 3, 500)));

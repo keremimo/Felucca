@@ -426,6 +426,7 @@ static void draw_foot(void)
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
     if (pg->graph == GR_NOTES) sig += recording_generation * 7919u + ui.note_pick * 40503u;
+    if (pg->graph == GR_SCALE_PICKER) sig += ui.scale_family * 40503u;
     if (!ui.force && sig == ui.foot_sig)
         return;
     ui.foot_sig = sig;
@@ -444,6 +445,9 @@ static void draw_foot(void)
         } else {
             cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
         }
+    } else if (pg->graph == GR_SCALE_PICKER && !ui.home) {
+        cv_text_on(8, 2, &AF_S, SCALE_FAMILY_TITLE[ui.scale_family], T_THEME, T_BG);
+        cv_key_hint(232 - kh_w(KC_KEYS, "PLAY"), 2, KC_KEYS, "PLAY", 1, T_BG);
     } else if (pg->graph == GR_NOTES && !ui.home) {
         uint32_t chosen = notes_selected(t), count;
         notes_rank(t, chosen, &count);
@@ -574,6 +578,16 @@ static void draw_columns(void)
         param_format(&TP[P_REV], t->p[P_REV], val, &unit);
         draw_column(2, "REV", val, unit, VAL(2u), RATIO(&TP[P_REV], t->p[P_REV]), ICON_AUTO);
         draw_column(3, "MUTE", t->p[P_MUTE] ? "ON" : "OFF", "", t->p[P_MUTE] ? T_ACCENT : VAL(3u), -1, ICON_AUTO);
+        return;
+    }
+    if (cur_page()->graph == GR_SCALE_PICKER) {
+        uint32_t scale = (uint32_t)clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u);
+        draw_column(0, "FAMILY", SCALE_FAMILY_SHORT[ui.scale_family], "", VAL(0u), -1, ICON_X_FOLDER);
+        draw_column(1, "SCALE", N_SCALE[scale], "", VAL(1u), -1, ICON_NONE);
+        param_format(&TP[P_ROOT], TSEL->p[P_ROOT], val, &unit);
+        draw_column(2, "ROOT", val, unit, VAL(2u), -1, ICON_AUTO);
+        param_format(&TP[P_QUANT], TSEL->p[P_QUANT], val, &unit);
+        draw_column(3, "QNT", val, unit, VAL(3u), -1, ICON_AUTO);
         return;
     }
     if (cur_page()->graph == GR_BROWSE) {
@@ -708,6 +722,10 @@ static void draw_columns(void)
     }
     for (c = 0; c < 4u; c++) {
         int16_t *vp;
+        if (scale_settings_page(cur_page()) && c == 1u) {
+            draw_column(c, "FAV", scale_favorite((uint32_t)TSEL->p[P_SCALE]) ? "ON" : "OFF", "", VAL(c), -1, ICON_X_STAR);
+            continue;
+        }
         const param_desc_t *d = page_desc(cur_page(), c, &vp);
         if (!d || !d->label || d->label[0] == '-') {
             draw_column(c, "", "", "", T_THEME, -1, ICON_AUTO);

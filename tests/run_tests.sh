@@ -81,6 +81,7 @@ OUT=build/host
 mkdir -p "$OUT"
 CC="${CC:-cc} -O1 -Wall -Wno-unused-function"
 fail=0
+python3 tools/gen_scales.py --check
 run() { echo "== $1"; shift; "$@" || fail=1; }
 
 $CC -o "$OUT/storage_test" tests/storage_test.c
@@ -120,6 +121,10 @@ if [ -f build/gen/melodee_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/scale_test" tests/scale_test.c -lm
     run "scales: white-key mapping and note lifecycle" "$OUT/scale_test"
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/microtonal_test" tests/microtonal_test.c -lm
+    run "microtonal: catalogue, layouts, note ownership, recordings and rendered pitch" "$OUT/microtonal_test"
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/scale_picker_test" tests/scale_picker_test.c -lm
+    run "scale picker: families, favorites, empty lists, shared settings and navigation" "$OUT/scale_picker_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/chord_test" tests/chord_test.c -lm
     run "chord keys: diatonic and fixed chords, voicings, MONO root, releases, recording, ARP, MIDI IN, kits" "$OUT/chord_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/speaker_test" tests/speaker_test.c -lm

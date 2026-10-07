@@ -24,10 +24,10 @@ static void mapping_test(void)
     track_t *t = &trk[0];
     uint32_t s, k, w;
     int root, oct, trans;
-    assert(TP[P_SCALE].max + 1 == sizeof EXPECTED / sizeof EXPECTED[0]);
+    assert(TP[P_SCALE].max + 1 == SCALE_TOTAL);
     assert(sizeof SCALE_MASK / sizeof SCALE_MASK[0] == sizeof EXPECTED / sizeof EXPECTED[0]);
     t->p[P_QUANT] = 2;
-    for (s = 0; s <= (uint32_t)TP[P_SCALE].max; s++) {
+    for (s = 0; s < SCALE_LEGACY; s++) {
         uint32_t mask = 0;
         t->p[P_SCALE] = (int16_t)s;
         for (k = 0; k < EXPECTED[s].count; k++)

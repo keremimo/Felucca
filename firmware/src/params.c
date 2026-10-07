@@ -5,8 +5,6 @@ static const char *const N_LWAVE[] = {"SIN", "TRI", "SAW", "SQR", "S&H"};
 static const char *const N_AMODE[] = {"OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT"};
 static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
 static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
-static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
-                                    "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
 static const char *const N_QUANT[] = {"OFF", "SNAP", "WHITE", "ALL", "MPC"};   /* Q_OFF .. Q_MPC (seq.c kb_map, midi_map) */
 /* chord keys (chord.c): OFF, the diatonic triad / seventh of the track's ROOT and SCALE on the key, fixed shapes */
@@ -409,7 +407,7 @@ enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS 
                                                                   * CZ1: a native CZ-1 tone (cz_edit.h) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHANCE, GR_MOTION, GR_CHORD, GR_SLICES,
-       GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_CZTOOLS, GR_NOTES }; /* NOTES: original recorded events */
+       GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_CZTOOLS, GR_NOTES, GR_SCALE_PICKER }; /* NOTES: original recorded events */
 
 typedef struct {
     const char *title;
@@ -436,7 +434,8 @@ static const page_t PAGES[] = {
     {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
     {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},   /* TYPE: ROOM / SPRING */
     {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
-    {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_QUANT, P_TRANS}},
+    {"SCALES", FAM_SCL, SC_TRACK, GR_SCALE_PICKER, {0xFF, P_SCALE, P_ROOT, P_QUANT}},
+    {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, 0xFF, P_QUANT, P_TRANS}}, /* K2: scale favorite */
     {"CHORD", FAM_SCL, SC_TRACK, GR_CHORD, {P_CHRD, P_VOIC, 0xFF, 0xFF}},   /* SCL again: the chord keys (chord.c) */
     {"MPC", FAM_SCL, SC_TRACK, GR_NONE, {P_MPCDEG, 0xFF, 0xFF, 0xFF}},   /* QNT MPC only: the degree of pad H02 */
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},

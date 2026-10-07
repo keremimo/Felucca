@@ -203,7 +203,8 @@ static voice_t *voice_alloc(track_t *t, uint32_t note)
     }
     if (t->p[P_ALLOC] || t->p[P_GLIDE]) {
         for (i = 0; i < np; i++) {
-            int32_t d = t->v[i].pitch_cur - (int32_t)note * 16;
+            int32_t target = micro_active(t) ? clamp(micro_pitch(t, (int32_t)note), 0, 1270000) * 16 / 10000 : (int32_t)note * 16;
+            int32_t d = t->v[i].pitch_cur - target;
             if (t->v[i].active)
                 continue;
             d = d < 0 ? -d : d;
@@ -254,6 +255,19 @@ static void glide_set(track_t *t, voice_t *v, int glide)
     }
 }
 
+/* Keep each sounding voice's pitch after SCL/ROOT/QNT changes, including release tails. */
+static void voice_scale_pitch(const track_t *t, voice_t *v, uint32_t note)
+{
+    if (micro_active(t)) {
+        int32_t pitch = clamp(micro_pitch(t, (int32_t)note), 0, 1270000);
+        v->pitch16 = pitch * 16 / 10000;
+        v->scale_fine = (pitch * 16 - v->pitch16 * 10000) * 2367 / 1600000;
+    } else {
+        v->pitch16 = (int32_t)note * 16;
+        v->scale_fine = 0;
+    }
+}
+
 static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int glide)
 {
     const engine_t *e = ENGINES[t->engine];
@@ -268,7 +282,7 @@ static void voice_start(track_t *t, voice_t *v, uint32_t note, uint32_t vel, int
     v->active = 1;
     v->stage = 1;
     v->age = ++vage;
-    v->pitch16 = (int32_t)note * 16;
+    voice_scale_pitch(t, v, note);
     v->mvel = t->m_vel;                                 /* mod.c: the note's VEL and RAND */
     v->mrnd = t->m_rnd;
     t->m_vi = (uint8_t)(v - t->v);
@@ -320,7 +334,7 @@ static void mono_play(track_t *t, uint32_t note, uint32_t vel, int retrig, int g
             }
         } else {                                            /* legato: new pitch, same envelope */
             v->note = (uint8_t)note;
-            v->pitch16 = (int32_t)note * 16;
+            voice_scale_pitch(t, v, note);
             v->mvel = t->m_vel;
             v->mrnd = t->m_rnd;
             if (vel > v->vel && nv == 1u)
@@ -610,9 +624,9 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         pitch = v->pitch_cur + tune + bend16 + ((lfo * p[P_LD_PIT] * 3) >> 15) + ((m.envq15 * p[P_ED_PIT] * 3) >> 15);
         m.pitch16 = clamp(pitch, 0, 2047);
         m.inc = tuned_pitch_inc(m.pitch16);
-        m.fine = v->fine + tune_fine + bend_fine;
-        if (v->fine + tune_fine + bend_fine)             /* residual below 1/16 semitone */
-            m.inc += (uint32_t)((int32_t)(m.inc >> 12) * (v->fine + tune_fine + bend_fine));
+        m.fine = v->fine + v->scale_fine + tune_fine + bend_fine;
+        if (m.fine)             /* residual below 1/16 semitone */
+            m.inc += (uint32_t)((int32_t)(m.inc >> 12) * m.fine);
         m.cutoff = ((lfo * p[P_LD_FLT]) >> 7) + ((m.envq15 * p[P_ED_FLT]) >> 7);
         if (v->vel > 110)                               /* accent opens the filter with the env */
             m.cutoff += (m.envq15 * 24) >> 7;
@@ -620,9 +634,9 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
         if (e == &ENG_PHASE || e == &ENG_CZ)                            /* native DCA remains the matrix's ENV source */
             m.envq15 = phase_env_source(t, v);
         if (mod.on)                                     /* the modulation matrix (mod.c) */
-            mod_voice(t, v, &m, v->fine + tune_fine + bend_fine);
+            mod_voice(t, v, &m, m.fine);
         /* 1/16 st and 1/4096 -> Q24 octaves: the voice's own offset (the matrix's pitch too), without TUNE and bend */
-        m.plog = (m.pitch16 - tune - bend16 - v->pitch16) * 87381 + (m.fine - tune_fine - bend_fine) * 5909;
+        m.plog = (m.pitch16 - tune - bend16 - (int32_t)v->note * 16) * 87381 + (m.fine - tune_fine - bend_fine) * 5909;
         e->render(t, v, out, n, &m);
         nr++;
     }
