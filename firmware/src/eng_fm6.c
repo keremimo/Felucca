@@ -783,7 +783,7 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
         pm = p1 > p2 ? p1 : p2;
         pm = fm6_peg_step(&s->pe, s->down) + (sens < 0 ? -pm : pm);
     }
-    tune = song.g[G_TUNE] * 13981;                       /* cents, Q24 */
+    tune = song.g[G_TUNE] * 13981 + tuning_log();        /* cents + A4 reference, Q24 octaves */
     pbase = P->pt.pb + tune;
     pm += pbase + m->plog;                               /* + Melodee's glide, LFO / ENV pitch, unison */
     /* amplitude: the LFO (AMD, after the delay) or a controller's, at least the EG bias */
@@ -868,7 +868,7 @@ static void fm6_ghost(track_t *t, voice_t *v, fm6_voice_t *s)
     fm6_part_t *P = FM6P(t);
     const uint8_t *ed = fm6_ed(t);
     uint32_t k;
-    int32_t pb = P->pt.pb + song.g[G_TUNE] * 13981;
+    int32_t pb = P->pt.pb + song.g[G_TUNE] * 13981 + tuning_log();
     int quiet;
     if (s->still == 2u)
         return;                                          /* key sync, not playing: its next note starts afresh */

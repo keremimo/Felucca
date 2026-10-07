@@ -553,10 +553,27 @@ static int names_whole(void)
     }
     return check("NAMES of every engine carries all its presets and both titles", !bad);
 }
+static int concert_pitch(void)
+{
+    int bad = 0;
+    uint8_t a[4] = {1, G_A4, (432u + 8192u) & 127u, (432u + 8192u) >> 7};
+    reset(); tuning_a4 = 440;
+    int16_t saved = song.g[G_A4];
+    request(ED_SET, a, sizeof a);
+    bad += check("A4 SET updates device tuning without writing project globals", tuning_a4 == 432 && song.g[G_A4] == saved);
+    request(ED_GET, a, 2);
+    bad += check("A4 GET returns the device reference", ed_rv(host_wire + 7) == 432);
+    request(ED_DUMP, a, 0);
+    bad += check("DUMP reports device A4 instead of the unused project field", ed_rv(host_wire + 7 + 2 * (P_COUNT + G_A4)) == 432);
+    a[2] = 0; a[3] = 0; request(ED_SET, a, sizeof a);
+    bad += check("A4 SET clamps to its supported range", tuning_a4 == A4_MIN);
+    tuning_a4 = 440;
+    return bad;
+}
 int main(void)
 {
     int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
-              native_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex();
+              native_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex() + concert_pitch();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }

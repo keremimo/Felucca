@@ -230,6 +230,13 @@ projects, with empty patterns. BOOT OFF uses the template when one is saved. CLK
 and ROUT persist between starts; loading a project or template applies its own settings. DRUM is the
 device's own setting.
 
+For handpans and other instruments with a different concert pitch, open **GLO > GLOBAL** and turn
+**KNOB 1 A4**: **400–480 Hz**, in 1 Hz steps, with **440 Hz** as the default. Set **432 Hz** for an
+A=432 instrument and leave **TUNE** at 0; TUNE still adds a fine offset in cents. A4 retunes all
+pitched engines, including FM6 and CZ-1, and takes effect on held notes. It is saved with device
+settings and stays selected when loading projects, templates or presets. MIDI note numbers and
+incoming computer audio are unchanged; external MIDI instruments need their own tuning adjustment.
+
 Projects use the FBKG format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
 projects load into pattern 1; their old project-based SONG rows are cleared. Pre-1.0 Melodee's
 multi-pattern projects/settings/templates and incompatible 58/62-parameter user presets are not imported.

@@ -50,6 +50,9 @@ def main(path):
     assert all(inc[q] == oct_[(q + 64) % 192] >> (10 - (q + 64) // 192) for q in range(2048))
     assert all((q + 64) * 21846 >> 22 == (q + 64) // 192 for q in range(2048))
     L += arr("PITCH_OCT", "uint32_t", oct_, 8)
+    # Device concert pitch: exact frequency ratios and FM6's Q24 octave offsets.
+    L += arr("A4_RATIO", "uint32_t", [round((1 << 24) * hz / 440) for hz in range(400, 481)], 8)
+    L += arr("A4_LOG", "int32_t", [round((1 << 24) * math.log2(hz / 440)) for hz in range(400, 481)], 8)
     L += ["/* phase increment of pitch p in 1/16 semitone, 0..2047 (MIDI 0..127): 440 Hz * 2^((p / 16 - 69) / 12) */",
           "static inline uint32_t pitch_inc(uint32_t p)",
           "{",

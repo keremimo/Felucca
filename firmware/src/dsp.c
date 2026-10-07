@@ -13,6 +13,16 @@ static inline int32_t mulq16(int32_t a, uint32_t k)
 }
 static inline int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+/* Musical pitch only: leave dimensionless ratios (pow2_q16) at their original reference.
+ * At 440 Hz this is bit-identical to pitch_inc, including its truncation. */
+static inline uint32_t tuned_pitch_inc(uint32_t p)
+{
+    uint32_t inc = pitch_inc(p);
+    return tuning_a4 == A4_DEFAULT ? inc :
+           (uint32_t)(((uint64_t)inc * A4_RATIO[tuning_a4 - A4_MIN] + (1u << 23)) >> 24);
+}
+static inline int32_t tuning_log(void) { return A4_LOG[tuning_a4 - A4_MIN]; }
+
 /* sine, linearly interpolated between the 1024 table points (plain lookup: THD -55 dB) */
 static inline int32_t sine_i(uint32_t ph)
 {
@@ -145,7 +155,7 @@ static inline int32_t soft_knee(int32_t y, int32_t k)
 static inline uint32_t cents_inc(int32_t pitch16, int32_t ct, int32_t fine)
 {
     int32_t d16 = ct * 16 / 100, rem = ct * 16 - d16 * 100;          /* rem: 1/1600 semitone */
-    uint32_t inc = pitch_inc(clamp(pitch16 + d16, 0, 2047));
+    uint32_t inc = tuned_pitch_inc(clamp(pitch16 + d16, 0, 2047));
     return inc + (uint32_t)((int32_t)(inc >> 12) * (rem * 2367 / 16000 + fine));
 }
 

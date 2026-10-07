@@ -256,7 +256,7 @@ static __attribute__((noinline)) void cz_prepare(track_t *t, voice_t *v, uint32_
         int32_t amount = p[P_ED_PIT];
         if (p[P_E7]) amount = amount * p[P_FM4_LEVEL] / 127;
         int32_t note = clamp(m->pitch16 + ((pitch[l] * amount * 3) >> 15) + (l ? det * 16 / 100 : 0), 0, 2047);
-        inc[l] = pitch_inc((uint32_t)note);
+        inc[l] = tuned_pitch_inc((uint32_t)note);
         int32_t fine = m->fine + (l ? (det * 16 % 100) * 2367 / 16000 : 0);
         inc[l] += (uint32_t)((int32_t)(inc[l] >> 12) * fine);
         int32_t dep = (p[P_E2] << 8) + m->cutoff + mulq15(depth[l], p[P_E3] * 256);

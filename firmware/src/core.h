@@ -6,6 +6,7 @@
  * engine (synthesized 808 on the General MIDI map) on any part.
  * Sections: sizes, parameters, voices and engines, tracks and the song, system. */
 #include <stdint.h>
+#include "tuning.h"
 
 /* ------------------------------------------------------------ sizes --- */
 #define NVOICE 16                /* voice slots per part (FM6 plays Dexed's 16) */
@@ -93,8 +94,8 @@ enum {                          /* global parameters */
     G_MIDI, G_DRUMCH, G_ROUTE, G_INFO, /* G_ROUTE: MIDI IN, 0 CH1-4 (channels 1..4 -> parts 1..4), 1 SEL (seq.c);
                                         * G_DRUMCH (was G_SYNC, unused): a device setting (settings_drumch) */
     G_SLOT, G_BOOT, G_LOAD, G_SAVE,   /* G_BOOT (was G_NAME, unused): a device setting (settings_boot), not song.g */
-    G_ENGSEL, G_ENGGO,          /* no page: the editor switches the engine with a SET of G_ENGSEL; G_ENGGO is
-                                 * unused (ids are fixed by the formats and the protocol) */
+    G_ENGSEL, G_A4,            /* the editor switches the engine with a SET of G_ENGSEL; G_A4 reuses the unused
+                                 * G_ENGGO id, reads tuning_a4 instead of song.g (ids/count stay fixed) */
     G_CLRSEQ, G_INITSND,
     G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING (fx.c). Was G_DRCH, the GM drum part's MIDI
                                  * channel (inert since 1.0, never read); projects of formats before FUN7 load it
