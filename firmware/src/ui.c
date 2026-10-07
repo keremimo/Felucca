@@ -83,6 +83,11 @@ static struct {
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
     uint8_t pat_key, pat_copy, pat_track;          /* SEQ + white-key bank gesture */
     uint8_t cursor;              /* SEQ: step being edited (STEP page KNOB 1 moves it) */
+    uint16_t note_pick;          /* NOTES: event index + 1; zero chooses the first hit */
+    uint8_t note_zoom;           /* 16, 8, 4, 2 or 1 steps across the panel */
+    uint8_t note_track;
+    uint32_t note_pattern_gen, note_generation;
+    recorded_note_t note_identity; /* retain focus when unrelated event storage changes */
     uint8_t entry_open;          /* SEQ: keys held since the first press of this entry */
     uint8_t step_move;           /* a held SELECT modifier gesture: one edit until the modifier is released */
     uint8_t step_oct_used;       /* OCT buttons consumed by FX/SAVE undo or redo */
@@ -232,6 +237,7 @@ static void page_entered(void)
     const page_t *pg = cur_page();
     song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
     ui.entry_open = 0;
+    ui.note_pick = 0;
     seq_midi_reset();
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */
@@ -336,6 +342,7 @@ static void cursor_set(int32_t c)
     ui.cursor = (uint8_t)((c % len + len) % len);
     ui.bank = (uint8_t)(ui.cursor / 16u);
     ui.entry_open = 0;
+    ui.note_pick = 0;
 }
 
 static void cursor_fix(void)                           /* LEN got shorter: onto the last step */
@@ -1173,4 +1180,5 @@ static int act_ready(void)
 }
 
 #include "seq_edit.c"                             /* SEQ > STEP: a note's length, its move, its deletion */
+#include "seq_notes.c"                            /* NOTES: select original hits without snapping them */
 #include "seq_undo.c"                             /* .. and the eight edits SAVE held undoes */

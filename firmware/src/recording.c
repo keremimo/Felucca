@@ -17,6 +17,7 @@ static uint16_t recording_refs[NTRK][128] __attribute__((section(".pool")));
 static struct { uint32_t period, key; } recording_schedule[NTRK];
 static volatile uint8_t recording_full;
 static uint8_t recording_tracks;
+static volatile uint32_t recording_generation; /* ISR or UI changed event storage */
 
 static uint32_t recording_owner(const track_t *t) { return trk_index(t) * NPAT + t->pattern; }
 static uint32_t recording_prefix(const track_t *t, uint32_t period, uint32_t idx)
@@ -74,6 +75,7 @@ static void recording_end(track_t *t, uint32_t i)
 }
 static void recording_reindex(void)
 {
+    recording_generation++;
     for (uint32_t k = 0; k < NTRK * NPAT; k++) recording_head[k] = RECORD_MAX;
     recording_tracks = 0;
     memset(recording_refs, 0, sizeof recording_refs);
@@ -115,6 +117,7 @@ static recorded_note_t recording_snapshot(uint32_t i)
 static void recording_finish(uint32_t i)
 {
     recording[i] = recording_snapshot(i);
+    recording_generation++;
     recording_flags[i] &= (uint8_t)~1u;
 }
 static void recording_stop(track_t *t)
@@ -129,11 +132,15 @@ static void recording_stop(track_t *t)
 /* Onsets are fractions within their original swung step. Durations are
  * nominal-step fractions with a compact exponent. Optional quantization finds the nearest swung grid boundary,
  * considering the end of the loop as another copy of zero. */
-static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_t period)
+static uint32_t recording_raw_on(const track_t *t, const recorded_note_t *r, uint32_t period)
 {
     uint32_t loop = recording_loop(t, period);
     uint32_t span = step_samples(t, period, r->step & 63u);
-    uint32_t at = (recording_prefix(t, period, r->step & 63u) + (uint32_t)(((uint64_t)r->on * span + RECORD_UNIT / 2u) / RECORD_UNIT)) % loop;
+    return (recording_prefix(t, period, r->step & 63u) + (uint32_t)(((uint64_t)r->on * span + RECORD_UNIT / 2u) / RECORD_UNIT)) % loop;
+}
+static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_t period)
+{
+    uint32_t loop = recording_loop(t, period), at = recording_raw_on(t, r, period);
     uint32_t q = (uint32_t)t->p[P_RECQ];
     if (!q) return at;
     uint32_t grid = seq_div_samples(q - 1u), a = step_samples(t, grid, 0), b = step_samples(t, grid, 1);
@@ -186,7 +193,32 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
     if (t->p[P_RECQ] && (target > at || (!target && at > recording_loop(t, period) / 2u))) recording_flags[free] |= 2u;
     t->step[step].flags |= SF_RECORDED;
     recording_tracks |= (uint8_t)(1u << trk_index(t));
+    recording_generation++;
     return 1;
+}
+
+/* The UI calls these with audio interrupts paused. Remove only this event,
+ * ending its reference-counted voice; history keeps its original bytes. */
+static void recording_remove(track_t *t, uint32_t i)
+{
+    recording_end(t, i);
+    recording_unlink(i);
+    memset(&recording[i], 0, sizeof recording[i]);
+    memset(&recording_run[i], 0, sizeof recording_run[i]);
+    recording_flags[i] = 0;
+    recording_schedule[trk_index(t)].period = 0;
+    recording_generation++;
+}
+static void recording_restore_note(track_t *t, uint32_t i, recorded_note_t r)
+{
+    recording[i] = r;
+    memset(&recording_run[i], 0, sizeof recording_run[i]);
+    recording_flags[i] = 0;
+    recording_next[i] = recording_head[recording_owner(t)];
+    recording_head[recording_owner(t)] = (uint16_t)i;
+    recording_tracks |= (uint8_t)(1u << trk_index(t));
+    recording_schedule[trk_index(t)].period = 0;
+    recording_generation++;
 }
 
 /* Copy recordings atomically with a bank. Check capacity before mutating

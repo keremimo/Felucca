@@ -227,8 +227,10 @@ static int full_recording_replay(void)
     seq_stop();
     return bad;
 }
+#ifndef RECORDING_NO_MAIN
 int main(void)
 {
     int bad=repeated_hits()+independent_lengths()+raw_loop()+raw_storage()+raw_capacity()+copy_and_edit()+slow_precision()+replace_during_replay()+standalone_and_template()+legacy_recording_migration()+full_recording_replay();
     printf("%s\n",bad?"RAW RECORDING TEST FAILED":"Raw recording tests passed");return !!bad;
 }
+#endif
