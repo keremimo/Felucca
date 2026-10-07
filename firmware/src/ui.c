@@ -132,6 +132,7 @@ static uint32_t layer_btn(void);
  * a SLICE track's (ui_slice.c) */
 static int page_visible(uint32_t i)
 {
+    if (PAGES[i].scope == SC_GLOBAL && PAGES[i].id[0] == G_DTIME) return 0;
     if (PAGES[i].scope == SC_CZ)
         return TSEL->eng_req == 2u && TSEL->p[P_E7] == 1;
     if (PAGES[i].scope == SC_CZ1)

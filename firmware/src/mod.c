@@ -122,7 +122,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     uint32_t k, j;
     mod.on = 0;
     for (k = 0; k < NMSLOT; k++)
-        if (p[P_M1SRC + 3u * k] && p[P_M1DST + 3u * k] && p[P_M1AMT + 3u * k])
+        if (p[P_M1SRC + 3u * k] && p[P_M1DST + 3u * k] && p[P_M1DST + 3u * k] != MD_DLY && p[P_M1AMT + 3u * k])
             break;
     if (k == NMSLOT)
         return 0;
@@ -135,7 +135,7 @@ static __attribute__((noinline)) int mod_begin(track_t *t)
     for (; k < NMSLOT; k++) {
         uint32_t s = (uint32_t)p[P_M1SRC + 3u * k], d = (uint32_t)p[P_M1DST + 3u * k];
         int32_t a = p[P_M1AMT + 3u * k], x;
-        if (!s || !d || !a || s >= MS_N || d >= MD_N)
+        if (!s || !d || d == MD_DLY || !a || s >= MS_N || d >= MD_N)
             continue;
         if (d <= MD_AMP) {                              /* per voice */
             mod.amp |= d == MD_AMP;

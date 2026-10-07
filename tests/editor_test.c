@@ -463,7 +463,7 @@ static int cz_legacy_saved_sounds(void)
     for(uint32_t k=0;k<NTRK;k++){memcpy(legacy+PROJ_CZ_OFF+k*LCZ_PACKED,tone,LCZ_PACKED);legacy[68u+k*(P_COUNT+2u+NSTEP*9u)+P_COUNT]=14;}
     sum=proj_hash(legacy,sizeof legacy-4);memcpy(legacy+sizeof legacy-4,&sum,4);
     bad+=check("earlier next FUNB project migrates CZ engine and full envelopes",proj_import_any(&r,legacy,sizeof legacy) && r.t[0].engine==ENGI_CZ && r.t[0].p[P_E7]==CZ_NATIVE && !memcmp(r.cz[0].raw,native,CZ_BYTES));
-    uint8_t full[BANK_SIZE9];bank_pack(full,&q,0);uint32_t oldExtra=BANK_EXTRA_OFF;
+    uint8_t full[BANK_STORE_SIZE];bank_pack(full,&q,0);uint32_t oldExtra=BANK_EXTRA_OFF;
     memmove(full+8u+sizeof legacy,full+8u+PROJ_STORE_SIZE,BANK_STORE_SIZE-8u-PROJ_STORE_SIZE-4u);
     memcpy(full+8u,legacy,sizeof legacy);magic=0x434B4246u;size=BANK_SIZE_CZ_NEXT;memcpy(full,&magic,4);memcpy(full+4,&size,4);sum=proj_hash(full,size-4u);memcpy(full+size-4u,&sum,4);
     bad+=check("earlier next FBKC pattern bank validates without losing timing",bank_valid(full,size));bank_upgrade(full);

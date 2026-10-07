@@ -152,7 +152,13 @@ int main(int argc, char **argv)
         ota_wr16(r, ota_crc16(r + 2, 78, 0));
         memcpy(nor + 0xE4F00, r, sizeof r);
     }
+    /* Musical extension sectors lie above the staged loader and retain erased
+     * scan tails. Installing firmware must preserve every byte of them. */
+    static uint8_t extensions[0x10000];
+    for(uint32_t i=0;i<sizeof extensions;i++)extensions[i]=(i%4096u>=3840u)?0xFFu:(uint8_t)(i*31u);
+    memcpy(nor+0xEA000u,extensions,sizeof extensions);
     rc = ldr_session();
+    bad += check("project extensions survive firmware installation",!memcmp(nor+0xEA000u,extensions,sizeof extensions));
     printf("  rc %d, %u requests, %u sector erases\n", rc, requests, erases);
     bad += check("install completes", rc == 0);
     bad += check("app area == the new package's flash.bin", !memcmp(nor + 0x4000, logical + nfo + 0x4000, 0x93000 - 0x4000));

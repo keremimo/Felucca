@@ -5,7 +5,7 @@ export const BACKUP_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 32, 33, 34];   // 8: the F
 const BACKUP_IDS_V1 = BACKUP_IDS.filter((id) => id !== 8);              // firmware before FM6, and its archives
 const BACKUP_IDS_BANKS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 const BACKUP_IDS_CZ = Array.from({length:17},(_,i)=>i);
-const maxSize = id => id >= 32 ? 81920 : (id === 0 || (id >= 2 && id <= 5)) ? 20224 : 3840;
+const maxSize = id => id >= 32 ? 81920 : (id === 0 || (id >= 2 && id <= 5)) ? 27200 : 3840;
 const idsOf = (n) => (n === BACKUP_IDS.length ? BACKUP_IDS : n === BACKUP_IDS_V1.length ? BACKUP_IDS_V1 : n === 9 ? BACKUP_IDS_BANKS : n === 17 ? BACKUP_IDS_CZ : null);
 export const BACKUP_CMD = { LIST: 65, GET: 66, PUT: 67 };
 const BACKUP_CHUNK = 256;
@@ -119,7 +119,8 @@ export async function restoreBackup(request, file, onProgress = () => {}) {
   const ask = async (r, o = {}) => request(r, { timeout: 4000, retries: 0, ...o });
   const supported = bkManifest(await ask([BACKUP_CMD.LIST, []]));
   const liveSize = supported.find(o => o.id === 0)?.size || 0;
-  if (archive.objects[0].size > liveSize && !(liveSize>=19008 && [19084,19092,20224].includes(archive.objects[0].size))) throw new Error("This backup needs firmware with eight pattern banks");
+  for (const o of archive.objects) if ((o.id === 0 || o.id >= 2 && o.id <= 5) && o.size > liveSize && !(liveSize >= 19008 && [19084,19092,20224].includes(o.size)))
+    throw new Error("This backup needs firmware with larger recording storage");
   for (const o of archive.objects) if (!supported.some(x => x.id === o.id) && o.size) throw new Error("This firmware does not support a nonempty object in this backup");
   const put = async (args) => { const a = await ask([BACKUP_CMD.PUT, args]); bkCheck(a[2]); return a; };
   // Restore live music last. Other objects commit individually; a disconnect can leave a partial restore.

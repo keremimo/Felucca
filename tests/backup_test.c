@@ -186,7 +186,7 @@ static int full_pattern_archive(void)
         ok &= ed_unpack7(rep+9u,rep_n-9u,saved+off,n)==n;
     }
     /* GET emits pack7; the XIP payload itself remains byte-identical after other object reads. */
-    ok &= !memcmp(saved,archive,sizeof saved) && !memcmp(nor+st_sector(OBJ_BANK0,0)+ST_PAYLOAD_OFF,archive,sizeof archive) && get(0,0,64)==0;
+    ok &= !memcmp(saved,archive,sizeof saved) && (st_load(OBJ_BANK0,saved,sizeof saved)==sizeof saved && !memcmp(saved,archive,sizeof saved)) && get(0,0,64)==0;
     bad+=check("saved-bank GET uses flash without overwriting the frozen runtime snapshot",ok);
     bad+=check("full archive restores a saved slot through the A/B path",put_all(3,archive,sizeof archive,st_crc32(archive,sizeof archive))==0);
     pattern_init(); memset(&motion,0,sizeof motion); memset(proj_meta,0,sizeof proj_meta); memset(proj_slot,0,sizeof proj_slot);
@@ -200,8 +200,33 @@ static int full_pattern_archive(void)
     bad+=check("full archive restores the runtime with its original active banks",put_all(0,archive,sizeof archive,st_crc32(archive,sizeof archive))==0 && trk[0].pattern==7 && trk[3].pattern==7);
     return bad;
 }
+static int expanded_recording_archive(void)
+{
+    reset();
+    for(uint32_t k=0;k<NTRK;k++)for(uint32_t b=0;b<NPAT;b++) {
+        pattern_request(&trk[k],b);
+        trk[k].step[3]=(step_t){{60},1,ST_NOTE,SF_RECORDED,100,0,0,0};
+    }
+    for(uint32_t i=0;i<RECORD_MAX;i++)recording[i]=(recorded_note_t){(uint16_t)(i*61u),1234,60,100,(uint8_t)(i%32u),3};
+    recording_reindex();
+    static recorded_note_t saved[RECORD_MAX];memcpy(saved,recording,sizeof saved);
+    int ok=!project_save_as(0,"FULL TAKE");
+    uint32_t len,crc;ok &= !list(0,&len,&crc);
+    static uint8_t archive[BANK_STORE_SIZE], readback[BANK_STORE_SIZE];memcpy(archive,ED_BK_RAW,sizeof archive);
+    for(uint32_t off=0;off<sizeof readback;off+=256u){uint32_t n=sizeof readback-off>256u?256u:sizeof readback-off;ok &= !get(2,off,n) && ed_unpack7(rep+9u,rep_n-9u,readback+off,n)==n;}
+    ok &= !memcmp(archive,readback,sizeof archive);
+    ok &= !put_all(3,archive,sizeof archive,st_crc32(archive,sizeof archive));
+    pattern_init();memset(proj_meta,0,sizeof proj_meta);project_load(1);
+    ok &= !memcmp(saved,recording,sizeof saved);
+    int bad=check("all 1024 timed notes across 32 banks survive flash, backup GET and saved-slot restore",ok);
+    ok=!put_all(0,archive,sizeof archive,st_crc32(archive,sizeof archive)) && !memcmp(saved,recording,sizeof saved);
+    bad+=check("expanded runtime archive restores every original timed note",ok);
+    return bad;
+}
 int main(void)
 {
+    int expanded_bad = expanded_recording_archive();
+
     int bad = 0;
     uint32_t len = 0, crc = 0, before;
     static project_store_t st;
@@ -413,5 +438,5 @@ int main(void)
     }
     bad += full_pattern_archive();
     printf("backup test %s\n", bad ? "FAILED" : "passed");
-    return bad != 0;
+    return (bad + expanded_bad) != 0;
 }

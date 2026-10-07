@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Projects: four slots in NOR, each holding 32 independent pattern banks.
- * FBKF (pattern_store.c) contains the FUN12 sound/current-pattern record below.
+ * FBKG (pattern_store.c) contains the FUN13 sound/current-pattern record below.
  * Hardware retains only slot names/occupancy in RAM; full records use one
  * main-loop staging buffer. Host fixtures also provide a RAM storage backend.
  *
@@ -51,7 +51,8 @@
 #define PROJ_MAGIC_V8 0x46554E38u
 #define PROJ_MAGIC_V10 0x46554E3Au
 #define PROJ_MAGIC_V11 0x46554E3Bu
-#define PROJ_MAGIC 0x46554E3Cu                 /* FUN12: original timed notes and reversible playback QNT */
+#define PROJ_MAGIC_V12 0x46554E3Cu
+#define PROJ_MAGIC 0x46554E3Du                 /* FUN13: 1024 original timed notes */
 #define PROJ_MAGIC_V7 0x46554E37u              /* "FUN7": serialized (byte params, packed steps), chain, motion */
 #define PROJ_MAGIC_V6 0x46554E36u              /* FUN6: 69 parameters, drum grid, chain */
 #define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": the grid, without the chain; read only */
@@ -87,7 +88,7 @@ typedef struct {
     uint8_t fm6_fn_ok, rsv2[3];
     cz_patch_t cz[NTRK];
     recorded_note_t recording[RECORD_MAX];
-    uint8_t pattern[NTRK];                     /* FUN12's active-bank ids (also in the full container) */
+    uint8_t pattern[NTRK];                     /* FUN13's active-bank ids (also in the full container) */
     char name[PROJ_NAME_LEN];                  /* the project's name: upper-case ASCII 32..126, 0-padded; "" = none */
     uint32_t sum;
 } project_t;
@@ -114,7 +115,9 @@ _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "
 #define PROJ_STORE_V8 3584u
 #define PROJ_CZ_BYTES (NTRK * CZ_BYTES)
 #define PROJ_STORE_V11 (PROJ_STORE_V8 + PROJ_CZ_BYTES)
+#define PROJ_STORE_V12 (PROJ_STORE_V11 + 152u * 8u)
 #define PROJ_STORE_SIZE (PROJ_STORE_V11 + RECORD_MAX * 8u)
+#define PROJ_BANK_BYTES (19008u + RECORD_MAX * 8u)
 #define PROJ_STORE_V7 3388u                    /* FUN7 */
 #define PROJ_NAME_OFF (PROJ_STORE_SIZE - 4u - PROJ_NAME_LEN)
 #define PROJ_REC_OFF (PROJ_STORE_V11 - 4u - PROJ_NAME_LEN)
@@ -122,7 +125,7 @@ _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "
 #define PROJ_FM6_OFF (PROJ_CZ_OFF - NTRK * FM6_PACKED)
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(G_COUNT == 27u, "FUN7 globals retain original IDs");
-_Static_assert(sizeof(project_store_t) == 5376u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN12 / FUN7 sizes");
+_Static_assert(sizeof(project_store_t) == 12352u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN13 / FUN7 sizes");
 typedef struct {                               /* a track of format 4, read only */
     int16_t p[PROJ_NP_V4];
     uint8_t engine, preset;
@@ -171,7 +174,7 @@ _Static_assert(sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u && 
                sizeof(project_v4_t) == 2680u, "formats 1 / 2 / 3 / 4 as they were stored");
 #if !defined(FM1_IRQ_TARGET)
 project_store_t proj_slot[4];                 /* host-only cache; hardware reads complete projects from NOR */
-static uint8_t proj_bank_slot[4][20224];
+static uint8_t proj_bank_slot[4][PROJ_BANK_BYTES];
 #endif
 static struct { uint8_t used; char name[PROJ_NAME_LEN + 1u]; } proj_meta[4];
 
@@ -445,13 +448,14 @@ static int proj_import_any(project_t *q, const void *b, int n)
     if((n==PROJ_LEGACY_CZ && ((const uint32_t *)b)[0]==0x46554E42u) || (n==PROJ_LEGACY_CZ_OLD && ((const uint32_t *)b)[0]==0x46554E41u))return proj_unpack(q,b,(uint32_t)n) && proj_fn_none(q);
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[0] == PROJ_MAGIC)
         return proj_unpack(q, b, PROJ_STORE_SIZE) && proj_fn_none(q);
+    if (n == PROJ_STORE_V12 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V12)
+        return proj_unpack(q, b, PROJ_STORE_V12) && proj_fn_none(q);
     if (n == PROJ_STORE_V11 && (((const uint32_t *)b)[0] == PROJ_MAGIC_V11 || ((const uint32_t *)b)[0] == PROJ_MAGIC_V10))
         return proj_unpack(q, b, PROJ_STORE_V11) && proj_fn_none(q);
     if (n == PROJ_STORE_V8 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V8)
         return proj_unpack(q, b, PROJ_STORE_V8) && proj_fn_none(q);
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
-        n = (int)((const uint32_t *)b)[1];      /* a retained slot holding an older, shorter record: its own size
-                                                 * (every format checks its magic and hash) */
+        return proj_import_any(q, b, (int)((const uint32_t *)b)[1]); /* padded cache: validate the original format */
     if (n == (int)PROJ_STORE_V7 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V7)
         return proj_unpack(q, b, PROJ_STORE_V7) && proj_fn_none(q);
     if (n == (int)sizeof *q && proj_ok((const project_t *)b)) {
@@ -571,15 +575,16 @@ static void proj_motion_ids(motion_store_t *m, uint32_t np)
         if (np < P_COUNT && m->event[i].param >= np - 8u && m->event[i].param < np)
             m->event[i].param = (uint8_t)(m->event[i].param + P_COUNT - np);
 }
-/* Serialized FUN12 / FUN11 / FUN10 / FUN8 / FUN7: older records initialize their missing patches. */
+/* Serialized FUN13 / FUN12 / FUN11 / FUN10 / FUN8 / FUN7: older records initialize their missing patches. */
 static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
 {
     uint32_t pos = 68u, t, i, magic, size, sum, np = b[66], v7 = st == PROJ_STORE_V7;
-    uint32_t v12 = st == PROJ_STORE_SIZE, v10 = v12 || st == PROJ_STORE_V11;
+    uint32_t v13 = st == PROJ_STORE_SIZE, v12 = v13 || st == PROJ_STORE_V12, v10 = v12 || st == PROJ_STORE_V11;
+    uint32_t rec_bytes = v13 ? RECORD_MAX * 8u : v12 ? 152u * 8u : 0u;
     uint32_t lc = st==PROJ_LEGACY_CZ?165u:st==PROJ_LEGACY_CZ_OLD?163u:0u;
-    uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - (v12 ? RECORD_MAX * 8u : 0u) - NTRK * FM6_PACKED - (lc ? NTRK*lc : v10 ? PROJ_CZ_BYTES : 0u);
+    uint32_t name_off = st - 4u - PROJ_NAME_LEN, end = v7 ? name_off : name_off - rec_bytes - NTRK * FM6_PACKED - (lc ? NTRK*lc : v10 ? PROJ_CZ_BYTES : 0u);
     memcpy(&magic, b, 4); memcpy(&size, b + 4, 4); memcpy(&sum, b + st - 4u, 4);
-    if ((magic != (lc ? (lc==165u?0x46554E42u:0x46554E41u) : v7 ? PROJ_MAGIC_V7 : v12 ? PROJ_MAGIC : v10 ? PROJ_MAGIC_V11 : PROJ_MAGIC_V8) && !(v10 && !v12 && magic == PROJ_MAGIC_V10)) || size != st || sum != proj_hash(b, st - 4u) ||
+    if ((magic != (lc ? (lc==165u?0x46554E42u:0x46554E41u) : v7 ? PROJ_MAGIC_V7 : v13 ? PROJ_MAGIC : v12 ? PROJ_MAGIC_V12 : v10 ? PROJ_MAGIC_V11 : PROJ_MAGIC_V8) && !(v10 && !v12 && magic == PROJ_MAGIC_V10)) || size != st || sum != proj_hash(b, st - 4u) ||
         np < 8u || np > P_COUNT || 68u + NTRK * (np + 2u + NSTEP * 9u) + sizeof q->chain + sizeof q->motion > end)
         return 0;
     memset(q, 0, sizeof *q); q->magic = PROJ_MAGIC; q->size = sizeof *q;
@@ -606,7 +611,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
             s->vel = b[pos++]; s->hit = b[pos++]; s->acc = b[pos++]; s->probability = b[pos++];
             if ((!v12 && meta > 127u) || s->n > 4u || s->time > ST_REST || s->probability > 101u) return 0;
             for (uint32_t j = 0; j < 4u; j++) if (s->note[j] > 127u) return 0;
-            if (s->vel > 127u || (magic == PROJ_MAGIC || magic == PROJ_MAGIC_V11 ? !step_acc_valid(s) : (s->acc & ~s->hit))) return 0;
+            if (s->vel > 127u || (magic == PROJ_MAGIC || magic == PROJ_MAGIC_V12 || magic == PROJ_MAGIC_V11 ? !step_acc_valid(s) : (s->acc & ~s->hit))) return 0;
         }
     }
     memcpy(&q->chain, b + pos, sizeof q->chain); pos += sizeof q->chain;
@@ -630,7 +635,7 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
         } else { cz_patch_init(q->cz[t].raw); if (q->t[t].engine == ENGI_CZ && q->t[t].p[P_E7] == CZ_NATIVE) q->t[t].p[P_E7] = 0; }
     }
     if (v12) {
-        memcpy(q->recording, b + PROJ_REC_OFF, sizeof q->recording);
+        memcpy(q->recording, b + PROJ_REC_OFF, rec_bytes);
         for (i = 0; i < RECORD_MAX; i++) if (!recording_valid(&q->recording[i])) return 0;
     }
     {
@@ -674,8 +679,8 @@ static uint8_t proj_cur = PROJ_NO_SLOT;      /* the slot the music was loaded fr
                                               * renames the music too); PROJ_NO_SLOT none (the editor's restore) */
 static union {                               /* serialized main-loop work, also used for archive transfers */
     project_store_t p;                       /* standalone legacy record view */
-    uint8_t raw[20224];                       /* one complete FBKF project (also holds older FBK9) */
-} proj_wire_u;
+    uint8_t raw[PROJ_BANK_BYTES];              /* complete FBKG, including legacy imports */
+} proj_wire_u __attribute__((section(".pool")));
 #define proj_wire proj_wire_u.p
 static uint8_t proj_wire_gen;                /* +1 whenever proj_wire is rewritten (a backup's runtime copy lives there) */
 
@@ -902,7 +907,7 @@ static int project_restore_runtime(const project_t *input)
     transport_req = 0;
     pattern_init();
     memcpy(recording, p->recording, sizeof recording);
-    for (i = 0; i < RECORD_MAX; i++) if (recording[i].vel) recording_tracks |= (uint8_t)(1u << ((recording[i].owner & 31u) / NPAT));
+    recording_reindex();
     chain_defaults(&chain_config);
     motion = p->motion;
     memset(motion_active, 0, sizeof motion_active);

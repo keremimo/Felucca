@@ -120,5 +120,15 @@ ok(await athrows(()=>restoreBackup(protectedTarget.request,badBank)) && !protect
 const oldToCz=device([[9,czBank]],{ids:czIds});await restoreBackup(oldToCz.request,bankFile);
 ok(!oldToCz.log.includes(9) && oldToCz.objs.get(9)===czBank,"backup: older archives preserve dedicated CZ banks absent from archive");
 
+const largeObjects=[[0,rnd(27200,20)],[1,rnd(1200,21)],[2,rnd(27200,22)]];
+const largeFile=await captureBackup(device(largeObjects,{ids:czIds,runtimeSize:27200}).request,"1024 NOTES");
+const largeTarget=device([],{ids:czIds,runtimeSize:27200});await restoreBackup(largeTarget.request,largeFile);
+ok(largeTarget.objs.get(2).every((v,i)=>v===largeObjects[2][1][i]),"backup: expanded 1024-note projects capture and restore completely");
+const smallTarget=device([],{ids:czIds,runtimeSize:20224});
+ok(await athrows(()=>restoreBackup(smallTarget.request,largeFile)) && !smallTarget.log.length,"backup: expanded archives are refused by 152-note firmware before any write");
+const mixed=JSON.parse(JSON.stringify(largeFile));mixed.objects[0]=bankFile.objects[0];
+const mixedTarget=device([],{ids:czIds,runtimeSize:20224});
+ok(await athrows(()=>restoreBackup(mixedTarget.request,mixed)) && !mixedTarget.log.length,"backup: preflight checks saved slots too when runtime is an older format");
+
 console.log(fails ? `BACKUP WEB TESTS FAILED (${fails})` : "backup web tests passed");
 process.exit(fails ? 1 : 0);

@@ -229,7 +229,7 @@ enum { ST_NOTE, ST_TIE, ST_REST };
 #define SF_ACCENT 1u
 #define SF_SLIDE 2u
 #define SF_RECORDED 4u                         /* step is a view of timed notes, played by recording.c */
-#define RECORD_MAX 152u
+#define RECORD_MAX 1024u
 #define RECORD_UNIT 65536u                     /* fractional onset within its swung step; duration uses an exponent */
 /* owner: bank/track in low 5 bits, duration exponent in high 3. step: actual index in
  * low 6 bits, overview rounded forward in bit 6, wrapped to zero in bit 7. */

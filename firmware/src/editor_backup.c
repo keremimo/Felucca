@@ -17,6 +17,9 @@ static struct { persist_t p; tmpl_t t; } ed_bk_set;   /* id 1: the settings
 static uint32_t ed_bk_set_len;
 static uint8_t ed_bk_valid, ed_bk_put, ed_bk_id, ed_bk_gen;
 static uint32_t ed_bk_len, ed_bk_crc, ed_bk_pos, ed_bk_ms, ed_bk_usb;
+#if MELODEE_FLASH
+static uint32_t ed_bk_source_obj, ed_bk_source_copy, ed_bk_source_crc;
+#endif
 static void ed_bk_u32(uint32_t n) { for (uint32_t i = 0; i < 5u; i++) ed_b((n >> (i * 7u)) & 127u); }
 static uint32_t ed_bk_r32(const uint8_t *p)
 {
@@ -35,16 +38,22 @@ static void ed_bk_pack(const uint8_t *p, uint32_t n)
 static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
 {
     *len = 0;
+#if MELODEE_FLASH
+    ed_bk_source_obj = OBJ_COUNT;
+#endif
     if (id == 0u) { *len = BANK_STORE_SIZE; return ED_BK_RAW; }
     if (id == 1u) { *len = ed_bk_set_len; return (const uint8_t *)&ed_bk_set; }
     if (id >= 2u && id <= 5u) {
         uint32_t slot = id - 2u;
 #if MELODEE_FLASH
         st_hdr_t h;
-        int copy = st_current(OBJ_BANK0 + slot, &h);
-        if (copy >= 0) { *len = h.len; return ED_BK_FLASH_PTR(st_sector(OBJ_BANK0 + slot, (uint32_t)copy) + ST_PAYLOAD_OFF); }
-        copy = st_current(OBJ_PROJECT0 + slot, &h);
-        if (copy >= 0) { *len = h.len; return ED_BK_FLASH_PTR(st_sector(OBJ_PROJECT0 + slot, (uint32_t)copy) + ST_PAYLOAD_OFF); }
+        uint32_t obj = OBJ_BANK0 + slot;
+        int copy = st_current(obj, &h);
+        if (copy < 0) { obj = OBJ_PROJECT0 + slot; copy = st_current(obj, &h); }
+        if (copy >= 0) {
+            *len = h.len; ed_bk_source_obj = obj; ed_bk_source_copy = (uint32_t)copy; ed_bk_source_crc = h.crc;
+            return ED_BK_FLASH_PTR(st_sector(obj, (uint32_t)copy) + ST_PAYLOAD_OFF);
+        }
         return ED_BK_RAW;                   /* empty: a valid pointer, zero length */
 #else
         if (bank_valid(proj_bank_slot[slot], BANK_STORE_SIZE) &&
@@ -189,10 +198,10 @@ static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
-        if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+        if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != PROJ_STORE_V12 && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set &&
              len != sizeof(persist_t)+TMPL_SIZE_A && len != sizeof(persist_t)+TMPL_CZ_OLD && len != sizeof(persist_t)+TMPL_CZ_NEXT && len != sizeof(persist_t) + TMPL_SIZE5 && len != sizeof(persist_t) + TMPL_SIZE6) ||
-            (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+            (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != PROJ_STORE_V12 && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             ((a[1] == 6u || a[1] == 7u) && len && len != sizeof(up_bank_t) && len!=UP_BANK_LEGACY_SIZE) ||
             (a[1] == 8u && len && len != sizeof(fm6_bank_t)) ||
             (a[1]>=9u && len && len!=sizeof(cz_bank_t))) return 1;
@@ -225,7 +234,13 @@ static int ed_backup_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         if (!rc) for (uint32_t i = 0; i < ED_BK_N; i++) {
             uint32_t len;
             const uint8_t *p = ed_bk_object(ED_BK_IDS[i], &len);
-            ed_b(ED_BK_IDS[i]); ed_bk_u32(len); ed_bk_u32(st_crc32(p, len));
+            uint32_t crc;
+#if MELODEE_FLASH
+            if (ed_bk_source_obj < OBJ_COUNT) crc = ed_bk_source_crc;
+            else
+#endif
+                crc = st_crc32(p, len);
+            ed_b(ED_BK_IDS[i]); ed_bk_u32(len); ed_bk_u32(crc);
             fm1_wdt_feed();
         }
         return 1;
@@ -236,8 +251,15 @@ static int ed_backup_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
         const uint8_t *p = n ? ed_bk_object(a[0], &len) : 0;
         uint32_t rc = (!ed_bk_valid || ed_bk_usb != usb.resets || (n && !a[0] && ed_bk_gen != proj_wire_gen)) ? 5u : transport_busy() ? 3u :
             n != 8u || a[5] > 15u || !p || !count || count > 256u || off > len || count > len - off ? 1u : 0u;
+        uint32_t data_off = off;
+#if MELODEE_FLASH
+        if (!rc && ed_bk_source_obj < OBJ_COUNT) {
+            if (st_read_range(ed_bk_source_obj, ed_bk_source_copy, off, ed_smp_buf, count)) rc = 4;
+            p = ed_smp_buf; data_off = 0;
+        }
+#endif
         ed_b(n ? a[0] : 127u); ed_b(rc); ed_bk_u32(off); ed_b(rc ? 0u : count & 127u); ed_b(rc ? 0u : count >> 7);
-        if (!rc) ed_bk_pack(p + off, count);
+        if (!rc) ed_bk_pack(p + data_off, count);
         return 1;
     }
     if (cmd == ED_BACKUP_PUT) {

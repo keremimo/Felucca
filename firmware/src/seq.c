@@ -690,7 +690,7 @@ static void seq_stop(void)
 static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint32_t period, uint32_t skip)
 {
     if (s->flags & SF_RECORDED)
-        for (uint32_t r = 0; r < RECORD_MAX; r++) if (recording_active(t, r) && recording_view(t, &recording[r]) == t->seq_idx) {
+        for (uint32_t r = recording_head[recording_owner(t)]; r < RECORD_MAX; r = recording_next[r]) if (recording_active(t, r) && recording_view(t, &recording[r]) == t->seq_idx) {
             for (uint32_t k = 0; k < s->n; k++) if (s->note[k] == recording[r].note) skip |= 1u << k;
             for (uint32_t k = 0; k < NLANE; k++) if (DRUM_LANE_NOTE[k] == recording[r].note) skip |= 1u << (8u + k);
         }

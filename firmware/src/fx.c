@@ -1,10 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Effects: per-track DIST insert, then sends into three
- * shared buses (chorus, tempo delay, reverb). Mono buses, stereo dry mix. */
-#define DLY_LEN 65536u           /* 1.49 s: 1/4 at 40 BPM fits */
+/* Effects: per-track DIST insert, then chorus and reverb sends.
+ * Delay retired; its stored parameter IDs remain inert for compatibility. */
 #define CHO_LEN 2048u
-static int16_t dly_buf[DLY_LEN] __attribute__((section(".pool")));
 static int16_t cho_buf[CHO_LEN] __attribute__((section(".pool")));
 static const uint16_t REV_COMB[4] = {1116, 1188, 1277, 1356};
 static const uint16_t REV_AP[2] = {556, 441};
@@ -15,8 +13,7 @@ static union {                          /* ROOM's allpasses; SPRING's allpass ch
 } rev_u __attribute__((section(".pool")));
 #define rev_ap (rev_u.ap)
 static struct {
-    uint32_t dly_w, cho_w, cho_ph;
-    int32_t dly_lp;
+    uint32_t cho_w, cho_ph;
     uint16_t comb_i[4], ap_i[2];
     int32_t comb_lp[4];
     uint8_t rtype;                       /* the reverb model running (G_RTYPE: 0 ROOM, 1 SPRING) */
@@ -178,12 +175,6 @@ static uint32_t seq_div_samples(uint32_t div)
 
 #include "perform.c"                                 /* the FX hold layer's effects (the master) */
 
-static uint32_t delay_samples(void)
-{
-    uint32_t s = div_samples((uint32_t)song.g[G_DTIME]);
-    return s < 16u ? 16u : s >= DLY_LEN ? DLY_LEN - 1u : s;
-}
-
 /* ROOM (G_RTYPE 0): 4 damped combs + 2 allpasses (Freeverb-like, mono), added to out */
 static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n)
 {
@@ -275,17 +266,15 @@ static void rev_clear(void)
 
 static int32_t part_buf[CTL];                            /* a part's block (mix_part); the fade of a model change */
 
-/* process the three buses for one block; sends in, wet stereo-equal out */
-static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
+/* process the two buses for one block; sends in, wet stereo-equal out */
+static void fx_buses(const int32_t *cho_in, const int32_t *rev_in, int32_t *wet,
                      uint32_t n)
 {
-    uint32_t i, dl = delay_samples();
-    int32_t fb = song.g[G_DFDBK] * 230, col = 2000 + song.g[G_DCOLOR] * 240;
-    int32_t dmix = song.g[G_DMIX] * 258;
+    uint32_t i;
     int32_t cdepth = song.g[G_CDEPTH] * 6, rt;
     uint32_t cinc = LFO_INC[song.g[G_CRATE] & 127] / CTL;
     for (i = 0; i < n; i++) {
-        int32_t y = 0, x, r;
+        int32_t y = 0, r;
         /* chorus: modulated short delay, 5..15 ms */
         cho_buf[fx.cho_w & (CHO_LEN - 1u)] = (int16_t)clamp(cho_in[i] >> 1, -32768, 32767);
         fx.cho_ph += cinc;
@@ -297,13 +286,6 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
             y += (c0 + (((c1 - c0) * f) >> 8)) << 1;
         }
         fx.cho_w++;
-        /* delay with a low-passed feedback */
-        x = dly_buf[(fx.dly_w - dl) & (DLY_LEN - 1u)];
-        fx.dly_lp += mulq15(x - fx.dly_lp, col);
-        dly_buf[fx.dly_w & (DLY_LEN - 1u)] =
-            (int16_t)clamp((dly_in[i] >> 1) + mulq15(fx.dly_lp, fb), -32768, 32767);
-        fx.dly_w++;
-        y += mulq15(x << 1, dmix);
         wet[i] = y;
     }
     rt = song.g[G_RTYPE] == 1;
@@ -330,7 +312,7 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
  * -> dist -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
 static void events_block(uint32_t n);                    /* seq.c */
-static int32_t send_c[CTL], send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
+static int32_t send_c[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
 #if MELODEE_USB_AUDIO
 static int32_t track_capture[CTL * NTRK];               /* the parts after their level, before pan and sends:
                                                          * Melodee In's four channels (audio.c ua_audio) */
@@ -354,8 +336,8 @@ static void mix_part(track_t *t, uint32_t n)
     {
         int32_t lvl = LEVEL_Q12[t->p[P_LEVEL] & 127], pan = t->p[P_PAN];
         int32_t gl = 4096 - (pan > 0 ? pan * 64 : 0), gr = 4096 + (pan < 0 ? pan * 64 : 0);
-        int32_t c = t->p[P_CHOR] * 258, d = t->p[P_DLY] * 258, r = t->p[P_REV] * 258, pk = t->peak;
-        int32_t xmax = c > d ? c : d;
+        int32_t c = t->p[P_CHOR] * 258, r = t->p[P_REV] * 258, pk = t->peak;
+        int32_t xmax = c;
         xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);   /* sends: loud chords at a high LEVEL */
         track_dist(t, b, n);
         slicer_track(t, b, n);                          /* slicer.c: before the level, pan and sends */
@@ -373,8 +355,6 @@ static void mix_part(track_t *t, uint32_t n)
                 pk = a;
             if (c)
                 send_c[i] += mulq15(xs, c);
-            if (d)
-                send_d[i] += mulq15(xs, d);
             if (r)
                 send_r[i] += mulq15(xs, r);
             mix_l[i] += (x * gl) >> 12;
@@ -412,14 +392,14 @@ static void mix_block(int32_t *out, uint32_t n)
         track_capture[i] = 0;
 #endif
     for (i = 0; i < n; i++)
-        send_c[i] = send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
+        send_c[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     events_block(n);
     perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */
     for (i = 0; i < NPART; i++)
         mix_part(&trk[i], n);
     if (perf)
-        perf_pre(mix_l, mix_r, send_d, send_r, n);
-    fx_buses(send_c, send_d, send_r, wet, n);
+        perf_pre(mix_l, mix_r, send_r, n);
+    fx_buses(send_c, send_r, wet, n);
     if (perf) {
         perf_master(out, n);
         return;

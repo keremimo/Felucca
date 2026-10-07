@@ -94,7 +94,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Arpeggiator** with REPEAT and a beat LED, 16 scales with a white-key mode, glide,
   MONO / LEGATO / UNISON
 - **Modulation matrix:** 4 slots per track, MIDI controllers as sources
-- **Effects:** distortion and the SLICER per track; chorus, delay and reverb sends (the reverb as
+- **Effects:** distortion and the SLICER per track; chorus and reverb sends (the reverb as
   ROOM or SPRING); master limiter
 - **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze and a harmonizer
   (OCT UP / OCT DN with shimmer), and mutes on the black keys
@@ -190,11 +190,16 @@ manual undo restores them until their storage is reused. Full project saves, bac
 copies preserve original timing. User-preset patterns and the ordinary step-edit protocol carry
 the step overview only.
 
-A project holds **152 timed notes shared across all 32 banks**. A chord uses one entry per note.
+A project holds **1,024 timed notes shared across all 32 banks**. A chord uses one entry per note.
 Distinct repeated hits are separate entries; repeating the same pitch at exactly the same time
 replaces that event. **RECORDING FULL** leaves existing recordings intact; clearing or replacing
 recorded steps makes space for new takes. PHASE remains available. Notes held longer than 128
 nominal steps are capped at that duration.
+
+The shared FX delay is retired to free 128 KiB for recording and future capacity. Its old
+parameter IDs remain reserved, so existing projects, presets and automation can still load.
+THROW now feeds reverb. All synth engines, chorus, reverbs, SLICER and other live FX remain.
+Older 152-note recordings keep their original timing when loaded and saved in the expanded format.
 
 With **CLK TRS** or **CLK USB**, musical timing follows MIDI clock pulses directly, so tempo
 changes do not shift the pattern. DIV sets the pattern's step length, while TIMING QNT independently
@@ -208,7 +213,7 @@ projects, with empty patterns. BOOT OFF uses the template when one is saved. CLK
 and ROUT persist between starts; loading a project or template applies its own settings. DRUM is the
 device's own setting.
 
-Projects use the FBKF format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
+Projects use the FBKG format: all 32 banks, their timing, arrangement and automation. Felucca 1.0
 projects load into pattern 1; their old project-based SONG rows are cleared. Pre-1.0 Melodee's
 multi-pattern projects/settings/templates and incompatible 58/62-parameter user presets are not imported.
 User sample slots USR1–3 and sample uploads are removed; their flash space now stores projects.

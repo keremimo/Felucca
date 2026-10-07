@@ -6,6 +6,15 @@ static recorded_note_t recording[RECORD_MAX];
 static struct { uint32_t held, left; } recording_run[RECORD_MAX];
 static uint8_t recording_flags[RECORD_MAX]; /* 1: live hold; 2: skip upcoming snapped onset; 4: heard this loop */
 static uint32_t recording_fraction[NTRK];
+/* Index by bank and cache onset arithmetic outside the steady audio tick. */
+#define RECORDING_EMPTY8 RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX, RECORD_MAX
+static uint16_t recording_head[NTRK * NPAT] = {RECORDING_EMPTY8, RECORDING_EMPTY8, RECORDING_EMPTY8, RECORDING_EMPTY8};
+_Static_assert(NTRK * NPAT == 32u, "recording head initializer covers every bank");
+#undef RECORDING_EMPTY8
+static uint16_t recording_next[RECORD_MAX];
+static uint32_t recording_due[RECORD_MAX] __attribute__((section(".pool")));
+static uint16_t recording_refs[NTRK][128] __attribute__((section(".pool")));
+static struct { uint32_t period, key; } recording_schedule[NTRK];
 static volatile uint8_t recording_full;
 static uint8_t recording_tracks;
 
@@ -44,10 +53,7 @@ static int recording_active(const track_t *t, uint32_t i)
 }
 static int recording_owns(const track_t *t, uint32_t note)
 {
-    for (uint32_t i = 0; i < RECORD_MAX; i++)
-        if (recording_run[i].left && (recording[i].owner & 31u) == recording_owner(t) && recording[i].note == note)
-            return 1;
-    return 0;
+    return recording_refs[trk_index(t)][note & 127u] != 0;
 }
 static void recording_off(track_t *t, uint32_t note)
 {
@@ -56,6 +62,36 @@ static void recording_off(track_t *t, uint32_t note)
     for (uint32_t k = 0; k < t->seq_n; k++) if (t->seq_notes[k] == note) return;
     trk_note_off(t, note);
 }
+/* Reference counts keep overlapping same-pitch releases constant-time even
+ * when a dense take is snapped to one boundary. */
+static void recording_end(track_t *t, uint32_t i)
+{
+    if (!recording_run[i].left) return;
+    recording_run[i].left = 0;
+    uint16_t *count = &recording_refs[trk_index(t)][recording[i].note];
+    if (*count) --*count;
+    recording_off(t, recording[i].note);
+}
+static void recording_reindex(void)
+{
+    for (uint32_t k = 0; k < NTRK * NPAT; k++) recording_head[k] = RECORD_MAX;
+    recording_tracks = 0;
+    memset(recording_refs, 0, sizeof recording_refs);
+    for (uint32_t i = RECORD_MAX; i-- > 0;) if (recording[i].vel) {
+        uint32_t owner = recording[i].owner & 31u;
+        recording_next[i] = recording_head[owner]; recording_head[owner] = (uint16_t)i;
+        recording_tracks |= (uint8_t)(1u << (owner / NPAT));
+        if (recording_run[i].left && trk[owner / NPAT].pattern == owner % NPAT) recording_refs[owner / NPAT][recording[i].note]++;
+    }
+    memset(recording_schedule, 0, sizeof recording_schedule);
+}
+static void recording_unlink(uint32_t i)
+{
+    if (!recording[i].vel) return;
+    uint16_t *link = &recording_head[recording[i].owner & 31u];
+    while (*link < RECORD_MAX && *link != i) link = &recording_next[*link];
+    if (*link == i) *link = recording_next[i];
+}
 static void recording_reset(void)
 {
     memset(recording, 0, sizeof recording);
@@ -63,7 +99,7 @@ static void recording_reset(void)
     memset(recording_flags, 0, sizeof recording_flags);
     memset(recording_fraction, 0, sizeof recording_fraction);
     recording_full = 0;
-    recording_tracks = 0;
+    recording_reindex();
 }
 static recorded_note_t recording_snapshot(uint32_t i)
 {
@@ -84,11 +120,9 @@ static void recording_finish(uint32_t i)
 static void recording_stop(track_t *t)
 {
     uint32_t owner = recording_owner(t);
-    for (uint32_t i = 0; i < RECORD_MAX; i++) if ((recording[i].owner & 31u) == owner) {
+    for (uint32_t i = recording_head[owner]; i < RECORD_MAX; i = recording_next[i]) {
         if ((recording_flags[i] & 1u)) recording_finish(i);
-        uint32_t left = recording_run[i].left;
-        recording_run[i].left = 0;
-        if (left) recording_off(t, recording[i].note);
+        recording_end(t, i);
         recording_flags[i] &= (uint8_t)~6u;
     }
 }
@@ -113,6 +147,15 @@ static uint32_t recording_on(const track_t *t, const recorded_note_t *r, uint32_
     }
     return best == loop ? 0u : best;
 }
+static void recording_sync(track_t *t, uint32_t period)
+{
+    uint32_t tr = trk_index(t), key = (uint32_t)t->p[P_RECQ] | (uint32_t)t->p[P_SSWING] << 4 |
+        (uint32_t)song.g[G_SWING] << 11 | (uint32_t)t->p[P_SLEN] << 18 | (uint32_t)t->pattern << 25;
+    if (recording_schedule[tr].period == period && recording_schedule[tr].key == key) return;
+    recording_schedule[tr].period = period; recording_schedule[tr].key = key;
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+        recording_due[i] = recording_on(t, &recording[i], period);
+}
 static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step)
 {
     uint32_t owner = recording_owner(t), period = seq_div_samples((uint32_t)t->p[P_SDIV]);
@@ -131,8 +174,12 @@ static int recording_note(track_t *t, uint32_t note, uint32_t vel, uint32_t step
         else if (free == RECORD_MAX && (!r->vel || (!recording_present(r) && !recording_run[i].left && !(recording_flags[i] & 1u)))) free = i;
     }
     if (free == RECORD_MAX) { recording_full = 1; return 0; }
+    if (recording_run[free].left) recording_end(&trk[(recording[free].owner & 31u) / NPAT], free);
+    recording_unlink(free);
     recorded_note_t *r = &recording[free];
     *r = (recorded_note_t){(uint16_t)on, 1, (uint8_t)note, (uint8_t)vel, (uint8_t)owner, (uint8_t)(actual | (step != actual ? 64u : 0u) | (step == 0u && actual ? 128u : 0u))};
+    recording_next[free] = recording_head[owner]; recording_head[owner] = (uint16_t)free;
+    recording_schedule[trk_index(t)].period = 0;
     memset(&recording_run[free], 0, sizeof recording_run[free]);
     recording_flags[free] = 5;
     uint32_t target = recording_on(t, r, period);
@@ -154,6 +201,7 @@ static int recording_copy(track_t *t, uint32_t source, uint32_t dest, int apply)
     if (count > free) return 2;
     if (!apply) return 0;
     for (uint32_t i = 0; i < RECORD_MAX; i++) if ((recording[i].owner & 31u) == dst) {
+        recording_end(t, i);
         memset(&recording[i], 0, sizeof recording[i]);
         memset(&recording_run[i], 0, sizeof recording_run[i]); recording_flags[i] = 0;
     }
@@ -163,12 +211,13 @@ static int recording_copy(track_t *t, uint32_t source, uint32_t dest, int apply)
             memset(&recording_run[j], 0, sizeof recording_run[j]); recording_flags[j] = 0;
             break;
         }
+    recording_reindex();
     return 0;
 }
 static void recording_release(track_t *t, uint32_t note)
 {
-    for (uint32_t i = 0; i < RECORD_MAX; i++)
-        if ((recording[i].owner & 31u) == recording_owner(t) && recording[i].note == note && (recording_flags[i] & 1u))
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
+        if (recording[i].note == note && (recording_flags[i] & 1u))
             recording_finish(i);
 }
 static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t late)
@@ -183,17 +232,23 @@ static void recording_fire(track_t *t, uint32_t i, uint32_t period, uint32_t lat
     uint32_t gate = (uint32_t)(((uint64_t)r->duration << (r->owner >> 5)) * period / RECORD_UNIT);
     if (!gate) gate = 1;
     trk_note_on(t, r->note, r->vel);
+    uint32_t was = recording_run[i].left != 0;
     recording_run[i].left = gate > late ? gate - late : 0u;
-    if (!recording_run[i].left) recording_off(t, r->note);
+    if (recording_run[i].left && !was) recording_refs[trk_index(t)][r->note]++;
+    if (!recording_run[i].left) {
+        if (was && recording_refs[trk_index(t)][r->note]) recording_refs[trk_index(t)][r->note]--;
+        recording_off(t, r->note);
+    }
 }
 static void recording_zero(track_t *t)
 {
     uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]);
     uint32_t phase = recording_prefix(t, period, t->seq_idx) + t->seq_pos;
-    for (uint32_t i = 0; i < RECORD_MAX; i++) if ((recording[i].owner & 31u) == recording_owner(t)) {
+    recording_sync(t, period);
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
         recording_flags[i] &= (uint8_t)~4u;
         if (recording_active(t, i)) {
-            uint32_t on = recording_on(t, &recording[i], period);
+            uint32_t on = recording_due[i];
             if (on <= phase) recording_fire(t, i, period, phase - on);
         }
     }
@@ -205,16 +260,16 @@ static void recording_tick(track_t *t, uint32_t n)
     uint64_t ticks = (uint64_t)n * RECORD_UNIT + recording_fraction[tr];
     recording_fraction[tr] = (uint32_t)(ticks % period);
     uint32_t elapsed = (uint32_t)(ticks / period);
-    for (uint32_t i = 0; i < RECORD_MAX; i++) if (recording[i].vel && (recording[i].owner & 31u) == recording_owner(t)) {
+    recording_sync(t, period);
+    for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i]) {
         if ((recording_flags[i] & 1u)) recording_run[i].held = (uint32_t)clamp((int32_t)(recording_run[i].held + elapsed), 0, 8388607);
         if (recording_run[i].left) {
             if (!recording_active(t, i) || recording_run[i].left <= n) {
-                recording_run[i].left = 0;
-                recording_off(t, recording[i].note);
+                recording_end(t, i);
             } else recording_run[i].left -= n;
         }
-        if (recording_active(t, i)) {
-            uint32_t on = recording_on(t, &recording[i], period);
+        if (!(recording_flags[i] & 4u) && recording_active(t, i)) {
+            uint32_t on = recording_due[i];
             if (on > a && on <= b) recording_fire(t, i, period, b - on);
         }
     }

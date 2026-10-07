@@ -67,7 +67,7 @@ P_COUNT 69): slot k (1..4) is `SRCk`, `DSTk`, `AMTk` at ids 49 + 3 (k − 1) .. 
 | id | label | values |
 | --- | --- | --- |
 | 49, 52, 55, 58 | SRC1..SRC4 | enum: 0 OFF, 1 LFO, 2 ENV, 3 VEL, 4 KEY, 5 RAND, 6 MODW (CC1), 7 AT (channel aftertouch), 8 EXPR (CC11) |
-| 50, 53, 56, 59 | DST1..DST4 | enum (20 names): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6 DIST, 7 CHO, 8 DLY, 9 REV, 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7` (per block) |
+| 50, 53, 56, 59 | DST1..DST4 | enum (20 names): 0 OFF, 1 PITCH, 2 CUT, 3 SHP, 4 AMP (per voice); 5 PAN, 6 DIST, 7 CHO, 8 reserved (retired DLY), 9 REV, 10 RATE (LFO rate), 11 VIB (LFO pitch depth), 12..19 E1..E8 = `P_E0..P_E7` (per block) |
 | 51, 54, 57, 60 | AMT1..AMT4 | −64..63 (fmt BIPCT) |
 
 `DESC` names E1..E8 as such; the device shows the engine's label of that parameter instead (`DESC` of
@@ -485,7 +485,7 @@ when the track's engine is not the saved one).
   0..63, parameter id, value). While a track plays its motion, the step sets the value at the step and it
   holds until another step changes it; the loop restarts from the sound's own value, and stopping puts the
   sound's own values back. Parameters that can be recorded (`motion_param`): ids 0..16 (LEVEL, ENV, LFO),
-  33..36 (DIST, CHO, DLY, REV), 38 (GLIDE), 39 (PAN), 44 (DETUNE), 61..80 (the FM operator parameters) and
+  33, 34, 36 (DIST, CHO, REV; retired DLY 35 is ignored), 38 (GLIDE), 39 (PAN), 44 (DETUNE), 61..80 (the FM operator parameters) and
   83..90 (the engine parameters; not the chord keys 81, 82). The device records them while the track is armed, playing and selected, from its knobs
   and from `SET` / `TRACK_PARAM` alike.
   - `MOTION` with the track alone is the query. `on` 0 keeps the data and stops playing it; 1 plays it. Clear
@@ -680,7 +680,7 @@ changing the track or flash. An unused/non-native preset GET returns an error.
 Track PUT selects engine 15 (CZ-1), native tone marker 2, resets the ordinary sound controls to
 neutral defaults, and preserves the track's musical/routing settings.
 Preset record version 8 preserves all native bytes in a 238-byte record. Earlier 192-byte banks and next’s v6/v7 CZ records remain readable.
-FUN12 projects (5376 bytes), FBKF pattern banks (20224 bytes) and TPLB templates preserve each track's native
+FUN13 projects (12352 bytes), FBKG pattern banks (27200 bytes) and TPLB templates preserve each track's native
 tone; older formats remain readable. See [native tones](../docs/CZ1_SYSEX.md).
 
 DRUM now has one factory preset, **808 KIT** (index 0); KIT's stored value stays 4.
@@ -710,7 +710,7 @@ to lane hits clears the gate. The 12-byte editor reply continues to report lane
 accents only. Full backups retain recorded gates.
 
 
-### Original performance timing (FUN12 / FBKF)
+### Original performance timing (FUN13 / FBKG)
 
 Track parameter **8**, previously the inert `P_ED_FX` field, is now `P_RECQ`: **OFF** (0),
 then the ten existing DIV values plus one (1/4 = 1, 1/16 = 3, 16T = 6, 4BAR = 10).
@@ -726,23 +726,30 @@ Each note retains its captured duration; its release shifts with its quantized o
 restores original timing. Repeated hits within one step and independent chord releases are retained.
 Playback fires each recorded event at most once per loop, including when QNT changes mid-loop.
 
-FUN12 LE magic is `0x46554E3C`, size 5376. The original FM6/CZ payload offsets stay fixed.
+FUN13 LE magic is `0x46554E3D`, size 12352. The original FM6/CZ payload offsets stay fixed.
 Header bytes 65 and 67 hold a 12-bit active-bank selection (four 3-bit bank ids, low byte at 65).
-At offset 4144 are 152 eight-byte timed-note records: LE u16 onset fraction, LE u16 duration,
+At offset 4144 are 1024 eight-byte timed-note records: LE u16 onset fraction, LE u16 duration,
 note byte, velocity byte, owner byte, step byte. Velocity zero means unused. Owner low five bits
 are `track * 8 + bank`; high three bits are the duration exponent. Step low six bits select the
 original onset step, bit 6 marks an overview rounded to its following step, and bit 7 marks overview
 wrap to zero. Onset is 0..65535/65536 of that swung step; duration is `u16 * 2^exponent / 65536`
 nominal pattern steps. The name remains the final 12 bytes before the FNV-1a checksum.
 
-Step flag 4 marks the overview of recorded events. FUN12 encodes it in the high bit of the step's
-metadata byte. FBKF LE magic is `0x464B4246`, size 20224, still within five sectors including the
-256-byte storage header. Its inactive steps retain their eight-byte size: four 7-bit notes, then
+Step flag 4 marks the overview of recorded events. FUN13 encodes it in the high bit of the step's
+metadata byte. FBKG LE magic is `0x474B4246`, size 27200. Each A/B copy retains its five base sectors and
+uses two disjoint extension sectors in `0xEA000..0xF9FFF`. The last 256 bytes of each extension
+sector stay erased for the SPL update-record scan; payload capacity is 27904 bytes.
+The single 256-byte storage header commits last and its CRC covers the complete logical payload. Its inactive steps retain their eight-byte size: four 7-bit notes, then
 4 metadata bits (`NOTE n` = 0..4, TIE = 5, REST = 6; bit 3 is the recorded flag), two ordinary flags,
 7 velocity bits, 8 hits, 8 accent/gate bits, and 7 probability bits. Counts on REST/TIE normalize to
-zero. FUN11/FBKE, FUN10/FBKD and previous formats keep their original decoders and migrate on save.
+zero. FUN12/FBKF (152 notes), FUN11/FBKE, FUN10/FBKD and previous formats keep their original decoders and migrate on save.
 
 The 12-byte STEP_SET/TRACK_STEP protocol remains a conventional step edit; it converts that overview
 group to manual step playback. Replies mask the internal recorded flag. Full runtime/project backups
-retain original timing and every bank. User-preset patterns carry the overview only. Capacity is 152
+retain original timing and every bank. User-preset patterns carry the overview only. Capacity is 1024
 notes across the project; overflow reports RECORDING FULL without overwriting existing entries.
+
+The shared FX delay is retired. Track parameter 35 and global parameters 4..7 retain their
+original IDs and ranges but advertise `-` and have no effect. The device hides the old delay
+page; web editors hide it when the device advertises those retired descriptors. Modulation
+destination 8 and old delay-send automation remain inert. THROW feeds reverb only.
