@@ -1403,6 +1403,15 @@ function readLibraryFile(obj, ctx) {
 
 /* device side; rq(r, opt) -> reply args (Link.request), info from INFO */
 const FLASH_OPT = { timeout: 2500, retries: 0 };
+/* Where a bulk .syx import goes: the empty slots while there are enough of them, else `count`
+   consecutive slots from `from` (the selected one), overwriting the used ones after a confirmation. */
+function nativeImportTargets(slots,count,from=0) {
+  const empty=slots.filter(x=>!x.used);
+  if(count<=empty.length)return {targets:empty.slice(0,count),overwrite:null};
+  if(from<0 || from+count>slots.length)throw Error(`${count} programs do not fit from slot ${from+1}; select an earlier slot`);
+  const targets=slots.slice(from,from+count);
+  return {targets,overwrite:{from,to:from+count-1,used:targets.filter(x=>x.used).length}};
+}
 const nativeBank = {
   async list(rq,engine) {
     const slots=[];let total;
@@ -2842,7 +2851,7 @@ const TEXT = {
     noMatch: "該当なし", noLibDB: "（ブラウザに保存できません。再読み込みで消えます）",
     bank: "本体のユーザープリセット", bankLoad: "読込", bankStore: "今の音色を保存", bankGet: "ライブラリへ",
     exportBank: "バンクを書き出し", dndHelp: "ライブラリとスロットの間はドラッグでもコピーできます。",
-    confirmOverwrite: "スロット {n}（{name}）を上書きしますか？", confirmEraseSlot: "スロット {n}（{name}）を消去しますか？",
+    confirmOverwriteRange: "空きスロットが足りません。{from}–{to} の {n} スロット（使用中 {used}）に上書きしますか？", confirmOverwrite: "スロット {n}（{name}）を上書きしますか？", confirmEraseSlot: "スロット {n}（{name}）を消去しますか？",
     confirmDelete: "「{name}」をライブラリから削除しますか？",
     promptName: "名前（本体では英数字 12 文字まで）", promptTags: "タグ（カンマ区切り）",
     promptNameAuto: "名前（英数字 12 文字まで。空なら本体が自動で付けます）",
@@ -2936,7 +2945,7 @@ const TEXT = {
     noMatch: "No match", noLibDB: "(this browser cannot store it: it is gone after a reload)",
     bank: "User presets on the device", bankLoad: "Load", bankStore: "Store current sound", bankGet: "To library",
     exportBank: "Export bank", dndHelp: "You can also drag between the library and the slots.",
-    confirmOverwrite: "Overwrite slot {n} ({name})?", confirmEraseSlot: "Erase slot {n} ({name})?",
+    confirmOverwriteRange: "Not enough empty slots. Overwrite the {n} slots {from}–{to} ({used} in use)?", confirmOverwrite: "Overwrite slot {n} ({name})?", confirmEraseSlot: "Erase slot {n} ({name})?",
     confirmDelete: "Delete \"{name}\" from the library?",
     promptName: "Name (the device keeps 12 ASCII characters)", promptTags: "Tags (comma separated)",
     promptNameAuto: "Name (12 ASCII characters; empty: the device names it)",
@@ -4921,8 +4930,10 @@ $("bknativefile").addEventListener("change",async()=>{
     const bytes=new Uint8Array(await file.arrayBuffer()),parsed=engine===19?P5.read(bytes):engine===15?CZ.read(bytes,file.name):FM6.parseSysex(bytes);
     if(!parsed.voices.length || parsed.badSum)throw Error("Invalid SysEx file");
     const tones=parsed.voices.map(v=>({engine,name:v.name,...(engine===19?{p5:v.raw}:engine===15?{cz:v.raw}:{fm6:Array.from(FM6.pack(v.v))})}));
-    const empty=bankView().slots.filter(x=>!x.used);if(tones.length>empty.length)throw Error(`Need ${tones.length} empty preset slots; ${empty.length} available`);
-    await libOp(async(d,rqf)=>{for(let i=0;i<tones.length;i++){checkRc(await nativeBank.put(rqf,engine,empty[i].slot,tones[i]));say(`Saved ${i+1}/${tones.length} native presets`);}d.nativePools[engine]=await nativeBank.list(rqf,engine);updateBrowser();});
+    const {targets,overwrite}=nativeImportTargets(bankView().slots,tones.length,bankSel??0);
+    if(overwrite && !confirm(overwrite.from===overwrite.to?t("confirmOverwrite").replace("{n}",slotName(overwrite.from)).replace("{name}",targets[0].name||"")
+      :t("confirmOverwriteRange").replace("{n}",tones.length).replace("{from}",slotName(overwrite.from)).replace("{to}",slotName(overwrite.to)).replace("{used}",overwrite.used)))return;
+    await libOp(async(d,rqf)=>{for(let i=0;i<tones.length;i++){checkRc(await nativeBank.put(rqf,engine,targets[i].slot,tones[i]));say(`Saved ${i+1}/${tones.length} native presets`);}d.nativePools[engine]=await nativeBank.list(rqf,engine);updateBrowser();});
   }catch(e){report(e);}
 });
 
