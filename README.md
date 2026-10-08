@@ -294,12 +294,11 @@ In the order the device lists them:
 - **CZ-1**: native Casio tones, with separate eight-point pitch, timbre and volume envelopes on each line
 - **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
 - **VOICE**: formant oscillator, sung vowels
-- **TRIO**: 3 oscillators with ring modulation and sync, multimode filter
-- **WHEEL**: tonewheel-style organ; drawbar registrations, percussion, key click, drive, rotary speaker
-- **PHYS**: physical models: modal resonators, strings, struck membranes, sympathetic strings
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
 - **DRUM**: synthesized TR-808 circuit models on eight lanes with the General MIDI key map.
   The 808 is the only kit; Felucca’s custom kit has been removed.
+
+TRIO, WHEEL and PHYS are retired. Their engine IDs, saved edit values and favourite bits remain reserved; old tracks using these engines are silent. ANALOG still renders existing sounds.
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them.

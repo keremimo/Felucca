@@ -48,15 +48,21 @@ static int audio_tests(void)
         eng_state_clear(k);trk[k].engine=(uint8_t)e;
         if(!eng_state_prepare(&trk[k])){bad+=check("engine switching does not fragment away capacity",0);break;}
     }
+    uint32_t largest=0, largest_engine=0;
+    for(uint32_t j=0;j<NENG_SHOWN;j++) {
+        uint32_t e=eng_vis(j), size=eng_state_size(e);
+        if(size>largest){largest=size;largest_engine=e;}
+    }
+    uint32_t maximum=largest*NPART;
     for(uint32_t k=0;k<4u;k++){
-        eng_state_clear(k);trk[k].engine=ENGI_PHYS;eng_state_prepare(&trk[k]);
+        eng_state_clear(k);trk[k].engine=(uint8_t)largest_engine;eng_state_prepare(&trk[k]);
         trk[k].p[P_SLCR]=SL_GATE;slicer_track(&trk[k],in,CTL);
     }
-    bad+=check("GATE reserves no recording buffers",resource_used()==51552u);
+    bad+=check("GATE reserves no recording buffers",resource_used()==maximum);
     for(uint32_t k=0;k<4u;k++){trk[k].p[P_SLCR]=SL_STUT;slicer_track(&trk[k],in,CTL);}
-    bad+=check("all four PHYS tracks and four stutters fit together",resource_used()==51552u+32768u);
+    bad+=check("four largest remaining engine tracks and four stutters fit together",resource_used()==maximum+32768u);
     c[0]=r[0]=12000;fx_buses(c,r,out,CTL);c[0]=r[0]=0;
-    bad+=check("maximum engines, stutter and both FX fit simultaneously",resource_used()==51552u+32768u+CHO_LEN*2u+REV_MEMORY_BYTES);
+    bad+=check("maximum engines, stutter and both FX fit simultaneously",resource_used()==maximum+32768u+CHO_LEN*2u+REV_MEMORY_BYTES);
     perf_buf_start(PF_FRZ);
     int released=1;for(uint32_t k=0;k<4u;k++)released&=!resource[RES_SLICER0+k].size;
     bad+=check("performance loop replaces stutter storage without extra 32 KiB",perf_audio && released && resource[RES_PERFORM].size==32768u);
@@ -85,9 +91,9 @@ static int audio_tests(void)
     rev_room(r,ref,CTL);fx=saved;resource_release(RES_REVERB);rev_comb=0;rev_memory=0;
     fx_buses(c,r,out,CTL);r[0]=0;
     bad+=check("new send restores the previous tail byte for byte",!memcmp(ref,out,sizeof ref));
-    bad+=check("capacity exhaustion returns failure and preserves live memory",resource_get(RES_ENGINE0,RESOURCE_CAPACITY+4u)==0 && resource[RES_ENGINE0].size==12888u);
+    bad+=check("capacity exhaustion returns failure and preserves live memory",resource_get(RES_ENGINE0,RESOURCE_CAPACITY+4u)==0 && resource[RES_ENGINE0].size==largest);
     bad+=check("zero-byte requests release rather than return an arena pointer",!resource_get(RES_ENGINE0,0) && !resource[RES_ENGINE0].size);
-    printf("resources: default engine bytes %u, worst audio bytes %u, host arena %u\n",expected,51552u+32768u+CHO_LEN*2u+(uint32_t)REV_MEMORY_BYTES,RESOURCE_CAPACITY);
+    printf("resources: default engine bytes %u, worst audio bytes %u, host arena %u\n",expected,maximum+32768u+CHO_LEN*2u+(uint32_t)REV_MEMORY_BYTES,RESOURCE_CAPACITY);
     return bad;
 }
 int main(void)
