@@ -207,6 +207,32 @@ static int native_put(uint32_t e,uint32_t k,const uint8_t *raw)
     if(!raw){favorite_set(e==ENGI_FM6?USER_NATIVE_FM:USER_NATIVE_CZ,k,0);for(uint32_t t=0;t<NTRK;t++)if(trk[t].user_native && trk[t].eng_req==e && trk[t].user==k+1u)trk[t].user=0;settings_save();}
     return rc;
 }
+/* A DX7 cartridge replaces one half of the FM6 pool. Validate before writing,
+ * then commit once per 16-tone storage object. A failed object keeps its old
+ * tones; *saved reports any preceding object already committed. */
+static int native_fm_import32(uint32_t first, const uint8_t *raw, uint32_t *saved)
+{
+    *saved = 0;
+    if (first != 0u && first != 32u) return 1;
+    for (uint32_t j = 0; j < 32u * FM6_PACKED; j++) if (raw[j] > 127u) return 1;
+#if MELODEE_FLASH
+    if (!flash_ok) return 2;
+#endif
+    if (transport_busy()) return 2;
+    int result = 0;
+    for (uint32_t b = first / 16u; b < first / 16u + 2u; b++) {
+        native_fm_t *bank = native_fm_bank(b), old = *bank;
+        if (!native_fm_valid(bank)) native_fm_empty(b);
+        memcpy(bank->tone, raw + (b - first / 16u) * 16u * FM6_PACKED, sizeof bank->tone);
+        bank->used = 0xffffu;
+        int rc = native_save_bank(ENGI_FM6, b);
+        if (rc == 2) { *bank = old; return rc; }
+        if (rc == 3) result = 3;
+        *saved += 16u;
+        up_gen++; sync_reload = 1; ui.force = 1;
+    }
+    return result;
+}
 static int native_load(uint32_t e,uint32_t k,uint32_t tr)
 {
     if(tr>=NTRK || !native_used(e,k))return 1;

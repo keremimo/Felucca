@@ -394,12 +394,7 @@ sevenths, or a fixed shape) and VOIC the voicing.
 
 ## Support
 
-Melodee lives at <https://github.com/keremimo/melodee>: bug reports, ideas and pull requests are
-welcome there.
-
-Felucca, which Melodee is built on, is Leo Kuroshita's work. If Melodee is useful to you, consider
-[sponsoring him on GitHub](https://github.com/sponsors/hugelton) or supporting Felucca on
-[itch.io](https://hugelton.itch.io/felucca).
+You can leave a tip with [ko-fi](https://ko-fi.com/keremimo).
 
 ## Credits
 
