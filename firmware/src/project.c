@@ -931,13 +931,12 @@ static int project_restore_runtime(const project_t *input)
         memcpy(t->step, s->step, sizeof t->step);
         proj_steps(t->step);
         pattern_commit(t);
-        {   /* the project's own FM6 patch; PTCH as it was saved, without loading its slot (fm6_poll) */
+        {   /* the project's own FM6 patch */
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(p->fm6[k], v);
             cz_patch[k] = p->cz[k];
             cz_track_accept(t);
             fm6_set_patch(k, v);
-            fm6_adopt(k);
             memcpy(fm6_fn[k], p->fm6_fn_ok && fm6_fn_ok(p->fm6_fn[k]) ? p->fm6_fn[k] : FM6_FNDEF, FM6_NFN);
         }
     }

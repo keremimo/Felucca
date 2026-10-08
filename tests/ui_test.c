@@ -2724,6 +2724,17 @@ static int test_fm6_pages(void)
     stop_transport();
     set_engine_of(TSEL, ENGI_FM6);
     tr = song.sel;
+    ui.home = 1;
+    memcpy(v, fm6_patch[tr], FP_SIZE);
+    memcpy(v + FP_NAME, "MY VOICE  ", 10);
+    fm6_set_patch(tr, v);
+    TSEL->p[P_E6] = 0;
+    turn(EN_K4, 20);
+    bad += check("FM6 home knob 4 changes DTUN and keeps the imported voice",
+                 TSEL->p[P_E6] == 20 && !TSEL->p[P_E7] && !memcmp(v, fm6_patch[tr], FP_SIZE));
+    turn(EN_K4, -20);
+    bad += check("FM6 home knob 4 returns DTUN to neutral without replacing the voice",
+                 !TSEL->p[P_E6] && !memcmp(v, fm6_patch[tr], FP_SIZE));
     go_title("FREQ");
     fm6_opsel = 0;
     turn(EN_PRESET, 1);
@@ -2769,14 +2780,14 @@ static int test_fm6_pages(void)
         fm6_name(b, v);
     }
     bad += check("STORE onto F005: native voice in its own preset slot", fm6_bslot == 4u && native_used(ENGI_FM6,4) && str_eq(a, b) &&
-                 TSEL->p[P_E7] == FM6_OWN);
+                 TSEL->p[P_E7] == 0);
     song.playing = 1;
     ui.msg_t = 0;
     turn(EN_K1, 1);
     turn(EN_K2, 1);
     press(B_OCTUP);
     bad += check("  STORE while playing: STOP TO SAVE, U06 empty", msg_is("STOP TO SAVE") && !up_used(5) &&
-                 TSEL->p[P_E7] == FM6_OWN);
+                 TSEL->p[P_E7] == 0);
     stop_transport();
     turn(EN_K4, 1);
     press(B_OCTUP);
@@ -3863,21 +3874,21 @@ static int test_fm4_retired(void)
     }
     fm4_convert(p, v);
     up_load(7);
-    bad += check("a DIGITAL user preset loads as FM6: the converted patch, PTCH and preset = FM6 PAD",
-                 TSEL->eng_req == ENGI_FM6 && TSEL->preset == 4u && TSEL->p[P_E7] == FM6_OWN && !TSEL->p[P_E0] &&
-                 !memcmp(fm6_patch[song.sel], v, FP_SIZE) && fm6_slot[song.sel] == FM6_OWN && TSEL->user == 8u);
+    bad += check("a DIGITAL user preset loads as FM6: the converted patch and preset = FM6 PAD",
+                 TSEL->eng_req == ENGI_FM6 && TSEL->preset == 4u && TSEL->p[P_E7] == 0 && !TSEL->p[P_E0] &&
+                 !memcmp(fm6_patch[song.sel], v, FP_SIZE) && TSEL->user == 8u);
     frame();
-    bad += check("  .. and the main loop keeps that patch (not PTCH's factory one)", !memcmp(fm6_patch[song.sel], v, FP_SIZE));
+    bad += check("  .. and the main loop keeps that patch after load", !memcmp(fm6_patch[song.sel], v, FP_SIZE));
     eng_list_pos(&total);
     bad += check("  the record stays DIGITAL in the bank, listed with FM6's sounds (EDIT KNOB 2)",
                  up_rec(7)->engine == ENGI_DIGITAL && up_engine(7) == ENGI_FM6 &&
                  total == ENGINES[ENGI_FM6]->npresets + 1u);
     up_store(8, "AGAIN");
-    bad += check("  saved again: an FM6 user preset (its PTCH the FM6 PAD)", up_rec(8)->engine == ENGI_FM6 &&
-                 up_value(up_rec(8), P_E7) == FM6_OWN);
+    bad += check("  saved again: an FM6 user preset (unused macro stays zero)", up_rec(8)->engine == ENGI_FM6 &&
+                 up_value(up_rec(8), P_E7) == 0);
     /* preset numbers of engine 1 */
     set_engine_of(TSEL, ENGI_DIGITAL);
-    bad += check("engine 1 asked for: DIGITAL E.PIANO converted (FM6, PTCH TINE EP, the patch named E.PIANO)",
+    bad += check("engine 1 asked for: DIGITAL E.PIANO converted (FM6, preset TINE EP, the patch named E.PIANO)",
                  TSEL->eng_req == ENGI_FM6 && TSEL->preset == 0u && !memcmp(fm6_patch[song.sel] + FP_NAME, "E.PIANO", 7));
     TSEL->eng_req = ENGI_DIGITAL;                      /* (the ISR's view: no other path does this) */
     apply_preset_to(TSEL, 1);

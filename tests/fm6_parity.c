@@ -74,7 +74,6 @@ int main(int argc, char **argv)
     for (i = 0; i < 155u; i++)
         v[i] = (uint8_t)s.voice[i];
     fm6_put_patch(0, v, 1);
-    fm6_slot[0] = (uint8_t)t->p[P_E7];                   /* (fm6_poll would keep it: the track's own) */
     fm6_on[0] = 0;
     for (i = 0; i < 6u; i++)                             /* ops[i]: OP i + 1, fm6_on bit 6 - n for OP n */
         fm6_on[0] |= (uint8_t)((s.ops[i] == '1') << (5u - i));

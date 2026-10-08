@@ -39,7 +39,7 @@ int main(void)
     bad+=check("Z128 stores all original 144 CZ-1 bytes",native_put(ENGI_CZ,127,cz)==0 && !memcmp(native_raw(ENGI_CZ,127),cz,144));
     bad+=check("one engine's native slot cannot occupy the other engine or a general slot",!up_used(63) && native_count(ENGI_FM6)==1 && native_count(ENGI_CZ)==1);
     TSEL->p[P_DIST]=47;TSEL->p[P_LD_PIT]=12;TSEL->step[0]=(step_t){.time=ST_NOTE,.n=1,.note={60}};
-    native_load(ENGI_FM6,63,0);fm6_poll();fm6_pack(fm6_patch[0],got);
+    native_load(ENGI_FM6,63,0);fm6_pack(fm6_patch[0],got);
     bad+=check("native FM6 load keeps effects, modulation and pattern",!memcmp(got,fm,128) && TSEL->p[P_DIST]==47 && TSEL->p[P_LD_PIT]==12 && TSEL->step[0].note[0]==60);
     native_load(ENGI_CZ,127,0);
     bad+=check("native CZ load keeps effects, modulation and pattern",!memcmp(cz_patch[0].raw,cz,144) && TSEL->p[P_DIST]==47 && TSEL->p[P_LD_PIT]==12 && TSEL->step[0].note[0]==60);
@@ -65,7 +65,7 @@ int main(void)
 
     /* Simulate the preceding shared-preset firmware, including both UPF6 objects. */
     reset();upf_empty();fm6_init();set_engine_of(TSEL,ENGI_FM6);
-    uint8_t voice[FP_SIZE+1];fm6_unpack(fm,voice);fm6_set_patch(0,voice);fm6_adopt(0);
+    uint8_t voice[FP_SIZE+1];fm6_unpack(fm,voice);fm6_set_patch(0,voice);
     up_store(0,"OLD FIRST");up_store(47,"OLD MIDDLE");up_store(63,"OLD LAST");
     /* A historical CZ bank and one ordinary native CZ record must both survive. */
     cz_bank_t oldcz;cz_bank_empty(&oldcz,7);oldcz.used=0x8000u;memcpy(oldcz.tone[15].raw,cz,144);st_save(OBJ_CZBANK0+7,&oldcz,sizeof oldcz);

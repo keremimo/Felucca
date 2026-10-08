@@ -70,7 +70,7 @@ int main(void)
     usb_dump(voice,sizeof voice);dump_request(3,0);
     bad += check("single voice receive and reply preserve patch and channel", host_wire_n == sizeof voice && !memcmp(host_wire,voice,sizeof voice));
     bad += check("incoming single voice detaches the previous saved preset", !trk[0].user && !trk[0].user_native);
-    song.sel=2;set_engine_of(&trk[2],ENGI_FM6);fm6_put_patch(2,unpacked,1);fm6_adopt(2);
+    song.sel=2;set_engine_of(&trk[2],ENGI_FM6);fm6_put_patch(2,unpacked,1);
     host_wire_n=0;fm6_send();host_drain();
     bad += check("device SEND uses the selected track MIDI channel", host_wire_n==163 && host_wire[2]==2 && !memcmp(host_wire+6,unpacked,FP_SIZE) && !strcmp(ui.msg,"VOICE SENT"));
     memcpy(previous,fm6_patch[2],FP_SIZE);

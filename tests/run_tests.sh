@@ -61,12 +61,12 @@
 #                   register clock following the key, META periodic at the key, no DC, no clipping at the
 #                   corners, a note from silence the same twice, the cost per voice; demos in build/noise_demo/.
 # DIGITAL -> FM6 (tests/fm4_test.c, built with MELODEE_FM4=1): the retired four-operator engine against its conversion
-#                   (src/fm4_convert.c): routes and carriers per algorithm, the presets' PTCH, and the sound (pitch,
+#                   (src/fm4_convert.c): routes and carriers per algorithm, the converted presets, and the sound (pitch,
 #                   centroid, RMS envelope) of its presets and algorithms; demos in build/fm4_demo/. tests/digital_test.c
 #                   (MELODEE_FM4=1 too): DIGITAL's operator envelopes. Default builds have no DIGITAL (engine 1 reserved).
 # FM6 (tests/fm6_test.c): the 6-operator FM engine (src/eng_fm6.c, src/fm6_core.c) against the DX7: the 32 algorithms
 #                   against its diagrams, pitch, levels, envelopes, modulation; no DC / clipping over the factory
-#                   patches, the macros (neutral at 0, their directions), PTCH, pack / unpack and the SysEx layouts,
+#                   patches, the macros (neutral at 0, their directions), factory presets, pack / unpack and the SysEx layouts,
 #                   Dexed's 16 voices, the cost per voice; demos in build/fm6_demo/. tests/fm6_ams_test.c: the AMS share
 #                   as Dexed's doubles figure it. With DEXED_SRC (a Dexed checkout's Source/): tests/fm6_parity.sh
 #                   --quick renders scores through Dexed's own code and FM6 and compares them sample by sample.

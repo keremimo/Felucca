@@ -558,7 +558,6 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
         v[id] = (uint8_t)val;
     }
     fm6_put_patch(tr, v, 0);
-    fm6_adopt(tr);
 }
 
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
