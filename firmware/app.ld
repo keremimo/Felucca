@@ -28,7 +28,14 @@ SECTIONS
     .data : { . = ALIGN(4); _data_start = .; *(.data*) *(.sdata*) . = ALIGN(4); _data_end = .; } > RAM AT > XIP
     _data_load = LOADADDR(.data);
     .bss (NOLOAD) : { _bss_start = .; *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); _bss_end = .; } > RAM
-    .pool (NOLOAD) : { _pool_start = .; *(.pool*) . = ALIGN(4); _pool_end = .; _resource_start = .; } > POOL
+    .pool (NOLOAD) : { _pool_start = .; *(.pool*) . = ALIGN(4); _pool_end = .; } > POOL
+    .cpu1_stacks (NOLOAD) : {
+        . = ALIGN(32); _cpu1_stacks_lo = .;
+        KEEP(*(.cpu1_stacks))
+        _cpu1_stacks_hi = .; _resource_start = .;
+    } > POOL
+    _cpu1_ustack_top = _cpu1_stacks_lo + 4096;
+    _cpu1_sstack_top = _cpu1_stacks_lo + 8192;
     _resource_end = ORIGIN(POOL) + LENGTH(POOL);
     ASSERT(_resource_end - _resource_start >= 112K, "audio working arena below worst-case budget")
     .noinit (NOLOAD) : { *(.noinit*) } > NOINIT

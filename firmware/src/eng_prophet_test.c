@@ -1,10 +1,21 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* Prophet prototype: native patches and five voices, with two provisional
+/* Prophet prototype: native patches and five (experimental dual-core: eight) voices, with two provisional
  * filter characters. Stored engine ID 19 is independent of legacy ANALOG.
  * MELODEE_PROPHET_PROTOTYPE additionally aliases ID 0 for measurement rigs. */
 #include "prophet_patch.c"
 #include "melodee_prophet_factory.h"   /* Sequential's 200 v1.03 programs (tools/gen_prophet_factory.py) */
+#if MELODEE_DUAL_CORE
+#define P5_POLY 8u
+#else
 #define P5_POLY 5u
+#endif
+static uint32_t p5_poly(void)
+{
+#if MELODEE_DUAL_CORE
+    if (audio_worker_online) return P5_POLY;
+#endif
+    return 5u;
+}
 typedef struct { int32_t value; uint8_t stage; } p5_env_t;
 typedef struct {
     uint32_t phase[2];
@@ -238,7 +249,7 @@ static void p5_block(track_t *t)
 {
     p5_part_t *s=p5_part((uint32_t)(t-trk));const uint8_t *p=p5_patch_of(t)->raw;
     if(!s)return;p5_update_bend(t);
-    /* Raw-to-DSP clamping is part-wide; envelopes and all five voices share it. */
+    /* Raw-to-DSP clamping is part-wide; envelopes and all voices share it. */
     for(uint32_t k=0;k<55u;k++)s->value[k]=(uint8_t)p5_value(p,k);
     uint32_t inc=P5_LFO_INC[p5_value(p,P5_LFO_RATE)]/P5_OVERSAMPLE;
     int32_t amount=P5_AMOUNT_Q15[clamp(p5_value(p,P5_LFO_INITIAL)+t->mw+(p[P5_PRESS_LFO]?t->at:0),0,127)];
@@ -249,7 +260,7 @@ static uint32_t p5_cap(const track_t *t)
 {
     const uint8_t *p=p5_patch_of(t)->raw;
     return p[P5_UNISON] && t->p[P_VOICE]==V_UNISON ?
-        (uint32_t)clamp(p[P5_UNISON_COUNT]?p[P5_UNISON_COUNT]:5,1,5) : 5u;
+        (uint32_t)clamp(p[P5_UNISON_COUNT]?p[P5_UNISON_COUNT]:5,1,(int32_t)p5_poly()) : p5_poly();
 }
 static void p5_legato(track_t *t,voice_t *v)
 {
@@ -431,6 +442,42 @@ static __attribute__((section(".dsp_text"))) void p5_samples(p5_voice_t *restric
     }
     s->last_pcm=last;
 }
+
+#if MELODEE_DUAL_CORE
+/* The sample kernel owns only its voice and private PCM. Part-wide wheel
+ * buffers and patch bytes remain read-only until post joins the worker. */
+static struct {
+    p5_voice_t *voice;
+    const uint8_t *patch;
+    p5_render_params_t params;
+    vmod_t modulation;
+    uint32_t n;
+    int32_t pcm[CTL];
+} p5_job;
+static int p5_pending;
+static uint32_t p5_pairs;
+static int32_t *p5_pending_out;
+static void p5_worker_kernel(void *unused)
+{
+    (void)unused;
+    for(uint32_t i=0;i<p5_job.n;i++)p5_job.pcm[i]=0;
+    void (*volatile run)(p5_voice_t *,const uint8_t *,int32_t *,uint32_t,const vmod_t *,const p5_render_params_t *)=p5_samples;
+    run(p5_job.voice,p5_job.patch,p5_job.pcm,p5_job.n,&p5_job.modulation,&p5_job.params);
+}
+static void p5_join(void)
+{
+    if(!p5_pending)return;
+    audio_worker_join();
+    for(uint32_t i=0;i<p5_job.n;i++)p5_pending_out[i]+=p5_job.pcm[i];
+    p5_pending=0;
+}
+static void p5_post(track_t *t,int32_t *out,uint32_t n,uint32_t nr)
+{
+    (void)t;(void)out;(void)n;(void)nr;
+    p5_join();
+}
+#endif
+
 /* XIP stalls dominated the first hardware run. This bounded hot path uses
  * the existing RAMTEXT region; startup copies it before audio starts. */
 static void p5_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
@@ -445,6 +492,9 @@ static void p5_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
      * keeps the first sample continuous and ends exactly at zero. Engine-switch
      * fades and active native releases continue through the full synth. */
     if(!v->active && !m->amp1){
+#if MELODEE_DUAL_CORE
+        p5_join();
+#endif
         if(n>1u){
             int32_t step=s->last_pcm/(int32_t)(n-1u);
             for(uint32_t i=0;i<n-1u;i++)out[i]+=s->last_pcm-step*(int32_t)i;
@@ -503,6 +553,26 @@ static void p5_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
     const p5_render_params_t c={f0,a0,f1,a1,ia,ib,cut,k,filter_gain,filter_velocity,amp_velocity,env_amount,pa_env,pa_b,pf_env,pf_b,pw_env,pw_b,pwm_a,pwm_b,la,lb,ln,part->wheel,part->wheel_pitch};
     /* An indirect call crosses the XIP/RAM distance beyond direct branch range. */
     void (*volatile run)(p5_voice_t *,const uint8_t *,int32_t *,uint32_t,const vmod_t *,const p5_render_params_t *)=p5_samples;
+#if MELODEE_DUAL_CORE
+    uint32_t next=(uint32_t)(v-t->v)+1u;
+    while(next<NVOICE && !t->v[next].active)next++;
+    if(!p5_pending && audio_worker_online && n<=CTL && next<NVOICE){
+        p5_job.voice=s;p5_job.patch=p;p5_job.params=c;p5_job.modulation=*m;p5_job.n=n;
+        if(audio_worker_submit(p5_worker_kernel,0)){
+            p5_pending=1;p5_pending_out=out;return;
+        }
+    }
+    if(p5_pending){
+        /* Preserve serial voice addition order, including any earlier voices
+         * already in out. The producer's scratch never aliases worker PCM. */
+        int32_t pcm[CTL]={0};
+        run(s,p,pcm,n,m,&c);
+        p5_pairs++;
+        p5_join();
+        for(uint32_t i=0;i<n;i++)out[i]+=pcm[i];
+        return;
+    }
+#endif
     run(s,p,out,n,m,&c);
 }
 
@@ -521,10 +591,10 @@ static void p5_preset_loaded(track_t *t,uint32_t pi)
     if(pi && pi<=P5_FACTORY_N)*p=P5_FACTORY[pi-1u];else p5_patch_init(p);
     p5_track_accept(t);
 }
-/* Hardware: five heavy Prophet voices fit; five plus three other engines do
- * not. Charge three of sixteen units before allocation, using the existing
- * per-engine budget hook. Three Prophet + three regular voices cost fifteen. */
-static uint32_t p5_units(const track_t *t) { (void)t; return 3u; }
+/* Serial hardware measurements justify three units per voice. The opt-in
+ * paired path provisionally charges two: eight voices fill the same sixteen
+ * units, so adding another track still steals voices. Validate on hardware. */
+static uint32_t p5_units(const track_t *t) { (void)t; return p5_poly()>5u?2u:3u; }
 static const engine_t ENG_P5_TEST = {
     .name="PROPHET", .page_title={"FILTER/TUNE","PW/MIX"},
     .edit={{"CUT",F_INT,-63,63,0,0,0},{"RES",F_INT,-63,63,0,0,0},
@@ -533,5 +603,8 @@ static const engine_t ENG_P5_TEST = {
            {"MIXA",F_INT,-63,63,0,0,0},{"MIXB",F_INT,-63,63,0,0,0}},
     .presets=P5_TEST_PRESETS,.npresets=NELEM(P5_TEST_PRESETS),.poly=P5_POLY,.ownenv=1,
     .note_on=p5_note_on,.render=p5_render,.done=p5_done,.block=p5_block,.units=p5_units,.cap=p5_cap,.legato=p5_legato,
+#if MELODEE_DUAL_CORE
+    .post=p5_post,
+#endif
     .knob={P_E0,P_E1,P_CHOR,P_REV}
 };

@@ -7,6 +7,9 @@
 /* build.py: MELODEE_<NAME>=0 / 1 in the environment overrides these. Elsewhere: MELODEE_SLICE, MELODEE_FM4
  * (core.h: the SLICE engine, the DIGITAL engine), MELODEE_ICONS (icons.c, the parameter icons; on by default),
  * MELODEE_OTA_RAMONLY (ota.c). */
+#ifndef MELODEE_DUAL_CORE
+#define MELODEE_DUAL_CORE 0     /* experimental paired FM6/Prophet kernels; enable after target validation */
+#endif
 #ifndef MELODEE_FLASH
 #define MELODEE_FLASH 1          /* flash driver + storage.c: settings, projects, user presets */
 #endif
@@ -42,6 +45,9 @@
 #include "fm1_sys.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
+#if MELODEE_DUAL_CORE
+#include "fm1_multicore.h"
+#endif
 #include "fm1_input.h"
 #include "fm1_timer.h"
 #include "fm1_audio.h"

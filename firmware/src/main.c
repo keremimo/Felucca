@@ -173,6 +173,14 @@ static void fm1_main(void)
     fm1_adc_init();
     panel_init();
     melodee_init();
+#if MELODEE_DUAL_CORE
+    fm1_multicore_start();                  /* bounded handshake; failure keeps serial rendering */
+    /* CPU1 starts through mask-ROM before it reaches our RAM worker. Restrict
+     * instruction fetch only after that bootstrap has returned, or stopped
+     * the core on timeout. The captured first-device fault was DBG bit 10
+     * (c1_pc_limit_err_r) while CPU0 waited for the ready handshake. */
+    fm1_guard_enable(FM1_GUARD_PC);
+#endif
     audio_init();
     usb_start();
 #if MELODEE_UART
@@ -303,6 +311,7 @@ void fm1_cstart(void)
     src = fm1_boot.rst_src;
     wdt = fm1_boot.wdt_con;
     fm1_wdt_arm(0x0D);
+    fm1_core1_stop();                      /* hold CPU1 before clearing/copying application RAM */
     if (bootguard.magic != BOOTGUARD_MAGIC) {
         bootguard.magic = BOOTGUARD_MAGIC;
         bootguard.failed = 0;
@@ -330,7 +339,11 @@ void fm1_cstart(void)
     for (s = _dt_load, d = _dt_start; d < _dt_end; s++, d++)
         *d = *s;                                /* the oscillator correction tables */
     fm1_mailbox_clear();
-    fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);
+    fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS
+#if !MELODEE_DUAL_CORE
+                     | FM1_GUARD_PC
+#endif
+                     );
     fm1_boot.p3_rst = (uint8_t)p3;
     fm1_boot.rst_src = src;
     fm1_boot.wdt_con = (uint8_t)wdt;

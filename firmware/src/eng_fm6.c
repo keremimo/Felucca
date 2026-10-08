@@ -818,22 +818,80 @@ static void fm6_ghost(track_t *t, voice_t *v, fm6_voice_t *s)
     }
 }
 
+#if MELODEE_DUAL_CORE
+/* Only the planned operator kernel and output gain run on CPU1. Controls,
+ * envelopes, allocation, modulation, patches and RNG stay on CPU0. */
+static struct {
+    fm6_voice_t *voice;
+    vmod_t modulation;
+    uint32_t n;
+    int32_t gain;
+    int32_t bus[2][CTL], sum[CTL], pcm[CTL];
+} fm6_job;
+static int fm6_pending;
+static uint32_t fm6_pairs;
+static int32_t *fm6_pending_out;
+
+static void fm6_output(const int32_t *sum, int32_t *out, uint32_t n, const vmod_t *m, int32_t gain, int add)
+{
+    for (uint32_t i = 0; i < n; i++) {
+        int32_t x = clamp(sum[i], -(1 << 28), (1 << 28) - 1);
+        int32_t y = (int32_t)(((int64_t)x * (amp_at(m, i) * gain)) >> 41);
+        if (add) out[i] += y; else out[i] = y;
+    }
+}
+
+static void fm6_worker_kernel(void *unused)
+{
+    (void)unused;
+    fm6_run_into(fm6_job.voice, fm6_job.n, fm6_job.bus, fm6_job.sum);
+    fm6_output(fm6_job.sum, fm6_job.pcm, fm6_job.n, &fm6_job.modulation, fm6_job.gain, 0);
+}
+static void fm6_join(void)
+{
+    if (!fm6_pending) return;
+    audio_worker_join();
+    /* Voice addition order is identical to serial FM6, including rounding. */
+    for (uint32_t i = 0; i < fm6_job.n; i++) fm6_pending_out[i] += fm6_job.pcm[i];
+    fm6_pending = 0;
+}
+#else
+static inline void fm6_join(void) {}
+#endif
+
 static void fm6_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     fm6_voice_t *s = fm6_state(t, v);
-    uint32_t i;
-    int32_t k = t->p[P_VOICE] == V_UNISON ? VOICE_FS * 2 / 5 : VOICE_FS;   /* UNISON's voices: about one */
-    if (!s->sub)
-        fm6_control(t, v, s, m);
+    int32_t k = t->p[P_VOICE] == V_UNISON ? VOICE_FS * 2 / 5 : VOICE_FS;
+    if (!s->sub) fm6_control(t, v, s, m);
     s->sub ^= 1u;
+#if MELODEE_DUAL_CORE && !defined(FM6_TAP)
+    /* The first voice runs on CPU1; CPU0 prepares AND renders the second.
+     * Join before adding either voice and before any post/next-block work. */
+    uint32_t next = (uint32_t)(v - t->v) + 1u;
+    while (next < NVOICE && !t->v[next].active) next++;
+    if (!fm6_pending && audio_worker_online && n <= CTL && next < NVOICE) {
+        fm6_job.voice = s; fm6_job.modulation = *m; fm6_job.n = n; fm6_job.gain = k;
+        if (audio_worker_submit(fm6_worker_kernel, 0)) {
+            fm6_pending = 1; fm6_pending_out = out;
+            return;
+        }
+    }
+#endif
     fm6_run(s, n);
 #ifdef FM6_TAP
-    FM6_TAP(fm6_sum, n);                                 /* tests/fm6_parity.c: the voice before the output */
+    FM6_TAP(fm6_sum, n);
 #endif
-    for (i = 0; i < n; i++) {                            /* a voice clips at 16 unit sines, as in Dexed */
+#if MELODEE_DUAL_CORE
+    if (fm6_pending) fm6_pairs++;
+    fm6_join();
+    fm6_output(fm6_sum, out, n, m, k, 1);
+#else
+    for (uint32_t i = 0; i < n; i++) {
         int32_t x = clamp(fm6_sum[i], -(1 << 28), (1 << 28) - 1);
-        out[i] += (int32_t)(((int64_t)x * (amp_at(m, i) * k)) >> 41);   /* a carrier at OUTPUT 99: VOICE_FS / 2 */
+        out[i] += (int32_t)(((int64_t)x * (amp_at(m, i) * k)) >> 41);
     }
+#endif
 }
 
 /* the part's patch against what the voices play: a new voice (fm6_lgen) or another TRANSPOSE: the notes stop,
@@ -892,6 +950,7 @@ static void fm6_block(track_t *t)                        /* per part and block: 
  * about 20 Hz); with no voice it starts afresh */
 static void fm6_post(track_t *t, int32_t *out, uint32_t n, uint32_t nr)
 {
+    fm6_join();
     fm6_part_t *P = FM6P(t);
     uint32_t i;
     int32_t x1 = P->dc_x1, y = P->dc_y1;
