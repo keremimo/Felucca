@@ -414,13 +414,13 @@ async function editorFm4() {
   let d = E.parse[C.DUMP](await rq(E.req.dump()), info);
   let want = E.FM4.convert(digital(0, d0.p), info.pe0);
   ok(d.engine === 12 && d.preset === 0 && eq(d.p, want.p) && eq(await fm6Of(), E.FM6.pack(want.voice)),
-    "DIGITAL retired: SET G_ENGSEL 1 -> FM6 with E.PIANO converted (its own patch, PTCH TINE EP)");
+    "DIGITAL retired: SET G_ENGSEL 1 -> FM6 with E.PIANO converted (its own patch, preset TINE EP)");
   d0 = d;
   await rq(E.req.preset(1, 5));
   d = E.parse[C.DUMP](await rq(E.req.dump()), info);
   want = E.FM4.convert(digital(5, d0.p), info.pe0);
   ok(d.engine === 12 && d.preset === 4 && eq(d.p, want.p) && E.FM6.name(E.FM6.unpack(await fm6Of())) === "PAD",
-    "DIGITAL retired: PRESET 1 5 (its PAD) -> FM6, the converted patch named PAD, PTCH / preset FM6 PAD");
+    "DIGITAL retired: PRESET 1 5 (its PAD) -> FM6, the converted patch named PAD, preset FM6 PAD");
   /* library files of DIGITAL sounds: today's 92 parameters, 89 (P_E0 81), 69 (P_E0 61, no OP ENV) */
   const base = Array.from({ length: 92 }, (_, i) => (i < 84 ? pdesc[i].def : 0));
   const pad = E.FM4.presetValues(base.slice(), 5, 84);
@@ -986,7 +986,11 @@ async function editorFm6() {
   await rq(E.req.set(0,info.pe0+7,0));
   await rq(E.req.set(0,info.pe0+7,24));
   g=E.parse[C.FM6_GET](await rq(E.req.fm6Get(0,0)));
-  ok(eq(g.packed,F6.pack(mine)),"FM6: OWN returns after factory audition");
+  const d = E.parse[C.DUMP](await rq(E.req.dump()), info);
+  ok(eq(g.packed,F6.pack(mine)) && d.p[info.pe0+7]===0,"FM6: unused E7 cannot select a factory voice");
+  await rq(E.req.preset(12,4));
+  g=E.parse[C.FM6_GET](await rq(E.req.fm6Get(0,0)));
+  ok(eq(g.packed,F6.FACTORY_PK[4]),"FM6: factory preset loads its own patch directly");
   const e=E.parse[C.FM6_ERASE](await rq(E.req.fm6Erase(4)));
   ok(e.rc===3,"FM6: retired bank erase reports no bank");
   p = E.parse[C.FM6_PUT](await rq([C.FM6_PUT, [0, 9, 1, 2, 3]]));

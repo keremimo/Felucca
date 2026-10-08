@@ -157,7 +157,7 @@ static void native_boot(void)
         for(uint32_t j=0;j<16u;j++){
             uint32_t k=b*16u+j;uint8_t pk[FM6_PACKED];
             if(!upf_fm6(k))continue;
-            if(upf_get(k,pk)){int32_t f=up_value(up_rec(k),up_rec(k)->np-1u);if(f>=0 && f<(int32_t)FM6_NFAC)fm6_factory((uint32_t)f,pk);else continue;}
+            if(upf_get(k,pk))continue;
             memcpy(native_fm_bank(b)->tone[j],pk,sizeof pk);native_fm_bank(b)->used|=1u<<j;
         }
         /* Empty objects are completion markers too: never resurrect an erased
@@ -241,7 +241,7 @@ static int native_load(uint32_t e,uint32_t k,uint32_t tr)
     uint32_t previous=t->eng_req;
     t->eng_req=(uint8_t)e;t->preset=0;t->user=(uint8_t)(k+1u);t->user_native=1;
     if(previous!=e)for(uint32_t j=0;j<8u;j++)t->p[P_E0+j]=ENGINES[e]->edit[j].def;
-    if(e==ENGI_FM6){uint8_t v[FP_SIZE+1u];fm6_unpack(loaded,v);fm6_set_patch(tr,v);fm6_adopt(tr);}
+    if(e==ENGI_FM6){uint8_t v[FP_SIZE+1u];fm6_unpack(loaded,v);fm6_set_patch(tr,v);}
     else {memcpy(cz_patch[tr].raw,loaded,CZ_BYTES);t->p[P_E7]=CZ_NATIVE;cz_track_accept(t);}
     fm1_irq_on();load_end(t);sync_reload=1;ui.force=1;return 0;
 }
@@ -264,7 +264,6 @@ static int native_import_owned(uint32_t group)
             uint32_t k=b*16u+j; uint8_t pk[FM6_PACKED]; f->used &= ~(1u<<j);
             if(upf_fm6(k)){
                 int ok=!upf_get(k,pk);
-                if(!ok){int32_t n=up_value(up_rec(k),up_rec(k)->np-1u);if(n>=0 && n<(int32_t)FM6_NFAC){fm6_factory((uint32_t)n,pk);ok=1;}}
                 if(ok){memcpy(f->tone[j],pk,FM6_PACKED);f->used|=1u<<j;}
             }
         }

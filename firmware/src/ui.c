@@ -470,8 +470,7 @@ static struct {
     uint8_t keep;                /* the track is as the last load left it (undo.after): a next load keeps the copy */
     uint8_t what;                /* UNDO_SOUND | UNDO_PAT: what the loads since the copy changed (undo_swap) */
     uint8_t eng, preset, user, user_native, patn;
-    uint8_t fm6_slot;            /* the track's FM6 patch and its PTCH slot (eng_fm6.c): an edited or a project's */
-    uint8_t fm6[FP_SIZE + 1u];   /* patch is the track's own, not PTCH's factory one */
+    uint8_t fm6[FP_SIZE + 1u];   /* the track's complete patch */
     cz_patch_t cz;
     int16_t p[P_COUNT];
     step_t step[NSTEP];
@@ -528,7 +527,6 @@ static void load_begin(track_t *t, uint32_t what)
     memcpy(undo.step, t->step, sizeof undo.step);
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
     undo.cz = cz_patch[i];
-    undo.fm6_slot = fm6_slot[i];
     undo.pat = pat_sig[i];
     undo.patn = pat_last[i];
     motion_snapshot_track(t, &undo.motion_backup);
@@ -618,15 +616,13 @@ static void undo_swap(void)
     }
     fm1_irq_on();
     if (undo.what & UNDO_SOUND) {                 /* FM6: the track's patch as it was (edited, a project's, a
-                                                   * converted DIGITAL sound), not its PTCH's factory one */
+                                                   * converted DIGITAL sound), preserved with the sound */
         uint32_t tr = trk_index(t);
-        uint8_t v[FP_SIZE + 1u], sl = fm6_slot[tr];
+        uint8_t v[FP_SIZE + 1u];
         memcpy(v, fm6_patch[tr], FP_SIZE);
         fm6_set_patch(tr, undo.fm6);
-        fm6_slot[tr] = undo.fm6_slot;             /* (fm6_poll: the patch stays) */
         memcpy(undo.fm6, v, FP_SIZE);
         { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = undo.cz; undo.cz = cp; cz_track_accept(t); }
-        undo.fm6_slot = sl;
 
     }
     undo.keep = 0;                                /* the next load copies the track as it is now */
@@ -784,7 +780,6 @@ static void fm4_apply(track_t *t, int16_t *p)
     t->eng_req = ENGI_FM6;
     t->preset = (uint8_t)pr;
     motion_unguard(f);
-    fm6_adopt(tr);
 }
 static void fm4_track(track_t *t)                     /* t holds a DIGITAL sound (engine 1): convert it */
 {
@@ -854,7 +849,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     }
     cz_factory_loaded(t);
     cz_track_accept(t);
-    fm6_track_loaded(t);                              /* FM6: the preset's patch (its PTCH) */
+    fm6_track_loaded(t);                              /* FM6: the preset's patch */
     load_end(t);
 }
 

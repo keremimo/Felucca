@@ -237,7 +237,7 @@ static void presets(void)
         for (i = 0; i < P_COUNT; i++)
             p[i] = TP[i < P_E0 ? i : 0].def;
         fm4_preset_values(p, k);
-        ok &= fm4_convert(p, v) == FM4_TO_FM6[k] && p[P_E7] == FM6_OWN && !p[P_E0] && !p[P_E6];
+        ok &= fm4_convert(p, v) == FM4_TO_FM6[k] && p[P_E7] == 0 && !p[P_E0] && !p[P_E6];
         for (i = 0; i < 10u && DIGITAL_PRESETS[k].name[i]; i++)
             names &= v[FP_NAME + i] == (uint8_t)DIGITAL_PRESETS[k].name[i];
     }
@@ -316,7 +316,6 @@ static void sound(const char *dir)
         fm4_convert(t->p, v);
         t->eng_req = t->engine = ENGI_FM6;
         fm6_set_patch(0, v);
-        fm6_slot[0] = (uint8_t)t->p[P_E7];
         render(60, 100, yf);
         wav(dir, cs->name, "digital", yd);
         wav(dir, cs->name, "fm6", yf);

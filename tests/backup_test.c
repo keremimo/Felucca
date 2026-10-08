@@ -370,7 +370,7 @@ int main(void)
                  proj_import(&proj_scratch, &proj_slot[3], sizeof st) && proj_scratch.t[0].step[0].n == 4u &&
                  proj_scratch.t[0].step[0].note[0] == 127u && proj_scratch.t[0].p[P_E0] ==
                  clamp(3, param_desc_of(trk[0].engine, P_E0)->min, param_desc_of(trk[0].engine, P_E0)->max));
-    {   /* Old bank backups are migrated into restored presets; new backups retain owned voices. */
+    {   /* Selector-based archives are retired; owned-voice backups still restore. */
         static fm6_bank_t bk;
         static upf_t got;
         static up_bank_t records;
@@ -383,13 +383,14 @@ int main(void)
         bk.magic = FM6_BANK_MAGIC; bk.ver = FM6_BANK_VER; bk.nslot = FM6_BANK_N; bk.used = 1u << 2;
         memcpy(bk.fn, FM6_FNDEF, FM6_NFN);
         fm6_factory(5, pk); fm6_pack7(bk.pk[2], pk, FM6_PACKED);
-        bad += check("old bank backup migrates the referenced voice into U03",
-                     put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 0 && native_used(ENGI_FM6,2) && !memcmp(native_raw(ENGI_FM6,2), pk, FM6_PACKED));
+        bad += check("retired selector bank backup is refused without changing native voices",
+                     put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 2 && !native_used(ENGI_FM6,2));
         bad += check("retired bank id 8 is listed empty", list(8, &len, &crc) == 0 && !len);
-        bad += check("native voice id 21 is listed with its CRC", list(21, &len, &crc) == 0 && len == sizeof(native_fm_t) && crc == st_crc32(native_fm_bank(0), len));
+        bad += check("refusing the retired bank leaves native object 21 empty", list(21, &len, &crc) == 0 && !len);
         upf_set(2,pk); /* construct a historical owned-voice archive */
         memcpy(&got, upf_bank((0) * UPF_SLOTS), sizeof got); upf_empty();
         bad += check("owned voices restore through id 19", put_all(19, &got, sizeof got, st_crc32(&got, sizeof got)) == 0 && native_used(ENGI_FM6,2) && !memcmp(native_raw(ENGI_FM6,2), pk, FM6_PACKED));
+        bad += check("native voice id 21 is listed with its CRC", list(21, &len, &crc) == 0 && len == sizeof(native_fm_t) && crc == st_crc32(native_fm_bank(0), len));
         bk.fn[FN_ENGINE] = 9;
         bad += check("damaged historical bank is refused", put_all(8, &bk, sizeof bk, st_crc32(&bk, sizeof bk)) == 2u);
         up_store(63, "LAST FM6");

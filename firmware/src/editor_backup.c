@@ -159,10 +159,7 @@ static uint32_t ed_bk_commit_inner(void)
         obj = ed_bk_id < 8u ? OBJ_UPRESET0 + ed_bk_id - 6u : OBJ_UPRESET_EXT0 + ed_bk_id - 17u;
     } else if (ed_bk_id == 8u) {
         if (!ed_bk_len) return 0;
-        if (ed_bk_len != sizeof(fm6_bank_t) || !fm6_bank_valid((const fm6_bank_t *)raw)) return 2;
-        upf_migrate((const fm6_bank_t *)raw);
-        if(native_import_owned(0) || native_import_owned(1))return 4;
-        return 0;
+        return 2; /* retired selector-based bank archives are unsupported */
     } else if (ed_bk_id >= 19u && ed_bk_id <= 22u && (ed_bk_len==sizeof(native_fm_t) || !ed_bk_len)) {
         uint32_t b=ed_bk_id<21u?ed_bk_id-17u:ed_bk_id-21u;
         if(ed_bk_len && !native_fm_valid((const native_fm_t *)raw))return 2;

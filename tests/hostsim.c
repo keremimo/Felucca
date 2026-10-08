@@ -117,7 +117,6 @@ static void host_preset_req(track_t *t, uint32_t e, uint32_t pi)
         t->preset = (uint8_t)fm4_convert(t->p, v);
         t->eng_req = ENGI_FM6;
         fm6_set_patch(tr, v);
-        fm6_slot[tr] = (uint8_t)t->p[P_E7];
         return;
     }
 #endif

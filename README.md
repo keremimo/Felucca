@@ -284,8 +284,8 @@ In the order the device lists them:
 - **ANALOG**: virtual analog; two oscillators, noise, drive, resonant low-pass filter
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track edited in the
   web editor or on the device; operator frequency, levels, envelopes and scaling, pitch envelope,
-  LFO, STORE and DX7 SysEx; an algorithm chart on screen. PRESETS selects the operator on operator
-  pages. Algorithms 4 and 6 use three- and two-operator feedback loops in MARK I; MODERN and OPL
+  LFO, STORE and DX7 SysEx; an algorithm chart on screen. The main knobs control MLVL, MRAT,
+  MEG and DTUN. PRESETS selects the operator on operator pages. Algorithms 4 and 6 use three- and two-operator feedback loops in MARK I; MODERN and OPL
   use OP6 self-feedback, so 4 / 6 sound like 3 / 5 in those engines. Set ENGINE to MARK I on
   FM PORTA and raise FB above 0 to hear the longer loops; the algorithm chart follows ENGINE.
   Each track keeps its own patch and function settings (MODERN / MARK I / OPL, pitch bend,

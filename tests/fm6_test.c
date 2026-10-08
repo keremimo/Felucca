@@ -73,7 +73,6 @@ static void setup(const uint8_t *v, const int16_t *e)
     for (i = 0; i < 8u; i++)
         T->p[P_E0 + i] = e ? e[i] : 0;
     fm6_put_patch(0, v, 1);
-    fm6_slot[0] = (uint8_t)T->p[P_E7];
     T->p[P_VOICE] = V_POLY;
     T->p[P_CHOR] = T->p[P_DLY] = T->p[P_REV] = 0;
     memcpy(ED, fm6_patch[0], sizeof ED);
@@ -805,18 +804,14 @@ static void macros(void)
         printf("fm6: DTUN 0 / 127 (3 carriers): level swing over 50 ms windows %.3f / %.3f\n", m[0], m[1]);
         check("DTUN: the carriers apart: they beat", m[1] > m[0] * 1.05);
     }
-    {   /* PTCH: the main loop loads the slot's patch */
-        setup(base, 0);
-        T->p[P_E7] = 4;
-        fm6_poll();
-        check("PTCH F5 loads the fifth factory patch (main loop)", fm6_slot[0] == 4u &&
-              !memcmp(fm6_patch[0] + FP_NAME, "SOFT PAD  ", 10));
-        T->p[P_E7] = 8;
-        fm6_poll();
-        check("PTCH F9 loads Melodee's first factory voice", !memcmp(fm6_patch[0] + FP_NAME, "TINE EP   ", 10));
-        T->p[P_E7] = (int16_t)(FM6_NFAC + 3);
-        fm6_poll();
-        check("legacy bank slot clamps to OWN without replacing the track voice", fm6_slot[0] == FM6_OWN && T->p[P_E7] == FM6_OWN && !memcmp(fm6_patch[0] + FP_NAME, "TINE EP   ", 10));
+    {   /* Factory voices use the preset index; E7 is unused. */
+        for (uint32_t k = 0; k < FM6_NFAC; k++) {
+            uint8_t pk[FM6_PACKED], v[FP_SIZE + 1u];
+            host_preset(T, ENGI_FM6, k);
+            fm6_factory(k, pk); fm6_unpack(pk, v);
+            check("factory preset loads its corresponding patch with E7 unused",
+                  !T->p[P_E7] && !memcmp(fm6_patch[0], v, FP_SIZE));
+        }
     }
 }
 

@@ -536,7 +536,7 @@ this firmware sends 3. Requests name objects, never flash addresses.
 | 1 | settings (palette, speaker, HOLD time, favorites, panel calibration, USB audio devices, BOOT, CLK TUNE MIDI ROUT, ...), then the template (SAVE > PROJECT, SLOT TMPL) when one is saved; Felucca 1.0's record (PER4, no ext) restores too | the settings record's size: 604, or 1924 with the template |
 | 2..5 | PROJECT slots 1..4 (FUN8) | 3584, or 0 if empty |
 | 6, 7 | user preset banks (slots 1..16, 17..32) | the bank's size, or 0 if empty |
-| 8 | retired FM6 bank; accepts older backups for migration | 0 when listed |
+| 8 | retired FM6 bank; nonempty restores are rejected | 0 when listed |
 | 17, 18 | user records U33..U48, U49..U64 | 3816 or 0 |
 | 19, 20 | owned FM6 voices U01..U32, U33..U64 | 3728 or 0 |
 | 32..34 | user sample slots 1..3: header (512 bytes) then ADPCM data | 512 + data length, or 0 if empty |
@@ -573,9 +573,9 @@ A `LIST` replaces the snapshot, and a `PUT` begin ends it: a `GET` after a begin
 ## FM6 patches (68-71)
 
 The FM6 engine (12) plays one 6-operator voice per track. Its EDIT values are macros
-(ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN), followed by SLOT: 0..23 selects F1..F24,
-24 is OWN. User presets retain the actual voice; factory audition and return to OWN
-restores that voice. INFO advertises `46 01 18 00` (24 factory, zero bank slots).
+(ALG, FB, MLVL, MRAT, MEG, VMOD, DTUN); the eighth value is unused (0..0).
+The main knobs control MLVL, MRAT, MEG and DTUN. Factory voices load through the preset
+browser; user presets retain the actual voice. INFO advertises `46 01 18 00` (24 factory, zero bank slots).
 
 A patch is the 128-byte packed record of the generic 6-operator voice (the 32-voice bank's record; every byte is
 7-bit, so it travels as it is, no pack7). Operators come sixth first: per operator 17 bytes (R1..R4, L1..L4,
@@ -587,7 +587,7 @@ The device stores every value clamped into its range.
 | cmd | Request args | Reply args |
 | --- | --- | --- |
 | 68 FM6_GET | target, index | target, index, rc, then (rc 0) the 128 bytes |
-| 69 FM6_PUT | target, index, the 128 bytes | target, index, rc (target 0, a track: that track's patch from now on, SLOT OWN or matching factory: polling preserves the adopted voice) |
+| 69 FM6_PUT | target, index, the 128 bytes | target, index, rc (target 0, a track: that track's patch from now on) |
 | 70 FM6_LIST | — | nfactory, nbank, then per slot (factory first): used (0/1), name string ("" if empty) |
 | 71 FM6_ERASE | bank index | index, rc |
 
@@ -597,7 +597,7 @@ Target 3 GET returns rc 2 for a preset without a stored FM6 voice. Target 3 PUT
 requires an existing FM6 user record and writes the owned voice to flash. Library
 transfers send UP_PUT first, then FM6_PUT target 3. UP_STORE saves both automatically.
 FM6_LIST lists only factory voices; FM6_ERASE always returns rc 3 for the retired bank.
-Erase a user sound through UP_ERASE. Track PUT adopts the voice (SLOT OWN or matching F n).
+Erase a user sound through UP_ERASE. Track PUT replaces the track voice.
 Other rc values: 0 success, 1 bad arguments, 2 empty voice or flash/transport error.
 
 The web editor (6-OP FM tab) reads and writes these, and imports / exports the generic SysEx files of the
@@ -822,7 +822,8 @@ CZ ids 9..16 retain the layout above. FM6 ids 21,22,19,20 hold F001..F016, F017.
 F049..F064 respectively. Each is 2060 bytes: LE magic 0x314D464E (NFM1), u16 version 1, u16 slot count
 16, u32 used mask (low 16 bits), then 16 × 128 native VMEM bytes. Used voices must contain only 7-bit
 bytes. Empty restore writes a valid empty object so erased slots cannot resurrect on reboot.
-Old 3728-byte UPF6 objects 19/20 and retired bank object 8 remain accepted for migration.
+Old 3728-byte UPF6 objects 19/20 remain accepted for owned-voice migration. Retired selector-based
+bank object 8 accepts only an empty restore.
 
 Native FM6 storage uses new objects 23/24 (A/B pairs 0xD8000..0xDBFFF) for slots 1..32, and reuses
 old objects 7/22 for slots 33..64. Migration commits the new objects before reusing old voice sectors,

@@ -91,7 +91,6 @@ static void fm6_sysex(const uint8_t *b, uint32_t n)
         load_begin(t, UNDO_SOUND);
         t->user = t->user_native = 0;                   /* an incoming voice is an unsaved track patch */
         fm6_put_patch((uint32_t)tr, b + 6, 1);           /* a new voice: the notes stop, as in Dexed */
-        fm6_adopt((uint32_t)tr);         /* (fm6_poll: the patch stays the track's own) */
         load_end(t); sync_reload = 1;
         fm6_name(nm, fm6_patch[tr]);
         ui_say("FM6 VOICE ", nm);
@@ -117,7 +116,6 @@ static void fm6_sysex(const uint8_t *b, uint32_t n)
             memcpy(v, fm6_patch[tr], FP_SIZE);
             v[k] = b[5];
             fm6_put_patch((uint32_t)tr, v, 0);
-            fm6_adopt((uint32_t)tr);
         } else if (k == 155u) {
             fm6_on[tr] = b[5] & FM6_ON_ALL;              /* bit 0 OP6 .. bit 5 OP1, as fm6_on */
         }
@@ -181,7 +179,6 @@ static void fm6_init_voice(void)                         /* INIT: the selected t
         return;
     fm6_unpack(FM6_INIT, v);
     fm6_put_patch(song.sel, v, 1);
-    fm6_adopt(song.sel);
     ui_message("INIT VOICE");
 }
 
