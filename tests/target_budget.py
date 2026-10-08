@@ -21,7 +21,7 @@ FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_re
          "dr_bd", "dr_sd", "dr_tom", "dr_rs", "dr_cl", "dr_cp", "dr_ma", "dr_metal", "dr_cb", "dr_cy", "dr_hat", "dr8_run",   # drum_808.c
          "slicer_track",
                                    # SLICE (eng_slice.c): the render, the reverse windows
-         "fm1_alnk0_irq",
+         "fm1_alnk0_irq", "track_render_audio",       # per-track renderer has its own bounded function
          "mod_begin", "mod_voice", "mod_end",                 # the modulation matrix (mod.c), called when active
          "perf_begin", "perf_mute", "perf_pre", "perf_block", "perf_master",   # the FX layer (perform.c), when busy
          "rev_room", "rev_spring"]                # the reverb bus (fx.c): REVERB TYPE ROOM / SPRING

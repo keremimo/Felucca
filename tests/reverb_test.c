@@ -282,7 +282,7 @@ static void test_switch(void)
     char what[200];
     host_tracks_init();
     rev_clear();
-    memset(cho_buf, 0, sizeof cho_buf);
+    chorus_prepare(); memset(cho_buf, 0, CHO_LEN * sizeof(int16_t));
     fx.rtype = 0;
     for (b = 0; b < 4u * FS / CTL; b++) {
         if (b == 2u * FS / CTL)

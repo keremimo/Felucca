@@ -71,6 +71,30 @@ SAMPLE engine has only the generated drum kit.
 
 ## Tests
 
+Audio working memory is allocated on demand from the unused part of POOL. Each
+track reserves only its current engine state; STUT reserves 8 KiB per enabled
+track, while GATE needs no recording buffer. Performance loops reuse the same
+32 KiB capacity as the four stutters. Chorus and reverb retain their tails before
+releasing their delay lines; silent buses skip the delay processing.
+
+Preset browsing keeps names and slot indexes in RAM, with one bank cache for
+general presets, one for FM6 and one shared with the CZ bank reader. Retired FM6
+bank and owned-voice caches are replaced by temporary migration workspace,
+released after conversion. Existing flash and backup formats remain readable.
+
+The build reports both permanent POOL usage and the available working arena,
+and requires at least 112 KiB for simultaneous maximum engine state, recording,
+effects and legacy conversion workspace. The resource tests cover eviction,
+engine transitions, effect tails and resumption, and allocation failure.
+
+USB stem buffers are written only for an active capture stream. Derived tuning
+and mixer gains are cached by their effective parameter values, including
+modulation. Silent tracks skip unused buffer writes and pitch preparation while
+their LFO, bend, engine control state and switch fades keep advancing. The UI
+has a second 15 KiB canvas for small regions, so drawing can overlap an existing
+LCD transfer; large graphs wait before reusing the full canvas. Transition and
+DMA tests check stream resumption, cache invalidation and source-buffer reuse.
+
 ```
 tests/run_tests.sh
 ```

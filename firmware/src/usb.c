@@ -353,6 +353,10 @@ static void e0_send(const uint8_t *p, uint16_t len, uint16_t wlen)
 
 #if MELODEE_USB_AUDIO
 #include "usb_audio.c"
+static int ua_capture_active(void)
+{
+    return usb.up && usb.config && !usb.suspended && ua.cap_alt;
+}
 #endif
 
 static void ep0_service(void)

@@ -692,7 +692,7 @@ static int test_harm(void)
         run(120, 1, ev, 1, 20000);
         for (f = 1; f <= 2048u; f++) {
             uint32_t s = 20000u - f;
-            const int16_t *q = &sl_buf[0][0] + 2u * ((pf.wr - f) & HB_MASK);
+            const int16_t *q = perf_audio + 2u * ((pf.wr - f) & HB_MASK);
             diff += q[0] != (int16_t)(in_l[s] >> 1) || q[1] != (int16_t)(in_r[s] >> 1);
         }
         bad += check("OCT UP, KNOB 4 at 0: no shimmer (the delay holds the input alone)", !diff && !pf.hfb);

@@ -5,7 +5,7 @@
 
 static void reboot_presets(void)
 {
-    memset(up_bank,0,sizeof up_bank);memset(native_fm,0,sizeof native_fm);memset(native_cz,0,sizeof native_cz);upf_empty();cz_bank_boot();up_boot();
+    up_cache_reset();native_cache_reset();upf_empty();cz_bank_boot();up_boot();
 }
 int main(void)
 {

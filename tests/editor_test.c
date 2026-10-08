@@ -75,7 +75,7 @@ static void reset(void)
     pattern_init();
     memset(&ed_w, 0, sizeof ed_w); memset(&ui, 0, sizeof ui);
     memset(&favorites, 0, sizeof favorites); memset(&settings, 0, sizeof settings); settings_init();
-    memset(proj_slot, 0, sizeof proj_slot); memset(up_bank, 0, sizeof up_bank); memset(native_fm,0,sizeof native_fm); memset(native_cz,0,sizeof native_cz); native_pending=0;
+    memset(proj_slot, 0, sizeof proj_slot); up_cache_reset(); native_cache_reset();
     memset(&um, 0, sizeof um);
     host_progress = 1; host_erases = host_writes = host_wire_n = 0;
     transport_req = panic_req = 0; sx_ready = sx_collect = sx_busy = 0;

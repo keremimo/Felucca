@@ -79,8 +79,8 @@ static uint32_t preset_by_name(uint32_t e, const char *n)
 static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails), track 1 = engine e preset pi */
 {
     uint32_t k;
-    memset(cho_buf, 0, sizeof cho_buf);
-    memset(rev_comb, 0, sizeof rev_comb);
+    chorus_prepare(); memset(cho_buf, 0, CHO_LEN * sizeof(int16_t));
+    reverb_prepare(); memset(rev_comb, 0, REV_COMB_LEN * sizeof(int16_t));
     memset(rev_ap, 0, sizeof rev_ap);
     memset(&fx, 0, sizeof fx);
     lim_env = LIM_T;
