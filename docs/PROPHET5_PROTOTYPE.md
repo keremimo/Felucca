@@ -214,10 +214,11 @@ before erase/write. Playback prevents musical flash saves.
 
 The app partition ends at **0x89000**; ten 4-KiB sectors at 0x89000–0x92FFF
 hold the native collection. Linker, package, loader, musical write whitelist
-and cache invalidation agree on this boundary. OTA rejects packages with the
-old larger app partition before staging a loader; the loader independently
-rejects mismatched app extents before app writes. A stock recovery tool using
-an older external loader can still overwrite the new reserved sectors.
+and cache invalidation agree on this boundary. The loader rejects a package whose
+app extents differ from its own before app writes. OTA still accepts official V15
+and earlier Melodee packages (app area to 0x93000), so leaving or downgrading
+works; they overwrite these sectors, whose storage objects then fail their
+checks, and a later Melodee starts again from the factory programs.
 
 Existing collection/object IDs remain fixed. Backup inventories have 28 objects:
 0–22 retain their meanings; 23–27 are native Prophet banks. Older 23-object
