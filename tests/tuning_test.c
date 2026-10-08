@@ -32,7 +32,7 @@ static void pitch_tables(void)
 /* Render a held note through each engine, retaining its real envelopes and pitch controls. */
 static uint32_t oscillator_step(uint32_t eng, uint32_t hz, uint32_t osc)
 {
-    ui_power_on(); tuning_a4 = (int16_t)hz; memset(eng_state, 0, sizeof eng_state);
+    ui_power_on(); tuning_a4 = (int16_t)hz; eng_state_reset();
     track_t *t = TSEL;
     set_engine_of(t, eng); apply_preset_to(t, 0); t->engine = t->eng_req;
     t->p[P_LD_PIT] = t->p[P_ED_PIT] = 0;

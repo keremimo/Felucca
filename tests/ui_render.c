@@ -416,7 +416,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
 #endif
        S_ROLL_EMPTY, S_ROLL_ACID, S_ROLL_CHORDS, S_ROLL_TIES, S_ROLL_LEN32, S_ROLL_HIGH, S_ROLL_LOW, S_ROLL_WIDE, S_ROLL_PLAYING,
        S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_NATIVE_FM_USER, S_NATIVE_CZ_USER,
-       S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_COUNT };
+       S_NOTES_SLIDE, S_NOTES_MIXED, S_NOTES_CHORD, S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_NOTES_REC, S_NOTES_ERASE, S_NOTES_DRUM_REC, S_NOTES_DRUM_ERASE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "user",
     "phrases", "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -434,7 +434,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
 #endif
     "roll_empty", "roll_acid", "roll_chords", "roll_ties", "roll_len32_p2", "roll_high", "roll_low", "roll_wide", "roll_playing",
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
-    "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite"};
+    "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -626,18 +626,25 @@ static void setup(int s)
         chain_config.row[0] = (chain_row_t){0, 2}; chain_config.row[1] = (chain_row_t){1, 4}; chain_config.row[2] = (chain_row_t){2, 1};
         memset(chain_patterns[1], 1, NTRK); memset(chain_patterns[2], 2, NTRK); ui.song_row = 1; go_page(GR_SONG); chain_prepare(); events_block(32);
         break;
+    case S_NOTES_SLIDE:
+    case S_NOTES_MIXED:
+    case S_NOTES_CHORD:
     case S_NOTES_EMPTY:
     case S_NOTES_RAW:
     case S_NOTES_ZOOM:
     case S_NOTES_LOOP:
     case S_NOTES_DRUM:
-    case S_NOTES_DENSE: {
+    case S_NOTES_DENSE:
+    case S_NOTES_REC:
+    case S_NOTES_ERASE:
+    case S_NOTES_DRUM_REC:
+    case S_NOTES_DRUM_ERASE: {
         song.sel=0; song.rec=0; song.playing=0;
         track_t *t=TSEL;
-        if(s==S_NOTES_DRUM){set_engine_of(t,ENGI_DRUM);t->engine=t->eng_req;}
+        if(s==S_NOTES_DRUM||s==S_NOTES_DRUM_REC||s==S_NOTES_DRUM_ERASE){set_engine_of(t,ENGI_DRUM);t->engine=t->eng_req;}
         recording_reset();track_defaults_steps(t);t->p[P_SLEN]=16;t->p[P_SDIV]=2;t->p[P_SSWING]=24;
         for(uint32_t i=0;i<NSTEP;i++)step_clear(&t->step[i]);
-        uint32_t count=s==S_NOTES_EMPTY?0:s==S_NOTES_DENSE?RECORD_MAX:5;
+        uint32_t count=s==S_NOTES_EMPTY||s==S_NOTES_CHORD||s==S_NOTES_SLIDE?0:s==S_NOTES_DENSE?RECORD_MAX:5;
         for(uint32_t i=0;i<count;i++) {
             static const uint16_t on[]={8192,24576,49152,16384,60000};
             static const uint8_t step[]={0,0,64,1,15|64|128}, note[]={60,64,60,67,72};
@@ -649,9 +656,25 @@ static void setup(int s)
         }
         recording_reindex();
         for(uint32_t i=0;i<NSTEP;i++)if(t->step[i].flags&SF_RECORDED)notes_rebuild(t,i);
-        go_page(GR_NOTES);cursor_set(s==S_NOTES_LOOP?15:0);
-        ui.note_zoom=s==S_NOTES_RAW||s==S_NOTES_EMPTY?0:s==S_NOTES_LOOP?2:4;
+        if(s==S_NOTES_MIXED||s==S_NOTES_CHORD||s==S_NOTES_SLIDE) {
+            t->step[4].time=ST_NOTE;t->step[4].n=3;t->step[4].note[0]=60;t->step[4].note[1]=64;t->step[4].note[2]=67;t->step[4].vel=96;
+            step_note_resize(t,4,3);
+        }
+        go_page(GR_ROLL);cursor_set(s==S_NOTES_LOOP?15:s==S_NOTES_CHORD||s==S_NOTES_SLIDE?4:0);
+        if(s==S_NOTES_CHORD)ui.note_slot=1;
+        if(s==S_NOTES_SLIDE){ui.step_mods=1u<<panel.btn[B_ENV];t->step[4].flags|=SF_SLIDE;}
+        ui.note_zoom=s==S_NOTES_RAW||s==S_NOTES_EMPTY||s==S_NOTES_CHORD||s==S_NOTES_MIXED||s==S_NOTES_SLIDE?0:s==S_NOTES_LOOP?2:4;
         notes_selected(t);if(s==S_NOTES_DENSE)ui.note_pick=RECORD_MAX;else if(s==S_NOTES_ZOOM)notes_cycle(2);
+        if(s==S_NOTES_REC||s==S_NOTES_ERASE||s==S_NOTES_DRUM_REC||s==S_NOTES_DRUM_ERASE) {
+            song.playing=1;song.rec=1;t->seq_idx=1;t->seq_pos=600;
+            if(s==S_NOTES_ERASE||s==S_NOTES_DRUM_ERASE) {
+                fm1_in.buttons=1u<<panel.btn[B_EDIT];
+                seq_erase_button=(uint16_t)fm1_in.buttons;
+                seq_erase_generation=t->pattern_gen;
+                seq_erase_request=0x80000000u|((uint32_t)seq_erase_button<<16)|recording_owner(t);
+                ui.step_mods=ui.step_used=seq_erase_button;
+            }
+        }
         break;
     }
     case S_STEP: song.rec = 1; go_page(GR_ROLL); ui.cursor = 6; break;

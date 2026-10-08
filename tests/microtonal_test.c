@@ -119,7 +119,7 @@ static void frequency(void)
             track_t *t = setup(names[s]);
             if (engine == 12) {
                 t->eng_req = t->engine = ENGI_FM6;
-                memset(eng_state, 0, sizeof eng_state); fm6_fn_reset();
+                eng_state_reset(); fm6_fn_reset();
                 uint8_t patch[FP_SIZE + 1]; fm6_unpack(FM6_INIT, patch); fm6_put_patch(0, patch, 1);
                 for (uint32_t j = P_E0; j < P_COUNT; j++) t->p[j] = 0;
             } else {

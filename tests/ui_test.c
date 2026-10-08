@@ -2533,14 +2533,14 @@ static int test_tempo_select(void)
     turn(EN_SELECT, -1);
     bad += check("SELECT on GLO: GLOBAL -> SYSTEM -> GLOBAL (wraps), back the other way; the BPM untouched",
                  ok && str_eq(cur_page()->title, "SYSTEM") && song.g[G_BPM] == 120);
-    go_title("STEP");
+    go_title("NOTES");
     cursor_set(4);
     turn(EN_SELECT, 1);
-    ok = str_eq(cur_page()->title, "NOTES") && ui.cursor == 4u;
+    ok = str_eq(cur_page()->title, "NOTES") && ui.cursor == 5u;
     turn(EN_SELECT, -1);
     turn(EN_K1, 3);
-    bad += check("SELECT on STEP: the pages (NOTES and back), the cursor KNOB 1's (5 -> 8)",
-                 ok && ui.cursor == 7u && str_eq(cur_page()->title, "STEP"));
+    bad += check("SELECT on NOTES stays in the editor; KNOB 1 moves through steps",
+                 ok && ui.cursor == 7u && str_eq(cur_page()->title, "NOTES"));
     go_title("TEMPO");
     turn(EN_K1, 4);
     turn(EN_K2, 10);

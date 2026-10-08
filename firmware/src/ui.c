@@ -4,6 +4,7 @@
  * Flat: SURF cards and panels on the palette's background, no rules, one type family (Inter Tight, three sizes), tracks
  * named by circled numerals. Four columns <-> KNOB 1..4. Rendering is lazy:
  * every element remembers what it last drew and is redrawn only on change. */
+static int live_rec_sel(void);
 static int project_save(uint32_t slot);
 static void fm6_store(uint32_t k);                   /* FM6's STORE page: fm6_store.c */
 static void fm6_send(void);
@@ -84,6 +85,9 @@ static struct {
     uint8_t pat_key, pat_copy, pat_track;          /* SEQ + white-key bank gesture */
     uint8_t cursor;              /* SEQ: step being edited (STEP page KNOB 1 moves it) */
     uint16_t note_pick;          /* NOTES: event index + 1; zero chooses the first hit */
+    uint8_t erase_gesture, erase_owner; /* an EDIT press captures one track/bank until released */
+    uint32_t erase_generation, erase_transport;
+    uint8_t note_slot;           /* individual pitch in a manually entered chord */
     uint8_t note_zoom;           /* 16, 8, 4, 2 or 1 steps across the panel */
     uint8_t note_track;
     uint8_t scale_picker_seen;
@@ -244,6 +248,7 @@ static void page_entered(void)
     song.seq_mode = !ui.home && pg->fam == FAM_SEQ;
     ui.entry_open = 0;
     ui.note_pick = 0;
+    ui.note_slot = 0;
     seq_midi_reset();
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */
@@ -269,7 +274,8 @@ static void step_clear(step_t *st)
  * down / up. KNOB 1 STEP, 2 LANE, 3 HIT, 4 ACC edit the cursor step. A sound load never converts the
  * steps: the grid shows a step's notes on their lanes (eng_drum.c step_lanes) and an edit makes the lane its
  * own (grid_own). Live recording on a DRUM track writes hits (seq.c rec_note) */
-static int grid_on(void) { return !ui.home && !ui.menu && !ui.confirm && cur_page()->graph == GR_ROLL && drum_track(TSEL); }   /* (STEP only: CHANCE is SC_STEP too) */
+static int notes_have_recording(const track_t *t);
+static int grid_on(void) { return !ui.home && !ui.menu && !ui.confirm && cur_page()->graph == GR_ROLL && drum_track(TSEL) && (!notes_have_recording(TSEL) || (song.playing && (song.rec & (1u << song.sel)))); }   /* (STEP only: CHANCE is SC_STEP too) */
 
 /* black key place p (seq.c key_place) held, 0 = not */
 static int black_held(uint32_t p)
@@ -349,6 +355,7 @@ static void cursor_set(int32_t c)
     ui.bank = (uint8_t)(ui.cursor / 16u);
     ui.entry_open = 0;
     ui.note_pick = 0;
+    ui.note_slot = 0;
 }
 
 static void cursor_fix(void)                           /* LEN got shorter: onto the last step */
