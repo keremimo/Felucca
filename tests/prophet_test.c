@@ -64,16 +64,25 @@ static void factory_file(const char *path)
     if(size<=0 || size>16*1024*1024){fclose(fp);failures++;return;}
     uint8_t *b=malloc((size_t)size);if(!b){fclose(fp);failures++;return;}
     int ok=fread(b,1,(size_t)size,fp)==(size_t)size;fclose(fp);
-    uint32_t pos=0,count=0;uint8_t encoded[P5_FRAME_MAX];p5_patch_t p;
+    uint32_t pos=0,count=0,rendered=0,audible=0;int safe=1;uint8_t encoded[P5_FRAME_MAX];p5_patch_t p;
     while(ok && pos<(uint32_t)size){
         uint32_t end=pos;while(end<(uint32_t)size&&b[end]!=0xF7)end++;
         uint32_t n=end-pos+1u;
         ok=end<(uint32_t)size&&p5_patch_decode(&p,b+pos,n)&&p5_patch_encode(&p,encoded,sizeof encoded)==n&&
            !memcmp(b+pos,encoded,n);
+        if(ok){
+            setup();p5_patch[0]=p;p5_ready[0]=1;p5_track_accept(&trk[0]);
+            for(uint32_t j=0;j<3;j++)trk_note_on(&trk[0],48+j*7,100);
+            int32_t peak=0;for(uint32_t j=0;j<FS/CTL;j++){int32_t x=tick();if(x>peak)peak=x;safe &= x<5*VOICE_FS*3;}
+            for(uint32_t j=0;j<3;j++)trk_note_off(&trk[0],48+j*7);for(uint32_t j=0;j<200;j++)tick();
+            rendered++;audible+=peak>16u;if(peak<=16){char name[21];p5_patch_name(name,&p);printf("prophet: slow/quiet factory program %u: %s (peak %d in first second)\n",count+1,name,peak); }
+        }
         pos=end+1u;count++;
     }
     printf("prophet: real bank %s: %u exact frames\n",path,count);
     check("real bank-file byte-for-byte round trip",ok&&count==200u);
+    printf("prophet: native factory playback: %u rendered, %u audible\n",rendered,audible);
+    check("every factory program reaches the native renderer and stays bounded",safe&&rendered==count&&audible>count*9/10);
     free(b);
 }
 static void voice_tests(void)
@@ -93,6 +102,12 @@ static void voice_tests(void)
     tick();tick();check("common REL=0 does not terminate native release",active(t)==1u);
     for(uint32_t k=0;k<FS*8/CTL;k++)tick();
     check("native amp envelope frees the released voice",active(t)==0u);
+    for(uint32_t mode=0;mode<2;mode++){
+        setup();p=p5_patch_of(&trk[0]);p->raw[P5_LEVEL_A]=p->raw[P5_LEVEL_B]=p->raw[P5_NOISE]=0;
+        p->raw[P5_RESONANCE]=120;p->raw[P5_CUTOFF]=60;p->raw[P5_FILTER_REV]=(uint8_t)mode;
+        trk_note_on(&trk[0],60,100);int32_t peak=0;for(uint32_t k=0;k<FS/CTL;k++){int32_t x=tick();if(x>peak)peak=x;}
+        check("native self-oscillation starts with no oscillator or mixer noise",peak>100);
+    }
     setup();p=p5_patch_of(&trk[0]);p->raw[P5_VEL_AMP]=0;trk_note_on(&trk[0],60,30);
     int32_t lo=0;for(uint32_t k=0;k<100;k++){int32_t a=tick();if(a>lo)lo=a;}
     setup();trk_note_on(&trk[0],60,127);
@@ -179,6 +194,15 @@ static void demos(void)
 }
 int main(int argc,char **argv)
 {
+    int sat_ok=1;int32_t previous=-1;
+    for(int32_t x=0;x<=131072;x++){
+        int32_t actual=p5_fast_softclip(x),expected=(int32_t)(32767*tanh((double)(x>65536?65536:x)/32768));
+        sat_ok &= actual>=previous && abs(actual-expected)<=17 && p5_fast_softclip(-x)==-actual;
+        previous=actual;
+    }
+    check("fast saturation stays odd, monotonic and within 17 Q15 units of tanh",sat_ok);
+    int fraction_ok=1;uint32_t seed=43;for(uint32_t k=0;k<10000;k++){seed=seed*1664525u+1013904223u;uint32_t inc=(seed>>1)+1u;uint32_t distance=seed%inc;uint32_t exact=(uint32_t)(((uint64_t)distance<<15)/inc),fast=p5_sync_fraction(distance,inc);fraction_ok &= fast>=exact&&fast-exact<=1u;}
+    check("32-bit hard-sync fraction stays within one Q15 unit of exact division",fraction_ok);
     native_tests();for(int k=1;k<argc;k++)factory_file(argv[k]);
     voice_tests();filter_tests();demos();
     printf("prophet: %d failure(s); patch %zu B, state %zu B per track\n",failures,sizeof(p5_patch_t),sizeof(p5_part_t));

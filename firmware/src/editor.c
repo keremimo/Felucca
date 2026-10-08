@@ -277,6 +277,7 @@ static int ed_flash_stop(void)
 #include "editor_fm6.c"
 #include "editor_cz.c"
 #include "editor_native.c"
+#include "editor_prophet.c"
 
 static void ed_motion_reply(uint32_t k, uint32_t rc)
 {
@@ -332,37 +333,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (!ed_args_ok(cmd, a, na))
         return;
     ed_begin(cmd);
-#if MELODEE_PROPHET_PROTOTYPE
-    /* Temporary command 95, available only in measurement firmware.
-     * [0,track] reads the exact native frame body; [1,track,body..] imports
-     * one program/edit-buffer frame without touching flash. */
-    if (cmd == 95u) {
-        uint32_t rc = na < 2u || a[0] > 1u || a[1] >= NPART ? 1u : 0u;
-        p5_patch_t patch;
-        uint8_t frame[P5_FRAME_MAX];
-        uint32_t len = 0, part = na >= 2u ? a[1] : 0u;
-        if (!rc && a[0] == 1u) {
-            len = na - 2u;
-            if (len > P5_FRAME_MAX - 2u) rc = 1;
-            else {
-                frame[0] = 0xF0; memcpy(frame+1,a+2,len); frame[len+1u]=0xF7;
-                if (!p5_patch_decode(&patch,frame,len+2u)) rc=1;
-                else {
-                    uint32_t flags=irq_save();
-                    for (uint32_t v=0;v<NVOICE;v++) if (trk[part].v[v].active) rc=2;
-                    if (!rc) { p5_patch[part]=patch; p5_ready[part]=1; }
-                    irq_restore(flags);
-                }
-            }
-        } else if (!rc) {
-            if (na != 2u) rc=1;
-            else len=p5_patch_encode(p5_patch_of(&trk[part]),frame,sizeof frame);
-        }
-        ed_b(1); ed_b(rc); ed_b(part);
-        if (!rc && a[0]==0u) for (uint32_t j=1;j+1u<len;j++) ed_b(frame[j]);
-        ed_send(); return;
-    }
-#endif
+    if(ed_prophet_handle(cmd,a,na)){ed_send();return;}
+
     if (ed_ui_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }
@@ -445,6 +417,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(0x50); ed_b(1); ed_b(NPAT); ed_b(CHAIN_ROWS);     /* bank controls: 73/74 */
         ed_b(0x46); ed_b(1); ed_b(FM6_NFAC); ed_b(0);   /* FM6 patches: cmds 68..71 */
         ed_b(0x43); ed_b(1); ed_b(CZ_BYTES & 127u); ed_b(CZ_BYTES >> 7); ed_b(0); ed_b(0); /* old CZ bank controls retired */
+        ed_b(0x35);ed_b(1);ed_b(ENGI_PROPHET);ed_b(USER_GENERAL);ed_b(USER_NATIVE_FM);ed_b(USER_NATIVE_CZ);ed_b(USER_NATIVE_P5);ed_b(0);ed_b(1); /* Prophet/native stable namespaces */
         ed_b(0x4e); ed_b(1); ed_b(NATIVE_FM_SLOTS); ed_b(0); ed_b(NATIVE_CZ_SLOTS&127u); ed_b(NATIVE_CZ_SLOTS>>7); /* native user pools, command 78 */
         break;
     case ED_GET:
@@ -833,7 +806,9 @@ static void ed_service(void)
     const uint8_t *p;
     uint32_t n;
     ed_sync();                                             /* v2 pushes (while watched) */
-    if (!ota_frame_get(&p, &n) || n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
+    if(!ota_frame_get(&p,&n))return;
+    if(p5_native_frame(p,n)){ota_frame_done();return;}
+    if (n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
         return;
     ed_w.last_ms = fm1_ms;                                 /* any request keeps WATCH alive */
     if (p[3] >= ED_SMP_BEGIN) {                            /* large frames: handled in place, then freed */

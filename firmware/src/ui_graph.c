@@ -1015,7 +1015,7 @@ static uint32_t graph_signature(void)
 /* 4-letter engine tags of the preset list */
 static const char *eng_abbr(const char *name)
 {
-    static const char *const A[][2] = {{"ANALOG", "ANLG"},
+    static const char *const A[][2] = {{"ANALOG", "ANLG"}, {"PROPHET", "P5"},
 #if MELODEE_FM4
                                        {"DIGITAL", "DGTL"},
 #endif
@@ -1113,11 +1113,11 @@ static void graph_browse(void)
         int32_t hint = sel ? preset_pat_hint() : -1;    /* the suggested pattern */
         if (index >= total) continue;
         e = preset_at(index, &k);
-        if(e==USER_NATIVE_FM || e==USER_NATIVE_CZ){
-            uint32_t eng=e==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ;
-            tag[0]=eng==ENGI_FM6?'F':'Z';tag[1]=(char)('0'+(k+1u)/100u);tag[2]=(char)('0'+(k+1u)/10u%10u);tag[3]=(char)('0'+(k+1u)%10u);tag[4]=0;
+        if(e==USER_NATIVE_P5 || e==USER_NATIVE_FM || e==USER_NATIVE_CZ){
+            uint32_t eng=e==USER_NATIVE_P5?ENGI_PROPHET:e==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ;
+            tag[0]=eng==ENGI_PROPHET?'P':eng==ENGI_FM6?'F':'Z';tag[1]=(char)('0'+(k+1u)/100u);tag[2]=(char)('0'+(k+1u)/10u%10u);tag[3]=(char)('0'+(k+1u)%10u);tag[4]=0;
             native_name(eng,k,nm);
-        } else if (e == NENGINES) {                             /* user preset: "U07" and its name */
+        } else if (e == USER_GENERAL) {                             /* user preset: "U07" and its name */
             up_slot_label(tag, k);
             up_name(k, nm);
         } else {
@@ -1137,6 +1137,10 @@ static void graph_browse(void)
 }
 /* the EDIT layer (ui_layer.c): the sound loaded, as the browser's selected row: "03" (its place in KNOB 2's list,
  * the engine's sounds) or "U07", the name, the star of a favourite */
+static void p5_short_name(const track_t *t,char *out,uint32_t size)
+{
+    char full[P5_NAME_LEN+1u];p5_patch_name(full,p5_patch_of((track_t *)t));str_cpy(out,full,size);
+}
 static void engine_sound_row(int32_t y)
 {
     const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
@@ -1153,6 +1157,7 @@ static void engine_sound_row(int32_t y)
         tag[2] = 0;
         str_cpy(nm, e->npresets ? e->presets[TSEL->preset % e->npresets].name : "", sizeof nm);
     }
+    if(TSEL->eng_req==ENGI_PROPHET)p5_short_name(TSEL,nm,sizeof nm);
     list_row(y, 1, tag, T_DIM, nm, T_TEXT, fav ? 212 : 232);
     if (fav)
         cv_icon_on(214, y + 2, 12, ICON_X_STAR, T_INK, T_THEME);
@@ -1288,7 +1293,8 @@ static void trk_short_name(uint32_t c, char *b)      /* the track's sound, b hol
 {
     const track_t *t = &trk[c];
     const engine_t *e = ENGINES[t->eng_req % NENGINES];
-    if(user_of(t)<USER_NONE && t->user_native)native_name(t->eng_req,user_of(t),b);
+    if(t->eng_req==ENGI_PROPHET)p5_short_name(t,b,13);
+    else if(user_of(t)<USER_NONE && t->user_native)native_name(t->eng_req,user_of(t),b);
     else if (user_of(t) < UP_SLOTS)up_name(user_of(t), b);
     else if (e->npresets)
         str_cpy(b, e->presets[t->preset % e->npresets].name, 13);

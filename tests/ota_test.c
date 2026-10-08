@@ -178,6 +178,14 @@ int main(int argc, char **argv)
                      ota_msg[2] == 0x11 && !memcmp(ota_msg + 6, MELODEE_ID, sizeof MELODEE_ID - 1));
     }
 
+    {   /* A valid UFW entry with the old 0x93000 flash partition. */
+        uint8_t saved[0x400];memcpy(saved,logical,sizeof saved);uint8_t *h=logical;
+        uint8_t header[64];memcpy(header,h,64);ota_jl_enc(header,64);uint32_t count=ota_rd16(header+8);
+        for(uint32_t k=0;k<count;k++){uint8_t *e=h+0x40+k*0x50u;ota_jl_enc(e,0x50);if(ota_rd16(e)==0)ota_wr32(e+12,0x93000u);ota_jl_enc(e,0x50);}
+        ota_wr16(header+2,ota_crc16(h+0x40,count*0x50u,0));ota_wr16(header,ota_crc16(header+2,62,0));ota_jl_enc(header,64);memcpy(h,header,64);
+        reset_dev();rc=ota_session();bad+=check("old larger partition refused before staging a different loader",rc==-3&&!committed&&area_erased());
+        memcpy(logical,saved,sizeof saved);
+    }
     /* full session */
     reset_dev();
     rc = ota_session();

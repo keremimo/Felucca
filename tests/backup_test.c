@@ -215,6 +215,22 @@ static int native_archive(void)
     ok &= native_used(ENGI_CZ,127) && !memcmp(native_raw(ENGI_CZ,127),cz,sizeof cz);
     return check("all four native FM6 objects and Z128 restore exactly after reboot",ok);
 }
+static int prophet_archive(void)
+{
+    reset();up_boot();int bad=0,ok=1;static p5_bank_t saved[5],readback;p5_patch_t patch;
+    p5_patch_init(&patch);patch.raw[97]=255;patch.raw[98]=255;
+    for(uint32_t b=0;b<5;b++){uint32_t slot=b==4?127:b*26;patch.raw[84]=(uint8_t)('A'+b);ok &= !native_put(ENGI_PROPHET,slot,(const uint8_t *)&patch);ok &= favorite_set(USER_NATIVE_P5,slot,1);saved[b]=*p5_user_bank(b);}
+    for(uint32_t b=0;b<5;b++){uint32_t len;const uint8_t *raw=ed_bk_object(23+b,&len);ok &= len==sizeof readback&&!memcmp(raw,&saved[b],len);ok &= !put_all(23+b,0,0,0);ok &= !put_all(23+b,&saved[b],sizeof readback,st_crc32(&saved[b],sizeof readback));}
+    native_cache_reset();for(uint32_t b=0;b<5;b++)ok &= !memcmp(p5_user_bank(b),&saved[b],sizeof readback);
+    bad+=check("all five Prophet backup objects restore patches, names, metadata and stars exactly",ok);
+    uint32_t before=erases;readback=saved[4];readback.used|=1u<<24;
+    bad+=check("out-of-range Prophet slot masks are rejected before an erase",put_all(27,&readback,sizeof readback,st_crc32(&readback,sizeof readback))==2&&erases==before);
+    readback=saved[4];readback.patch[23].model=99;
+    bad+=check("invalid Prophet wire metadata is rejected before an erase",put_all(27,&readback,sizeof readback,st_crc32(&readback,sizeof readback))==2&&erases==before);
+    readback=saved[4];erase_error=1;
+    bad+=check("failed Prophet backup commit keeps the previous cached and flash bank",put_all(27,&readback,sizeof readback,st_crc32(&readback,sizeof readback))==4&&!memcmp(p5_user_bank(4),&saved[4],sizeof readback));erase_error=0;
+    return bad;
+}
 static int expanded_recording_archive(void)
 {
     reset();
@@ -250,8 +266,8 @@ int main(void)
 
     reset();
     trk[0].step[0] = (step_t){{60}, 1, ST_NOTE, 0, 96, 0, 0};
-    bad += check("LIST captures runtime and all 23 archive objects with CRC",
-                 list(0, &len, &crc) == 0 && rep[2] == 23u && len == BANK_STORE_SIZE &&
+    bad += check("LIST captures runtime and all 28 archive objects with CRC",
+                 list(0, &len, &crc) == 0 && rep[2] == 28u && len == BANK_STORE_SIZE &&
                  crc == st_crc32(ED_BK_RAW, len));
     bad += check("an empty project slot lists as length 0", list(2, &len, &crc) == 0 && len == 0);
     bad += check("GET of the runtime copy", get(0, 0, 64) == 0);
@@ -460,6 +476,7 @@ int main(void)
                      list(9, &len, &crc) == 0 && len == sizeof(cz_bank_t));
     }
     bad += native_archive();
+    bad += prophet_archive();
     bad += full_pattern_archive();
     printf("backup test %s\n", bad ? "FAILED" : "passed");
     return (bad + expanded_bad) != 0;

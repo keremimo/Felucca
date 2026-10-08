@@ -141,10 +141,27 @@ static void dma(void)
     expected = host_us * 256u / (HALF_FRAMES * 1000000u / FS);
     check("steady CPU load converges without integer smoothing bias", song.cpu_q8 >= expected - 1u && song.cpu_q8 <= expected);
 }
+static void bench_output(void)
+{
+    int32_t out[CTL * 2]; uint32_t nonzero = 0;
+    fresh(); song.master_q12 = 2048;
+    trk_note_on(&trk[0], 60, 110);
+    uint32_t phase = trk[0].v[0].ph[0];
+    for (uint32_t block = 0; block < 8u; block++) {
+        audio_block(out, CTL);
+        for (uint32_t i = 0; i < CTL * 2u; i++) nonzero |= out[i] != 0;
+    }
+    check("output test still advances the active synth", trk[0].v[0].active && trk[0].v[0].ph[0] != phase);
+#if defined(MELODEE_BENCH_SILENT) && MELODEE_BENCH_SILENT
+    check("silent bench build zeros only the physical output", !nonzero);
+#else
+    check("normal build retains audible physical output", nonzero);
+#endif
+}
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
-    overload(); dma();
+    overload(); dma(); bench_output();
     printf(bad ? "audio: %d FAILED\n" : "audio: all passed\n", bad);
     return bad != 0;
 }

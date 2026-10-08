@@ -23,7 +23,7 @@
  *   ldr_progress(done, total)
  * plus the ota.c hooks (frames, time, idle). */
 #define LDR_APP_LO 0x4000u
-#define LDR_APP_HI 0x93000u
+#define LDR_APP_HI 0x89000u
 #define LDR_REC_LO 0x93000u                     /* update records live above the app ... */
 #define LDR_REC_HI 0xFC000u                     /* ... and below Melodee's globals */
 
@@ -85,7 +85,7 @@ static int ldr_session(void)
     /* 1. UFW header + entry list (ota.c) */
     if ((rc = ota_ufw(hdr, &fl_off, &fl_size, &ota_off, &ota_len)) != 0)
         return rc;
-    if (!fl_off || fl_size < LDR_APP_HI)
+    if (!fl_off || fl_size != LDR_APP_HI)
         return -3;
     /* 2. the package's app area must decrypt with this chip's key */
     if ((rc = ldr_chip_key(&key)) != 0)

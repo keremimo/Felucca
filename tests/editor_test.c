@@ -114,14 +114,14 @@ static int preferences(void)
     uint32_t n = request(ED_INFO, a, 0);
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
-        host_wire[n - 32] == 0 && host_wire[n - 31] == 0x55 &&
-        host_wire[n - 30] == 1 && host_wire[n - 29] == 9 &&
-        host_wire[n - 28] == 0x4d && host_wire[n - 27] == 1 &&
-        host_wire[n - 26] == MOTION_MAX && host_wire[n - 25] == 1 &&
-        host_wire[n - 24] == 0x42 && host_wire[n - 23] == 1 && host_wire[n - 22] == 3 &&
-        host_wire[n - 21] == 0x50 && host_wire[n - 20] == 1 && host_wire[n - 19] == NPAT && host_wire[n - 18] == CHAIN_ROWS &&
-        host_wire[n - 17] == 0x46 && host_wire[n - 16] == 1 && host_wire[n - 15] == FM6_NFAC &&
-        host_wire[n - 14] == 0 && host_wire[n - 13]==0x43 && host_wire[n - 12]==1 && host_wire[n - 11]==16 && host_wire[n - 10]==1 && host_wire[n - 9]==0 && host_wire[n - 8]==0 && host_wire[n-7]==0x4e && host_wire[n-6]==1 && host_wire[n-5]==64 && host_wire[n-4]==0 && host_wire[n-3]==0 && host_wire[n-2]==1);
+        host_wire[n - 41] == 0 && host_wire[n - 40] == 0x55 &&
+        host_wire[n - 39] == 1 && host_wire[n - 38] == 9 &&
+        host_wire[n - 37] == 0x4d && host_wire[n - 36] == 1 &&
+        host_wire[n - 35] == MOTION_MAX && host_wire[n - 34] == 1 &&
+        host_wire[n - 33] == 0x42 && host_wire[n - 32] == 1 && host_wire[n - 31] == 3 &&
+        host_wire[n - 30] == 0x50 && host_wire[n - 29] == 1 && host_wire[n - 28] == NPAT && host_wire[n - 27] == CHAIN_ROWS &&
+        host_wire[n - 26] == 0x46 && host_wire[n - 25] == 1 && host_wire[n - 24] == FM6_NFAC &&
+        host_wire[n - 23] == 0 && host_wire[n - 22]==0x43 && host_wire[n - 21]==1 && host_wire[n - 20]==16 && host_wire[n - 19]==1 && host_wire[n - 18]==0 && host_wire[n - 17]==0 && host_wire[n-16]==0x35 && host_wire[n-15]==1 && host_wire[n-14]==19 && host_wire[n-13]==16 && host_wire[n-12]==17 && host_wire[n-11]==18 && host_wire[n-10]==20 && host_wire[n-9]==0 && host_wire[n-8]==1 && host_wire[n-7]==0x4e && host_wire[n-6]==1 && host_wire[n-5]==64 && host_wire[n-4]==0 && host_wire[n-3]==0 && host_wire[n-2]==1);
     request(ED_UI_SET, a, 2);
     bad += check("UI_SET updates the actual palette and reports RAM-only saving",
         host_wire[5] == 3 && settings.palette == 7 && T_BG == UI_PALETTES[7].bg);
@@ -137,10 +137,10 @@ static int preferences(void)
     bad += check("FAV_SET marks DRUM as a normal engine", host_wire[5] == 3 && favorite_has(ENGI_DRUM, 0));
     request(ED_FAV_GET, a, 4);
     bad += check("FAV_GET reads the bounded favorite range", host_wire[5] == 0 && host_wire[10] == 1);
-    a[0] = NENGINES; a[1] = 31; request(ED_FAV_SET, a, 4);
-    bad += check("empty user slot cannot be starred", host_wire[5] == 1 && !favorite_has(NENGINES, 31));
+    a[0] = USER_GENERAL; a[1] = 31; request(ED_FAV_SET, a, 4);
+    bad += check("empty user slot cannot be starred", host_wire[5] == 1 && !favorite_has(USER_GENERAL, 31));
     up_store(31, "Saved"); request(ED_FAV_SET, a, 4);
-    bad += check("saved user slot can be starred without changing its sound", host_wire[5] == 3 && favorite_has(NENGINES, 31));
+    bad += check("saved user slot can be starred without changing its sound", host_wire[5] == 3 && favorite_has(USER_GENERAL, 31));
     a[1] = UP_SLOTS - 1; a[3] = 32; request(ED_FAV_GET, a, 4);
     bad += check("favorite range cannot cross the end of user slots", host_wire[5] == 1);
     request(ED_FAV_SET, a, 3);
@@ -153,7 +153,7 @@ static int preferences(void)
         up_store(63, "UPPER FAVORITE");
         uint32_t nstate = request(ED_UI_STATE, a, 0);
         memcpy(before_state, host_wire, nstate);
-        favorite_set(NENGINES, 63, !favorite_has(NENGINES, 63));
+        favorite_set(USER_GENERAL, 63, !favorite_has(USER_GENERAL, 63));
         request(ED_UI_STATE, a, 0);
         bad += check("upper-slot favorites change the editor synchronization signature", memcmp(before_state, host_wire, nstate) != 0);
     }
@@ -500,7 +500,7 @@ static int cz_dedicated_banks(void)
     cz_bank_t keep=*cz_bank_load(7);bank=keep;bank.tone[0].raw[0]=255;
     memcpy(ED_BK_RAW,&bank,sizeof bank);ed_bk_id=16;ed_bk_len=ed_bk_pos=sizeof bank;ed_bk_crc=st_crc32(&bank,sizeof bank);
     bad+=check("invalid native bank rejected before replacing saved tones",ed_bk_commit()==2 && !memcmp(cz_bank_load(7),&keep,sizeof keep));
-    request(ED_BACKUP_LIST,a,0);bad+=check("full backups include all eight CZ user banks",host_wire[7]==23);
+    request(ED_BACKUP_LIST,a,0);bad+=check("full backups include all eight CZ user banks",host_wire[7]==28);
     return bad;
 }
 static int native_protocol(void)
@@ -583,10 +583,28 @@ static int scale_catalogue(void)
     }
     return check("SCL DESC carries every legacy and microtonal name in one complete frame", good && at == n - 1);
 }
+static int prophet_protocol(void)
+{
+    reset();int bad=0;p5_patch_t patch,copy;uint8_t frame[P5_FRAME_MAX],args[P5_FRAME_MAX];
+    p5_patch_init(&patch);patch.raw[97]=patch.raw[98]=255;memcpy(patch.raw+P5_NAME,"FULL PROPHET NAME XY!",20);
+    uint32_t size=p5_patch_encode(&patch,frame,sizeof frame);args[0]=1;args[1]=2;memcpy(args+2,frame+1,size-2);
+    request(95,args,size);
+    bad+=check("Prophet PUT loads a selected track with every opaque byte intact",host_wire[6]==0&&trk[2].eng_req==19&&!memcmp(p5_patch_of(&trk[2]),&patch,sizeof patch));
+    args[0]=0;request(95,args,2);frame[0]=240;memcpy(frame+1,host_wire+8,host_wire_n-9);frame[host_wire_n-8]=247;
+    bad+=check("Prophet GET re-encodes a complete reusable native SysEx frame",p5_patch_decode(&copy,frame,host_wire_n-7)&&!memcmp(&copy,&patch,sizeof patch));
+    args[0]=2;args[2]=P5_CUTOFF;args[3]=120;request(95,args,4);
+    bad+=check("native field edit touches only its documented offset",host_wire[6]==0&&(patch.raw[P5_CUTOFF]=120,!memcmp(p5_patch_of(&trk[2]),&patch,sizeof patch)));
+    args[3]=121;request(95,args,4);bad+=check("out-of-range native field edit leaves the full patch unchanged",host_wire[6]==1&&!memcmp(p5_patch_of(&trk[2]),&patch,sizeof patch));
+    args[0]=3;memcpy(args+2,"TWENTY CHARACTERS XYZ",20);request(95,args,22);memcpy(patch.raw+P5_NAME,args+2,20);
+    bad+=check("native rename keeps all twenty name bytes",!host_wire[6]&&!memcmp(p5_patch_of(&trk[2]),&patch,sizeof patch));
+    args[0]=1;memcpy(args+2,frame+1,size-2);args[2]=2;request(95,args,size);
+    bad+=check("foreign native SysEx is rejected without changing the track",host_wire[6]==1&&!memcmp(p5_patch_of(&trk[2]),&patch,sizeof patch));
+    return bad;
+}
 #ifndef EDITOR_TEST_NO_MAIN
 int main(void)
 {
-    int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
+    int bad = prophet_protocol() + bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
               native_protocol() + fm6_patches() + user_preset_roundtrip() + cz_native_protocol() + cz_dedicated_banks() + cz_legacy_saved_sounds() + cz_casio_sysex() + concert_pitch() + scale_catalogue();
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;

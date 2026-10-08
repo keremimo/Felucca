@@ -550,6 +550,11 @@ static int32_t env_tick(track_t *t, voice_t *v)
 /* render one block of a part into out (cleared here); returns the voices rendered */
 /* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
 static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
+static __attribute__((noinline)) void p5_update_bend(track_t *t)
+{
+    uint32_t ti=(uint32_t)(t-trk);int32_t range=(clamp(p5_patch_of(t)->raw[P5_BEND],0,11)+1)*256;
+    midi_bend_target[ti]=t->bend_raw*range/(t->bend_raw<0?8192:8191);
+}
 static struct { int16_t cents; uint8_t valid; int32_t pitch, fine; } tune_cache;
 static __attribute__((noinline)) void tune_cache_update(void)
 {
@@ -652,6 +657,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
         if (e == &ENG_PHASE || e == &ENG_CZ)                            /* native DCA remains the matrix's ENV source */
             m.envq15 = phase_env_source(t, v);
+        if(e==&ENG_P5_TEST)m.envq15=p5_env_source(t,v);
         if (mod.on)                                     /* the modulation matrix (mod.c) */
             mod_voice(t, v, &m, m.fine);
         /* 1/16 st and 1/4096 -> Q24 octaves: the voice's own offset (the matrix's pitch too), without TUNE and bend */

@@ -1,264 +1,235 @@
-# Prophet-5 Rev-4 prototype and capacity audit
+# Prophet-5 Rev-4 playable prototype
 
-Work based on `next` at `df03d93`, measured on the connected FM-1 on 2026-10-08.
-This is a measurement prototype, not a finished Prophet engine or a release.
+Work on `codex/prophet5-prototype`, based on local `next` at `2688403`.
+The playable engine, native patch storage and editor are implemented. This is
+an engineering prototype; reference calibration and human listening/control
+approval remain release gates. Nothing here establishes calibrated Rev-4 fidelity.
 
-## Current scope
+## Engine and performance
 
-`MELODEE_PROPHET_PROTOTYPE=1` substitutes P5TEST for engine 0 **only in test
-firmware**. Musical flash erases and writes are refused in that build. The
-normal firmware retains ANALOG at ID 0. Prophet needs a new persistent ID
-after the performance gate and the collection/favourite namespace work.
+PROPHET has persistent engine ID **19** and replaces ANALOG in the new-sound
+browser. ID 0 still renders legacy ANALOG projects and presets. Retired TRIO,
+WHEEL and PHYS IDs 6, 7 and 9 remain reserved and preserve saved data; they do
+not render audio. IDs 16–18 are reserved. Engine count is 20. General, FM6 and
+CZ favorites retain frozen collection IDs 16, 17 and 18; Prophet users use 20.
+The web selector identifies a currently loaded hidden engine as legacy.
 
-Implemented for measurement: native single-program/edit-buffer frame decoding
-and exact encoding, five local voices within the existing shared budget,
-independent oscillators and simultaneous waves, B triangle/low-frequency/key
-tracking, noise, band-limited waveforms with fractional sync correction,
-separate amp/filter ADSRs, velocity switches, audio-rate Poly-Mod to A frequency,
-A pulse width and filter, provisional Vintage mismatch, and two separate
-four-pole filter character models with saturation and self-oscillation.
+Each Prophet part has five local voices. Each costs three units of the existing
+sixteen-unit shared budget: five Prophet voices cost fifteen. Adding one
+ordinary voice on each other track leaves three Prophet plus three ordinary
+voices, costing fifteen units. Two allocation steals are expected in that mix.
+Overload shedding is separately counted and is a failed performance gate.
+This does not provide five simultaneous voices on all four Prophet tracks.
 
-The filters are engineering approximations. Cutoff, resonance, envelope and
-oscillator ranges have not been calibrated to a real Rev-4. Native wheel/noise
-mix, aftertouch, full native LFO range/behaviour, glide, unison and bend behaviour
-are not complete. These settings remain intact in the raw patch. The existing
-Melodee envelope-ownership path is used; the common voice renderer is unchanged.
+Implemented DSP:
 
-The measured hot path uses the existing RAMTEXT region and local coefficient
-and saturation tables. Startup already copies these sections. An indirect
-call crosses the device's XIP/RAM branch-distance limit. `P5_OVERSAMPLE=1` is
-the default measurement configuration; `P5_OVERSAMPLE=2` remains available to
-compare cost and aliasing. No claim of acceptable aliasing or musical fidelity
-follows from the timing or stability tests.
+- Independent A/B tuning, levels and pulse widths, simultaneous waveforms,
+  B triangle, low-frequency and keyboard-tracking switches, mixer noise,
+  band-limited saw/pulse generation and fractional hard-sync correction.
+- Separate native filter/amplifier ADSRs, velocity switches and envelope
+  ownership; the common amp ADSR does not shape Prophet a second time.
+  Native filter self-oscillation starts with the oscillator mixer closed.
+- Distinct four-pole SSI and Curtis character models, resonance, saturation,
+  keyboard tracking and native filter-envelope modulation. SSI uses distributed
+  stage saturation; Curtis uses concentrated saturation and different gain loss.
+- Audio-rate Poly-Mod from B plus filter envelope to A frequency, A pulse width
+  and cutoff. Frequency modulation is bounded, without through-zero reversal.
+- Shared audio-rate wheel modulation per part, combined native LFO waveforms,
+  0.022–500 Hz rate, initial depth, noise blend and all native destinations.
+- Per-note Vintage tuning/filter/envelope/amplifier mismatch, native glide,
+  unison count/detune, priority/retrigger, release switch, sustain, channel
+  aftertouch and one-to-twelve-semitone native pitch bend.
 
-## Native wire evidence
+Native knob values are interpreted on their documented 0–120 scale, except
+Fine B, Poly-Mod envelope and Vintage (0–127). Imported out-of-panel values
+remain byte-exact; DSP clamps them. Rev-10 unison counts above five are preserved
+but play at the five-voice cap. Frequency anchors, envelopes, modulation depths
+and both filters still need calibration against reference recordings/hardware.
+Default synthesis uses **1x** sampling. Experimental `P5_OVERSAMPLE=2` remains
+available and has host stability coverage; its earlier device costs exceeded
+budget. Strong sync/audio-rate modulation can alias. Band limiting alone does
+not establish acceptable aliasing or reference fidelity.
+
+The sample path and coefficient/saturation tables live in the existing RAM
+DSP sections. The saturation lookup has less than 18 Q15 units of absolute
+error against the intended tanh knee; host tests check odd symmetry,
+monotonicity, endpoints and stability. The common renderer's structural cost
+check passes. Hardware timing, rather than host speed, decides capacity.
+
+## Device and web editing
+
+Sixteen device pages cover STORE, OSC A/B, B waves, mixer, filter, both ADSRs,
+velocity/envelope modulation, Poly-Mod, LFO/wheel and performance settings.
+STORE offers 128 slots, naming up to twenty characters, native USB dump and
+INIT. Store requires the normal stopped-transport/overwrite workflow.
+
+The matching web panel edits the known native fields and name, reads/sends
+complete patches, imports single dumps or whole `.syx` libraries, and exports
+patches/libraries with original wire layout and opaque bytes. Both official
+200-program banks remain browsable after import. The separate 128-slot native
+user collection supports list/load/store/rename/delete, favorites and native
+collection import/export. Larger libraries are not silently truncated into
+those 128 slots. Complete sound JSON exports/auditions retain the native patch.
+
+Native loads initialize native voice/performance behavior and reset eight
+common engine macros. They retain Melodee effects, modulation matrix, scales,
+chords and sequence. Common CUT/RES, A/B tuning, A/B width and A/B mixer macros
+act as offsets; matrix PITCH/CUT/SHP/AMP are supported. Matrix ENV follows the
+native amplifier envelope. Common ENV destination controls are inactive because
+Prophet owns both envelopes. Native bend overrides common RPN bend range.
+Melodee VOICE/PRIORITY/DETUNE may subsequently override allocator settings.
+
+## SysEx evidence and encoding
 
 Sources: [Sequential specifications](https://sequential.com/classics-reissued/prophet-5-10/),
 [MIDI implementation 1.4](https://sequential.com/wp-content/uploads/2021/03/Prophet-5-MIDI-Implementation-1.4.pdf),
-[official factory downloads](https://sequential.com/support/download/prophet-5-10-sounds/).
-The official v1.03 archive tested was
-[Prophet-510-Factory-Programs-ReadMe1.03.zip](https://sequential.com/wp-content/uploads/2025/03/Prophet-510-Factory-Programs-ReadMe1.03.zip).
-Factory data is downloaded into ignored build storage, not distributed with the source.
+[official sounds](https://sequential.com/support/download/prophet-5-10-sounds/) and
+[v1.03 archive](https://sequential.com/wp-content/uploads/2025/03/Prophet-510-Factory-Programs-ReadMe1.03.zip).
+Downloaded factory data stays in ignored build storage and is not redistributed.
 
-Both official `.syx` banks contain 200 single-program frames, 159 bytes each.
-Each uses manufacturer 01, model **32**, command 02, group/program, then 152
-packed bytes representing **133 raw bytes**. The guide instead describes
-model 31 and 128 raw bytes; 128 bytes pack to 147, not 152. The codec therefore
-accepts both explicit lengths and model IDs, preserving the original length,
-model, command, address and every opaque byte on export. It rejects ambiguous
-lengths, invalid addresses, embedded MIDI status bytes and invalid final masks.
+Both banks have 200 single-program frames, 159 bytes each: manufacturer 01,
+model **32**, command 02, group/program, and 152 packed bytes for **133 raw bytes**.
+The guide describes model 31 and 128 raw bytes (147 packed bytes). Both explicit
+models/layouts are accepted. The 138-byte native record contains 133 raw bytes
+plus original size/model/command/group/program. Program/edit dumps preserve
+original metadata and every unused byte, including factory FF at raw 97/98.
+Name bytes are 65–84. A panel edit changes only its field. Export reproduces
+original frames exactly unless the user edits the patch.
 
-Raw name bytes are 65–84. The real files include FF bytes at offsets 97 and 98,
-so clearing unknown fields or treating the patch as seven-bit data loses information.
-The codec tests re-encode every frame byte for byte in both official banks.
-Edit-buffer tests are synthetic frames derived from the same payload layouts;
-a real Rev-4 edit-buffer capture is still needed.
-
-File SHA256:
-
-| File | SHA256 |
+| Bank | SHA256 |
 | --- | --- |
 | FACTORY v1.03 | `9b5beaae2953deed5a50ed5f3cbd78c589e704c35a694fa188e9b27f693b73ca` |
 | USER v1.03 | `1d6e9dec2753a08ac6d07b98f0f4e755e33b41de11dc3bed46fa23217619d232` |
 
-`prophet_patch.c` uses a 138-byte patch record with 133 raw bytes and five
-wire-layout fields. Interpreting DSP values never rewrites raw imported bytes.
-The measurement-only editor command 95 transfers these patches in RAM and
-refuses replacement while the selected track has voices. It does not add
-direct native Sequential reception or a production editor protocol.
+USB native single/edit dumps load the selected track in RAM without an automatic
+flash write. Edit-buffer requests return a native dump; addressed program
+requests read used user slots 1–128. Native parameter NRPN/CC editing is outside
+this prototype; editor command 95 edits the native record. TRS retains its
+existing MIDI-input policy and does not decode native SysEx.
+A real Rev-4 edit-buffer capture is still needed; edit-buffer fixtures are
+synthetic transformations of the validated factory payloads.
 
-## Firmware, RAM and storage
+## Storage and compatibility
 
-| Resource | Original baseline | Default with three engines retired |
-| --- | ---: | ---: |
-| App image | 383,204 B | 367,140 B |
-| `.data` + `.bss` | 90,812 / 98,304 B | 90,812 / 98,304 B |
-| Permanent pool | 160,588 / 344,064 B | 160,588 / 344,064 B |
-| On-demand audio arena | 183,476 B | 183,476 B |
+128 complete patches occupy five A/B-protected 3600-byte objects, twenty-six
+slots per object (twenty-four in the last). Each contains magic, used and favorite
+masks plus 26 × 138-byte records. Interrupted saves retain the previous commit
+and restore the previous RAM/cache state. Invalid masks/records are rejected
+before erase/write. Playback prevents musical flash saves.
 
-The prototype adds 552 bytes of permanent native patches and 16 bytes of small
-RAM state. Each active Prophet track requests 388 bytes of working state.
-Five Prophet voices cost fifteen of the sixteen existing shared voice units.
-The existing per-engine cost callback charges three units per Prophet voice.
-Adding one ordinary voice on each of the other three tracks leaves three
-Prophet voices plus those three ordinary voices (fifteen units total).
-These are planned allocation steals, distinct from overload shedding.
-This is not five voices simultaneously on each of four Prophet tracks.
+The app partition ends at **0x89000**; ten 4-KiB sectors at 0x89000–0x92FFF
+hold the native collection. Linker, package, loader, musical write whitelist
+and cache invalidation agree on this boundary. OTA rejects packages with the
+old larger app partition before staging a loader; the loader independently
+rejects mismatched app extents before app writes. A stock recovery tool using
+an older external loader can still overwrite the new reserved sectors.
 
-The app slot is currently `0x8DFBC` bytes; code size alone is not the storage
-limitation. The allowed musical flash regions already hold legacy project/FM
-migration copies, bank projects, CZ and native FM collections, general presets,
-project extensions and settings. OTA staging is E0000–E4FFF. FB000 is not in
-the musical write whitelist; FF000 holds boot/vendor metadata and is not free.
+Existing collection/object IDs remain fixed. Backup inventories have 28 objects:
+0–22 retain their meanings; 23–27 are native Prophet banks. Older 23-object
+archives restore without deleting missing Prophet banks. The web editor
+preflights nonempty Prophet archives against device capability before writes.
+Projects **FUN14** (12904 bytes), banks **FBKH** (27752) and templates **TPLC**
+embed all four complete native records. Legacy FUN13/FBKG/TPLB and earlier
+projects remain readable. Sound undo/redo includes the complete native record.
+Older firmware cannot interpret the new project/template layouts.
 
-A 128-slot Prophet collection with preserved wire metadata and A/B protection
-needs approximately **ten 4-KiB sectors (40 KiB)**. With 3,840 bytes per protected
-sector and a small collection header, 26 aligned records of 144 bytes fit;
-five sectors per copy cover 128 slots. The final record/header format must be
-checked before assigning addresses.
+Resource figures and measured performance are in the validation section below.
 
-Removing engines frees image bytes and their active DSP working allocations;
-it does not itself free musical sectors. One possible repartition is to reduce
-the app slot by 40 KiB and reserve 89000–92FFF for Prophet. That requires a
-coordinated linker/package/loader/write-whitelist change, an OTA migration and
-backup/downgrade tests. **That repartition has not been implemented.** Existing
-loaders can overwrite the proposed range; it must not hold patches yet.
+## Validation and remaining release gates
 
-## Requested engine removals
+Host coverage includes malformed frames/masks, both real 200-program banks,
+byte-exact import/export, all 128 slots, last-slot naming/favorites, simulated
+torn saves, stopped-transport guards, independent track-owned patches, projects,
+legacy projects, runtime backup, templates, sound undo/redo and old-partition
+OTA refusal. Every program in both official banks is rendered with its original
+native settings; all 400 are audible and bounded. That is host playback, not
+400 device auditions. Existing engine audio regression hashes remain unchanged.
 
-TRIO (6), WHEEL (7) and PHYS (9) are retired in the default firmware and editor.
-Their IDs remain reserved. Existing projects and general user patches retain
-these IDs, their edit values and preset references. Those tracks render silence;
-they are not relabelled as another synth. Existing favourite bits are retained.
-ANALOG and all other engine IDs remain unchanged.
+Silent timing images use `MELODEE_BENCH_SILENT=1`: complete synth/effects/scope
+and USB capture/playback work runs, then only the physical DAC output is zeroed.
+Normal builds leave output audible. Host checks prove the active synth advances
+in the silent image. Timing stress patches use zero mixer noise, but maximum
+initial wheel depth with a 50% modulation-noise blend, all wheel routes, a
+500 Hz combined-wave LFO, resonance, sync, audio-rate Poly-Mod and effects.
+They are intentionally harsh diagnostic patches, not factory presets.
 
-Separate descriptor-removal measurements saved 8,916 B for PHYS, 3,580 B for
-TRIO and 2,272 B for WHEEL. Removing all three, their runtime allocations and
-browser UI together saves **16,064 B** in the final default build. This total
-includes the small compatibility-preservation changes.
+Earlier integration runs failed the SSI overload gate; their logs remain under
+`build/prophet5/`. Passing later runs do not erase those failures. The final evidence below records the passing configuration and its limits.
 
-Their source and reference tests remain available under
-`MELODEE_LEGACY_EXTRAS=1`. Nineteen removed preset golden hashes are archived in
-`tests/golden_retired_extras.txt`; surviving expected audio hashes were not
-regenerated. Resource tests now measure the largest available engine instead
-of assuming four PHYS parts.
+### Final device measurements (2026-10-08)
 
-## Device timing gate
+The normal image is `build/prophet5/playable-final.fwsc`, flashed successfully as
+FM-1_900 (`playable-final-flash.log`). App size is **387388 bytes**; loader is
+6718 bytes; package is 568914 bytes. Static RAM `.data + .bss` is
+**92092 / 98304 bytes**; pool allocation is **169184 / 344064 bytes**, leaving
+174880 bytes for the on-demand audio arena (required minimum 114688).
+Each active Prophet part adds 696 bytes within that arena.
 
-The benchmark uses USB playback and four-channel capture at 44.1 kHz, distortion,
-chorus and reverb sends, and checks actual active voices. The Prophet
-stress patch enables simultaneous waves, resonance 127, sync, all three
-audio-rate Poly-Mod destinations and maximum Vintage variation. Tests reset
-counters **before note attack** so startup shedding cannot be hidden by a
-steady-state load reading. A pass requires every voice admitted by the shared
-allocator to remain,
-render maxima below 85% of the 2.902-ms half-buffer deadline, and no audio,
-overload shedding or USB underrun/overrun errors. The mixed case expects two
-planned allocation steals; the solo case expects none. Reported render time
-excludes nested
-TIMER5 work; the device's protection includes it, so a low render maximum alone
-is insufficient. USB alternate settings 2/2 confirm native 24-bit streams;
-the host converts to/from 16-bit PCM for the probes.
+The final silent timing image has the same synthesis configuration and a
+387292-byte app. Eight-second runs include note attacks, distortion 30,
+chorus/delay/reverb 70 and simultaneous USB playback/capture at alternate 2/2.
+The half-buffer deadline is **2902 µs**; the prototype gate is 85% (2466 µs).
+`half_render_max_us` excludes nested timer work; the late counter covers the
+complete deadline. Each row passed with no new late blocks, overload shedding,
+USB underruns/overruns or missed frames.
 
-The original ANALOG baseline retained five voices (1,035 µs maximum) and eight
-voices across four tracks (1,598 µs maximum), with no counter errors. Its mixed
-tracks were LOFI/PHASE/TRIO. After TRIO's removal, prototype mixes use
-LOFI/PHASE/VOICE; the original mixed number is context, not an identical mix
-comparison.
+| Filter/workload | Base note | Peak render µs | Max reported CPU % | Voices |
+|---|---:|---:|---:|---:|
+| SSI, Prophet only | 60 | 2158 | 69.53 | 5 |
+| SSI, mixed engines | 60 | 2283 | 70.70 | 6 |
+| Curtis, Prophet only | 60 | 2009 | 66.41 | 5 |
+| Curtis, mixed engines | 60 | 2206 | 68.75 | 6 |
+| SSI, Prophet only | 84 | 2143 | 71.09 | 5 |
+| SSI, mixed engines | 84 | 2230 | 71.48 | 6 |
+| Curtis, Prophet only | 84 | 2051 | 67.97 | 5 |
+| Curtis, mixed engines | 84 | 2249 | 69.53 | 6 |
 
-Initial twice-rate builds failed: overload protection reduced five Prophet
-voices to one or two. Early measurements after warmup concealed the attack
-counter errors; those rows were marked failed by their low voice count, and
-the measurement window was corrected. Subsequent builds reduced arithmetic,
-waveform duplication and table-access costs. The initial normal-rate build
-charged only two units per Prophet voice and measured:
+Mixed runs use three Prophet voices plus LOFI, PHASE and VOICE, with two
+expected allocation steals when the requested chord exceeds the shared budget.
+These are distinct from overload shedding. Five Prophet voices cost fifteen
+of sixteen shared units; this does not promise five voices on each track.
+Evidence: `playable-lut-device-60.json`, `playable-lut-device-84.json` and their
+`playable-lut-bench-*.log` files. The 1× filter configuration is measured;
+experimental 2× oversampling has not passed this final budget gate.
 
-| Scenario | Requested / minimum retained voices | Max render | Peak averaged CPU | Result |
-| --- | --- | ---: | ---: | --- |
-| SSI, Prophet alone | 5 / 5 | 2,163 µs | 70.31% | pass |
-| Curtis, Prophet alone | 5 / 5 | 2,001 µs | 64.45% | pass |
-| SSI, four-track mix | 8 / 6 | 2,560 µs | 67.58% | fail: 2 voices shed |
-| Curtis, four-track mix | 8 / 6 | 2,576 µs | 64.45% | fail: 2 voices shed |
+### Patch, persistence and audio evidence
 
-The chord is MIDI 60/63/66/69/72, velocity 110. Each window covers note
-attack and 12 seconds of sustained playback, sampled
-about twice per second. All final USB/audio-late counter deltas were zero.
-Both five-voice cases had zero shedding/given-up counters. The lower mixed CPU
-values are **after protection shed voices**, and must not be presented as
-headroom for eight voices. The eight-voice shared allocation is not a safe
-performance promise for this DSP. The prototype now charges three shared
-units per Prophet voice, preventing
-that over-admission before overload protection is needed.
+`native-device-qa.json` confirms last slot P128, twenty-character names, opaque
+bytes, favorites, project reload and flash/reboot persistence. Temporary slot
+and project writes were restored; all 28 persistent objects retained their
+original sizes and checksums after restoration. `playable-device-ready.json`
+records the final RAM-only setup: track 1 is native **Forever Keys**, selected,
+with effects off and other tracks muted; saved projects and collections remain
+unchanged.
 
-A second pitch set at MIDI 84/87/90/93/96 retained all five voices for eight
-seconds: SSI maximum 2,176 µs (71.09% peak averaged CPU), Curtis 2,033 µs
-(66.02%), with zero audio/USB/shedding errors. The original two-unit mixed
-cases still shed voices; SSI also recorded one late callback. These two pitch
-sets do not replace a full pitch, effect and mixed-engine sweep.
+`factory-device-recordings/manifest.json` accompanies fourteen dry USB stems:
+It's a Prophet 5, Forever Keys, Funk Bass II, Stabby Brass, Reedy String Pad,
+Synchrotrill and Synctink, each through both filters. Original native bytes are
+preserved except the filter selector; every recording has a native `.syx`
+file and exact device readback verification. Capture level is 64, other tracks
+are muted and effects are off. All fourteen have zero clipped samples and
+zero USB stream errors. USB stems are mono track output, not stereo DAC
+recordings. The user reported that overpowering noise occurred only during
+the earlier stress test, not these factory auditions. This is useful listening
+feedback, not reference calibration of the two filter models.
 
-The final three-unit allocation build passed all four scenarios:
+`integration-tests-final.log` ends with ALL HOST TESTS PASSED; all 140 golden
+renders pass, including the new Prophet INIT, with previous hashes unchanged.
+`integration-final-asan.log` and `dsp-final-asan.log` cover integration and
+400 original factory programs under sanitizers. `web-final-check.log` verifies
+the final editor helpers and codecs. Browser mock QA imported 200 programs,
+sent Stabby Brass to a track and read it back with the correct engine/name
+(`editor-native-proof.jpg`). The in-app browser did not expose its Blob export
+as a download event, so byte-exact exported files are verified by codec tests,
+not by claiming a captured browser download.
 
-| Scenario | Requested / allocated / retained | Max render | Peak averaged CPU | Overload/USB errors |
-| --- | --- | ---: | ---: | --- |
-| SSI, Prophet alone | 5 / 5 / 5 | 2,146 µs | 69.92% | zero |
-| SSI, four-track mix | 8 / 6 / 6 | 2,139 µs | 67.58% | zero |
-| Curtis, Prophet alone | 5 / 5 / 5 | 1,993 µs | 64.45% | zero |
-| Curtis, four-track mix | 8 / 6 / 6 | 2,054 µs | 64.84% | zero |
+`osc-alias-check.json` measures standalone saw/pulse oscillators at 687.04,
+3028.78 and 6056.89 Hz, normalized to equal fundamental amplitude. BLEP reduces
+folded spectral energy by **15.1–20.7 dB** relative to naive oscillators. This
+isolated test does not establish aliasing performance for sync, Poly-Mod or
+modulated pulse width.
 
-Each mixed window counted exactly two planned allocation steals and zero
-overload shedding. Each solo window counted neither. Thus five Prophet voices
-are practical in the tested configuration; the four-track mix intentionally
-admits three Prophet voices and three other voices. The shared budget remains
-sixteen units and the common allocator is unchanged. Measurements are in
-`build/prophet5/prototype-weighted-device.json`; the earlier failure and
-higher-pitch files are retained alongside it.
-
-The final prototype image is 371,424 B. This cannot be interpreted as the
-complete engine's cost: it replaces ANALOG and disables musical saves, and
-production editing/storage/performance code is absent. The normal build with
-only the requested retirements is 367,140 B.
-
-## Comparison recordings
-
-Ten dry recordings captured the connected device: pad, brass, bass, sync and
-Poly-Mod examples through each filter mode. Each contains approximately two
-seconds held and four seconds of release. Raw mono stems are retained in
-`build/prophet5/device-recordings`; none clipped and the host reported no
-callback xruns. Listening copies apply the same gain of eight (+18.06 dB) to
-every clip, preserving relative levels, in
-`build/prophet5/prophet-filter-comparisons.zip`. These are prototype examples,
-not comparisons against a real Prophet. Human listening and musical acceptance
-are outstanding.
-
-## Verification and remaining gates
-
-Host coverage includes malformed/atomic decoding, exact random and factory
-round trips, shared voice limits, native release/velocity ownership, both filter
-stability sweeps and endpoint/high-pitch torture, and seeded self-oscillation.
-ASan/UBSan checks cover both sample-rate configurations, including maximum
-pitch and cutoff/resonance endpoints. Self-oscillation is
-tested with an initial impulse; noise-start behaviour is not calibrated.
-
-The full normal firmware/editor regression suite passed, with all 139 remaining
-golden renders unchanged. It covers persistence, interrupted
-saves, old projects, backups, browser order, retired identity preservation,
-UI rendering, USB audio, audio golden hashes and render budgets.
-
-The connected device was returned to the normal retirement build (MELODEE
-v0.12 / FM-1_900); its engine list reports ANALOG at 0 and reserved placeholders
-at 6, 7 and 9. The original runtime was restored. All 22 persistent musical
-objects matched their original lengths and CRCs after installation. The
-normal package SHA256 is
-`270aea828a08d6c1af66eb2f7f0a51e6038496284eed8ac924d530d0c2265674`;
-the measured prototype package is
-`138c6daa198bd1ee1a6343bb1fff2e9d1cc637a2b1cfeda0ad6533ab99302026`.
-Development packages share the same firmware identity; filenames and hashes
-distinguish these builds. Changes are local and have not been published.
-
-Release work remains: final efficient DSP design and aliasing checks; actual
-Rev-4 comparisons and parameter calibration; the permanent engine/collection
-IDs; storage repartition and torn-write tests; complete native controls and
-modulation interactions; device and web editing/library import/export; full
-project/backup/undo patch persistence; listening and physical control checks.
-Firmware and editor publication remain gated on those checks.
-
-## Reproducing the measurements
-
-```sh
-# Build normal firmware, then run the repository regression suite.
-./build.sh
-tests/run_tests.sh
-
-# Prototype only: no musical flash writes. Back up before installing.
-MELODEE_PROPHET_PROTOTYPE=1 P5_OVERSAMPLE=1 ./build.sh
-python tools/prophet_device.py backup --backup build/prophet5/device-backup
-python tools/fm1_install.py build/melodee.fwsc --yes
-python tools/prophet_device.py bench --factory build/prophet5 --usb --seconds 12 \
-  --backup build/prophet5/device-backup --output build/prophet5/device-performance.json
-```
-
-On this Mac, the build/test Python runtime was `/tmp/melodee-obxf-venv/bin/python`.
-Raw packages, backups, build logs, timing JSON and WAV files are in ignored
-`build/prophet5`. Restore the saved normal package and runtime after testing,
-then verify every persistent object's original length and CRC. The prototype
-must not be published as ordinary firmware.
+Before publication: listen to both filters, confirm native control directions
+on the device, assess aliasing/sync/Poly-Mod musically, calibrate against Rev-4
+reference material, validate a real edit-buffer capture, and approve the
+firmware/editor release. No public firmware/editor release was made here.

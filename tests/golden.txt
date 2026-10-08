@@ -139,3 +139,4 @@ sends/ANALOG/dist 1ff75ac225e918e0
 song/4track_mix a94a693b5f64f2f0
 slicer/gate/ANALOG_ACID 447bf5c719805818
 slicer/song_gate_stut 1c3e1d010d71d9cc
+preset/PROPHET/00_INIT_PROPHET c5f5547ba95b0ab8

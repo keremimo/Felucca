@@ -413,6 +413,7 @@ int main(void)
                      PROJ_NAME_OFF == PROJ_STORE_SIZE - 16u && PROJ_FM6_OFF == 3056u && 68u + NTRK * (P_COUNT + 2u + NSTEP * 9u) +
                      sizeof(chain_config_t) + sizeof(motion_store_t) + 12u == PROJ_FM6_OFF);
         memset(&a, 0, sizeof a);
+        for(uint32_t k=0;k<NTRK;k++)p5_patch_init(&a.p5[k]);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
         a.t[1].p[P_LEVEL] = 99;
@@ -451,6 +452,7 @@ int main(void)
         static uint8_t v7[PROJ_STORE_V7];
         uint32_t i, k, init = 1, sum;
         memset(&a, 0, sizeof a);
+        for(uint32_t k=0;k<NTRK;k++)p5_patch_init(&a.p5[k]);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
         for (k = 0; k < NTRK; k++) {
@@ -528,6 +530,7 @@ int main(void)
         int16_t p[P_COUNT];
         uint32_t i, sum;
         memset(&a, 0, sizeof a);
+        for(uint32_t k=0;k<NTRK;k++)p5_patch_init(&a.p5[k]);
         a.magic = PROJ_MAGIC; a.size = sizeof a; a.parts = NPART; a.phys = PROJ_PHYS;
         chain_defaults(&a.chain);
         for (t = 0; t < NTRK; t++) {

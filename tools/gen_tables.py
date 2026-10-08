@@ -77,7 +77,8 @@ def main(path):
     L += arr("CUTOFF_HZ", "uint16_t", [int(round(f)) for f in fc])
     # trapezoidal (Simper) SVF: g = tan(pi fc / FS), Q12; stable at any cutoff/resonance
     L += arr("SVF_G", "uint16_t", [int(4096 * math.tan(math.pi * min(f, 0.45 * FS) / FS)) for f in fc])
-    L += ["#if MELODEE_PROPHET_PROTOTYPE"]
+    L += ["#if !defined(MELODEE_PROPHET) || MELODEE_PROPHET"]
+    L += arr("P5_LFO_INC", "uint32_t", [int(.022 * ((500/.022) ** (min(v,120)/120)) / FS * 2**32) for v in range(128)], 8)
     # Four TPT poles at the selected prototype sample rate.
     for os in (2, 1):
         L += ["#if P5_OVERSAMPLE == 2" if os == 2 else "#else"]
@@ -89,7 +90,9 @@ def main(path):
     p5inv = arr("P5_INV_DEN", "uint16_t", [round((8192 * 4096) / (4096 + i * 32)) for i in range(257)])
     p5inv[0] = p5inv[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
     L += p5inv
-    p5tanh = arr("P5_TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 256 * 2)) for i in range(257)])
+    # Nearest 32-unit lookup: <17 Q15 units of error, with the same tanh knee.
+    # Distributed SSI saturation invokes this seven times per audio sample.
+    p5tanh = arr("P5_TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 2048 * 2)) for i in range(2049)])
     p5tanh[0] = p5tanh[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
     L += p5tanh
     L += ["#endif"]

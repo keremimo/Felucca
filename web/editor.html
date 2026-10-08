@@ -202,6 +202,14 @@
       </div>
     </div>
     <p class="dim" id="ctlhelp" data-t="ctlHelp"></p>
+    <div id="p5panel" class="group" hidden>
+      <h2>Prophet native programs</h2>
+      <p class="dim">Read the selected track before editing. Imported libraries stay browsable here; save up to 128 programs in the Prophet collection.</p>
+      <p class="bar"><button id="p5import">Import .syx</button><input id="p5file" type="file" accept=".syx" hidden>
+        <select id="p5voices" aria-label="Imported Prophet program"></select><button id="p5read">Read track</button><button id="p5send">Send to track</button>
+        <button id="p5export">Export program .syx</button><button id="p5exportbank">Export imported library .syx</button><button id="p5library">Add to library</button></p>
+      <label>Name <input id="p5name" maxlength="20"></label><div id="p5controls" class="groups"></div>
+    </div>
     <div id="czpanel" class="group" hidden>
       <h2>CZ-1 native patches</h2>
       <p class="dim">Import Casio .syx tones or banks. Native mode uses the original two lines and six eight-point envelopes. Read the selected track before editing it.</p>
@@ -313,7 +321,7 @@
         <h2 data-t="bank" data-ic="port_disk"></h2>
         <p class="dim" id="bankhint"></p>
         <div id="bankpane" hidden>
-          <p class="bar"><label>Preset collection <select id="presetpool"><option value="0">General presets</option><option value="12">FM6 voices</option><option value="15">CZ-1 tones</option></select></label></p>
+          <p class="bar"><label>Preset collection <select id="presetpool"><option value="0">General presets</option><option value="12">FM6 voices</option><option value="15">CZ-1 tones</option><option value="19">Prophet programs</option></select></label></p>
           <p class="dim" id="nativehint" hidden>Native tones appear in the preset browser. Effects and track settings stay unchanged when loaded.</p>
           <div class="bar"><b id="bankhead"></b></div>
           <div class="list" id="banklist"></div>
@@ -397,8 +405,39 @@ const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, STEP_GET: 6, STEP_SET: 
   TRACK_PARAM: 31, TRACK_CHANGED: 32, SONG: 33, PATTERN: 73, BANK_SONG: 74,
   UI_STATE: 34, UI_SET: 35, UI_PALETTES: 36, FAV_GET: 37, FAV_SET: 38,
   MOTION: 64, BACKUP_LIST: 65, BACKUP_GET: 66, BACKUP_PUT: 67,
-  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77, NATIVE: 78 };
+  FM6_GET: 68, FM6_PUT: 69, FM6_LIST: 70, FM6_ERASE: 71, CZ_GET: 75, CZ_PUT: 76, CZ_BANK: 77, NATIVE: 78, PROPHET:95 };
 /* frames the device sends on its own (while WATCH is on); never replies */
+
+const P5 = {
+  ENGINE:19, RECORD:138, NAME:65, FIELDS:[],
+  valid(b) { return Array.isArray(b)&&b.length===138&&b.every(x=>Number.isInteger(x)&&x>=0&&x<=255)&&[128,133].includes(b[133])&&[49,50].includes(b[134])&&[2,3].includes(b[135])&&(b[135]!==2||(b[136]<=9&&b[137]<=39)); },
+  name(b) { return String.fromCharCode(...b.slice(65,85).map(x=>x>=32&&x<=126?x:32)).trimEnd(); },
+  setName(b,name) { b.splice(65,20,...Array.from(String(name).replace(/[^ -~]/g," ").slice(0,20).padEnd(20," "),x=>x.charCodeAt(0))); },
+  init() { const b=Array(138).fill(0);b[133]=133;b[134]=50;b[135]=3;b[0]=b[1]=24;b[37]=127;b[3]=b[12]=1;b[8]=b[9]=64;b[14]=b[17]=120;b[20]=1;b[45]=b[46]=60;b[47]=b[48]=120;b[49]=b[50]=35;b[51]=1;b[53]=5;P5.setName(b,"INIT PROPHET");return b; },
+  sysex(b,command=null,group=null,program=null) {
+    b=Array.from(b);if(command!==null)b[135]=command;if(group!==null)b[136]=group;if(program!==null)b[137]=program;
+    if(!P5.valid(b))throw Error("Invalid Prophet patch");
+    const out=[240,1,b[134],b[135],...(b[135]===2?[b[136],b[137]]:[])];
+    for(let i=0;i<b[133];i+=7){const q=b.slice(i,Math.min(i+7,b[133]));out.push(q.reduce((m,x,j)=>m|((x>>7)<<j),0),...q.map(x=>x&127));}
+    return new Uint8Array([...out,247]);
+  },
+  decode(f) {
+    if(f[0]!==240||f.at(-1)!==247||f[1]!==1||![49,50].includes(f[2])||![2,3].includes(f[3]))throw Error("Invalid Prophet SysEx frame");
+    const start=f[3]===2?6:4,n=f.length-start-1,size=n===152?133:n===147?128:0;
+    if(!size||f[3]===2&&(f[4]>9||f[5]>39))throw Error("Invalid Prophet program length or address");
+    const b=Array(138).fill(0);let pos=0;
+    for(let i=start;i<f.length-1;){const k=Math.min(7,size-pos),mask=f[i++];if(mask>=128||(mask>>k))throw Error("Invalid Prophet high-bit mask");for(let j=0;j<k;j++){const x=f[i++];if(x>=128)throw Error("Invalid Prophet data byte");b[pos++]=x|((mask>>j&1)<<7);}}
+    b[133]=size;b[134]=f[2];b[135]=f[3];if(f[3]===2){b[136]=f[4];b[137]=f[5];}return b;
+  },
+  read(bytes) {
+    const voices=[];for(let i=0;i<bytes.length;){if(bytes[i]!==240)throw Error("Unexpected byte outside Prophet SysEx");const end=bytes.indexOf(247,i+1);if(end<0)throw Error("Truncated Prophet SysEx");const raw=P5.decode(Array.from(bytes.slice(i,end+1)));voices.push({name:P5.name(raw),raw});i=end+1;}
+    if(!voices.length)throw Error("Empty Prophet library");return {voices};
+  },
+  nibbles(b) { if(!P5.valid(b))throw Error("Invalid Prophet patch");return b.flatMap(x=>[x&15,x>>4]); },
+  bytes(a) { if(a.length!==276||a.some(x=>x>15))throw Error("Invalid Prophet record");const b=Array.from({length:138},(_,i)=>a[i*2]|a[i*2+1]<<4);if(!P5.valid(b))throw Error("Invalid Prophet record");return b; }
+};
+P5.FIELDS=[{"id":0,"label":"Frequency A","min":0,"max":120},{"id":1,"label":"Frequency B","min":0,"max":120},{"id":2,"label":"Fine B","min":0,"max":127},{"id":3,"label":"Saw A","min":0,"max":1,"names":["Off","On"]},{"id":4,"label":"Pulse A","min":0,"max":1,"names":["Off","On"]},{"id":5,"label":"Saw B","min":0,"max":1,"names":["Off","On"]},{"id":6,"label":"Triangle B","min":0,"max":1,"names":["Off","On"]},{"id":7,"label":"Pulse B","min":0,"max":1,"names":["Off","On"]},{"id":8,"label":"Pulse width A","min":0,"max":120},{"id":9,"label":"Pulse width B","min":0,"max":120},{"id":10,"label":"Hard sync","min":0,"max":1,"names":["Off","On"]},{"id":11,"label":"Low frequency B","min":0,"max":1,"names":["Off","On"]},{"id":12,"label":"Keyboard B","min":0,"max":1,"names":["Off","On"]},{"id":13,"label":"Glide","min":0,"max":120},{"id":14,"label":"Level A","min":0,"max":120},{"id":15,"label":"Level B","min":0,"max":120},{"id":16,"label":"Noise","min":0,"max":120},{"id":17,"label":"Cutoff","min":0,"max":120},{"id":18,"label":"Resonance","min":0,"max":120},{"id":19,"label":"Filter keyboard tracking","min":0,"max":2,"names":["Off","Half","Full"]},{"id":20,"label":"Filter model","min":0,"max":1,"names":["SSI (Rev 1/2)","Curtis (Rev 3)"]},{"id":21,"label":"LFO rate","min":0,"max":120},{"id":22,"label":"Initial modulation","min":0,"max":120},{"id":23,"label":"LFO saw","min":0,"max":1,"names":["Off","On"]},{"id":24,"label":"LFO triangle","min":0,"max":1,"names":["Off","On"]},{"id":25,"label":"LFO square","min":0,"max":1,"names":["Off","On"]},{"id":26,"label":"LFO / noise mix","min":0,"max":120},{"id":27,"label":"Wheel frequency A","min":0,"max":1,"names":["Off","On"]},{"id":28,"label":"Wheel frequency B","min":0,"max":1,"names":["Off","On"]},{"id":29,"label":"Wheel width A","min":0,"max":1,"names":["Off","On"]},{"id":30,"label":"Wheel width B","min":0,"max":1,"names":["Off","On"]},{"id":31,"label":"Wheel filter","min":0,"max":1,"names":["Off","On"]},{"id":32,"label":"Poly-Mod envelope","min":0,"max":127},{"id":33,"label":"Poly-Mod oscillator B","min":0,"max":120},{"id":34,"label":"Poly-Mod frequency A","min":0,"max":1,"names":["Off","On"]},{"id":35,"label":"Poly-Mod width A","min":0,"max":1,"names":["Off","On"]},{"id":36,"label":"Poly-Mod filter","min":0,"max":1,"names":["Off","On"]},{"id":37,"label":"Vintage","min":0,"max":127},{"id":38,"label":"Aftertouch filter","min":0,"max":1,"names":["Off","On"]},{"id":39,"label":"Aftertouch LFO","min":0,"max":1,"names":["Off","On"]},{"id":40,"label":"Filter envelope amount","min":0,"max":120},{"id":41,"label":"Filter velocity","min":0,"max":1,"names":["Off","On"]},{"id":42,"label":"Amplifier velocity","min":0,"max":1,"names":["Off","On"]},{"id":43,"label":"Filter attack","min":0,"max":120},{"id":44,"label":"Amplifier attack","min":0,"max":120},{"id":45,"label":"Filter decay","min":0,"max":120},{"id":46,"label":"Amplifier decay","min":0,"max":120},{"id":47,"label":"Filter sustain","min":0,"max":120},{"id":48,"label":"Amplifier sustain","min":0,"max":120},{"id":49,"label":"Filter release","min":0,"max":120},{"id":50,"label":"Amplifier release","min":0,"max":120},{"id":51,"label":"Release enabled","min":0,"max":1,"names":["Off","On"]},{"id":52,"label":"Unison","min":0,"max":1,"names":["Off","On"]},{"id":53,"label":"Unison voices","min":1,"max":5},{"id":54,"label":"Unison detune","min":0,"max":7},{"id":86,"label":"Pitch bend (semitones)","min":0,"max":11},{"id":87,"label":"Note priority / retrigger","min":0,"max":3,"names":["Low","Low retrigger","Last","Last retrigger"]}];
+
 const PUSH = new Set([CMD.CHANGED, CMD.RELOAD, CMD.STEP_CHANGED, CMD.TRACK_CHANGED]);
 /* Native CZ-1 tones: the original 144 bytes, not the common parameter array. */
 const CZ = {
@@ -524,11 +563,12 @@ class Reader {
 }
 
 const parse = {
+  [CMD.PROPHET](a) { if(a.length<3)throw Error("Short Prophet reply");const o={op:a[0],rc:a[1],track:a[2]};if(!o.rc&&a.length>3)o.raw=P5.decode([240,...a.slice(3),247]);return o; },
   [CMD.NATIVE](a) {
     const r=new Reader(a),o={engine:r.b(),op:r.b(),index:r.b(),rc:r.b()};
     if(o.rc)return o;
     if(o.op===0){o.count=r.b();o.total=r.b()|r.b()<<7;o.slots=Array.from({length:o.count},(_,i)=>({slot:o.index+i,engine:o.engine,used:!!r.b(),name:r.s()}));}
-    if(o.op===1)o.raw=o.engine===15?CZ.bytes(a.slice(4)):Array.from(a.slice(4));
+    if(o.op===1)o.raw=o.engine===15?CZ.bytes(a.slice(4)):o.engine===19?P5.bytes(a.slice(4)):Array.from(a.slice(4));
     if(o.op===7)o.user=r.b()|r.b()<<7;
     return o;
   },
@@ -559,6 +599,10 @@ const parse = {
     o.czBanks=o.cz && [12,15,19].some(p=>trailer[p]===0x43 && trailer[p+4]===8 && trailer[p+5]===16)?8:0;
     const np=trailer.findIndex((x,i)=>i>=25 && x===0x4e && trailer[i+1]===1);
     o.native=np>=0?{12:trailer[np+2]|trailer[np+3]<<7,15:trailer[np+4]|trailer[np+5]<<7}:null;
+    o.namespace={general:o.nengines,12:o.nengines+1,15:o.nengines+2};
+    const pp=trailer.findIndex((x,i)=>i>=25&&x===0x35&&trailer[i+1]===1);
+    o.prophet=pp>=0&&trailer[pp+2]===19;
+    if(o.prophet){o.namespace={general:trailer[pp+3],12:trailer[pp+4],15:trailer[pp+5],19:trailer[pp+6]};o.native={...o.native,19:trailer[pp+7]|trailer[pp+8]<<7};}
     return o;
   },
   [CMD.UI_STATE](a) {
@@ -709,6 +753,9 @@ const parse = {
 function upName(s) { return String(s ?? "").replace(/[^\x20-\x7E]/g, "").trim().slice(0, UP.NAME_MAX) || "PATCH"; }
 
 const req = {
+  prophetGet: track => [CMD.PROPHET,[0,track]],
+  prophetPut: (track,raw) => [CMD.PROPHET,[1,track,...P5.sysex(raw).slice(1,-1)]],
+  prophetEdit: (track,id,value) => [CMD.PROPHET,[2,track,id,value]],
   native: (engine,op,index,...args) => [CMD.NATIVE,[engine,op,index,...args]],
   czBank: bank => [CMD.CZ_BANK,[bank]],
   czGet: (target,index) => [CMD.CZ_GET,[target,index]],
@@ -801,6 +848,7 @@ function replyMatches(cmd, args, a) {
     case CMD.SMP_WRITE: return a[0] === args[0] && a[1] === args[1] && a[2] === args[2] && a[3] === args[3];
     case CMD.BANK_SONG: case CMD.SONG: return a[0] === args[0];
     case CMD.PATTERN: return a[0] === args[0] && a[1] === args[1];
+    case CMD.PROPHET: return a[2]===args[1]&&a[0]===(args[0]<=1?1:args[0]);
     case CMD.NATIVE: return a[0]===args[0] && a[1]===args[1] && a[2]===args[2];
     case CMD.CZ_BANK: return a[0]===args[0];
     case CMD.CZ_GET: case CMD.CZ_PUT: case CMD.FM6_GET: case CMD.FM6_PUT: return a[0] === args[0] && a[1] === args[1];
@@ -1265,6 +1313,7 @@ function cleanPatch(pt) {
   };
   if (Number.isInteger(pt.slot)) o.slot = pt.slot;
   if(pt.cz1!=null){o.cz=czLegacyTone(pt.cz1);o.engine=15;o.engineName="CZ-1";const pe=o.p.length-8;for(let k=0;k<8;k++)o.p[pe+k]=null;o.p[pe+7]=2;}
+  if(pt.p5!=null){if(pt.engine!==19||!P5.valid(pt.p5))throw Error("Invalid native Prophet patch");o.p5=pt.p5.slice();}
   if (pt.cz != null) { if(!CZ.valid(pt.cz))throw new Error("Invalid native CZ patch");o.cz=pt.cz.slice(); }
   if (Array.isArray(pt.fm6) && pt.fm6.length === FM6.PACKED) o.fm6 = pt.fm6.map((x) => (x | 0) & 127);   /* (a converted */
   if (Array.isArray(pt.fm4)) o.fm4 = pt.fm4.map((v) => (Number.isFinite(v) ? Math.round(v) : null));    /* DIGITAL sound) */
@@ -1282,6 +1331,7 @@ function libraryFile(kind, patches, ctx) {
       const o = { name: c.name, engine: c.engine, engineName: c.engineName || (ctx.engines || [])[c.engine] || "",
         params: c.p, pattern: c.pattern, tags: c.tags, created: c.created, modified: c.modified };
       if (c.grid) o.grid = c.grid;
+      if(c.p5)o.p5=c.p5;
       if (c.cz) o.cz=c.cz;
       if (c.fm6) { o.fm6 = c.fm6; o.fm4 = c.fm4; }   /* a DIGITAL sound converted: its FM6 patch, the DIGITAL values */
       if (Number.isInteger(x.slot)) o.slot = x.slot;
@@ -1293,6 +1343,7 @@ function czLibraryPatch(v,ctx={}) {
   const p=Array(ctx.keys?.length||92).fill(null);p[(ctx.pe0??84)+7]=2;
   return cleanPatch({name:v.name,engine:15,engineName:"CZ-1",p,cz:v.raw,tags:["CZ-1","SysEx"]});
 }
+function p5LibraryPatch(v,ctx={}) {return cleanPatch({name:v.name,engine:19,engineName:"PROPHET",p:Array(ctx.keys?.length||ctx.pcount||92).fill(null),p5:v.raw,tags:["PROPHET","SysEx"]});}
 /* -> {patches, skipped, keys (the file's, for a library that has none yet)}; throws on a file it cannot read.
    A DIGITAL patch (the engine retired in 1.0) where ctx has no DIGITAL imports as FM6 (fromDigital) */
 function readLibraryFile(obj, ctx) {
@@ -1315,7 +1366,7 @@ function readLibraryFile(obj, ctx) {
     const p = ctx.keys && ctx.pe0 && obj.p.length !== ctx.keys.length ? tailParams(obj.p, ctx.keys.length, ctx.pe0)
       : obj.p.slice(0, ctx.keys ? ctx.keys.length : obj.p.length);
     const pt = fm4({ name: obj.presetName || obj.engineName || "PATCH", engine: e, engineName: obj.engineName, p,
-      cz:obj.cz, cz1:obj.cz1, pattern: Array.isArray(obj.steps) ? patternFromSteps(obj.steps) : null, tags: ["file"] }, obj.engineName,
+      p5:obj.p5, cz:obj.cz, cz1:obj.cz1, pattern: Array.isArray(obj.steps) ? patternFromSteps(obj.steps) : null, tags: ["file"] }, obj.engineName,
       ctx.keys && ctx.pe0 ? ctx.pe0 : p.length - 8);
     return pt ? { patches: [cleanPatch(pt)], skipped: 0, keys: null } : { patches: [], skipped: 1, keys: null };
   }
@@ -1351,20 +1402,20 @@ const nativeBank = {
   async get(rq,info,engine,slot) {
     const r=parse[CMD.NATIVE](await rq(req.native(engine,1,slot)));if(r.rc===2)return {used:false,engine,slot};if(r.rc)throw Error("Cannot read native preset");
     const p=Array(info.pcount).fill(null);if(engine===15)p[info.pe0+7]=2;
-    return {used:true,engine,slot,name:engine===15?CZ.name(r.raw):FM6.name(FM6.unpack(r.raw)),p,pattern:null,grid:null,...(engine===15?{cz:r.raw}:{fm6:r.raw})};
+    return {used:true,engine,slot,name:engine===19?P5.name(r.raw):engine===15?CZ.name(r.raw):FM6.name(FM6.unpack(r.raw)),p,pattern:null,grid:null,...(engine===19?{p5:r.raw}:engine===15?{cz:r.raw}:{fm6:r.raw})};
   },
   async put(rq,engine,slot,pt) {
-    let raw=engine===15?pt.cz:pt.fm6;
+    let raw=engine===19?pt.p5:engine===15?pt.cz:pt.fm6;
     if(pt.engine!==engine || !raw)throw Error("Choose a preset for this native collection");
-    raw=Array.from(raw);if(engine===15){if(!CZ.valid(raw))throw Error("Invalid CZ tone");}else if(raw.length!==128 || raw.some(x=>!Number.isInteger(x)||x<0||x>127))throw Error("Invalid DX7 voice");
-    if(pt.name){const clean=String(pt.name).replace(/[^ -~]/g," ").trim();if(engine===15)CZ.setName(raw,clean);else {const name=clean.slice(0,10).padEnd(10," ");raw.splice(118,10,...Array.from(name,x=>x.charCodeAt(0)));}}
-    return parse[CMD.NATIVE](await rq(req.native(engine,2,slot,...(engine===15?CZ.nibbles(raw):raw)),FLASH_OPT)).rc;
+    raw=Array.from(raw);if(engine===19){if(!P5.valid(raw))throw Error("Invalid Prophet patch");}else if(engine===15){if(!CZ.valid(raw))throw Error("Invalid CZ tone");}else if(raw.length!==128 || raw.some(x=>!Number.isInteger(x)||x<0||x>127))throw Error("Invalid DX7 voice");
+    if(pt.name){const clean=String(pt.name).replace(/[^ -~]/g," ").trim();if(engine===19){if(clean!==P5.name(raw))P5.setName(raw,clean);}else if(engine===15)CZ.setName(raw,clean);else {const name=clean.slice(0,10).padEnd(10," ");raw.splice(118,10,...Array.from(name,x=>x.charCodeAt(0)));}}
+    return parse[CMD.NATIVE](await rq(req.native(engine,2,slot,...(engine===19?P5.nibbles(raw):engine===15?CZ.nibbles(raw):raw)),FLASH_OPT)).rc;
   },
   async store(rq,engine,slot,track,name="") {
-    name=String(name).replace(/[^ -~]/g," ").trim().slice(0,engine===15?16:10);
+    name=String(name).replace(/[^ -~]/g," ").trim().slice(0,engine===19?20:engine===15?16:10);
     const rc=parse[CMD.NATIVE](await rq(req.native(engine,3,slot,track),FLASH_OPT)).rc;
     if(rc || !name)return rc;
-    return parse[CMD.NATIVE](await rq(req.native(engine,6,slot,...strEnc(String(name).replace(/[^ -~]/g," ").trim().slice(0,engine===15?16:10)).slice(0,-1)),FLASH_OPT)).rc;
+    return parse[CMD.NATIVE](await rq(req.native(engine,6,slot,...strEnc(String(name).replace(/[^ -~]/g," ").trim().slice(0,engine===19?20:engine===15?16:10)).slice(0,-1)),FLASH_OPT)).rc;
   },
   async load(rq,engine,slot,track) { return parse[CMD.NATIVE](await rq(req.native(engine,4,slot,track))).rc; },
   async erase(rq,engine,slot) { return parse[CMD.NATIVE](await rq(req.native(engine,5,slot),FLASH_OPT)).rc; },
@@ -1405,11 +1456,13 @@ async function capturePatch(rq, info, name) {
   const steps = [];
   for (let i = 0; i < UP.PAT && i < info.nstep; i++) steps.push(parse[CMD.STEP_GET](await rq(req.stepGet(i))));
   const drum = info.engines[dump.engine] === "DRUM";   /* (a DRUM track that strikes a lane: its grid) */
+  let p5=null;
+  if(dump.engine===19){const r=parse[CMD.PROPHET](await rq(req.prophetGet(info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw Error("Cannot read Prophet patch");p5=r.raw;}
   let cz=null;
   if(dump.engine===15 && dump.p[info.pe0+7]===2) { if(!info.cz)throw new Error("Firmware lacks native CZ support");const r=parse[CMD.CZ_GET](await rq(req.czGet(0,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read CZ patch");cz=r.raw; }
   let fm6=null;
   if(info.engines[dump.engine]==="FM6") { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.TRACK,info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0)));if(r.rc)throw new Error("Cannot read FM6 voice");fm6=Array.from(r.packed); }
-  return { patch: cleanPatch({ cz, fm6, name, engine: dump.engine, engineName: info.engines[dump.engine], p: dump.p, pattern: patternFromSteps(steps),
+  return { patch: cleanPatch({ p5, cz, fm6, name, engine: dump.engine, engineName: info.engines[dump.engine], p: dump.p, pattern: patternFromSteps(steps),
     grid: drum ? gridFromSteps(steps) : null }), dump, steps };
 }
 
@@ -1453,8 +1506,10 @@ const trackOwn = (i, pe0) => TRACK_OWN.has(i) || (pe0 >= 83 && P_CHORD.includes(
    there = undo) and treats the SETs right after G_ENGSEL as part of this load (EDITOR_PROTOCOL.md "undo").
    opt: {gEng: G_ENGSEL id, progress(i, n)} */
 async function auditionPatch(rq, info, pt, opt = {}) {
+  if(pt.p5&&!info.prophet)throw Error("Install firmware with Prophet support first");
   if(pt.cz && !info.cz)throw new Error("Install firmware with native CZ support first");
-  if(pt.cz) { const r=parse[CMD.CZ_PUT](await rq(req.czPut(0,opt.track??(info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0),pt.cz)));if(r.rc)throw new Error("CZ patch rejected"); }
+  if(pt.p5){const r=parse[CMD.PROPHET](await rq(req.prophetPut(opt.track??(info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0),pt.p5)));if(r.rc)throw Error("Prophet patch rejected");}
+  else if(pt.cz) { const r=parse[CMD.CZ_PUT](await rq(req.czPut(0,opt.track??(info.ntrk?parse[CMD.TRACK](await rq(req.track())).sel:0),pt.cz)));if(r.rc)throw new Error("CZ patch rejected"); }
   else await rq(req.set(1, opt.gEng ?? 20, pt.engine));
   const dump = parse[CMD.DUMP](await rq(req.dump()), info);
   const n = Math.min(info.pcount, pt.p.length);
@@ -1864,7 +1919,7 @@ function makeMockDevice(opt = {}) {
     E("MIDI", ["USB", "TRS"], 0), E("DRUM", ["OFF", ...Array.from({ length: 16 }, (_, i) => String(i + 1))], 10), E("ROUT", ["CH1-4", "SEL"], 0), D("CPU", F.INT, 0, 0, 0),
     D("SLOT", F.INT, 1, 5, 1), E("BOOT", ["OFF", "A", "B", "C", "D"], 0), E("LOAD", NGO, 0), E("SAVE", NGO, 0),
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "-", "VOICE", "-", "-",
-      "-", "-", "DRUM", "NOISE", "FM6", "-", "-", "CZ-1"], 0), D("A4", F.INT, 400, 480, 440, null, "Hz"),
+      "-", "-", "DRUM", "NOISE", "FM6", "-", "-", "CZ-1", "-", "-", "-", "PROPHET"], 0), D("A4", F.INT, 400, 480, 440, null, "Hz"),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
     E("TYPE", ["ROOM", "SPRING"], 0),               /* G_RTYPE (id 24, was G_DRCH): the reverb's model */
     D("-", F.INT, 0, 0, 0), D("-", F.INT, 0, 0, 0),   /* G_DRLVL, G_DRREV: inert since 1.0 */
@@ -1944,6 +1999,8 @@ function makeMockDevice(opt = {}) {
         ...["BRASS 1","BRASS 2","BRASS 3","STRINGS 1","STRINGS 2","STRINGS 3","STRINGS 4","ORCHESTRA","ACO.GUITAR","JAZZ GUITAR","ELEC.GUITAR","SLAP BASS","SYNTH.BASS","ELEC.BASS 1","ELEC.BASS 2","HARP","BRASS 4","SAXOPHONE","CELLO","FLUTE","WHISTLE","HARMONICA","RECORDER","KOTO","PIANO 1","PIANO 2","PIANO 3","ELEC.PIANO","HONKY-TONK","FUNKY CLAV 1","FUNKY CLAV 2","HARPSICHORD","JAZZ ORGAN 1","JAZZ ORGAN 2","PIPE ORGAN 1","PIPE ORGAN 2","ACCORDION","VOICE 1","VOICE 2","VOICE 3","MUSIC BOX","VIBRAPHONE","XYLOPHONE","MARIMBA","MALLET LOG","AFRO PERC","BELLS","METALLIC","SYN STRINGS","FAT ENSEMBLE","SITAR","SYNTH.LEAD 1","SYNTH.LEAD 2","SYNTH.LEAD 3","SYNTH.LEAD 4","SWEEP 1","SYN DRUMS 1","SYN DRUMS 2","CONGA","STEEL DRUM","SWEEP 2","JET ROAR","MOTORCYCLE","TYPHOON"]
           .map((n,k)=>P(n,[k>>4,(k&15)+1,0,0,0,0,0,2],[0,70,127,60],0,+"4445555533322223443344336666666666556555777773775534444533375555"[k]))]},
   ];
+  ENG.push(...Array.from({length:3},()=>({name:"-",titles:["-","-"],edit:Array(8).fill(NONE),presets:[]})),
+    {name:"PROPHET",titles:["FILTER/TUNE","PW/MIX"],edit:[D("CUT",F.INT,-63,63,0),D("RES",F.INT,-63,63,0),D("TUNA",F.SEMI,-24,24,0),D("TUNB",F.SEMI,-24,24,0),D("PWA",F.INT,-63,63,0),D("PWB",F.INT,-63,63,0),D("MIXA",F.INT,-63,63,0),D("MIXB",F.INT,-63,63,0)],presets:[P("INIT PROPHET",Array(8).fill(0),[0,0,127,0],0,1)]});
   const FM6_E = ENG.findIndex((e) => e.name === "FM6"), FM6_BANK = 0;
   /* factory PATTERNS[] (engines.c; the device loads them from SEQ > PATTERNS, presets only suggest one): absolute
      notes, 0 rest; flags 1 accent, 2 slide, 4 tie (holds the previous note) */
@@ -1973,13 +2030,13 @@ function makeMockDevice(opt = {}) {
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
   const SCALE_DEGREES = [12, 7, 7, 7, 7, 5, 5, 7, 7, 7, 7, 7, 6, 6, 8, 8, 5, 7, 9, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 26, 27, 29, 31, 34, 36, 41, 53, 7, 7, 12, 12, 7, 8, 16, 43, 8, 12, 12, 12, 12, 12, 12, 12, 12, 7, 8, 22, 5, 7, 13, 13, 7, 7, 7, 7, 7, 7]; /* generated scale degree counts */
   const NTRK = 4;
-  const newTrack = () => ({ engine: 0, preset: 0, fm6: FM6.INIT_PK.slice(), cz:CZ.init(),
+  const newTrack = () => ({ engine: 0, preset: 0, fm6: FM6.INIT_PK.slice(), cz:CZ.init(), p5:P5.init(),
     p: TP.map((d) => d.def).concat(new Array(8).fill(0)),
     motion: {on: true, events: []},
     step: Array.from({ length: NSTEP }, () => ({ chance: 100, n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 })) });
   const st = {
     tracks: [0, 1, 2, 3].map(newTrack), sel: 0, rec: 0,
-    native:{12:Array(64).fill(null),15:Array(128).fill(null)},
+    native:{12:Array(64).fill(null),15:Array(128).fill(null),19:Array(128).fill(null)},
     czbanks:Array.from({length:8},(_,i)=>czBankEncode({name:`BANK ${String.fromCharCode(65+i)}`,tones:[]})),
     g: GP.map((d) => d.def),
     slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
@@ -2034,6 +2091,7 @@ function makeMockDevice(opt = {}) {
       st.p[33] = st.p[34] = st.p[35] = st.p[36] = 0;
     }
     if (st.engine === FM6_E) st.tracks[st.sel].fm6 = FM6.FACTORY_PK[pi].slice();
+    if(st.engine===19)st.tracks[st.sel].p5=P5.init();
   }
   function setEngine(ei) {
     if (ei % ENG.length === 1) { fm4Load(0); return; }   /* DIGITAL (retired): its first preset, as FM6 (ui.c set_engine_of) */
@@ -2078,7 +2136,7 @@ function makeMockDevice(opt = {}) {
   st.sel = 3; loadPattern(11);
   st.sel = 0; loadPattern(0);
   st.tracks[1].p[39] = -24; st.tracks[2].p[39] = 20; st.tracks[2].p[0] = 92;
-  const project = () => JSON.parse(JSON.stringify({ tracks: st.tracks, sel: st.sel, g: st.g, songRows: st.songRows }));
+  const project = () => JSON.parse(JSON.stringify({ tracks: st.tracks, sel: st.sel, g: st.g, songRows: st.songRows, bankSongRows: st.bankSongRows || [] }));
   st.slots[0] = project();
 
   function handle(cmd, a) {
@@ -2165,7 +2223,7 @@ function makeMockDevice(opt = {}) {
       }
       case CMD.UP_ERASE:
         if (a.length < 1) return null;
-        if (a[0] < NB) { st.bank[a[0]] = null; st.favorites[ENG.length][a[0]] = false; }
+        if (a[0] < NB) { st.bank[a[0]] = null; st.favorites[16][a[0]] = false; }
         b(a[0]); b(a[0] < NB ? 0 : 1);
         break;
       case CMD.WATCH:
@@ -2188,9 +2246,9 @@ function makeMockDevice(opt = {}) {
       case CMD.FAV_GET: case CMD.FAV_SET: {
         if (!(st.uiCaps & 8)) { b(2); break; }
         const engine = a[0], preset = v14dec(a[1], a[2]), count = a[3];
-        const limit = engine>ENG.length?st.native[engine===ENG.length+1?12:15]?.length||0:engine === ENG.length ? st.bank.length : engine < ENG.length ? ENG[engine].presets.length : 0;
+        const collection={17:12,18:15,20:19}[engine],limit=collection?st.native[collection].length:engine===16?st.bank.length:engine<ENG.length?ENG[engine].presets.length:0;
         if (a.length !== 4 || preset < 0 || preset >= limit ||
-            (cmd === CMD.FAV_GET ? !count || count > 32 || preset + count > limit : count > 1 || engine === ENG.length && count && !st.bank[preset])) { b(1); break; }
+            (cmd === CMD.FAV_GET ? !count || count > 32 || preset + count > limit : count > 1 || engine === 16 && count && !st.bank[preset])) { b(1); break; }
         if (cmd === CMD.FAV_SET) st.favorites[engine][preset] = !!count;
         b(cmd === CMD.FAV_SET ? (opt.noFlash ? 3 : opt.deferSettings ? 4 : 0) : 0); b(engine); v(preset); b(count);
         if (cmd === CMD.FAV_GET) for (let i = 0; i < count; i++) b(!!st.favorites[engine][preset + i]);
@@ -2213,21 +2271,26 @@ function makeMockDevice(opt = {}) {
         m.events.forEach(e => {b(e.step);b(e.param);v(e.value);});
         break;
       }
+      case CMD.PROPHET: {
+        const [op,tr]=a,t=st.tracks[tr];let rc=!t||op>4?1:0;
+        if(!rc)try{if(op===0&&a.length!==2)throw Error();if(op===1){t.p5=P5.decode([240,...a.slice(2),247]);t.engine=19;t.preset=t.user=0;for(let i=0;i<8;i++)t.p[P_E0+i]=0;}else if(op===2){const f=P5.FIELDS.find(f=>f.id===a[2]);if(a.length!==4||!f||a[3]<f.min||a[3]>f.max||t.engine!==19)throw Error();t.p5[a[2]]=a[3];}else if(op===3){if(a.length<3||a.length>22||a.slice(2).some(x=>x<32||x>126))throw Error();P5.setName(t.p5,String.fromCharCode(...a.slice(2)));}}catch{rc=1;}
+        [op<=1?1:op,rc,tr].forEach(b);if(!rc&&op===0)Array.from(P5.sysex(t.p5).slice(1,-1)).forEach(b);break;
+      }
       case CMD.NATIVE: {
         const [engine,op,index]=a,pool=st.native[engine];let rc=!pool||op>7||index>=(op===7?NTRK:pool.length)?1:0;
         if(!rc){
           if(op===0){if(a.length!==4||a[3]<1||a[3]>16)rc=1;}
           else if(op===1){if(a.length!==3)rc=1;else if(!pool[index])rc=2;}
-          else if(op===2){try{const raw=engine===15?CZ.bytes(a.slice(3)):a.slice(3);if(engine===12 && (raw.length!==128||raw.some(x=>x>127)))throw Error();pool[index]=raw.slice();}catch{rc=1;}}
-          else if(op===3||op===4){const tr=st.tracks[a[3]];if(a.length!==4 || !tr)rc=1;else if(op===3){if(tr.engine!==engine)rc=1;else pool[index]=(engine===15?tr.cz:tr.fm6).slice();}else if(!pool[index])rc=1;else {const previous=tr.engine;tr.engine=engine;tr.user=index+1;tr.preset=0;if(previous!==engine)for(let j=0;j<8;j++)tr.p[P_E0+j]=ENG[engine].edit[j].def;if(engine===15)tr.cz=pool[index].slice();else {tr.fm6=pool[index].slice();}}}
-          else if(op===5){if(a.length!==3)rc=1;else {pool[index]=null;st.favorites[ENG.length+(engine===12?1:2)][index]=false;st.tracks.forEach(tr=>{if(tr.engine===engine&&tr.user===index+1)tr.user=0;});}}
-          else if(op===6){if(!pool[index]||a.length<4||a.length>3+(engine===12?10:16))rc=1;else if(engine===15)CZ.setName(pool[index],String.fromCharCode(...a.slice(3)));else pool[index].splice(118,10,...Array.from(String.fromCharCode(...a.slice(3)).padEnd(10," "),x=>x.charCodeAt(0)));}
+          else if(op===2){try{const raw=engine===19?P5.bytes(a.slice(3)):engine===15?CZ.bytes(a.slice(3)):a.slice(3);if(engine===12 && (raw.length!==128||raw.some(x=>x>127)))throw Error();pool[index]=raw.slice();}catch{rc=1;}}
+          else if(op===3||op===4){const tr=st.tracks[a[3]];if(a.length!==4 || !tr)rc=1;else if(op===3){if(tr.engine!==engine)rc=1;else pool[index]=(engine===19?tr.p5:engine===15?tr.cz:tr.fm6).slice();}else if(!pool[index])rc=1;else {const previous=tr.engine;tr.engine=engine;tr.user=index+1;tr.preset=0;if(previous!==engine)for(let j=0;j<8;j++)tr.p[P_E0+j]=ENG[engine].edit[j].def;if(engine===19)tr.p5=pool[index].slice();else if(engine===15)tr.cz=pool[index].slice();else {tr.fm6=pool[index].slice();}}}
+          else if(op===5){if(a.length!==3)rc=1;else {pool[index]=null;st.favorites[{12:17,15:18,19:20}[engine]][index]=false;st.tracks.forEach(tr=>{if(tr.engine===engine&&tr.user===index+1)tr.user=0;});}}
+          else if(op===6){if(!pool[index]||a.length<4||a.length>3+(engine===19?20:engine===12?10:16))rc=1;else if(engine===19)P5.setName(pool[index],String.fromCharCode(...a.slice(3)));else if(engine===15)CZ.setName(pool[index],String.fromCharCode(...a.slice(3)));else pool[index].splice(118,10,...Array.from(String.fromCharCode(...a.slice(3)).padEnd(10," "),x=>x.charCodeAt(0)));}
           else if(a.length!==3)rc=1;
           if(!rc&&[2,3,5,6].includes(op))st.bankSig++;
         }
         [engine,op,index,rc].forEach(b);
-        if(!rc&&op===0){const count=Math.min(a[3],pool.length-index);b(count);b(pool.length&127);b(pool.length>>7);for(let j=index;j<index+count;j++){b(pool[j]?1:0);s(pool[j]?(engine===15?CZ.name(pool[j]):FM6.name(FM6.unpack(pool[j]))):"");}}
-        if(!rc&&op===1)(engine===15?CZ.nibbles(pool[index]):pool[index]).forEach(b);
+        if(!rc&&op===0){const count=Math.min(a[3],pool.length-index);b(count);b(pool.length&127);b(pool.length>>7);for(let j=index;j<index+count;j++){b(pool[j]?1:0);s(pool[j]?(engine===19?P5.name(pool[j]):engine===15?CZ.name(pool[j]):FM6.name(FM6.unpack(pool[j]))):"");}}
+        if(!rc&&op===1)(engine===19?P5.nibbles(pool[index]):engine===15?CZ.nibbles(pool[index]):pool[index]).forEach(b);
         if(!rc&&op===7){const tr=st.tracks[index],user=tr.engine===engine&&pool[tr.user-1]?tr.user:0;b(user&127);b(user>>7);}
         break;
       }
@@ -2261,7 +2324,7 @@ function makeMockDevice(opt = {}) {
         if (!opt.legacy) b(NTRK);
         if (!opt.legacy && !opt.v3 && !opt.v5) {
           b(0);
-          if (st.uiCaps) { [0x55,1,st.uiCaps,0x4d,1,64,1,0x42,1,3,0x50,1,8,16].forEach(b); if (!opt.noFm6) [0x46,1,FM6.FACTORY_PK.length,FM6_BANK,0x43,1,16,1,0,0,0x4e,1,64,0,0,1].forEach(b); }
+          if (st.uiCaps) { [0x55,1,st.uiCaps,0x4d,1,64,1,0x42,1,3,0x50,1,8,16].forEach(b); if (!opt.noFm6) [0x46,1,FM6.FACTORY_PK.length,FM6_BANK,0x43,1,16,1,0,0,0x35,1,19,16,17,18,20,0,1,0x4e,1,64,0,0,1].forEach(b); }
         }
         break;
       case CMD.GET: case CMD.SET: {
@@ -2373,6 +2436,22 @@ function makeMockDevice(opt = {}) {
         }
         b(st.engine); b(st.preset);
         break;
+      case CMD.PATTERN: {
+        const [tr,op,bank,dest]=a,t=st.tracks[tr];if(!t||op>2||a.length!==(op===0?2:op===1?3:4))return null;
+        let rc=0;t.pattern??=0;t.patternBanks??=Array(8).fill(null);
+        const take=()=>JSON.parse(JSON.stringify({step:t.step,motion:t.motion,timing:t.p.slice(29,33)}));
+        if(op){if(bank>7||op===2&&dest>7)rc=1;else if(op===2)t.patternBanks[dest]=bank===t.pattern?take():JSON.parse(JSON.stringify(t.patternBanks[bank]));
+          else {t.patternBanks[t.pattern]=take();t.pattern=bank;const saved=t.patternBanks[bank];t.step=saved?JSON.parse(JSON.stringify(saved.step)):Array.from({length:NSTEP},()=>({...EMPTY,notes:[0,0,0,0],chance:100}));t.motion=saved?JSON.parse(JSON.stringify(saved.motion)):{on:false,events:[]};t.p.splice(29,4,...(saved?.timing||TP.slice(29,33).map(d=>d.def)));}}
+        [tr,op,rc,t.pattern,127,8].forEach(b);break;
+      }
+      case CMD.BANK_SONG: {
+        if(!a.length||a[0]>3)return null;let rc=0;st.bankSongRows??=[];
+        if(a[0]===1){const rows=Array.from({length:a[1]||0},(_,i)=>({banks:a.slice(2+5*i,6+5*i),repeat:a[6+5*i]}));
+          if(a.length!==2+5*a[1]||a[1]>16||rows.some(r=>r.banks.some(k=>k>7)||r.repeat<1||r.repeat>16))rc=1;else if(st.chainPlaying)rc=2;else st.bankSongRows=rows;
+        }else if(a[0]===2){if(st.chainPlaying)rc=2;else if(!st.bankSongRows.length)rc=1;else {st.chainPlaying=true;st.chainRow=0;st.chainRemaining=st.bankSongRows[0].repeat;}}
+        else if(a[0]===3)st.chainPlaying=false;
+        [a[0],rc,st.bankSongRows.length,+st.chainPlaying,st.chainRow,st.chainRemaining].forEach(b);st.bankSongRows.forEach(r=>[...r.banks,r.repeat].forEach(b));break;
+      }
       case CMD.SONG: {
         if (!a.length || a[0] > 3) return null;
         let rc = 0;
@@ -2568,12 +2647,14 @@ async function readDevicePreferences(rq, info, names, previous = null) {
   if (state.caps & 8) {
     if (!previous || state.bankSig !== previous.state.bankSig) {
       slots = await bank.list(rq);
-      if(info.native)for(const engine of [12,15])nativeSlots[engine]=await nativeBank.list(rq,engine);
+      if(info.native)for(const engine of Object.keys(info.native).map(Number))nativeSlots[engine]=await nativeBank.list(rq,engine);
     }
     if (!previous || state.favoriteSig !== previous.state.favoriteSig || state.bankSig !== previous.state.bankSig) {
       favorites = [];
-      for (let engine = 0; engine <= info.nengines+(info.native?2:0); engine++) {
-        const total = engine>info.nengines?info.native[engine===info.nengines+1?12:15]:engine === info.nengines ? slots.total : (names[engine] || []).length;
+      const counts=Array.from({length:info.nengines},(_,engine)=>[engine,(names[engine]||[]).length]).filter(([engine,total])=>total>0);
+      counts.push([info.namespace?.general??info.nengines,slots.total]);
+      if(info.native)for(const engine of Object.keys(info.native))counts.push([info.namespace?.[engine]??info.nengines+(+engine===12?1:2),info.native[engine]]);
+      for(const [engine,total] of counts) {
         const flags = favorites[engine] = [];
         for (let start = 0; start < total; start += 32) {
           const count = Math.min(32, total - start);
@@ -2593,11 +2674,11 @@ function aliasOf(names, i) { const k = names ? names.indexOf(names[i]) : -1; ret
 /* the order the device shows its engines in (src/engines.c ENGINE_ORDER): the lists here follow it, the protocol keeps
    the engine numbers. engineOrder(names): the indices of names in that order, "-" (a reserved number) left out; a name
    the list does not know (another firmware) follows in index order */
-const ENGINE_ORDER = ["ANALOG", "FM6", "DIGITAL", "PHASE", "CZ-1", "LOFI", "VOICE", "NOISE",
+const ENGINE_ORDER = ["PROPHET", "ANALOG", "FM6", "DIGITAL", "PHASE", "CZ-1", "LOFI", "VOICE", "NOISE",
   "DRUM"];
 function engineOrder(names) {
   const rank = (n) => { const k = ENGINE_ORDER.indexOf(n); return k < 0 ? ENGINE_ORDER.length : k; };
-  return (names || []).map((n, i) => i).filter((i) => !["-","SAMPLE","GRAIN","SLICE","OBXF"].includes(names[i]))
+  return (names || []).map((n, i) => i).filter((i) => !["-","SAMPLE","GRAIN","SLICE","OBXF"].includes(names[i])&&!(names.includes("PROPHET")&&names[i]==="ANALOG"))
     .sort((a, b) => rank(names[a]) - rank(names[b]) || a - b);
 }
 
@@ -2605,9 +2686,9 @@ function devicePresetRows(info, names, preferences) {
   if (!preferences || !(preferences.state.caps & 8)) return [];
   const rows = engineOrder(info.engines).filter((engine) => names[engine]).flatMap((engine) => names[engine]
     .map((name, preset) => ({ engine, preset, name, user: false })).filter((row) => aliasOf(names[engine], row.preset) === row.preset));
-  if(info.native)for(const engine of [12,15])for(const slot of preferences.nativeSlots?.[engine]?.slots||[])if(slot.used)rows.push({engine:info.nengines+(engine===12?1:2),preset:slot.slot,name:slot.name,user:true,nativeEngine:engine});
+  if(info.native)for(const engine of Object.keys(info.native).map(Number))for(const slot of preferences.nativeSlots?.[engine]?.slots||[])if(slot.used)rows.push({engine:info.namespace?.[engine]??info.nengines+(engine===12?1:2),preset:slot.slot,name:slot.name,user:true,nativeEngine:engine});
   for (const slot of preferences.slots.slots) if (slot.used)
-    rows.push({ engine: info.nengines, preset: slot.slot, name: slot.name, user: true });
+    rows.push({ engine: info.namespace?.general??info.nengines, preset: slot.slot, name: slot.name, user: true });
   return rows.map((row) => ({ ...row, favorite: !!(preferences.favorites[row.engine] || [])[row.preset] }))
     .filter((row) => !preferences.state.filter || row.favorite);
 }
@@ -2862,6 +2943,7 @@ let lang = (navigator.language || "en").toLowerCase().startsWith("ja") ? "ja" : 
 const t = (k) => TEXT[lang][k] ?? k;
 let lastKey = null, lastArg = "";
 function sayK(k, arg = "") { lastKey = k; lastArg = arg; $("status").textContent = t(k) + arg; }
+function say(message) { lastKey = null; lastArg = ""; $("status").textContent = String(message); }
 function applyLang() {
   document.documentElement.lang = lang;
   document.querySelectorAll("[data-t]").forEach((e) => setLabel(e, t(e.dataset.t)));
@@ -3026,7 +3108,7 @@ async function connect() {
   sayK("connecting");
   try {
     if (!access) {
-      if (MOCK) { mock = makeMockDevice({ legacy: QS.get("legacy") === "1" }); access = mock.access; }
+      if (MOCK) { mock = makeMockDevice({ legacy: QS.get("legacy") === "1", auto: QS.get("mockauto") !== "0" }); access = mock.access; }
       else {
         try { access = await navigator.requestMIDIAccess({ sysex: true }); }
         catch (e) { sayK("denied"); return; }
@@ -3107,6 +3189,7 @@ async function getDesc(scope, id, d = dev) { return parse[CMD.DESC](await sessio
 async function getDump(d = dev) {
   const reply=await sessionRequest(d,req.dump());lastDump=Date.now();const out=parse[CMD.DUMP](reply,d.info);
   if(d.info.native?.[out.engine]){const r=parse[CMD.NATIVE](await sessionRequest(d,req.native(out.engine,7,d.sel||0)));if(!r.rc)out.user=r.user;}
+  if(out.engine===19 && d.info.prophet){const r=parse[CMD.PROPHET](await sessionRequest(d,req.prophetGet(d.sel||0)));if(r.rc)throw Error("Cannot read Prophet program");out.p5=r.raw;}
   return out;
 }
 async function getStep(i, d = dev) { return parse[CMD.STEP_GET](await sessionRequest(d, req.stepGet(i))); }
@@ -3138,6 +3221,7 @@ async function load(d) {
     assertSession(d);
     if (d.info.ntrk) d.sel = parse[CMD.TRACK](await sessionRequest(d, req.track())).sel;   /* v3: the selected track */
     d.dump = await getDump(d);
+    if(d.dump.p5){p5Tone=d.dump.p5.slice();p5Render();}
     if (d.info.chainRows) d.song = songParse(d, await sessionRequest(d, songRequest(d)));
     buildUI();
     renderPanels();
@@ -3248,15 +3332,22 @@ function updateBrowser() {
   const e = dev.dump.engine;
   const sel = $("engine");
   renderTrackbar();
+  /* Legacy sounds remain playable, but are not offered for new sounds. Show
+   * their actual engine instead of an empty selector displaying PROPHET. */
+  sel.querySelectorAll("option[data-legacy]").forEach((o) => o.remove());
+  if (!engineOrder(dev.info.engines).includes(e))
+    sel.append(el("option", {value:e,text:`${dev.info.engines[e]} (legacy)`,disabled:true,"data-legacy":"1"}));
   if (document.activeElement !== sel) sel.value = String(e);
   const ps = $("preset");
   const names = dev.names[e] || [];
-  const pool=dev.nativePools?.[e],sig=JSON.stringify([e,pool]);
+  const currentNative=e===19 && !dev.dump.user && dev.dump.p5 && P5.name(dev.dump.p5)!==names[dev.dump.preset] ? P5.name(dev.dump.p5) : null;
+  const pool=dev.nativePools?.[e],sig=JSON.stringify([e,pool,currentNative]);
   if(ps.dataset.engine!==sig){
     ps.replaceChildren(...names.map((n,i)=>el("option",{value:i,text:n,hidden:aliasOf(names,i)!==i})),...(pool?.slots||[]).filter(x=>x.used).map(x=>el("option",{value:`u:${x.slot}`,text:`${slotName(x.slot,e)} ${x.name}`})));
+    if(currentNative)ps.append(el("option",{value:"current-native",text:`${currentNative} (current)`,disabled:true}));
     ps.dataset.engine=sig;
   }
-  if(document.activeElement!==ps)ps.value=dev.dump.user?`u:${dev.dump.user-1}`:String(dev.dump.preset);
+  if(document.activeElement!==ps)ps.value=dev.dump.user?`u:${dev.dump.user-1}`:currentNative?"current-native":String(dev.dump.preset);
 }
 
 function visible(d) { return d && d.max > d.min && d.label !== "-"; }
@@ -3312,6 +3403,7 @@ function buildGroups() {
     groups.setgroups.push(c);
   }
   for (const [id, divs] of Object.entries(groups)) $(id).replaceChildren(...divs);
+  $("p5panel").hidden=!(dev?.info.prophet&&dev?.dump.engine===19);
   $("czpanel").hidden = !dev.info.cz || dev.dump.engine!==15;
   $("czbankpanel").hidden = !dev.info.czBanks;
   if(dev.info.czBanks && !$("czbank").options.length)$("czbank").replaceChildren(...Array.from({length:8},(_,i)=>el("option",{value:i},`Bank ${String.fromCharCode(65+i)}`)));
@@ -3483,6 +3575,7 @@ async function afterSoundChange(msg = "ready", d = dev) {
   assertSession(d);
   needReload = false;                               /* this re-reads everything a RELOAD asks for */
   d.dump = await getDump(d);
+  if(d.dump.p5){p5Tone=d.dump.p5.slice();p5Render();}
   await rereadEngineDesc(d);
   await rereadMpcDesc(d);
   updateBrowser();
@@ -4237,6 +4330,22 @@ setInterval(() => {
 
 /* ------------------------------------------------------------ files --- */
 let czImportName="IMPORTED";
+let p5Voices=[],p5Tone=P5.init();
+function p5Render(){
+  $("p5name").value=P5.name(p5Tone);const root=$("p5controls");root.replaceChildren();
+  const groups=[['Oscillator A',[0,3,4,8,10]],['Oscillator B',[1,2,5,6,7,9,11,12]],['Mixer',[14,15,16]],['Filter',[17,18,19,20,40]],['Filter envelope',[43,45,47,49,41]],['Amplifier envelope',[44,46,48,50,42,51]],['Poly-Mod',[32,33,34,35,36]],['LFO and wheel',[21,22,23,24,25,26,27,28,29,30,31]],['Performance',[13,37,38,39,52,53,54,86,87]]];
+  for(const [name,ids] of groups){const g=el("fieldset",{},el("legend",{},name));for(const id of ids){const f=P5.FIELDS.find(f=>f.id===id),input=f.names?el("select",{},...f.names.map((name,i)=>el("option",{value:i},name))):el("input",{type:"number",min:f.min,max:f.max,step:1});if(id===86){input.min=1;input.max=12;}input.value=p5Tone[id]+(id===86?1:0);input.addEventListener("change",()=>{const value=+input.value-(id===86?1:0);if(!Number.isInteger(value)||value<f.min||value>f.max){input.value=p5Tone[id]+(id===86?1:0);return;}p5Tone[id]=value;});g.append(el("p",{},el("label",{},f.label+" ",input)));}root.append(g);}
+}
+$("p5name").addEventListener("change",()=>P5.setName(p5Tone,$("p5name").value));
+$("p5import").addEventListener("click",()=>$("p5file").click());
+$("p5file").addEventListener("change",async()=>{const f=$("p5file").files[0];if(!f)return;try{const imported=P5.read(new Uint8Array(await f.arrayBuffer()));p5Voices=imported.voices;$("p5voices").replaceChildren(...p5Voices.map((v,i)=>el("option",{value:i},`${i+1}. ${v.name}`)));p5Tone=p5Voices[0].raw.slice();p5Render();say(`Imported ${p5Voices.length} Prophet programs`);}catch(e){say(e.message);}finally{$("p5file").value="";}});
+$("p5voices").addEventListener("change",()=>{p5Tone=p5Voices[+$("p5voices").value].raw.slice();p5Render();});
+$("p5read").addEventListener("click",()=>op(async()=>{const r=parse[CMD.PROPHET](await rq(req.prophetGet(dev.sel||0)));if(r.rc)throw Error("Cannot read Prophet program");p5Tone=r.raw;p5Render();say("Prophet program read from track");}));
+$("p5send").addEventListener("click",()=>op(async()=>{const d=dev,r=parse[CMD.PROPHET](await rq(req.prophetPut(d.sel||0,p5Tone)));if(r.rc)throw Error("Prophet program rejected");await afterSoundChange("ready",d);}));
+$("p5export").addEventListener("click",()=>downloadBytes(`${fileSlug(P5.name(p5Tone))}.syx`,P5.sysex(p5Tone)));
+$("p5exportbank").addEventListener("click",()=>{if(!p5Voices.length){say("Import a library first");return;}const voices=p5Voices.map(v=>v.raw);voices[+$("p5voices").value]=p5Tone;downloadBytes(`prophet-library-${today()}.syx`,new Uint8Array(voices.flatMap(v=>Array.from(P5.sysex(v)))));});
+$("p5library").addEventListener("click",()=>libAdd([p5LibraryPatch({name:P5.name(p5Tone),raw:p5Tone},libCtx())]).then(()=>say("Prophet program added to library")).catch(e=>say(e.message)));
+p5Render();
 let czVoices=[{name:"INIT",raw:CZ.init()}],czTone=czVoices[0].raw.slice();
 function czRender() {
   const root=$("czcontrols");root.replaceChildren();
@@ -4286,6 +4395,7 @@ $("savefile").addEventListener("click", () => op(async () => {
     engineName: dev.info.engines[engine], presetName: (dev.names[engine] || [])[preset],
     engine, preset, p: dev.dump.p.slice(), g: dev.dump.g.slice(),
     steps: dev.steps.map((s) => ({ n: s.n, notes: s.notes.slice(), time: s.time, flags: s.flags, vel: s.vel })) };
+  if(data.engine===19){const r=parse[CMD.PROPHET](await rq(req.prophetGet(dev.sel||0)));if(r.rc)throw Error("Cannot read Prophet program");data.p5=r.raw;}
   if(data.engine===15 && data.p[dev.info.pe0+7]===2) { const r=parse[CMD.CZ_GET](await rq(req.czGet(0,dev.sel||0)));if(r.rc)throw new Error("Cannot read native CZ patch");data.cz=r.raw; }
   if(data.engineName === "FM6") { const r=parse[CMD.FM6_GET](await rq(req.fm6Get(FM6.TARGET.TRACK,dev.sel||0)));if(r.rc)throw new Error("Cannot read FM6 voice");data.fm6=Array.from(r.packed); }
   download(`melodee-${fileSlug(data.engineName || "patch")}-${fileSlug(data.presetName || preset)}.json`, data);
@@ -4299,6 +4409,8 @@ $("file").addEventListener("change", async () => {
   try {
     data = JSON.parse(await f.text());
     assertSession(session);
+    if(data.p5!=null&&(!P5.valid(data.p5)||data.engine!==19||!session.info.prophet))throw Error("Invalid Prophet program or unsupported firmware");
+    if(data.engine===19&&!data.p5)throw Error("Prophet sound file is missing native program data");
     if(data.cz != null && (!CZ.valid(data.cz)||!session.info.cz))throw new Error("Invalid CZ patch or unsupported firmware");
     if(data.fm6 != null && (!Array.isArray(data.fm6) || data.fm6.length !== FM6.PACKED || data.fm6.some(v=>!Number.isInteger(v)||v<0||v>127) || data.engine !== 12 || !session.info.fm6))throw new Error("Invalid FM6 voice or unsupported firmware");
     if (!Number.isInteger(data.engine) || !Number.isInteger(data.preset) || !Array.isArray(data.p)) throw new Error("engine / preset / p");
@@ -4307,7 +4419,8 @@ $("file").addEventListener("change", async () => {
   const releaseBusy = beginBusy();
   try {
     selfLoad();
-    if(data.cz) { const r=parse[CMD.CZ_PUT](await rq(req.czPut(0,dev.sel||0,data.cz)));if(r.rc)throw new Error("CZ patch rejected"); }
+    if(data.p5){const r=parse[CMD.PROPHET](await rq(req.prophetPut(dev.sel||0,data.p5)));if(r.rc)throw Error("Prophet program rejected");}
+    else if(data.cz) { const r=parse[CMD.CZ_PUT](await rq(req.czPut(0,dev.sel||0,data.cz)));if(r.rc)throw new Error("CZ patch rejected"); }
     else await rq(req.preset(data.engine, data.preset));
     dev.dump = await getDump();
     await rereadEngineDesc();
@@ -4381,7 +4494,7 @@ const newId = () => (self.crypto && crypto.randomUUID ? crypto.randomUUID() : Da
 const nowIso = () => new Date().toISOString();
 const poolEngine = () => dev?.info.native ? +$("presetpool").value : 0;
 const bankView = (d=dev,engine=poolEngine()) => engine?d?.nativePools?.[engine]:d?.bank;
-const slotName = (i,engine=poolEngine()) => (engine===12?"F":engine===15?"Z":"U") + String(i + 1).padStart(engine?3:2, "0");
+const slotName = (i,engine=poolEngine()) => (engine===19?"P":engine===12?"F":engine===15?"Z":"U") + String(i + 1).padStart(engine?3:2, "0");
 $("presetpool").addEventListener("change",()=>{bankSel=null;renderBank();renderLib();});
 const libCtx = () => (dev && dev.keys ? { keys: dev.keys, engines: dev.info.engines, firmware: dev.info.version, pe0: dev.info.pe0 }
   : { keys: libMeta.keys, engines: libMeta.engines, firmware: "", pe0: libMeta.pe0 });
@@ -4514,6 +4627,7 @@ function renderBank() {
   if (!dev || !bankView()) { pane.hidden = true; return; }
   pane.hidden = false;
   $("presetpool").parentElement.hidden=!dev.info.native;
+  for(const o of $("presetpool").options)o.hidden=+o.value!==0&&!dev.info.native?.[+o.value];
   $("nativehint").hidden=!poolEngine();
   $("bknativeimport").hidden=!poolEngine();
   const b = bankView(), used = b.slots.filter((x) => x.used).length;
@@ -4642,7 +4756,8 @@ $("libren").addEventListener("click", () => {
   if (!p) return;
   const v = prompt(t("promptName"), p.name);
   if (v == null || !v.trim()) return;
-  p.name = v.trim().slice(0, 32);
+  p.name = v.trim().slice(0, p.p5?20:32);
+  if(p.p5)P5.setName(p.p5,p.name);
   libUpdate(p);
 });
 $("libtags").addEventListener("click", () => {
@@ -4687,7 +4802,7 @@ $("libfile").addEventListener("change", async () => {
   for (const f of [...$("libfile").files]) {
     try {
       const ctx = libCtx();
-      if(/\.syx$/i.test(f.name)) { const imported=CZ.read(new Uint8Array(await f.arrayBuffer()),f.name);await libAdd(imported.voices.map(v=>czLibraryPatch(v,ctx)));n+=imported.voices.length;continue; }
+      if(/\.syx$/i.test(f.name)) { const bytes=new Uint8Array(await f.arrayBuffer()),prophet=bytes[1]===1&&[49,50].includes(bytes[2]),imported=prophet?P5.read(bytes):CZ.read(bytes,f.name);await libAdd(imported.voices.map(v=>prophet?p5LibraryPatch(v,ctx):czLibraryPatch(v,ctx)));n+=imported.voices.length;continue; }
       const obj = JSON.parse(await f.text());
       const r = readLibraryFile(obj, ctx);
       if (!ctx.keys && r.keys) {                     /* no layout yet: the file's becomes the library's */
@@ -4737,7 +4852,7 @@ function bankGet(slot) {
   libOp(async (d, rqf) => {
     const u=engine?await nativeBank.get(rqf,d.info,engine,slot):await bank.get(rqf,d.info,slot);
     if (!u.used) { sayK("emptySlot", slotName(slot)); return; }
-    const pt = { name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, cz:u.cz, fm6:u.fm6, pattern: u.pattern, grid: u.grid, tags: ["device"] };
+    const pt = { name: u.name, engine: u.engine, engineName: dev.info.engines[u.engine], p: u.p, p5:u.p5, cz:u.cz, fm6:u.fm6, pattern: u.pattern, grid: u.grid, tags: ["device"] };
     await libAdd([reservedFm4(dev.info.engines, u.engine) ? fromDigital(pt, dev.info.engines, dev.info.pe0) : pt]);
     sayK("copiedLib", u.name);
   });
@@ -4765,10 +4880,11 @@ $("bkexport").addEventListener("click", () => libOp(async (d, rqf) => {
     if (!x.used) continue;
     sayK("readingBank", ` ${slotName(x.slot)}`);
     const u=engine?await nativeBank.get(rqf,d.info,engine,x.slot):await bank.get(rqf,d.info,x.slot);
-    if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, cz:u.cz, fm6:u.fm6, pattern: u.pattern, grid: u.grid, slot: x.slot,
+    if (u.used) out.push({ name: u.name, engine: u.engine, p: u.p, p5:u.p5, cz:u.cz, fm6:u.fm6, pattern: u.pattern, grid: u.grid, slot: x.slot,
       engineName: reservedFm4(dev.info.engines, u.engine) ? "DIGITAL" : dev.info.engines[u.engine] });   /* (DIGITAL's values) */
   }
-  if(engine===12){for(let i=0;i<out.length;i+=32)downloadBytes(`fm6-presets-${i/32+1}.syx`,FM6.bankSysex(out.slice(i,i+32).map(x=>FM6.unpack(x.fm6))));}
+  if(engine===19)downloadBytes(`prophet-presets-${today()}.syx`,new Uint8Array(out.flatMap(x=>Array.from(P5.sysex(x.p5)))));
+  else if(engine===12){for(let i=0;i<out.length;i+=32)downloadBytes(`fm6-presets-${i/32+1}.syx`,FM6.bankSysex(out.slice(i,i+32).map(x=>FM6.unpack(x.fm6))));}
   else if(engine===15)downloadBytes(`cz1-presets-${today()}.syx`,new Uint8Array(out.flatMap(x=>Array.from(CZ.sysex(x.cz)))));
   else download(`melodee-bank-${today()}.json`,libraryFile("bank",out,libCtx()));
   sayK("ready");
@@ -4778,9 +4894,9 @@ $("bknativeimport").addEventListener("click",()=>$("bknativefile").click());
 $("bknativefile").addEventListener("change",async()=>{
   const file=$("bknativefile").files[0],engine=poolEngine();$("bknativefile").value="";if(!file||!engine)return;
   try{
-    const bytes=new Uint8Array(await file.arrayBuffer()),parsed=engine===15?CZ.read(bytes,file.name):FM6.parseSysex(bytes);
+    const bytes=new Uint8Array(await file.arrayBuffer()),parsed=engine===19?P5.read(bytes):engine===15?CZ.read(bytes,file.name):FM6.parseSysex(bytes);
     if(!parsed.voices.length || parsed.badSum)throw Error("Invalid SysEx file");
-    const tones=parsed.voices.map(v=>({engine,name:v.name,...(engine===15?{cz:v.raw}:{fm6:Array.from(FM6.pack(v.v))})}));
+    const tones=parsed.voices.map(v=>({engine,name:v.name,...(engine===19?{p5:v.raw}:engine===15?{cz:v.raw}:{fm6:Array.from(FM6.pack(v.v))})}));
     const empty=bankView().slots.filter(x=>!x.used);if(tones.length>empty.length)throw Error(`Need ${tones.length} empty preset slots; ${empty.length} available`);
     await libOp(async(d,rqf)=>{for(let i=0;i<tones.length;i++){checkRc(await nativeBank.put(rqf,engine,empty[i].slot,tones[i]));say(`Saved ${i+1}/${tones.length} native presets`);}d.nativePools[engine]=await nativeBank.list(rqf,engine);updateBrowser();});
   }catch(e){report(e);}

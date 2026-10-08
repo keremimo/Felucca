@@ -42,7 +42,7 @@ static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", 
 static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "-", "REV", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"};
 static const char *const N_ENGNAME[] = {"ANALOG", MELODEE_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "-", "VOICE", MELODEE_LEGACY_EXTRAS ? "TRIO" : "-", MELODEE_LEGACY_EXTRAS ? "WHEEL" : "-", "-", MELODEE_LEGACY_EXTRAS ? "PHYS" : "-",
-                                             "DRUM", "NOISE", "FM6", MELODEE_SLICE ? "SLICE" : "-", "-", "CZ-1"};
+                                             "DRUM", "NOISE", "FM6", MELODEE_SLICE ? "SLICE" : "-", "-", "CZ-1", "-", "-", "-", "PROPHET"};
 
 #define PD(l, f, mn, mx, df) {l, f, mn, mx, df, 0, 0}
 #define PE(l, n, df) {l, F_ENUM, 0, (int16_t)(sizeof(n) / sizeof(n[0]) - 1), df, n, 0}
@@ -347,7 +347,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
         *unit = "st";
         break;
     case F_ENUM:
-        str_cpy(val, d->names[v < d->min ? d->min : v > d->max ? d->max : v], 6);
+        str_cpy(val, d->names==N_ENGNAME && v==ENGI_PROPHET ? "P5" : d->names[v < d->min ? d->min : v > d->max ? d->max : v], 6);
         if (d->unit)
             *unit = d->unit;
         break;
@@ -403,7 +403,7 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
 enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE, FAM_ARP, FAM_SEQ, FAM_TRK,
        FAM_COUNT };
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS page (ui_input.c tracks_edit) */
-       SC_FM6, SC_FMOP, SC_CZ, SC_CZ1 };                         /* FM6: its patch, functions; operator fm6_opsel;
+       SC_FM6, SC_FMOP, SC_CZ, SC_CZ1, SC_P5, SC_P5STORE };                         /* FM6: its patch, functions; operator fm6_opsel;
                                                                   * CZ1: a native CZ-1 tone (cz_edit.h) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
        GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_TOOLS, GR_CHANCE, GR_MOTION, GR_CHORD, GR_SLICES,
@@ -416,6 +416,7 @@ typedef struct {
 } page_t;
 
 #include "cz_edit.h"
+#include "prophet_edit.h"
 #define CZ_ENV_PAGES(t, l, e) \
     {t " R1-4", FAM_EDIT, SC_CZ1, GR_NONE, {LCZ_EBASE(l, e), LCZ_EBASE(l, e) + 1, LCZ_EBASE(l, e) + 2, LCZ_EBASE(l, e) + 3}}, \
     {t " R5-8", FAM_EDIT, SC_CZ1, GR_NONE, {LCZ_EBASE(l, e) + 4, LCZ_EBASE(l, e) + 5, LCZ_EBASE(l, e) + 6, LCZ_EBASE(l, e) + 7}}, \
@@ -441,6 +442,22 @@ static const page_t PAGES[] = {
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},
     /* FM6 only (page_visible): the patch as the DX7 has it, its operators (PRESETS picks one), the functions */
+    {"P5 STORE",FAM_EDIT,SC_P5STORE,GR_NONE,{0,1,2,3}},
+    {"P5 OSC A",FAM_EDIT,SC_P5,GR_NONE,{0,3,4,8}},
+    {"P5 OSC B",FAM_EDIT,SC_P5,GR_NONE,{1,2,9,12}},
+    {"P5 B WAVES",FAM_EDIT,SC_P5,GR_NONE,{5,6,7,11}},
+    {"P5 MIXER",FAM_EDIT,SC_P5,GR_NONE,{14,15,16,10}},
+    {"P5 FILTER",FAM_EDIT,SC_P5,GR_NONE,{17,18,19,20}},
+    {"P5 FLT ENV",FAM_EDIT,SC_P5,GR_NONE,{43,45,47,49}},
+    {"P5 AMP ENV",FAM_EDIT,SC_P5,GR_NONE,{44,46,48,50}},
+    {"P5 ENV MOD",FAM_EDIT,SC_P5,GR_NONE,{40,41,42,51}},
+    {"P5 POLYMOD",FAM_EDIT,SC_P5,GR_NONE,{32,33,34,35}},
+    {"P5 MOD FLT",FAM_EDIT,SC_P5,GR_NONE,{36,37,38,39}},
+    {"P5 LFO",FAM_EDIT,SC_P5,GR_NONE,{21,23,24,25}},
+    {"P5 WHEEL",FAM_EDIT,SC_P5,GR_NONE,{22,26,27,28}},
+    {"P5 WHEEL 2",FAM_EDIT,SC_P5,GR_NONE,{29,30,31,13}},
+    {"P5 UNISON",FAM_EDIT,SC_P5,GR_NONE,{52,53,54,87}},
+    {"P5 BEND",FAM_EDIT,SC_P5,GR_NONE,{86,255,255,255}},
     {"STORE", FAM_EDIT, SC_FM6, GR_FMSTORE, {0, 1, 2, 3}},   /* SLOT STORE SEND INIT (ui_input.c act_do) */
     {"ALGO", FAM_EDIT, SC_FM6, GR_NONE, {FP_ALG, FP_FB, FP_OKS, FP_TRNSP}},
     {"FREQ", FAM_EDIT, SC_FMOP, GR_NONE, {FP_FC, FP_FF, FP_DET, FP_MODE}},
@@ -563,6 +580,11 @@ static void fm6_page_put(const page_t *pg, uint32_t slot, int32_t val)
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
 {
     uint32_t id = pg->id[slot];
+    if(pg->scope==SC_P5 || pg->scope==SC_P5STORE){
+        if(id==255u || (pg->scope==SC_P5 && (id>=88u || !P5_PANEL[id].label))){*valp=0;return 0;}
+        p5_cell[slot&3u]=pg->scope==SC_P5STORE?(slot?0:p5_store_slot):p5_patch_of(TSEL)->raw[id]+(id==P5_BEND?1:0);
+        *valp=&p5_cell[slot&3u];return pg->scope==SC_P5STORE?&P5_STORE[slot&3u]:id==P5_BEND?&P5_BEND_DISPLAY:&P5_PANEL[id];
+    }
     if (pg->scope == SC_CZ1) {                           /* a copy of the tone's panel value (cz_ed_put writes it) */
         *valp = 0;
         if (id == 0xFFu || TSEL->eng_req != ENGI_CZ)
