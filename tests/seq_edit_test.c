@@ -72,14 +72,14 @@ static int test_note_edits(void)
     history_key(B_OCTUP);
     bad += check("move redo preserves all note data", step_note_length(t, 1) == 3 && t->step[1].probability == 50);
     cursor_set(2); press(B_EDIT);
-    bad += check("EDIT on a tail deletes the onset and every tie, preserves the neighbour",
-                 !step_on(&t->step[1]) && t->step[2].time == ST_REST && t->step[3].time == ST_REST && t->step[4].note[0] == 72);
+    bad += check("EDIT on a chord tail removes one pitch and preserves its neighbours and ties",
+                 t->step[1].n == 2 && t->step[1].note[0] == 64 && t->step[2].time == ST_TIE && t->step[3].time == ST_TIE && t->step[4].note[0] == 72);
     hold(B_SAVE);
     bad += check("whole-note deletion is one undo with its tail cursor", step_note_length(t, 1) == 3 && ui.cursor == 2);
     cursor_set(4); turn(EN_K3, 1);
-    bad += check("TIME remains NOTE / TIE / REST", t->step[4].time == ST_TIE);
+    bad += check("LENGTH grows the selected note directly", step_note_length(t, 4) == 2);
     turn(EN_K3, 1);
-    bad += check("TIME reaches REST", t->step[4].time == ST_REST);
+    bad += check("LENGTH keeps the onset while extending its tie tail", step_note_length(t, 4) == 3 && t->step[4].time == ST_NOTE);
     t = edit_setup();
     put_note(t, 0, 60, 1); t->step[2].time = ST_TIE;
     bad += check("resize cannot attach an orphan tie chain", step_note_resize(t, 0, 16) == 1);
@@ -224,10 +224,10 @@ static int test_step_modifiers(void)
     bad += check("final SELECT detent on MIDI release sets length before advancing", step_note_length(t, 4) == 3 && ui.cursor == 7);
     turn(EN_SELECT, 1);
     {
-        int paged = cur_page()->graph != GR_ROLL && ui.cursor == 7;
+        int paged = cur_page()->graph == GR_ROLL && ui.cursor == 0;
         turn(EN_SELECT, -1); turn(EN_K1, 1);
-        bad += check("SELECT without a held entry or modifier turns the page, KNOB 1 moves the cursor (BPM untouched)",
-                     paged && cur_page()->graph == GR_ROLL && ui.cursor == 8 && song.g[G_BPM] == bpm);
+        bad += check("SELECT jogs between notes in place; KNOB 1 reaches empty steps (BPM untouched)",
+                     paged && cur_page()->graph == GR_ROLL && ui.cursor == 5 && song.g[G_BPM] == bpm);
     }
     cursor_set(4); frame(); step_t before[NSTEP]; memcpy(before, t->step, sizeof before);
     turn(EN_PRESET, 10);

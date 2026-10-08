@@ -141,7 +141,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 
 ![FM-1 controls](docs/panel.jpg)
 
-- **SELECT** turns the pages of the open section (both ways), on STEP too (KNOB 1 moves its cursor); **MASTER** the
+- **SELECT** turns the pages of the open section (both ways); in NOTES it selects individual notes; **MASTER** the
   volume, **ALGORITHM** picks the track (T1–T4) and **PRESETS** its sound. **KNOB 1–4** edit the four columns
   of the page
 - **BPM** and the song's **SWG** are on **SEQ > TEMPO**: the project's, saved and loaded with it (power-on: the
@@ -171,60 +171,61 @@ track's pattern, and KNOB 3 sets repeats. PLAY runs the arrangement; rows change
 at track 1's loop boundary and the last row stops. STOP returns to the patterns selected before
 SONG. Project saves and complete backups include all 32 banks and the arrangement.
 
-### Step editing
+### Note editing
 
-On **SEQ > STEP**, KNOB 1 picks the step, KNOB 2 changes its note, KNOB 3 **TIME** picks
-NOTE / TIE / REST, and KNOB 4 sets accent and slide. On a synth track:
+**SEQ > NOTES** is the single editor for entered steps and recorded performances. Press SEQ to
+open it; tap SEQ again to reach PATTERN, TEMPO and the other sequence pages. The piano roll
+shows recorded notes at their original timing alongside ordinary notes and continuous tie tails.
+The highlighted note has a bright outline; the playhead is a separate moving line.
 
-- Hold a key or MIDI chord, turn **SELECT** to set its length, then release to advance past the whole note.
-- Hold **ENV** and turn **SELECT** to resize an existing note, from its onset or any of its ties.
-- Hold **SCL** and turn **SELECT** to move the whole note, with its ties. Movement and lengthening
-  stop before another note; both work across the pattern's loop.
-- **KNOB 1** does the same as SELECT while ENV, SCL or a key is held. These gestures also work while the
-  track is armed and playing: the cursor stops following the play head while ENV or SCL is held, and
-  OCT− / OCT+ keep shifting the octave while you record live.
-- Tap **EDIT** to delete the selected note and its ties. A DRUM grid EDIT clears just that step.
-- Hold **SAVE** to undo the last manual edit. With **EDIT** or **SAVE** down, **OCT−** undoes and **OCT+**
-  redoes, up to eight edits. A held entry or move counts as one edit. A new edit clears redo;
-  recording, loading another pattern, changing track or pattern length, or external step edits start
-  a fresh history. With no manual edit to undo, held SAVE retains the sound/pattern-load undo.
+- **SELECT** moves through individual notes in time order, including repeated hits and separate
+  chord pitches. It stays inside the editor and skips empty intervals. **KNOB 1 STEP** reaches
+  any interval, including empty space for entering notes.
+- **KNOB 2 PITCH** changes the highlighted pitch. On an empty manual step, it inserts a note;
+  playing keys or MIDI enters a note or chord, then advances when released. Playing on a recorded
+  interval auditions without replacing the take. During live recording, keys and MIDI record normally.
+- **KNOB 3 LENGTH** extends or shortens a note. Recorded durations change by one nominal step,
+  preserving their fractional length; hold **ENV** for fine adjustments of 1/16 step. Ordinary step
+  notes resize their tie tails and stop before another note. Entered chord pitches share a step's
+  length and velocity (marked **ALL** on those cards); recorded chord pitches have independent lengths
+  and velocities. Adjusting a shared property highlights the affected chord.
+- **KNOB 4 VEL** adjusts velocity from 1 to 127. Turning it on an accented manual note makes the
+  displayed velocity its playback velocity. Hold **ENV** and turn KNOB 4 to switch a manual note's
+  **SLIDE** on or off; the card changes to SLIDE while ENV is held.
+- **PRESETS** zooms around the selected interval from 16 steps down to one. Selection stays put.
+- Hold **SCL** and turn **SELECT** or **KNOB 1** to move the selected note. Recorded notes keep their
+  fractional onset, duration and velocity; manual notes move with their ties. Moving into an occupied
+  manual note or tie is blocked. Hold **ENV** and turn SELECT or KNOB 1 to resize instead.
+- Tap **EDIT** to delete the highlighted pitch. Recorded deletion affects just that hit; manual
+  chords retain their other pitches and ties. Deleting the final manual pitch clears its tie tail.
+  Using another control while EDIT is held consumes the tap.
+- While the selected track is recording and playing, **hold EDIT to erase**. The current step and
+  each step the playhead crosses lose their notes, including recorded hits, drum hits and tied
+  notes already sounding. The header reads **ERASING**; release EDIT to stop immediately.
+  Keys and MIDI still audition while erasing, but do not record new notes. The gesture stays on
+  the selected track and bank; leaving NOTES, changing track/bank or stopping recording cancels it.
+  This is live recording: it starts a fresh edit history, so the eight-edit undo does not restore
+  an erased pass.
+- Hold **SAVE** to undo. **EDIT/SAVE + OCT− / OCT+** undo/redo up to eight edits, restoring note data
+  and focus. A new edit clears redo. Recording, external edits, changing track, bank or loop length
+  start a fresh history. With no manual edit to undo, held SAVE retains sound/pattern-load undo.
 
-Using SELECT consumes the ENV/SCL page tap; a tap without an edit still opens that page. A final
-SELECT turn arriving with the key or modifier release is included. With no note or editing modifier
-held, SELECT turns the pages; KNOB 1 moves the cursor. PRESETS continues to browse sounds on HOME and PRESETS,
-and selects FM6 operators on their pages.
+Recorded properties and deletion are editable during playback; stop live recording before editing
+those notes. Live recording follows the playhead; ordinary playback leaves the editing focus alone.
+The screen shows the four knob controls plus selection, zoom, movement and deletion hints.
+The DRUM grid retains white-key step entry and black-key lane selection for manual patterns;
+recorded drum performances use the same precise NOTES piano roll and individual-hit controls after
+recording stops. During live drum recording, the grid and lane keys stay in place.
 
-Armed live recording preserves the played timing, velocity and each note's held duration,
-including repeated hits within one step and overlapping chord notes with different releases.
-**SEQ > TIMING > QNT** defaults to **OFF** on every track. Choose a note division there to snap
-playback to that swung grid; switch it back to OFF to hear the original timing again. Recording
-and live monitoring always keep the original timing, even when playback quantization is enabled.
-This is independent of the scale/key-map QNT on SCL. Track GATE continues to control manually
-entered steps; it does not replace captured note lengths.
+Armed live recording preserves played timing, velocity and each note's held duration, including
+repeated hits within one step and overlapping chord notes with different releases.
+**SEQ > TIMING > QNT** defaults to **OFF**. Choose a division to snap playback to a swung grid;
+switch back to OFF to hear original timing again. The piano roll continues to show the original take.
+This is independent of scale/key-map QNT on SCL. Track GATE controls manually entered steps.
 
-**SEQ > NOTES**, beside STEP, edits individual recorded hits on synth and drum tracks:
-
-- **KNOB 1 STEP** selects the interval where the note actually started. A note between steps 4 and 5
-  belongs to step 4 here, even if the STEP overview rounds it to step 5.
-- **KNOB 2 HIT** selects each hit in time order, including repeated pitches and separate chord notes.
-  The **NOTE** card shows its pitch and is read-only. The footer shows the hit count and the selected
-  hit's start offset as a percentage into that step.
-- **KNOB 4 ZOOM** changes the visible span from 16 steps down to one. The highlighted note and its
-  length stay at their original positions, including notes crossing the loop boundary.
-- Tap **EDIT** to delete only that hit. The cursor stays put so the next hit is ready to select.
-  Using another control while EDIT is held consumes the tap; letting go then does not delete a hit.
-  **SAVE** held undoes; **EDIT/SAVE + OCT− / OCT+** undo/redo up to eight edits, restoring exact timing,
-  velocity and length. Deletion works during playback; stop live recording before deleting hits.
-
-NOTES always shows the original take, including when playback QNT is on. It leaves neighbouring
-hits intact; deletion is included in project saves, backups and bank copies.
-
-The STEP page is an overview grouped onto nearby steps; its cursor follows playback. Editing a
-recorded overview step by entering/transposing notes, changing TIME/FLAG, moving or resizing it
-replaces that group's timing with ordinary step sequencing. Delete silences its recorded notes;
-manual undo restores them until their storage is reused. Full project saves, backups and bank
-copies preserve original timing. User-preset patterns and the ordinary step-edit protocol carry
-the step overview only.
+Project saves, backups and bank copies preserve edited performance events and original timing.
+User-preset patterns and the ordinary step-edit protocol carry only the grouped step overview;
+external overview edits can replace a recording group with ordinary step sequencing.
 
 A project holds **1,024 timed notes shared across all 32 banks**. A chord uses one entry per note.
 Distinct repeated hits are separate entries; repeating the same pitch at exactly the same time
