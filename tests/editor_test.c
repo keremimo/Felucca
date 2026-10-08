@@ -12,7 +12,7 @@ static unsigned char host_samples[3][0x14000];
 #undef main
 
 static uint32_t host_progress = 1, host_erases, host_writes;
-static uint8_t host_wire[4096];
+static uint8_t host_wire[8192];
 static uint32_t host_wire_n;
 static void host_drain(void)
 {
@@ -583,6 +583,7 @@ static int scale_catalogue(void)
     }
     return check("SCL DESC carries every legacy and microtonal name in one complete frame", good && at == n - 1);
 }
+#ifndef EDITOR_TEST_NO_MAIN
 int main(void)
 {
     int bad = bank_protocol() + preferences() + framing() + uart_recovery() + steps() + song_protocol() + malformed_saves() + names_whole() +
@@ -590,3 +591,4 @@ int main(void)
     printf("%s\n", bad ? "EDITOR TEST FAILED" : "editor test passed");
     return bad != 0;
 }
+#endif

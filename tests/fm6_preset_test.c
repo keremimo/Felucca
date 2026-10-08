@@ -7,6 +7,28 @@ static void reboot_presets(void)
 {
     memset(up_bank,0,sizeof up_bank);memset(native_fm,0,sizeof native_fm);memset(native_cz,0,sizeof native_cz);upf_empty();cz_bank_boot();up_boot();
 }
+static int bank_import(void)
+{
+    int bad=0;static uint8_t bank[4096],old[4096];uint32_t saved;
+    reset();upf_empty();fm6_init();cz_init();up_boot();
+    for(uint32_t k=0;k<32;k++)fm6_factory(k%FM6_NFAC,bank+k*128u);
+    uint32_t writes=erases;
+    bad+=check("32-voice import commits two storage objects, not 32 saves",native_fm_import32(32,bank,&saved)==0 && saved==32 && erases==writes+2);
+    reboot_presets();int ok=1;
+    for(uint32_t k=0;k<32;k++)ok &= native_used(ENGI_FM6,32+k) && !memcmp(native_raw(ENGI_FM6,32+k),bank+k*128u,128);
+    bad+=check("all imported VMEM patches survive reboot in F033-F064",ok && !native_count(ENGI_CZ) && !native_used(ENGI_FM6,0));
+    memcpy(old,bank,sizeof bank);bank[4095]=0x80;writes=erases;
+    bad+=check("bank validation finishes before any flash write",native_fm_import32(32,bank,&saved)==1 && saved==0 && erases==writes);bank[4095]=old[4095];
+    song.playing=1;bad+=check("bank import refuses transport without changing flash",native_fm_import32(32,bank,&saved)==2 && !saved && erases==writes);song.playing=0;
+    for(uint32_t k=0;k<32;k++)bank[k*128u+118]='X';
+    fail_after=2;bad+=check("failure in first bank object leaves all old patches in RAM",native_fm_import32(32,bank,&saved)==2 && !saved && !memcmp(native_raw(ENGI_FM6,32),old,128));fail_after=-1;reboot_presets();
+    bad+=check("interrupted first object retains prior bank after reboot",!memcmp(native_raw(ENGI_FM6,32),old,128) && !memcmp(native_raw(ENGI_FM6,63),old+31*128u,128));
+    fail_after=12;bad+=check("failure in second object reports exactly 16 committed patches",native_fm_import32(32,bank,&saved)==2 && saved==16 && !memcmp(native_raw(ENGI_FM6,32),bank,128) && !memcmp(native_raw(ENGI_FM6,48),old+16*128u,128));fail_after=-1;reboot_presets();
+    bad+=check("partial import RAM matches the durable objects after reboot",!memcmp(native_raw(ENGI_FM6,47),bank+15*128u,128) && !memcmp(native_raw(ENGI_FM6,48),old+16*128u,128));
+    bad+=check("resending completes the interrupted bank",!native_fm_import32(32,bank,&saved) && saved==32);reboot_presets();
+    bad+=check("resend commits the final voice",!memcmp(native_raw(ENGI_FM6,63),bank+31*128u,128));
+    return bad;
+}
 int main(void)
 {
     int bad=0;uint8_t fm[FM6_PACKED],cz[CZ_BYTES],got[FM6_PACKED];
@@ -62,5 +84,6 @@ int main(void)
         for(uint32_t b=a+1;b<OBJ_COUNT;b++)for(uint32_t bc=0;bc<2;bc++){uint32_t blo=st_sector(b,bc),blen=st_banked(b)?5u*ST_SECTOR:ST_SECTOR;layout &=lo+len<=blo || blo+blen<=lo;}
     }
     bad+=check("native storage stays separate from projects, general presets and OTA",layout);
+    bad+=bank_import();
     printf("Native preset test %s\n",bad?"FAILED":"passed");return !!bad;
 }

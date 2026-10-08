@@ -1003,6 +1003,10 @@ static void fm6_sx_byte(uint8_t b)
     }
     if (!fm6_rx_on || b >= 0xF8u)
         return;                                          /* (realtime may occur anywhere in SysEx) */
+    if ((b & 0x80u) && b != 0xF0u && b != 0xF7u) {
+        fm6_rx_on = 0;                                  /* a channel/system status cancels the frame */
+        return;
+    }
     if (fm6_rx_n >= FM6_RX || (fm6_rx_n == 1u && b != 0x43)) {
         fm6_rx_on = 0;                                   /* too long, or not Yamaha */
         return;

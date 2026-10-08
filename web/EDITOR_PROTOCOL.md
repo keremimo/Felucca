@@ -607,11 +607,24 @@ of the data's sum, 7 bits. Raw 155 / 4096-byte files are read too.
 
 The device itself also takes these as MIDI SysEx on its USB-MIDI port (any channel `n`), so Dexed or a DX7
 librarian can edit a track live: a single voice replaces the FM6 track's patch (the selected track when it plays
-FM6, else track n + 1, else the first FM6 track; the notes stop, as a DX7 program change), 32-voice dumps prompt import through the editor, a voice parameter change `F0 43 1n gg pp dd F7` edits one byte of
+FM6, else track n + 1, else the first FM6 track; the notes stop, as a DX7 program change). A 32-voice dump
+replaces native slots F001–F032 when EDIT > STORE > SLOT is F001–F032, or F033–F064 when SLOT is
+F033–F064. Stop playback before importing a bank. Its first voice is loaded onto the FM6 track, if one
+exists; all 32 voices can then be browsed as regular FM6 user presets. No web editor is needed.
+A voice parameter change `F0 43 1n gg pp dd F7` edits one byte of
 the patch (pp + 128 gg; 155: the six operator switches, OP1 = bit 5), a function parameter change
 `F0 43 1n 08 pp dd F7` sets the FM6 function settings (64 mono, 65 bend range, 66 step, 68 glissando, 69
 portamento time, 70..77 wheel / foot / breath / aftertouch range and target: that track's own, saved with the
-project and the template), and the dump requests `F0 43 2n 00 F7` / `F0 43 2n 09 F7` answer with the track's voice / the bank.
+project and the template), and the dump requests `F0 43 2n 00 F7` / `F0 43 2n 09 F7` answer with the track's
+voice / the 32-slot bank selected by STORE > SLOT. Both replies use the request's channel `n`. Empty bank
+slots export as INIT voices. EDIT > STORE > SEND sends the current track's single voice on its MIDI
+channel (track 1–4 = channel 1–4). SysEx output uses USB; the TRS jack remains input-only.
+
+Incoming bank bytes are preserved exactly in the native preset pool. Checksums, lengths and 7-bit
+framing are validated before import. Flash commits each 16-voice object separately: a failed object
+retains its previous patches. If only the first object committed, the device reports `FM6 BANK SAVE ERROR`
+and `16 PATCHES SAVED`; resend the bank after resolving the storage failure. Builds without working
+flash report `FM6 BANK IN RAM`, so those imported presets do not survive power-off.
 
 ## Tagged device preferences v1
 

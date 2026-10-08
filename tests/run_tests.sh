@@ -189,6 +189,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "full backup: CRC before writes, stale runtime, USB reset / timeout, malformed objects, older projects" "$OUT/backup_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/editor_test" tests/editor_test.c -lm
     run "editor: real C protocol, malformed transfers and queue recovery" "$OUT/editor_test"
+    $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_sysex_test" tests/fm6_sysex_test.c -lm
+    run "DX7 librarian: USB voice/bank receive, dump replies and malformed frame recovery" "$OUT/fm6_sysex_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mod_test" tests/mod_test.c -lm
     mkdir -p build/mod_demo
     run "modulation matrix: off = bit-identical, the math, MIDI CC1 / CC11 / aftertouch, cost, demos" "$OUT/mod_test" build/mod_demo
