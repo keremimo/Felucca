@@ -344,7 +344,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     switch (cmd) {
 #if MELODEE_USB_AUDIO
     case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 adds voice counters (schema 3); otherwise schema 2 */
-        uint32_t snapshot[26] = {0}, k, count = na && (a[0] & 2u) ? 26u : 20u;
+        uint32_t snapshot[32] = {0}, k, count = na && (a[0] & 4u) ? 32u : na && (a[0] & 2u) ? 26u : 20u;
         fm1_irq_off();
         snapshot[0] = ua.play_alt;
         snapshot[1] = ua.cap_alt;
@@ -366,7 +366,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         snapshot[17] = ua_feedback();
         snapshot[18] = melodee_dbg.max_us;            /* render time excludes TIMER5; shedding includes it */
         snapshot[19] = song.cpu_q8;
-        if (count == 26u) {
+        if (count >= 26u) {
             for (uint32_t p = 0; p < NPART; p++) {
                 for (uint32_t v = 0; v < NVOICE; v++) {
                     snapshot[20] += trk[p].v[v].active && trk[p].v[v].stage != 4u;
@@ -377,10 +377,24 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             snapshot[24] = shed_count;
             snapshot[25] = voice_kills;
         }
-        if (na && (a[0] & 1u))
+#if MELODEE_DUAL_CORE
+        if (count == 32u) {
+            snapshot[26] = audio_worker_online;
+            snapshot[27] = audio_worker.jobs;
+            snapshot[28] = audio_worker.max_job_ticks / FM1_TICKS_PER_US;
+            snapshot[29] = audio_worker.max_wait_ticks / FM1_TICKS_PER_US;
+            snapshot[30] = audio_worker.timeouts;
+            snapshot[31] = fm6_pairs;
+        }
+#endif
+        if (na && (a[0] & 1u)) {
             ua.poll_max_ticks = ua.service_max_ticks = melodee_dbg.max_us = 0;
+#if MELODEE_DUAL_CORE
+            audio_worker.max_job_ticks = audio_worker.max_wait_ticks = 0;
+#endif
+        }
         fm1_irq_on();
-        ed_b(count == 26u ? 3u : 2u);
+        ed_b(count == 32u ? 4u : count == 26u ? 3u : 2u);
         for (i = 0; i < count; i++)
             for (k = 0; k < 5u; k++)
                 ed_b(snapshot[i] >> (7u * k));

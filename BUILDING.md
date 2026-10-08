@@ -138,3 +138,78 @@ cd /tmp/melodee-site && python3 -m http.server 8000
 
 Installing firmware is at your own risk. If an install fails and the FM-1 no longer
 starts, recovery needs [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter).
+
+## Experimental second-core FM6/Prophet build
+
+The first experimental hardware install bootlooped with `DBG_MSG=0x400`
+(`c1_pc_limit_err_r`) during CPU1's ready handshake. It was recovered to the
+serial build over ROM USB, with a full-flash verification confirming unchanged
+bootloader and saved-data regions. The startup fix defers application PC-range
+guards until CPU1 has completed its ROM bootstrap (or has been stopped after a
+handshake timeout). Stack, write and bus guards retain their early activation.
+The corrected build was flashed successfully on 2026-10-08. CPU1 came online
+and completed 5,318 audio jobs with no worker timeouts or late audio blocks;
+the diagnostic samples observed up to three active voices. Eight-voice hardware
+load, worst-case patches, musical operation and speedup against the serial build
+remain unverified. The first image is a known failed build and must not be
+installed again.
+
+The successfully installed package has SHA-256
+`2c22bdbeec420f2fee90d747a928277bd0f7c096ebe43b1ffcec92fb575a1318`.
+Host suite, golden renders, concurrent PCM/state comparison, address/thread
+sanitizers and both serial/dual-core builds passed. The startup correction also
+passed the target budget check; the serial package remained byte-identical.
+
+`MELODEE_DUAL_CORE=1 ./build.sh` enables a bare-metal CPU1 worker. The default
+remains `0` until CPU1 startup, cache visibility and musical operation have been
+verified on an FM-1. There is no async runtime or RTOS dependency.
+
+CPU0 prepares a voice's controls and envelopes. CPU1 calculates its planned FM6
+operators or Prophet oscillator/filter samples into private buffers while CPU0
+prepares and calculates the next voice. CPU0 joins and adds both in their original
+order before the track's post processing. Part-wide Prophet wheel buffers and
+patch bytes remain read-only during a job; envelopes, allocation and shared RNG
+stay on CPU0. Prophet's per-voice sample noise state travels with its voice.
+An isolated voice stays on CPU0. Other engines, effects, MIDI, USB and the screen
+retain their existing execution paths. This is a targeted synth optimization;
+it does not double all firmware throughput.
+
+With an online CPU1, Prophet's experimental polyphony cap is eight and each voice
+costs two of the existing sixteen shared budget units. Eight Prophet voices fill
+that budget; notes on other tracks still steal voices. CPU1 startup failure keeps
+the five-voice cap and three-unit charge. Native unison retains the patch's count
+(normally five), with explicit counts up to eight allowed in the online build.
+This budget discount is provisional: measure mixed tracks, especially odd voice
+counts where each track leaves one unpaired voice on CPU0. Existing overload
+shedding remains active. Serial builds retain their original five-voice state.
+
+The startup sequence follows `EnableOtherCpu` in the tested AC79 SDK's
+`system.a/port.c.o` and `cpu.a/startup.S.o`: entry mailbox `0x01C7FFF8`, temporary
+clock-divider bit 3, and `C1_CON` release/hold bits 3/1. CPU1 has separate 4 KiB
+user and supervisor stacks and no enabled interrupts. It polls an internal SRAM
+mailbox while idle; the effect on battery consumption still needs measurement. Startup has a 10 ms
+handshake; a failure retains serial rendering. A running job that stalls for
+10 ms resets the device because rerunning partly advanced voice state is unsafe.
+The worker's idle loop is in internal RAM and publishes completion only after
+returning from XIP. Every audio block joins its jobs, so main-loop flash writes
+cannot overlap an XIP worker callback. Update and reset paths stop CPU1.
+
+`tests/dual_core_test.c` exercises the actual paired renderer with a host thread,
+comparing samples across all 32 algorithms, three FM6 models, voice counts,
+and all 200 Prophet factory programs at eight voices. Prophet stress covers both
+filter modes, sync, Poly-Mod, high resonance, wheel modulation, noise, glide,
+unison, effects and mixed FM6 tracks. Both exercise release, retrigger, patch
+changes, panic and engine changes, and assert that all jobs join before a block
+returns. Allocation checks cover eight voices, budget stealing and the five-voice
+startup fallback. Run the regular host suite,
+plus address/thread sanitizers, and build both option settings. Host checks do
+not validate the hardware launch sequence or establish an FM-1 speedup.
+
+Use `tools/usb_audio_stats.py --cores --voices --window` with the experimental
+firmware to inspect worker availability, total FM6/Prophet jobs, completed FM6 pairs, maximum job
+and join wait times, and stalls. Compare `audio_max_us`, `cpu_pct`, late renders
+and voice shedding with the same patch, notes and USB settings in the serial
+build. Verify controls, MIDI timing, audio, patch changes, persistence and update
+entry on hardware before enabling this in a release. The eight-voice Prophet cap
+is enabled only in this experimental build; validate worst-case patches and
+release tails before adopting it in a release.

@@ -93,6 +93,11 @@ $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/prophet_integration_test" tests/p
 run "Prophet native slots, atomic saves, projects, undo and performance" "$OUT/prophet_integration_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/resources_test" tests/resources_test.c -lm
 run "resource lifetimes, cache eviction, tails and capacity" "$OUT/resources_test"
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -pthread -o "$OUT/dual_core_test" tests/dual_core_test.c -lm
+run "paired FM6/Prophet voices: serial/concurrent sample equality and eight-voice allocation" "$OUT/dual_core_test"
+$CC -o "$OUT/audio_worker_test" tests/audio_worker_test.c
+run "audio worker: stalled jobs and wrapping deadlines" "$OUT/audio_worker_test"
+run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/engine_retirement_test" tests/engine_retirement_test.c -lm
 run "retired synth identities, project/user patch preservation and favorites" "$OUT/engine_retirement_test"
 $CC -DMELODEE_LEGACY_EXTRAS=1 -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/performance_test" tests/performance_test.c -lm

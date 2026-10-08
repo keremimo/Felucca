@@ -182,7 +182,7 @@ def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
     for flag in ("MELODEE_FLASH", "MELODEE_OTA", "MELODEE_OTA_DRYRUN", "MELODEE_OTA_RAMONLY", "MELODEE_CDC",
                  "MELODEE_UART", "MELODEE_USB_AUDIO", "MELODEE_ICONS", "MELODEE_FM4", "MELODEE_PROPHET_PROTOTYPE",
-                 "MELODEE_BENCH_SILENT"):
+                 "MELODEE_BENCH_SILENT", "MELODEE_DUAL_CORE"):
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
@@ -197,7 +197,7 @@ def build_app():
     cmain = (("cc", *flags, "-S", "-emit-llvm", "-Xclang", "-disable-llvm-optzns", "-c",
               FW / "src" / "melodee.c", "-o", OUT / "melodee.ll") if size else
              ("cc", *flags, "-c", FW / "src" / "melodee.c", "-o", OUT / "melodee.o"))
-    tc_all(("cc", "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
+    tc_all(("cc", *[f for f in flags if f.startswith("-DMELODEE_DUAL_CORE=")], "-c", FW / "crt0.S", "-o", OUT / "crt0.o"),
            ("cc", "-c", FW / "hal" / "fm1_vec.S", "-o", OUT / "fm1_vec.o"),
            ("cc", "-c", FW / "hal" / "fm1_isr.S", "-o", OUT / "fm1_isr.o"),
            cmain)
@@ -266,6 +266,18 @@ def check(img, syms, dis, rt):
     def sym(name):
         mm = re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M)
         return int(mm.group(1), 16) if mm else 0
+    if sym("fm1_core1_start"):
+        for name in ("fm1_core1_main", "audio_worker_loop"):
+            if not 0x01C00000 <= sym(name) < sym("_dsp_end"):
+                errors.append(f"{name} must remain in internal RAM for flash-safe idle")
+        if sym("_cpu1_stacks_hi") - sym("_cpu1_stacks_lo") != 8192:
+            errors.append("CPU1 requires separate 4 KiB user and supervisor stacks")
+        # Idle may call only the job's register-held callback; a compiler
+        # outlined XIP helper would break flash writes after completion.
+        body = dis.split("\naudio_worker_loop:", 1)[-1].split("\n\n", 1)[0]
+        if re.search(r"\bcall -?\d+", body):
+            errors.append("CPU1 polling loop contains a direct call; helpers must be inlined")
+        notes.append("CPU1: RAM polling loop, private 8 KiB stacks, bounded startup/join")
     bss = sym("_bss_end") - 0x01C08000
     pool = sym("_pool_end") - sym("_pool_start")
     notes.append(f"image {len(img)} B; RAM .data+.bss {bss} B of 98304; pool {pool} B of {0x54000}")

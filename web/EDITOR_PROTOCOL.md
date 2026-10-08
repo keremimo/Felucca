@@ -926,3 +926,16 @@ and sound undo/redo retain opaque bytes independent of user collection slots.
 The app boundary is 0x89000. Five native A/B pairs occupy 0x89000–0x92FFF.
 Normal OTA/loader paths reject mismatched older app extents before writing.
 See [prototype validation and release gates](../docs/PROPHET5_PROTOTYPE.md).
+
+### Second-core diagnostic extension
+
+AUDIO_STATS (72) flag bit 2 (`4`) requests schema 4: the 20 schema-2 counters,
+the six schema-3 voice counters, then six further 32-bit values encoded as five
+7-bit bytes each: `core1_online`, `core1_jobs`, `core1_max_job_us`,
+`core1_max_wait_us`, `core1_timeouts`, `fm6_pairs`. A serial build returns zero
+for these six values. Existing requests still receive schema 2 or 3. Flag bit 0
+also clears worker job/wait maxima after the snapshot; counts remain cumulative.
+The worker is idle whenever the main-loop handler takes this snapshot.
+`core1_jobs` includes both FM6 and Prophet sample jobs; `fm6_pairs` continues to
+count only FM6 pairs. For Prophet measurements, combine worker jobs with the
+schema-3 voice counts and audio timing counters.
