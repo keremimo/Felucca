@@ -27,8 +27,8 @@ static void panel_setup(void) {}
 
 static uint8_t nor[0x100000], flash_ok = 1;
 static int erase_error, fail_after = -1;
-static uint32_t erases;
-static int st_read(uint32_t off, void *dst, uint32_t n) { memcpy(dst, nor + off, n); return 0; }
+static uint32_t erases, preset_reads;
+static int st_read(uint32_t off, void *dst, uint32_t n) { preset_reads++; memcpy(dst, nor + off, n); return 0; }
 static int st_erase(uint32_t off)
 {
     erases++;
@@ -75,7 +75,7 @@ static void reset(void)
     memset(&chain, 0, sizeof chain);
     chain_defaults(&chain_config);
     memset(proj_slot, 0, sizeof proj_slot);
-    memset(up_bank, 0, sizeof up_bank); memset(native_fm,0,sizeof native_fm); memset(native_cz,0,sizeof native_cz); native_pending=0;
+    up_cache_reset(); native_cache_reset();
     memset(&persist_saved, 0, sizeof persist_saved);
     memset(&settings, 0, sizeof settings);
     memset(&ui, 0, sizeof ui);
@@ -289,34 +289,34 @@ int main(void)
     r.np = P_COUNT;
     memcpy(r.name, "First", 6);
     erase_error = 1;
-    bank = up_bank[1];
+    bank = (*up_cache_bank(1));
     ok = up_put(17, &r) == 2;
     erase_error = 0;
-    bad += check("failed first preset save restores empty bank", ok && !memcmp(&up_bank[1], &bank, sizeof bank));
+    bad += check("failed first preset save restores empty bank", ok && !memcmp(up_cache_bank(1), &bank, sizeof bank));
     bad += check("preset initial save", up_put(3, &r) == 0 && up_used(3));
-    bank = up_bank[0];
+    bank = (*up_cache_bank(0));
     before = up_gen;
     r.p[0] = 77;
     fail_after = 1;
     ok = up_put(3, &r) == 2;
     fail_after = -1;
     bad += check("failed preset save rolls back bank and generation", ok && up_gen == before &&
-                  !memcmp(&up_bank[0], &bank, sizeof bank));
+                  !memcmp(up_cache_bank(0), &bank, sizeof bank));
     favorite_set(NENGINES, 3, 1);
     fail_after = 1;
     ok = up_put(3, 0) == 2;
     fail_after = -1;
     bad += check("failed preset erasure retains both the sound and its favorite", ok && up_used(3) &&
-                  favorite_has(NENGINES, 3) && !memcmp(&up_bank[0], &bank, sizeof bank));
-    memset(&up_bank[0], 0, sizeof up_bank[0]);
+                  favorite_has(NENGINES, 3) && !memcmp(up_cache_bank(0), &bank, sizeof bank));
+    memset(up_cache_bank(0), 0, sizeof (*up_cache_bank(0)));
     up_boot();
-    bad += check("failed preset save keeps old flash", !memcmp(&up_bank[0], &bank, sizeof bank));
+    bad += check("failed preset save keeps old flash", !memcmp(up_cache_bank(0), &bank, sizeof bank));
     trk[0].user = 4;
     erase_error = 1;
     ok = up_put(3, 0) == 2;
     erase_error = 0;
     bad += check("failed preset erase keeps record and loaded label", ok && trk[0].user == 4u && up_gen == before &&
-                  !memcmp(&up_bank[0], &bank, sizeof bank));
+                  !memcmp(up_cache_bank(0), &bank, sizeof bank));
     bad += check("successful preset erase clears loaded label", up_put(3, 0) == 0 && !up_used(3) && !trk[0].user);
     before = erases;
     transport_req = 1;

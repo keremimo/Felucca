@@ -47,7 +47,7 @@ static void check(const char *what, int ok)
 static void reset(void)
 {
     memset(trk, 0, sizeof trk);
-    memset(eng_state, 0, sizeof eng_state);
+    eng_state_reset();
     memset(fm6_eff, 0, sizeof fm6_eff);
     memset(digital_env, 0, sizeof digital_env);
     memset(digital_stage, 0, sizeof digital_stage);

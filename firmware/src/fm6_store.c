@@ -125,6 +125,7 @@ static void fm6_service(void)                            /* main loop: a DX7 fra
         RING_PUBLISH();
         fm6_rx_ready = 0;
     }
+    upf_release();
 }
 
 /* --------------------------------------------------------- STORE page --- */

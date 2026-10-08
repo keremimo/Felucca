@@ -89,6 +89,12 @@ run "flash storage (A/B, torn writes)" "$OUT/storage_test"
 
 $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_preset_test" tests/fm6_preset_test.c -lm
 run "native FM6/CZ user presets, scrolling, migration and interrupted saves" "$OUT/fm6_preset_test"
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/resources_test" tests/resources_test.c -lm
+run "resource lifetimes, cache eviction, tails and capacity" "$OUT/resources_test"
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/performance_test" tests/performance_test.c -lm
+run "capture gating, derived caches and silent-track clocks" "$OUT/performance_test"
+$CC -O1 -w -Ibuild/gen -o "$OUT/lcd_overlap_test" tests/lcd_overlap_test.c -lm
+run "canvas drawing overlaps DMA without changing pending pixels" "$OUT/lcd_overlap_test"
 
 $CC -o "$OUT/upreset_test" tests/upreset_test.c
 run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM -> DRUM, grid records, DIGITAL kept)" "$OUT/upreset_test"

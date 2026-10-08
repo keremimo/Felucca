@@ -38,32 +38,41 @@ static const engine_t ENG_RETIRED = {         /* 13 without MELODEE_SLICE: reser
 };
 #endif
 
-/* the engines' runtime state of a part. A part renders one engine at a time (an engine switch fades the old one
- * out first, voice.c engine_block), so their states share one block per part, cleared at every switch: an engine
- * finds its state as at power-on (the pool section is zeroed at boot). The patch of a part (FM6's) is not in here */
-static union {
-    phys_slot_t phys[PHYS_POLY];
-    cz_part_t cz;
-    drum_lane_t drum[DV_NLANE];
-    drw_part_t wheel;
-    fm6_part_t fm6;
+/* Each track owns only its selected engine's working state. Simple engines
+ * use voice_t alone. State is released after the old engine's switch fade. */
+#include "resources.c"
+static uint32_t eng_state_size(uint32_t e)
+{
+    switch (e) {
+    case ENGI_PHYS: return sizeof(phys_slot_t) * PHYS_POLY;
+    case 2: case ENGI_CZ: return sizeof(cz_part_t);
+    case ENGI_DRUM: return sizeof(drum_lane_t) * DV_NLANE;
+    case 7: return sizeof(drw_part_t);
+    case ENGI_FM6: return sizeof(fm6_part_t);
 #if MELODEE_SLICE
-    slc_rb_t slice;
+    case ENGI_SLICE: return sizeof(slc_rb_t);
 #endif
-} eng_state[NPART] __attribute__((section(".pool")));
-static phys_slot_t *phys_slots(uint32_t part) { return eng_state[part % NPART].phys; }
-static drum_lane_t *drum_kit_part(uint32_t part) { return eng_state[part % NPART].drum; }
-static drw_part_t *drw_of(const track_t *t) { return &eng_state[(uint32_t)(t - trk) % NPART].wheel; }
-static fm6_part_t *fm6_part(uint32_t part) { return &eng_state[part % NPART].fm6; }
-#if MELODEE_SLICE
-static int16_t (*slc_rbuf(uint32_t part))[SLC_RB] { return eng_state[part % NPART].slice; }
-#endif
-static cz_part_t *cz_part(uint32_t part) { return &eng_state[part % NPART].cz; }
+    default: return 0;
+    }
+}
 static void eng_state_clear(uint32_t part)
 {
-    if (part < NPART)
-        memset(&eng_state[part], 0, sizeof eng_state[part]);
+    if (part < NPART) resource_release(RES_ENGINE0 + part);
 }
+static void eng_state_reset(void) { for (uint32_t k = 0; k < NPART; k++) eng_state_clear(k); }
+static int eng_state_prepare(const track_t *t)
+{
+    uint32_t size = eng_state_size(t->engine);
+    return !size || resource_get(RES_ENGINE0 + (uint32_t)(t - trk), size) != 0;
+}
+static phys_slot_t *phys_slots(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(phys_slot_t) * PHYS_POLY); }
+static drum_lane_t *drum_kit_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(drum_lane_t) * DV_NLANE); }
+static drw_part_t *drw_of(const track_t *t) { return resource_get(RES_ENGINE0 + (uint32_t)(t - trk), sizeof(drw_part_t)); }
+static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(fm6_part_t)); }
+static cz_part_t *cz_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(cz_part_t)); }
+#if MELODEE_SLICE
+static int16_t (*slc_rbuf(uint32_t part))[SLC_RB] { return resource_get(RES_ENGINE0 + part % NPART, sizeof(slc_rb_t)); }
+#endif
 
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
 static const engine_t *const ENGINES[NENGINES] = {

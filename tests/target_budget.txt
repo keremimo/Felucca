@@ -33,6 +33,9 @@ dr_hat 37
 dr8_run 20
 slicer_track 632
 fm1_alnk0_irq 37502
+# Standalone voice-loop baseline from 83cdcdc's track_render, compiled
+# noinline with the same target flags. Existing ISR/engine limits unchanged.
+track_render_audio 934
 mod_begin 158
 mod_voice 30
 mod_end 7

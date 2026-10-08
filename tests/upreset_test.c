@@ -68,9 +68,9 @@ int main(void)
         bad += check("pre-1.0 Melodee 58-param record rejected", !up_valid(&old));
         old.np = 62;
         bad += check("pre-1.0 Melodee 62-param record rejected", !up_valid(&old));
-        up_bank[0].magic = UP_BANK_MAGIC; up_bank[0].rsize = sizeof old; up_bank[0].nslot = UP_PER_BANK;
-        up_bank[0].r[0] = old;
-        up_bank_check(0, sizeof up_bank[0]);
+        up_cache_bank(0)->magic = UP_BANK_MAGIC; up_cache_bank(0)->rsize = sizeof old; up_cache_bank(0)->nslot = UP_PER_BANK;
+        up_cache_bank(0)->r[0] = old;
+        up_bank_check(0, sizeof (*up_cache_bank(0)));
         bad += check("fork record hidden without changing its saved bytes", !up_used(0) && !memcmp(up_rec(0), &old, sizeof old));
     }
 
@@ -123,30 +123,30 @@ int main(void)
     /* bank round trip through storage.c */
     n = put_frame(a, 17, 3, "Keys", 7);
     up_parse(a, n, &r, &slot);
-    up_bank[1].magic = UP_BANK_MAGIC;
-    up_bank[1].rsize = sizeof(up_rec_t);
-    up_bank[1].nslot = UP_PER_BANK;
+    up_cache_bank(1)->magic = UP_BANK_MAGIC;
+    up_cache_bank(1)->rsize = sizeof(up_rec_t);
+    up_cache_bank(1)->nslot = UP_PER_BANK;
     *up_rec(17) = r;
     bad += check("bank fits one object", sizeof(up_bank_t) <= ST_PAYLOAD_MAX);
-    bad += check("bank save", st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]) == 0);
-    memset(up_bank, 0, sizeof up_bank);
-    len = st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
+    bad += check("bank save", st_save(OBJ_UPRESET0 + 1, up_cache_bank(1), sizeof (*up_cache_bank(1))) == 0);
+    up_cache_reset();
+    len = st_load(OBJ_UPRESET0 + 1, up_cache_bank(1), sizeof (*up_cache_bank(1)));
     up_bank_check(1, len);
     got = *up_rec(17);
     bad += check("bank load: the record is back", up_used(17) && !memcmp(&got, &r, sizeof r));
     bad += check("other slots empty", !up_used(16) && !up_used(18) && !up_used(0));
-    len = st_load(OBJ_UPRESET0, &up_bank[0], sizeof up_bank[0]);
+    len = st_load(OBJ_UPRESET0, up_cache_bank(0), sizeof (*up_cache_bank(0)));
     up_bank_check(0, len);
-    bad += check("bank 0 never written -> empty", len < 0 && !up_used(0) && up_bank[0].magic == 0);
+    bad += check("bank 0 never written -> empty", len < 0 && !up_used(0) && up_cache_bank(0)->magic == 0);
     bad += check("banks in 0xDC000..0xDFFFF", st_sector(OBJ_UPRESET0, 0) == 0xDC000u &&
                                                    st_sector(OBJ_UPRESET0 + 1, 1) == 0xDF000u &&
                                                    st_sector(OBJ_PROJECT0 + 3, 1) + 4096u <= 0xA0000u);
-    up_bank[1].rsize = 190;                                 /* another record layout */
-    up_bank_check(1, (int)sizeof up_bank[1]);
+    up_cache_bank(1)->rsize = 190;                                 /* another record layout */
+    up_bank_check(1, (int)sizeof (*up_cache_bank(1)));
     bad += check("bank with another record size -> empty", !up_used(17));
-    up_bank[1].magic = UP_BANK_MAGIC;
-    up_bank[1].rsize = sizeof(up_rec_t);
-    up_bank[1].nslot = UP_PER_BANK;
+    up_cache_bank(1)->magic = UP_BANK_MAGIC;
+    up_cache_bank(1)->rsize = sizeof(up_rec_t);
+    up_cache_bank(1)->nslot = UP_PER_BANK;
     *up_rec(17) = r;
     up_rec(17)->ver = UP_VER_GRID + 1u;
     bad += check("record with another version -> empty", !up_used(17));
@@ -187,9 +187,9 @@ int main(void)
         }
         up_parse(g, m, &got, &slot);
         *up_rec(20) = got;
-        st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
-        memset(up_bank, 0, sizeof up_bank);
-        up_bank_check(1, st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]));
+        st_save(OBJ_UPRESET0 + 1, up_cache_bank(1), sizeof (*up_cache_bank(1)));
+        up_cache_reset();
+        up_bank_check(1, st_load(OBJ_UPRESET0 + 1, up_cache_bank(1), sizeof (*up_cache_bank(1))));
         bad += check("a grid record: bank round trip", up_used(20) && !memcmp(up_rec(20), &got, sizeof got));
     }
 
@@ -210,9 +210,9 @@ int main(void)
         *up_rec(16) = d;
         *up_rec(17) = m;
         *up_rec(18) = o;
-        st_save(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]);
-        memset(up_bank, 0, sizeof up_bank);
-        up_bank_check(1, st_load(OBJ_UPRESET0 + 1, &up_bank[1], sizeof up_bank[1]));
+        st_save(OBJ_UPRESET0 + 1, up_cache_bank(1), sizeof (*up_cache_bank(1)));
+        up_cache_reset();
+        up_bank_check(1, st_load(OBJ_UPRESET0 + 1, up_cache_bank(1), sizeof (*up_cache_bank(1))));
         ok = up_used(16) && up_rec(16)->engine == ENGI_DRUM && up_used(17) && up_rec(17)->engine == ENGI_PHYS &&
              !memcmp(up_rec(17)->p, m.p, sizeof m.p) && up_used(18) && up_rec(18)->engine == ENGI_DRUM &&
              up_rec(16)->ver == UP_VER;

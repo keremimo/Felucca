@@ -47,6 +47,10 @@ static void routing(void)
     assert(out[0] == 3000 && out[1] == -3000);
     assert(ua.cap[0] == 1000 && ua.cap[1] == -1000); /* no playback loopback */
     assert(ua.cap[2] == 300 && ua.cap[3] == -700);
+    uint32_t written=ua.cw;
+    for(i=0;i<32u;i++){out[2u*i]=1000;out[2u*i+1u]=-1000;}
+    ua_audio(out,0,32,4096);
+    assert(ua.cw==written && out[0]==3000 && out[1]==-3000);
     block(1000, -1000, 0, out);
     assert(out[0] == 1000 && out[1] == -1000);
     assert(ua.cap[128] == 1000 && ua.cap[131] == -700); /* MASTER does not scale stems */

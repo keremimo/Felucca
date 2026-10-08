@@ -65,7 +65,7 @@ static void setup(const uint8_t *v, const int16_t *e)
 {
     uint32_t i;
     memset(trk, 0, sizeof trk);
-    memset(eng_state, 0, sizeof eng_state);
+    eng_state_reset();
     memset(fm6_eff, 0, sizeof fm6_eff);
     fm6_fn_reset();
     host_tracks_init();
@@ -928,7 +928,7 @@ static void demo(const char *dir, uint32_t pi)
         return;
     wav_hdr(w, 0);
     memset(trk, 0, sizeof trk);
-    memset(eng_state, 0, sizeof eng_state);
+    eng_state_reset();
     fm6_fn_reset();
     host_tracks_init();
     host_preset(T, ENGI_FM6, pi);

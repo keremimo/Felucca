@@ -22,6 +22,7 @@ static struct result render(uint32_t channel, int sliced, int variant)
         int32_t out[CTL * 2];
         track_t *t = &trk[channel];
         close(fd[0]);
+        usb.up=usb.config=1;usb.suspended=0;ua.cap_alt=1;
         host_tracks_init();
         for (uint32_t k = 0; k < NPART; k++) host_preset(&trk[k], 0, 5);
         t->p[P_DIST] = 60;
@@ -36,7 +37,6 @@ static struct result render(uint32_t channel, int sliced, int variant)
         trk_note_on(t, 60, 100);
         for (uint32_t block = 0; block < 2048; block++) {
             mix_block(out, CTL);
-            ua.cap_alt = 1;
             ua.cw = ua.cr = 0;
             ua_audio(out, track_capture, CTL, song.master_q12);
             for (uint32_t i = 0; i < CTL; i++) {
