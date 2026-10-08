@@ -81,6 +81,15 @@ static inline __attribute__((always_inline)) int32_t p5_fast_softclip(int32_t x)
     int32_t y = P5_TANH_Q15[i > 2048 ? 2048 : i];
     return x < 0 ? -y : y;
 }
+/* The same knee, interpolated. The nearest lookup quantizes to 32-unit steps;
+ * where its output reaches the VCA unfiltered, those steps are an audible
+ * grain once the filter has closed (Internalized's sustain, -50 dB). */
+static inline __attribute__((always_inline)) int32_t p5_smooth_softclip(int32_t x)
+{
+    int32_t a = x < 0 ? -x : x, i = a >> 5;
+    int32_t y = i >= 2048 ? P5_TANH_Q15[2048] : P5_TANH_Q15[i] + (((P5_TANH_Q15[i + 1] - P5_TANH_Q15[i]) * (a & 31)) >> 5);
+    return x < 0 ? -y : y;
+}
 static inline __attribute__((always_inline)) uint32_t p5_fast_noise32(int32_t *st)
 {
     uint32_t s = (uint32_t)*st;
@@ -175,6 +184,10 @@ static void p5_note_on(track_t *t, voice_t *v)
     s->filter_drift = ((int32_t)(p5_fast_noise32(&s->noise) & 255u) - 128) * vintage / 32;
     s->amp_drift = ((int32_t)(p5_fast_noise32(&s->noise) & 255u) - 128) * vintage / 16;
     s->env_drift = ((int32_t)(p5_fast_noise32(&s->noise) & 255u) - 128) * vintage / 128;
+    /* The oscillators free-run, so a key finds a Lo Freq B anywhere in its
+     * cycle. Starting each new voice at the bottom of the ramp instead held
+     * Pickle Pincher's filter shut (Poly-Mod B 127) for every fresh note. */
+    if (!voice_was && p[P5_LOW_B]) s->phase[1] = p5_fast_noise32(&s->noise);
 }
 static __attribute__((noinline)) int32_t p5_env_source(track_t *t,voice_t *v) {p5_voice_t *s=p5_voice(t,v);return s?s->amp_prev:0;}
 static int p5_done(track_t *t, voice_t *v)
@@ -278,17 +291,20 @@ static inline __attribute__((always_inline)) int32_t p5_filter_core(p5_voice_t *
     int32_t drive=p5_fast_clamp(input-p5_m12(k,sigma),-262143,262143);
     int32_t u=(drive*reciprocal)>>13;
     u = p5_fast_softclip(u);
-    /* Fixed four-pole stages: no indexed loop or per-stage mode branch. */
-#define P5_STAGE(j, nonlinear) do { \
+    /* Fixed four-pole stages: no indexed loop or per-stage mode branch.
+     * The following poles filter an SSI stage's lookup steps, except the last. */
+#define P5_STAGE(j, clip) do { \
     int32_t delta=p5_m12(g,u-s->z[j]); \
     int32_t y=s->z[j]+delta; \
     s->z[j]=p5_fast_clamp(y+delta,-60000,60000); \
-    u=(nonlinear)?p5_fast_softclip(y):y; \
+    u=clip(y); \
 } while(0)
-    if(curtis){P5_STAGE(0,0);P5_STAGE(1,0);P5_STAGE(2,0);P5_STAGE(3,0);}
-    else {P5_STAGE(0,1);P5_STAGE(1,1);P5_STAGE(2,1);P5_STAGE(3,1);}
+#define P5_LINEAR(y) (y)
+    if(curtis){P5_STAGE(0,P5_LINEAR);P5_STAGE(1,P5_LINEAR);P5_STAGE(2,P5_LINEAR);P5_STAGE(3,P5_LINEAR);}
+    else {P5_STAGE(0,p5_fast_softclip);P5_STAGE(1,p5_fast_softclip);P5_STAGE(2,p5_fast_softclip);P5_STAGE(3,p5_smooth_softclip);}
+#undef P5_LINEAR
 #undef P5_STAGE
-    return p5_fast_softclip(u);
+    return p5_smooth_softclip(u);
 }
 
 static int32_t p5_filter(p5_voice_t *s,int32_t input,int32_t cutoff,int32_t resonance,int curtis)
@@ -457,7 +473,9 @@ static void p5_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
     int32_t pitch_b = (p[P5_KEY_B] ? m->pitch16+glide+coarse_b : 12*16+q[P5_FREQ_B]*108*16/127) + t->p[P_E3]*16;
     uint32_t ia = cents_inc(pitch_a, s->drift, m->fine) / P5_OVERSAMPLE;
     uint32_t ib = cents_inc(pitch_b, q[P5_FINE_B]*100/128-s->drift, m->fine) / P5_OVERSAMPLE;
-    if (p[P5_LOW_B]) ib >>= 10;
+    /* Lo Freq drops B seven octaves: Pickle Pincher's keyboard-off B (raw 48,
+     * 173 Hz) moves its filter at the demo's 1.35 Hz (ten octaves: 0.17 Hz). */
+    if (p[P5_LOW_B]) ib >>= 7;
     int32_t filter_velocity=p[P5_VEL_FILTER] ? v->mvel*258 : 32767;
     int32_t amp_velocity=p[P5_VEL_AMP] ? v->mvel*258 : 32767;
     /* Cutoff in Q8 steps of the coefficient table (14.02 per octave, 30 Hz

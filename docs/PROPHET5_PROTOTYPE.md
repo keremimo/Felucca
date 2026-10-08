@@ -73,7 +73,10 @@ not establish acceptable aliasing or reference fidelity.
 
 The sample path and coefficient/saturation tables live in the existing RAM
 DSP sections. The saturation lookup has less than 18 Q15 units of absolute
-error against the intended tanh knee; host tests check odd symmetry,
+error against the intended tanh knee. Inside the filter that error is filtered
+by the following poles; the last SSI stage and the filter output interpolate
+the table, since their 32-unit steps reached the VCA as a grain about 50 dB
+below a closed filter's sustain (Internalized). Host tests check odd symmetry,
 monotonicity, endpoints and stability. The common renderer's structural cost
 check passes. Hardware timing, rather than host speed, decides capacity.
 
@@ -160,6 +163,7 @@ knobs. Fine B 24 measured +18 cents, as rendered; the parameter layout matched.
 | Rev 1/2 filter envelope | exponential | It's a Prophet 5 decay is nearly linear (as the guide says) | linear decay/release, full scale in 3.6 τ |
 | Poly-Mod → osc A | linear FM, ratio up to 2 | Whiny Opener env 96 sweeps A +2 octaves; Small Gong B 127 shifts A ~+3 semitones | exponential: env 2.65 oct, osc B ±1.1 oct at 127 |
 | Vintage | 0 = loosest | 63 factory programs use 0, 48 use 42, 12 use 127; guide: 4 (stable) to 1 | 0 = stable Rev 4, 127 = Rev 1 |
+| Osc B Lo Freq | 10 octaves down, every new voice at the bottom of the ramp | Pickle Pincher (B 48, keyboard off: 173 Hz; LFO is noise only) moves level and brightness at 1.31–1.39 Hz with harmonics | 7 octaves down (1.35 Hz), free-running phase |
 
 After the change, It's a Prophet 5 at middle C renders 3.35 Hz ±7.9 cents and a
 cutoff of 10.5/8.9/6.1/4.2/2.5 kHz at 0/0.2/0.6/1.0/1.6 s (demo: 3.37 Hz
