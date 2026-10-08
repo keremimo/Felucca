@@ -9,8 +9,8 @@ No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the i
 It saves a complete backup first. If your firmware cannot export one, you can select
 **Skip backup** and confirm that Melodee music, sounds and settings may be lost.
 
-Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.12**
-([what's new](#whats-new-in-012)).
+Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.13**
+([what's new](#whats-new-in-013)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -21,6 +21,30 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 0.13
+
+- **PROPHET**, a new engine for Sequential Prophet-5 Rev 4 programs: two oscillators with hard sync,
+  Poly-Mod, LFO and noise wheel modulation, the SSI (Rev 1/2) and Curtis (Rev 3) four-pole filters,
+  separate filter and amplifier envelopes, Vintage, glide, unison and five voices per track.
+  **All 200 programs of Sequential's v1.03 factory bank are its presets.** LFO rates, vibrato depth,
+  filter tracking and envelope times are fitted to recordings of a Rev 4. Sixteen device pages edit
+  every native parameter, and 128 native user slots (P001–P128) start with the first 128 factory
+  programs. The web editor imports and exports Prophet-5/10 .syx programs and banks; the device also
+  accepts single and edit-buffer dumps over USB. PROPHET takes ANALOG's place in the engine list
+- **Note editing:** SEQ > NOTES is now the single editor for entered steps and recorded takes:
+  SELECT walks the notes, the knobs change pitch, length and velocity, SCL moves and EDIT deletes;
+  hold EDIT while recording to erase as the playhead passes
+- **FM6:** DX7 librarians can send 32-voice banks straight to the device over USB, into F001–F032
+  or F033–F064 (EDIT > STORE > SLOT), and bank dump requests answer from there; STORE > SEND sends
+  the track's voice. The fourth main knob is DTUN
+- **Performance:** engine and bank memory is allocated when it is used, idle USB capture and silent
+  tracks cost no processing, and the screen draws while the LCD transfers
+- **Retired engines:** PHYS, TRIO and WHEEL. Tracks that use them are silent; their saved values are kept
+
+**Upgrading from 0.12:** projects, templates, banks and presets migrate. Projects and templates saved
+by 0.13 include their Prophet programs and need 0.13. Installing 0.12 or the official V15 afterwards
+erases the Prophet user slots: export them, or keep the installer's backup, first.
 
 ## What's new in 0.12
 
@@ -119,7 +143,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   (OCT UP / OCT DN with shimmer), and mutes on the black keys
 - **Quick layers:** hold FX, GLO, SCL or EDIT for shortcuts on the keys and knobs; one-step undo
   (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
-- **Presets:** factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots and 4 projects, named on the device;
+- **Presets:** factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
 - **Screen:** flat UI with Inter Tight and Fukiai icons, 8 palettes including grayscale and high contrast;
   HOME shows the played notes and recognized chords above the live waveform, retaining the last voicing after release
@@ -281,7 +305,10 @@ Going back to older firmware cannot access these new native FM6 slots or U33–U
 
 In the order the device lists them:
 
-- **ANALOG**: virtual analog; two oscillators, noise, drive, resonant low-pass filter
+- **PROPHET**: Sequential Prophet-5 Rev 4 programs, five voices per track: oscillators A and B (saw,
+  pulse, B triangle, low-frequency and keyboard switches), hard sync, Poly-Mod, LFO and noise wheel
+  modulation, the SSI (Rev 1/2) or Curtis (Rev 3) four-pole filter, filter and amplifier envelopes,
+  Vintage, glide and unison. Each voice uses three of the shared voice slots
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track edited in the
   web editor or on the device; operator frequency, levels, envelopes and scaling, pitch envelope,
   LFO, STORE and DX7 SysEx; an algorithm chart on screen. The main knobs control MLVL, MRAT,
@@ -298,7 +325,13 @@ In the order the device lists them:
 - **DRUM**: synthesized TR-808 circuit models on eight lanes with the General MIDI key map.
   The 808 is the only kit; Felucca’s custom kit has been removed.
 
-TRIO, WHEEL and PHYS are retired. Their engine IDs, saved edit values and favourite bits remain reserved; old tracks using these engines are silent. ANALOG still renders existing sounds.
+TRIO, WHEEL and PHYS are retired. Their engine IDs, saved edit values and favourite bits remain reserved; old tracks using these engines are silent. PROPHET replaces ANALOG in the engine list; ANALOG still renders existing sounds.
+
+PROPHET opens on It's a Prophet 5 (or on user slot P001 once it holds your own program). PRESETS lists
+INIT and Sequential's 200 factory programs, then the native user slots P001–P128. In the web editor,
+choose PROPHET to edit a track's program field by field, read and send it, import or export .syx
+programs and banks in Sequential's format, and manage the user slots. Calibration, storage and format
+notes: [docs/PROPHET5_PROTOTYPE.md](docs/PROPHET5_PROTOTYPE.md).
 
 The DIGITAL engine of 0.9 has been replaced by FM6: projects and presets with DIGITAL sounds load
 as FM6 sounds converted from them.
