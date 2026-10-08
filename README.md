@@ -9,8 +9,8 @@ No extra hardware is needed. Use at your own risk; M-VAVE's own updater or the i
 It saves a complete backup first. If your firmware cannot export one, you can select
 **Skip backup** and confirm that Melodee music, sounds and settings may be lost.
 
-Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.13**
-([what's new](#whats-new-in-013)).
+Multi-engine synthesizer firmware for the M-VAVE FM-1. Current release: **Melodee 0.13.1**
+([what's new](#whats-new-in-0131)).
 
 Melodee is a modified version of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
 ([@kurogedelic](https://github.com/kurogedelic)), [Hügelton Instruments](https://hugelton.com), and
@@ -21,6 +21,17 @@ runs Felucca.
 - Install: [web installer](https://keremimo.github.io/melodee/) (Chrome or Edge, USB), or `tools/fm1_install.py` from a terminal
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
+
+## What's new in 0.13.1
+
+- **PROPHET Lo Freq:** oscillator B's Lo Freq switch drops it seven octaves instead of ten, as measured
+  on a Rev 4 recording, and a new note finds it anywhere in its cycle, as on the free-running original.
+  Programs that use it as a slow modulator (Pickle Pincher, FLUTES, TRUMPET FLUTE and others) move at
+  their intended rate; Pickle Pincher no longer falls silent after the first note
+- **PROPHET filter:** smoother saturation at the filter's last stage and output removes a faint grain
+  that became audible as the filter closed, for example in Internalized's sustain
+- **Web editor:** importing more native .syx programs than there are empty slots offers to overwrite
+  them from the selected slot onwards
 
 ## What's new in 0.13
 
