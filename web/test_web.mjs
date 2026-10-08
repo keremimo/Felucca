@@ -129,7 +129,7 @@ async function editorMock() {
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
   ok(info.nengines === 16 && info.engines[14] === "-" && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-"
- && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "-" && info.engines[9] === "PHYS" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === 92 && info.pe0 === 84 && info.engines[4] === "-",
+ && info.engines[5] === "VOICE" && info.engines[6] === "-" && info.engines[7] === "-" && info.engines[8] === "-" && info.engines[9] === "-" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === 92 && info.pe0 === 84 && info.engines[4] === "-",
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
@@ -223,7 +223,7 @@ async function editorMock() {
   ok(!prefs.favorites[info.nengines][31] && !E.devicePresetRows(info, names, prefs).some((r) => r.user), "editor: erased slot disappears and loses star");
   {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, DRUM last, "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "ANALOG,FM6,PHASE,CZ-1,LOFI,VOICE,TRIO,WHEEL,PHYS,NOISE,DRUM" &&
+    ok(shown.join() === "ANALOG,FM6,PHASE,CZ-1,LOFI,VOICE,NOISE,DRUM" &&
        E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-1) === 10,
        "editor: engines listed FM6 second, DRUM last (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
@@ -304,7 +304,7 @@ async function editorMock() {
 
 async function editorSamplePresets() {
  const {rq,done}=attachMock();const info=E.parse[E.CMD.INFO](await rq(E.req.info()));
- ok([4,8,13].every(i=>info.engines[i]==="-" && !E.engineOrder(info.engines).includes(i)),"editor: SAMPLE, GRAIN and SLICE removed; other engine IDs kept");done();
+ ok([4,6,7,8,9,13,14].every(i=>info.engines[i]==="-" && !E.engineOrder(info.engines).includes(i)),"editor: SAMPLE, GRAIN and SLICE removed; other engine IDs kept");done();
 }
 
 /* the mock's tables == the firmware's (build/host/desc.json from tests/descdump.c, written by run_tests.sh):
@@ -313,9 +313,8 @@ function mockTables() {
   {
     const m0 = E.makeMockDevice({ auto: false }), ph = m0.tables.ENG[9], dr = m0.tables.ENG[10];
     m0.stop();
-    ok(ph.name === "PHYS" && ph.edit[0].names.join() === "MODAL,STRNG,MEMB,SYMP" && ph.edit[0].max === 3 &&
-       ph.presets.length === 9 && !ph.presets.some((p) => p.name === "RAIN" || p.name === "DRUM KIT"),
-       "editor: PHYS models MODAL STRNG MEMB SYMP (no DUST, no DRUM), 9 presets");
+    ok([6,7,9].every((i) => m0.tables.ENG[i].name === "-" && !m0.tables.ENG[i].presets.length),
+       "editor: TRIO, WHEEL and PHYS retired with their original IDs reserved");
     ok(dr.name === "DRUM" && dr.edit.map((d) => d.label).join() === "KIT,TUNE,TONE,DECY,SNAP,ACC,KICK,DRV" &&
        dr.edit[0].names.join() === "808" && dr.edit[0].min === 4 && dr.edit[0].max === 4 && dr.presets.length === 1 && dr.presets[0].name === "808 KIT" &&
        dr.presets.every((p) => p.pat === 12),

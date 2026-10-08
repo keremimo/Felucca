@@ -91,7 +91,9 @@ $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_preset_test" tests/fm6_preset
 run "native FM6/CZ user presets, scrolling, migration and interrupted saves" "$OUT/fm6_preset_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/resources_test" tests/resources_test.c -lm
 run "resource lifetimes, cache eviction, tails and capacity" "$OUT/resources_test"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/performance_test" tests/performance_test.c -lm
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/engine_retirement_test" tests/engine_retirement_test.c -lm
+run "retired synth identities, project/user patch preservation and favorites" "$OUT/engine_retirement_test"
+$CC -DMELODEE_LEGACY_EXTRAS=1 -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/performance_test" tests/performance_test.c -lm
 run "capture gating, derived caches and silent-track clocks" "$OUT/performance_test"
 $CC -O1 -w -Ibuild/gen -o "$OUT/lcd_overlap_test" tests/lcd_overlap_test.c -lm
 run "canvas drawing overlaps DMA without changing pending pixels" "$OUT/lcd_overlap_test"
@@ -125,6 +127,8 @@ run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" bui
 
 if [ -f build/gen/melodee_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/prophet_test" tests/prophet_test.c -lm
+    run "Prophet measurement prototype: native frames, five voices, filters, sync and Poly-Mod" "$OUT/prophet_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/scale_test" tests/scale_test.c -lm
     run "scales: white-key mapping and note lifecycle" "$OUT/scale_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/microtonal_test" tests/microtonal_test.c -lm
@@ -154,7 +158,7 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "Recorded notes: individual selection/deletion, zoom, undo, playback ownership and persistence" "$OUT/seq_notes_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_scale_test" tests/midi_scale_test.c -lm
     run "MIDI IN through the scale layouts (WHITE, ALL, MPC), shared SCL / QNT" "$OUT/midi_scale_test"
-    $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/tuning_test" tests/tuning_test.c -lm
+    $CC -DMELODEE_LEGACY_EXTRAS=1 -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/tuning_test" tests/tuning_test.c -lm
     run "Concert pitch: A4 frequency, engines, modulation, held notes and project-independent settings" "$OUT/tuning_test"
     $CC -O1 -w -DMELODEE_FM4=1 -Ibuild/gen -Ifirmware/src -o "$OUT/digital_test" tests/digital_test.c -lm
     run "DIGITAL (retired, built here with MELODEE_FM4=1): operator envelopes/levels" "$OUT/digital_test"
@@ -197,7 +201,7 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "editor: real C protocol, malformed transfers and queue recovery" "$OUT/editor_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_sysex_test" tests/fm6_sysex_test.c -lm
     run "DX7 librarian: USB voice/bank receive, dump replies and malformed frame recovery" "$OUT/fm6_sysex_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mod_test" tests/mod_test.c -lm
+    $CC -DMELODEE_LEGACY_EXTRAS=1 -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mod_test" tests/mod_test.c -lm
     mkdir -p build/mod_demo
     run "modulation matrix: off = bit-identical, the math, MIDI CC1 / CC11 / aftertouch, cost, demos" "$OUT/mod_test" build/mod_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slicer_test" tests/slicer_test.c -lm
@@ -219,12 +223,12 @@ if [ -f build/gen/melodee_tables.h ]; then
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/descdump" tests/descdump.c -lm
     echo "== parameter and engine tables as JSON (for the editor mock test)"
     "$OUT/descdump" > "$OUT/desc.json" || fail=1
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/phys_test" tests/phys_test.c -lm
+    $CC -DMELODEE_LEGACY_EXTRAS=1 -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/phys_test" tests/phys_test.c -lm
     mkdir -p build/phys_demo
     run "PHYS: stability C-1..G9 over the parameter corners, worst-case cost against PHASE WIRE, demos" "$OUT/phys_test" build/phys_demo
     D=${DAISYSP:-vendor/DaisySP}/Source
     if [ -d "$D/PhysicalModeling" ] && command -v c++ >/dev/null 2>&1; then
-        $CC -O2 -w -Ibuild/gen -Ifirmware/src -Itests -c -o "$OUT/phys_fixed.o" tests/phys_fixed.c
+        $CC -DMELODEE_LEGACY_EXTRAS=1 -O2 -w -Ibuild/gen -Ifirmware/src -Itests -c -o "$OUT/phys_fixed.o" tests/phys_fixed.c
         c++ -O2 -std=c++14 -w -I"$D" -I"$D/Utility" -o "$OUT/phys_ref" tests/phys_ref.cpp \
             "$D/PhysicalModeling/modalvoice.cpp" "$D/PhysicalModeling/resonator.cpp" "$D/PhysicalModeling/stringvoice.cpp" \
             "$D/PhysicalModeling/KarplusString.cpp" "$D/Filters/svf.cpp" "$D/Utility/dcblock.cpp" \

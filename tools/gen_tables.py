@@ -77,6 +77,22 @@ def main(path):
     L += arr("CUTOFF_HZ", "uint16_t", [int(round(f)) for f in fc])
     # trapezoidal (Simper) SVF: g = tan(pi fc / FS), Q12; stable at any cutoff/resonance
     L += arr("SVF_G", "uint16_t", [int(4096 * math.tan(math.pi * min(f, 0.45 * FS) / FS)) for f in fc])
+    L += ["#if MELODEE_PROPHET_PROTOTYPE"]
+    # Four TPT poles at the selected prototype sample rate.
+    for os in (2, 1):
+        L += ["#if P5_OVERSAMPLE == 2" if os == 2 else "#else"]
+        p5g = arr("P5_TPT_G", "uint16_t", [round(4096 * math.tan(math.pi * f / (os * FS)) /
+                                                 (1 + math.tan(math.pi * f / (os * FS)))) for f in fc])
+        p5g[0] = p5g[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+        L += p5g
+    L += ["#endif"]
+    p5inv = arr("P5_INV_DEN", "uint16_t", [round((8192 * 4096) / (4096 + i * 32)) for i in range(257)])
+    p5inv[0] = p5inv[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+    L += p5inv
+    p5tanh = arr("P5_TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 256 * 2)) for i in range(257)])
+    p5tanh[0] = p5tanh[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+    L += p5tanh
+    L += ["#endif"]
     # level: 0 = off, else dB = (v - 112) / 2  (112 = 0 dB, 127 = +7.5 dB)
     db = [None] + [(v - 112) / 2 for v in range(1, 128)]
     L += arr("LEVEL_Q12", "uint16_t", [0] + [int(round(4096 * 10 ** (d / 20))) for d in db[1:]])

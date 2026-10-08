@@ -158,7 +158,7 @@ static void up_cache_index(uint32_t b)
     for(uint32_t j=0;j<UP_PER_BANK;j++){
         uint32_t k=b*UP_PER_BANK+j; const up_rec_t *r=&up_cache.r[j];
         up_meta[k].ready=1;up_meta[k].used=(uint8_t)up_valid(r);
-        up_meta[k].engine=up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:eng_ok(r->engine)?r->engine:ENGI_FM6;
+        up_meta[k].engine=up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:eng_sound_idx(r->engine);
         uint32_t n=0;
         for(;n<12u && r->name[n];n++)up_meta[k].name[n]=r->name[n]>='a' && r->name[n]<='z'?(char)(r->name[n]-32):r->name[n];
         up_meta[k].name[n]=0;
@@ -301,9 +301,10 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
     for (i = 0; i < P_COUNT; i++)
         def[i] = param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->def;
     up_params(r, v, def);
-    if (r->ver == 1u && ENGINES[r->engine] == &ENG_PHYS)   /* (before 1.0: MODEL 2 was DUST) */
+    if (r->ver == 1u && r->engine == ENGI_PHYS)   /* (before 1.0: MODEL 2 was DUST) */
         phys_legacy(&v[P_E0]);
     for (i = 0; i < P_COUNT; i++)
+        if (!(eng_extra_retired(r->engine) && i >= P_E0))
         v[i] = (int16_t)clamp(v[i], param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->min, param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->max);
 }
 
@@ -419,7 +420,7 @@ static void up_auto_name(char *b, uint32_t e, uint32_t k)
 {
     char l[4];
     e %= NENGINES;
-    str_cpy(b, ENGINES[eng_ok(e) ? e : ENGI_FM6]->name, 9);   /* (a DIGITAL record plays as FM6) */
+    str_cpy(b, ENGINES[eng_sound_idx(e)]->name, 9);   /* (a DIGITAL record plays as FM6) */
     up_slot_label(l, k);
     str_cpy(b + str_len(b), " ", 2);
     str_cpy(b + str_len(b), l + 1, 3);
@@ -598,7 +599,7 @@ static uint32_t up_engine(uint32_t k) {
 #if MELODEE_FLASH && !defined(UP_HOST)
     if(up_cached != k/UP_PER_BANK && up_meta[k].ready)return up_meta[k].engine;
 #endif
- if(up_native_cz(up_rec(k))||up_legacy_cz(up_rec(k)))return ENGI_CZ; return eng_ok(up_rec(k)->engine) ? up_rec(k)->engine : ENGI_FM6; }
+ if(up_native_cz(up_rec(k))||up_legacy_cz(up_rec(k)))return ENGI_CZ; return eng_sound_idx(up_rec(k)->engine); }
 
 static uint32_t up_count(void)                 /* used slots */
 {

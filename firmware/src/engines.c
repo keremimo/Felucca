@@ -4,6 +4,9 @@
  * factory patterns (SEQ > PATTERNS) and the parts' sounds at power-on. */
 #include "dsp.c"
 #include "eng_analog.c"
+#if MELODEE_PROPHET_PROTOTYPE
+#include "eng_prophet_test.c"
+#endif
 #include "eng_phase.c"
 #include "eng_cz.c"
 #include "eng_lofi.c"
@@ -44,10 +47,15 @@ static const engine_t ENG_RETIRED = {         /* 13 without MELODEE_SLICE: reser
 static uint32_t eng_state_size(uint32_t e)
 {
     switch (e) {
+#if MELODEE_PROPHET_PROTOTYPE
+    case 0: return sizeof(p5_part_t);
+#endif
+#if MELODEE_LEGACY_EXTRAS
     case ENGI_PHYS: return sizeof(phys_slot_t) * PHYS_POLY;
+    case 7: return sizeof(drw_part_t);
+#endif
     case 2: case ENGI_CZ: return sizeof(cz_part_t);
     case ENGI_DRUM: return sizeof(drum_lane_t) * DV_NLANE;
-    case 7: return sizeof(drw_part_t);
     case ENGI_FM6: return sizeof(fm6_part_t);
 #if MELODEE_SLICE
     case ENGI_SLICE: return sizeof(slc_rb_t);
@@ -70,13 +78,20 @@ static drum_lane_t *drum_kit_part(uint32_t part) { return resource_get(RES_ENGIN
 static drw_part_t *drw_of(const track_t *t) { return resource_get(RES_ENGINE0 + (uint32_t)(t - trk), sizeof(drw_part_t)); }
 static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(fm6_part_t)); }
 static cz_part_t *cz_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(cz_part_t)); }
+#if MELODEE_PROPHET_PROTOTYPE
+static p5_part_t *p5_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(p5_part_t)); }
+#endif
 #if MELODEE_SLICE
 static int16_t (*slc_rbuf(uint32_t part))[SLC_RB] { return resource_get(RES_ENGINE0 + part % NPART, sizeof(slc_rb_t)); }
 #endif
 
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
 static const engine_t *const ENGINES[NENGINES] = {
+#if MELODEE_PROPHET_PROTOTYPE
+    &ENG_P5_TEST,                /* test firmware only: RAM patches, NEVER persist */
+#else
     &ENG_ANALOG,                 /* 0 */
+#endif
 #if MELODEE_FM4
     &ENG_DIGITAL,                /* 1 (ENGI_DIGITAL) */
 #else
@@ -86,10 +101,22 @@ static const engine_t *const ENGINES[NENGINES] = {
     &ENG_LOFI,                   /* 3 */
     &ENG_RETIRED,                /* 4: retired SAMPLE; reserved to preserve stored indices */
     &ENG_FORMANT,                /* 5 VOICE (eng_formant.c: "voice" is a sounding note in voice.c) */
-    &ENG_TRIO,                   /* 6 */
-    &ENG_WHEEL,                  /* 7 */
+#if MELODEE_LEGACY_EXTRAS
+    &ENG_TRIO,
+#else
+    &ENG_RETIRED,                /* 6: retired TRIO; stored ID reserved */
+#endif
+#if MELODEE_LEGACY_EXTRAS
+    &ENG_WHEEL,
+#else
+    &ENG_RETIRED,                /* 7: retired WHEEL; stored ID reserved */
+#endif
     &ENG_RETIRED,                /* 8: retired GRAIN; stored index reserved */
-    &ENG_PHYS,                   /* 9 (ENGI_PHYS) */
+#if MELODEE_LEGACY_EXTRAS
+    &ENG_PHYS,
+#else
+    &ENG_RETIRED,                /* 9: retired PHYS; stored ID reserved */
+#endif
     &ENG_DRUM,                   /* 10 (ENGI_DRUM) */
     &ENG_NOISE,                  /* 11 */
     &ENG_FM6,                    /* 12 (ENGI_FM6) */
@@ -114,7 +141,10 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
 #if MELODEE_FM4
     1,                           /* DIGITAL */
 #endif
-    2, ENGI_CZ, 3, 5, 6, 7, 9,      /* PHASE CZ-1 LOFI VOICE TRIO WHEEL PHYS */
+    2, ENGI_CZ, 3, 5,             /* PHASE CZ-1 LOFI VOICE */
+#if MELODEE_LEGACY_EXTRAS
+    6, 7, 9,
+#endif
     11,                          /* NOISE */
 #if MELODEE_SLICE
     13,                          /* SLICE */
@@ -126,7 +156,17 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
  * eng_vis(n), e's place among them eng_rank(e), the next / previous one eng_step(e, dir) (wraps) */
 static int eng_ok(uint32_t e)
 {
-    return e < NENGINES && e != 4u && e != 8u && e != 14u && (MELODEE_FM4 || e != ENGI_DIGITAL) && (MELODEE_SLICE || e != ENGI_SLICE);
+    return e < NENGINES && (MELODEE_LEGACY_EXTRAS || (e != 6u && e != 7u && e != 9u)) && e != 4u && e != 8u && e != 14u && (MELODEE_FM4 || e != ENGI_DIGITAL) && (MELODEE_SLICE || e != ENGI_SLICE);
+}
+/* Retired extra synth records retain their stored identity and render silence.
+ * DIGITAL keeps its existing FM6 conversion. Never relabel retired records FM6. */
+static int eng_extra_retired(uint32_t e)
+{
+    return !MELODEE_LEGACY_EXTRAS && (e == 6u || e == 7u || e == 9u);
+}
+static uint32_t eng_sound_idx(uint32_t e)
+{
+    return e == 6u || e == 7u || e == 9u ? e : eng_ok(e) ? e : ENGI_FM6;
 }
 static uint32_t eng_vis(uint32_t n) { return ENGINE_ORDER[n % NENG_SHOWN]; }
 static uint32_t eng_rank(uint32_t e)

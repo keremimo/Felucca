@@ -332,6 +332,37 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (!ed_args_ok(cmd, a, na))
         return;
     ed_begin(cmd);
+#if MELODEE_PROPHET_PROTOTYPE
+    /* Temporary command 95, available only in measurement firmware.
+     * [0,track] reads the exact native frame body; [1,track,body..] imports
+     * one program/edit-buffer frame without touching flash. */
+    if (cmd == 95u) {
+        uint32_t rc = na < 2u || a[0] > 1u || a[1] >= NPART ? 1u : 0u;
+        p5_patch_t patch;
+        uint8_t frame[P5_FRAME_MAX];
+        uint32_t len = 0, part = na >= 2u ? a[1] : 0u;
+        if (!rc && a[0] == 1u) {
+            len = na - 2u;
+            if (len > P5_FRAME_MAX - 2u) rc = 1;
+            else {
+                frame[0] = 0xF0; memcpy(frame+1,a+2,len); frame[len+1u]=0xF7;
+                if (!p5_patch_decode(&patch,frame,len+2u)) rc=1;
+                else {
+                    uint32_t flags=irq_save();
+                    for (uint32_t v=0;v<NVOICE;v++) if (trk[part].v[v].active) rc=2;
+                    if (!rc) { p5_patch[part]=patch; p5_ready[part]=1; }
+                    irq_restore(flags);
+                }
+            }
+        } else if (!rc) {
+            if (na != 2u) rc=1;
+            else len=p5_patch_encode(p5_patch_of(&trk[part]),frame,sizeof frame);
+        }
+        ed_b(1); ed_b(rc); ed_b(part);
+        if (!rc && a[0]==0u) for (uint32_t j=1;j+1u<len;j++) ed_b(frame[j]);
+        ed_send(); return;
+    }
+#endif
     if (ed_ui_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }
@@ -360,7 +391,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         snapshot[15] = ua.service_max_ticks / FM1_TICKS_PER_US;
         snapshot[16] = melodee_dbg.late;
         snapshot[17] = ua_feedback();
-        snapshot[18] = melodee_dbg.max_us;            /* render time, TIMER5 preemption included */
+        snapshot[18] = melodee_dbg.max_us;            /* render time excludes TIMER5; shedding includes it */
         snapshot[19] = song.cpu_q8;
         if (count == 26u) {
             for (uint32_t p = 0; p < NPART; p++) {
