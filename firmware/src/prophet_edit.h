@@ -4,7 +4,7 @@ static const char *const P5_FILTER_NAMES[]={"SSI","CURTIS"};
 static const char *const P5_TRACK_NAMES[]={"OFF","HALF","FULL"};
 static const char *const P5_ASSIGN_NAMES[]={"LOW","LOW RET","LAST","LAST RET"};
 static int16_t p5_cell[4],p5_store_slot=1;
-#define P5_K(n,l) [n]=PD(l,F_INT,0,((n)==P5_FINE_B || (n)==P5_POLY_ENV || (n)==P5_VINTAGE)?127:120,0)
+#define P5_K(n,l) [n]=PD(l,F_INT,0,127,0)   /* stored knobs span 0..127 */
 #define P5_B(n,l) [n]=PE(l,N_ONOFF,0)
 static const param_desc_t P5_PANEL[88]={
     P5_K(P5_FREQ_A,"FREQ A"),P5_K(P5_FREQ_B,"FREQ B"),P5_K(P5_FINE_B,"FINE B"),

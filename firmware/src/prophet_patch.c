@@ -32,13 +32,13 @@ static void p5_patch_init(p5_patch_t *p)
     p->size = P5_RAW_MAX; p->model = 0x32; p->command = 3;
     p->raw[P5_FREQ_A] = p->raw[P5_FREQ_B] = 24;
     p->raw[P5_FINE_B] = 0;
-    p->raw[P5_VINTAGE] = 127;
+    p->raw[P5_VINTAGE] = 0;    /* 0: stable Rev 4 .. 127: Rev 1 */
     p->raw[P5_SAW_A] = p->raw[P5_KEY_B] = 1;
     p->raw[P5_PW_A] = p->raw[P5_PW_B] = 64;
-    p->raw[P5_LEVEL_A] = p->raw[P5_CUTOFF] = 120;
+    p->raw[P5_LEVEL_A] = p->raw[P5_CUTOFF] = 127;
     p->raw[P5_FILTER_REV] = 1; /* 0: Rev1/2 (SSI); 1: Rev3 (Curtis) */
     p->raw[P5_DECAY_FILTER] = p->raw[P5_DECAY_AMP] = 60;
-    p->raw[P5_SUSTAIN_FILTER] = p->raw[P5_SUSTAIN_AMP] = 120;
+    p->raw[P5_SUSTAIN_FILTER] = p->raw[P5_SUSTAIN_AMP] = 127;
     p->raw[P5_RELEASE_FILTER] = p->raw[P5_RELEASE_AMP] = 35;
     p->raw[P5_RELEASE_ON] = 1;
     p->raw[P5_BEND] = 0;

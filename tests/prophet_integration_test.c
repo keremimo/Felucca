@@ -7,6 +7,14 @@ static void p5_tick(track_t *t,uint32_t count){int32_t out[CTL];for(uint32_t k=0
 int main(int argc,char **argv)
 {
     int bad=0;reset();up_boot();p5_patch_t p,q;
+    uint32_t default_erases=erases;int defaults=1;
+    for(uint32_t slot=0;slot<128u;slot++)defaults &= !p5_user_get(slot,&q)&&!memcmp(&q,&P5_FACTORY[slot],sizeof q);
+    bad+=check("fresh storage exposes all 128 exact Sequential defaults without erasing flash",defaults&&erases==default_erases);
+    bad+=check("first default is the actual It's a Prophet 5 native program",!p5_user_get(0,&q)&&!memcmp(q.raw+P5_NAME,"It's a Prophet 5",15)&&q.model==0x32&&q.command==2);
+    bad+=check("deleting a default persists instead of resurrecting it at reboot",!p5_user_put(0,0)&&(p5_user_reset(),!p5_user_used(0))&&p5_user_used(1));
+    p5_bank_t empty;memset(&empty,0,sizeof empty);empty.magic=P5_BANK_MAGIC;
+    bad+=check("an existing intentionally empty saved bank keeps its empty collection",!st_save(OBJ_P5BANK0,&empty,sizeof empty)&&(p5_user_reset(),!p5_user_used(0)&&!p5_user_used(25))&&p5_user_used(26));
+    reset();up_boot();
     p5_patch_init(&p);for(uint32_t i=88;i<133;i++)p.raw[i]=(uint8_t)(i*179u);
     int all=1;for(uint32_t slot=0;slot<128;slot++){p.raw[65]=(uint8_t)('A'+slot%26);all &= !native_put(ENGI_PROPHET,slot,(const uint8_t *)&p);}
     bad+=check("all 128 native slots fit without changing historical object IDs",all && OBJ_P5BANK0==OBJ_NATIVEFM0+2 && st_sector(OBJ_P5BANK0,0)==0x89000 && st_sector(OBJ_P5BANK0+4,1)==0x92000);
@@ -19,6 +27,10 @@ int main(int argc,char **argv)
     bad+=check("Prophet favorites survive cache reset without moving old identifiers",favorite_has(USER_NATIVE_P5,127)&&favorite_has(ENGI_PROPHET,0)&&USER_GENERAL==16&&USER_NATIVE_FM==17&&USER_NATIVE_CZ==18);
     track_t *t=&trk[0];t->p[P_CHOR]=t->p[P_DLY]=t->p[P_REV]=0;t->p[P_M1AMT]=43;t->step[2]=(step_t){{64},1,ST_NOTE,0,100,0,0,100};
     bad+=check("native load selects engine 19 and keeps track effects, matrix and sequence",!native_load(ENGI_PROPHET,127,0)&&t->eng_req==19&&t->p[P_M1AMT]==43&&t->step[2].note[0]==64);
+    for(uint32_t j=0;j<8u;j++)t->p[P_E0+j]=17;
+    int clean=!native_load(ENGI_PROPHET,127,0);
+    for(uint32_t j=0;j<8u;j++)clean &= t->p[P_E0+j]==0;
+    bad+=check("loading another Prophet slot clears prior macro offsets within the same engine",clean&&t->p[P_M1AMT]==43&&t->step[2].note[0]==64&&!memcmp(p5_patch_of(t),&p,sizeof p));
     static project_t saved,readback;static project_store_t wire;project_capture(&saved);
     bad+=check("project embeds the complete native record without a user-slot dependency",proj_pack(&wire,&saved)&&proj_import(&readback,&wire,sizeof wire)&&!memcmp(&readback.p5[0],&p,sizeof p));
     bad+=check("project restore returns native bytes after changing the current patch",(p5_patch[0].raw[97]=0,!project_restore_runtime(&readback)&&!memcmp(p5_patch_of(t),&p,sizeof p)));

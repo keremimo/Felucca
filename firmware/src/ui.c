@@ -854,7 +854,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
         for (i = 0; i < 4u; i++)
             t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
-    if(t->eng_req==ENGI_PROPHET){p5_patch_init(p5_patch_of(t));p5_track_accept(t);}
+    if(t->eng_req==ENGI_PROPHET)p5_preset_loaded(t,pi);
     cz_factory_loaded(t);
     cz_track_accept(t);
     fm6_track_loaded(t);                              /* FM6: the preset's patch */
@@ -873,13 +873,17 @@ static void set_engine_of(track_t *t, uint32_t ei)
         return;
     }
 #endif
+    /* PROPHET starts on a sound, not INIT: user P001, else the first factory program */
+    int p5_user = ei % NENGINES == ENGI_PROPHET && native_used(ENGI_PROPHET, 0);
     load_begin(t, UNDO_SOUND);
     fm1_irq_off();
     t->eng_req = (uint8_t)(ei % NENGINES);
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = e->edit[i].def;
-    apply_preset_to(t, 0);
+    apply_preset_to(t, t->eng_req == ENGI_PROPHET && !p5_user ? 1u : 0u);
     fm1_irq_on();
+    if (p5_user)
+        native_load(ENGI_PROPHET, 0, trk_index(t));
     load_end(t);
 }
 

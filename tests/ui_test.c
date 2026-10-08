@@ -448,6 +448,7 @@ static int test_patterns(void)
     bad += check("over a project's steps: the dialog", ui.confirm == CF_LOAD_PAT);
     press(B_OCTDN);
     /* the hint: PRESETS page K3 PAT, and a load moves the pick there */
+    set_engine_of(t,ENGI_FM6);apply_preset_to(t,0);
     go_page(GR_BROWSE);
     turn(EN_K1, 1);
     bad += check("PRESETS: a factory preset's suggested pattern becomes the pick", preset_pat_hint() >= 0 &&
@@ -3977,14 +3978,24 @@ static int test_home_notes(void)
 
 static int test_prophet_pages(void)
 {
-    ui_power_on();set_engine_of(TSEL,ENGI_PROPHET);apply_preset_to(TSEL,0);int bad=0,visible=0;
+    ui_power_on();set_engine_of(TSEL,ENGI_PROPHET);int bad=0,visible=0;
+    bad+=check("selecting Prophet starts on native P001 with its original factory bytes",TSEL->user_native&&TSEL->user==1u&&!memcmp(p5_patch_of(TSEL),&P5_FACTORY[0],sizeof(p5_patch_t)));
+    int factory=ENGINES[ENGI_PROPHET]->npresets==P5_FACTORY_N+1u;
+    for(uint32_t k=1;k<=P5_FACTORY_N;k++){
+        apply_preset_to(TSEL,k);char name[21];p5_patch_name(name,&P5_FACTORY[k-1u]);
+        factory &= TSEL->preset==k&&!TSEL->user&&!memcmp(p5_patch_of(TSEL),&P5_FACTORY[k-1u],sizeof(p5_patch_t))&&
+                   !strcmp(ENGINES[ENGI_PROPHET]->presets[k].name,name)&&!TSEL->p[P_DIST]&&!TSEL->p[P_REV];
+    }
+    bad+=check("all 200 Sequential programs are dry factory presets with exact native bytes, whatever the user bank holds",factory);
+    apply_preset_to(TSEL,0);
     for(uint32_t i=0;i<NPAGES;i++)if(PAGES[i].scope==SC_P5||PAGES[i].scope==SC_P5STORE)visible+=page_visible(i);
     bad+=check("Prophet exposes all sixteen native editing and store pages",visible==16);
     go_title("P5 OSC A");p5_patch_t before=*p5_patch_of(TSEL);turn(EN_K1,1);before.raw[P5_FREQ_A]++;
     bad+=check("native oscillator knob changes its field and preserves opaque bytes",!memcmp(&before,p5_patch_of(TSEL),sizeof before));
     go_title("P5 STORE");p5_store_slot=128;turn(EN_K2,1);
     bad+=check("native STORE waits for OCT+ before opening NAME",!name_on()&&act_col()==2);
-    press(B_OCTUP);bad+=check("OCT+ on STORE opens native slot 128 naming",name_on()&&nm.slot==127&&name_limit()==20);
+    press(B_OCTUP);bad+=check("default P128 asks before overwriting its factory patch",ui.confirm==CF_OVR_USER&&!name_on());
+    press(B_OCTUP);bad+=check("confirmed STORE opens native slot 128 naming",name_on()&&nm.slot==127&&name_limit()==20);
     nm.len=nm.cur=0;nm.s[0]=0;for(uint32_t k=0;k<20;k++){nm_insert((char)('A'+k));nm.cur++;}
     bad+=check("native NAME holds twenty characters and refuses a twenty-first",nm.len==20&&!nm_insert('Z')&&nm.s[20]==0);
     name_close();go_title("P5 STORE");p5_patch_of(TSEL)->raw[97]=255;turn(EN_K4,1);press(B_OCTUP);

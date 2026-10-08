@@ -4,6 +4,7 @@
 #define P5_USER_SLOTS 128u
 #define P5_BANK_SLOTS 26u
 #define P5_BANK_MAGIC 0x31553550u
+#include "melodee_prophet_factory.h"
 typedef struct { uint32_t magic, used, favorites; p5_patch_t patch[P5_BANK_SLOTS]; } p5_bank_t;
 _Static_assert(sizeof(p5_bank_t)==3600u, "native Prophet bank extent");
 static struct { uint32_t used, favorites; char name[P5_BANK_SLOTS][21]; } p5_meta[5] __attribute__((section(".pool")));
@@ -15,6 +16,14 @@ static uint8_t p5_cached=255;
 static p5_bank_t p5_host[5] __attribute__((section(".pool")));
 #endif
 static uint32_t p5_bank_mask(uint32_t bank) { return (1u<<(bank==4u?24u:26u))-1u; }
+/* Missing storage starts with Sequential's actual programs. A valid saved
+ * bank always wins, including intentionally empty slots; no boot-time writes. */
+static void p5_bank_defaults(p5_bank_t *b,uint32_t bank)
+{
+    memset(b,0,sizeof *b);b->magic=P5_BANK_MAGIC;b->used=p5_bank_mask(bank);
+    uint32_t count=bank==4u?24u:P5_BANK_SLOTS;
+    memcpy(b->patch,P5_FACTORY+bank*P5_BANK_SLOTS,count*sizeof(p5_patch_t));
+}
 static int p5_bank_valid(const p5_bank_t *b,uint32_t bank)
 {
     if(bank>=5u || b->magic!=P5_BANK_MAGIC || (b->used&~p5_bank_mask(bank)) ||
@@ -36,12 +45,12 @@ static p5_bank_t *p5_user_bank(uint32_t bank)
 #if MELODEE_FLASH
     if(p5_cached!=bank){
         int n=flash_ok?st_load(OBJ_P5BANK0+bank,&p5_cache,sizeof p5_cache):-1;
-        if(n!=sizeof p5_cache || !p5_bank_valid(&p5_cache,bank)){memset(&p5_cache,0,sizeof p5_cache);p5_cache.magic=P5_BANK_MAGIC;}
+        if(n!=sizeof p5_cache || !p5_bank_valid(&p5_cache,bank))p5_bank_defaults(&p5_cache,bank);
         p5_cached=(uint8_t)bank;p5_index(bank,&p5_cache);
     }
     return &p5_cache;
 #else
-    if(!p5_bank_valid(&p5_host[bank],bank)){memset(&p5_host[bank],0,sizeof p5_host[bank]);p5_host[bank].magic=P5_BANK_MAGIC;}
+    if(!p5_bank_valid(&p5_host[bank],bank))p5_bank_defaults(&p5_host[bank],bank);
     p5_index(bank,&p5_host[bank]);return &p5_host[bank];
 #endif
 }

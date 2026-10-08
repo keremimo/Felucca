@@ -126,13 +126,13 @@ global `G_CLOCK` (id 2, label "CLK") 3 (INT, USB, TRS). `G_MIDI` (id 12) is an e
 | 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01` and `42 01 3` (below); older firmware ends earlier |
 | 2 GET | scope, id | scope, id, v14 |
 | 3 SET | scope, id, v14 | scope, id, v14 (the value after clamping). Setting global `G_ENGSEL` (id from DESC label "ENG") changes the engine: its defaults, then its first preset (as on the device) |
-| 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track), then G_COUNT × v14 (globals) |
+| 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track), then G_COUNT × v14 (globals), then the preset's high bits (preset >> 7; see "Presets past 127") |
 | 5 DESC | scope, id | scope, id, fmt, min v14, max v14, def v14, label string, unit string, then for an enum (fmt 8) one name string per value (at most 24; firmware before the matrix: at most 16) |
 | 6 STEP_GET | index 0..NSTEP−1 | index, n (0..4 notes), note0..note3, time (0 NOTE, 1 TIE, 2 REST), flags (1 accent, 2 slide), vel, then (v5) hits (3 bytes, below), then (v7) chance 0..100 |
 | 7 STEP_SET | index, n, note0..3, time, flags, vel [, hits (3 bytes, v5) [, chance 0..100 (v7)]] | same as STEP_GET (after the write). Without the hits the step keeps its own; without the chance it keeps its own. The chance can only follow the hits |
-| 8 PRESET | engine, preset | engine, preset (applies the preset's sound and sends; the steps and the track's own parameters stay, see "Sound loads and undo") |
+| 8 PRESET | engine, preset [, preset >> 7] | engine, preset, preset >> 7 (applies the preset's sound and sends; the steps and the track's own parameters stay, see "Sound loads and undo") |
 | 9 PROJECT | op (0 load, 1 save, 2 query), slot 0..3 | op, slot, used (1/0). Save writes flash: allow ~2 s; it stops the transport first (see "Saves while playing") |
-| 10 NAMES | engine | engine, count, count preset-name strings, then the two edit-page titles |
+| 10 NAMES | engine [, first preset, 2 × 7 bit] | engine, count (≤ 127), count preset-name strings (≤ 20 characters) from the first, then the two edit-page titles, then all presets and the first (2 × 7 bit each). Ask again from first + count until all are read |
 | 11 SMP_BEGIN | slot 0..2 | slot, rc (0 ok). Erases the slot's header sector: the slot is empty from now on |
 | 12 SMP_WRITE | slot, offset (3 × 7 bit, LSB first), pack7 data (≤ 256 bytes) | slot, offset, rc: 0 ok, 1 arguments, 2 erase, 3 write, 4 slot in use (send SMP_BEGIN first). Offset ≥ 512 and a multiple of 256; writes go in increasing order (a write at a 4 KiB boundary erases that sector) |
 | 13 SMP_END | slot, pack7 header (480 bytes) | slot, rc: 0 ok, 1 size, 2 header, 3 data CRC, 4 flash, 5 zones |
@@ -146,15 +146,21 @@ global `G_CLOCK` (id 2, label "CLK") 3 (INT, USB, TRS). `G_MIDI` (id 12) is an e
 | 21 UP_ERASE | slot | slot, rc |
 | 22 WATCH | on (0/1; v4: 3 = also `TRACK_CHANGED`) | on (0/1; v4 firmware: 3 when 3 was asked for). While on, the device pushes cmds 23, 24, 26 (and 32 with bit 1) |
 | 23 CHANGED (push) | — | scope, id, v14 |
-| 24 RELOAD (push) | — | engine, preset, then (v3) the selected track |
+| 24 RELOAD (push) | — | engine, preset, then (v3) the selected track, then preset >> 7 |
 | 25 PING | — | 0 |
 | 26 STEP_CHANGED (push) | — | index, then (v3) the selected track |
 
+**Presets past 127.** PROPHET has 201 factory presets (INIT, then Sequential's 200 v1.03 programs).
+A preset number is 7 bits where the tables above say "preset"; its high bits follow at the end of the
+reply (older editors ignore them, older firmware sends none: read them only if present). `PRESET` takes
+them as a third byte. `NAMES` pages: firmware before this sends one reply with every name and no totals;
+an older editor sees the first page (the names that fit 1024 bytes).
+
 | cmd (v3) | Request args | Reply args |
 | --- | --- | --- |
-| 27 TRACK | — (query), or track (select it) | selected track, NTRK, then per track: engine byte, preset, level v14, mute (0/1), armed (0/1, live recording) |
+| 27 TRACK | — (query), or track (select it) | selected track, NTRK, then per track: engine byte, preset, level v14, mute (0/1), armed (0/1, live recording), then per track preset >> 7 |
 | 28 TRACK_MIX | track (get), or track, level v14 (0..127), mute (set) | track, level v14, mute: the track's `P_LEVEL` and `P_MUTE` |
-| 29 TRACK_DUMP | track | track, engine byte, preset, P_COUNT × v14 (that track's parameters; no globals) |
+| 29 TRACK_DUMP | track | track, engine byte, preset, P_COUNT × v14 (that track's parameters; no globals), then preset >> 7 |
 | 30 TRACK_STEP | track, index (get), or track, index, n, note0..3, time, flags, vel [, hits (v5) [, chance (v7)]] (set) | track, index, n, note0..3, time, flags, vel, then (v5) hits, then (v7) chance |
 
 | cmd (v4) | Request args | Reply args |

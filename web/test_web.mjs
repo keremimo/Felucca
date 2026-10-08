@@ -56,6 +56,11 @@ async function prophetTests(){
   if(existsSync(factoryDir)){const names=execFileSync("find",[factoryDir,"-name","*.syx"],{encoding:"utf8"}).trim().split("\n");for(const name of names){const bytes=new Uint8Array(readFileSync(name)),v=E.P5.read(bytes).voices;ok(v.length===200&&eq(bytes,v.flatMap(v=>Array.from(E.P5.sysex(v.raw)))),"Prophet: real factory bank preserves all 200 complete frames");}}
   const m=E.makeMockDevice(),input=[...m.access.inputs.values()][0],output=[...m.access.outputs.values()][0],link=new E.Link(d=>output.send(d),{timeout:500});input.onmidimessage=e=>link.receive(e.data);const rq=(r,o)=>link.request(r,o),info=E.parse[E.CMD.INFO](await rq(E.req.info()));
   ok(info.prophet&&info.native[19]===128&&info.namespace.general===16&&info.namespace[12]===17&&info.namespace[15]===18&&info.namespace[19]===20,"Prophet: stable engine/collection capability identifiers");
+  const defaultPool=await E.nativeBank.list(rq,19);
+  ok(defaultPool.slots.length===128&&defaultPool.slots.every(s=>s.used)&&defaultPool.slots[0].name==="It's a Prophet 5","Prophet: official default collection is available before any import");
+  const defaultFirst=await E.nativeBank.get(rq,info,19,0);
+  const official=E.P5.read(new Uint8Array(readFileSync(join(HERE,"../assets/prophet5-factory/prophet5-v1.03.syx")))).voices;
+  ok(eq(defaultFirst.p5,official[0].raw),"Prophet: default first patch matches Sequential's original bytes");
   await rq(E.req.track(2));const pt=E.p5LibraryPatch({name:E.P5.name(b),raw:b},info);pt.p[34]=77;await E.auditionPatch(rq,info,pt);const captured=(await E.capturePatch(rq,info,"CAPTURED")).patch;
   ok(eq(captured.p5,b)&&m.state.tracks[2].engine===19&&m.state.tracks[2].p[34]===77,"Prophet: audition and capture target selected track and retain effects");
   const ctx={keys:Array.from({length:92},(_,i)=>`P${i}`),engines:info.engines,pe0:84};const file=E.libraryFile("library",[pt],ctx),back=E.readLibraryFile(JSON.parse(JSON.stringify(file)),ctx).patches[0];ok(eq(back.p5,b),"Prophet: librarian JSON retains every native byte and metadata");

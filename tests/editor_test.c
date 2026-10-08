@@ -542,12 +542,26 @@ static int names_whole(void)
     int bad = 0;
     reset();
     for (uint32_t e = 0; e < NENGINES; e++) {   /* 0.11 cut CZ-1's 65 names at a 600-byte reply */
-        uint8_t a[1] = {(uint8_t)e};
-        uint32_t n = request(ED_NAMES, a, 1), i = 7, k, want = ENGINES[e]->npresets + 2u;
-        for (k = 0; k < want && i < n; k++)
-            while (i < n && host_wire[i++]) ;
-        if (n < 8u || host_wire[6] != ENGINES[e]->npresets || k != want || i != n - 1u || host_wire[n - 1u] != 0xF7) {
-            printf("editor: NAMES of %s: %u bytes, cut short\n", ENGINES[e]->name, n);
+        uint32_t got = 0, pages = 0, ok = 1;     /* PROPHET's 201 come in pages: ask from the next first */
+        while (ok && pages++ < 8u) {
+            uint8_t a[3] = {(uint8_t)e, (uint8_t)(got & 127u), (uint8_t)(got >> 7)};
+            uint32_t n = request(ED_NAMES, a, got ? 3u : 1u), i = 7, k, count = host_wire[6];
+            ok = n >= 12u && n <= sizeof ed_out && host_wire[5] == e && count <= 127u;
+            for (k = 0; ok && k < count; k++) {
+                char want[21];
+                str_cpy(want, ENGINES[e]->presets[got + k].name, 21);
+                ok = got + k < ENGINES[e]->npresets && !strcmp((const char *)host_wire + i, want);
+                while (i < n && host_wire[i++]) ;
+            }
+            for (k = 0; ok && k < 2u; k++)       /* both titles */
+                while (i < n && host_wire[i++]) ;
+            ok = ok && i + 5u == n && (host_wire[i] | host_wire[i + 1] << 7) == ENGINES[e]->npresets &&
+                 (host_wire[i + 2] | host_wire[i + 3] << 7) == got && host_wire[n - 1u] == 0xF7 && (count || !ENGINES[e]->npresets);
+            got += count;
+            if (got >= ENGINES[e]->npresets) break;
+        }
+        if (!ok || got != ENGINES[e]->npresets) {
+            printf("editor: NAMES of %s: %u of %u names\n", ENGINES[e]->name, got, ENGINES[e]->npresets);
             bad = 1;
         }
     }
@@ -594,7 +608,7 @@ static int prophet_protocol(void)
     bad+=check("Prophet GET re-encodes a complete reusable native SysEx frame",p5_patch_decode(&copy,frame,host_wire_n-7)&&!memcmp(&copy,&patch,sizeof patch));
     args[0]=2;args[2]=P5_CUTOFF;args[3]=120;request(95,args,4);
     bad+=check("native field edit touches only its documented offset",host_wire[6]==0&&(patch.raw[P5_CUTOFF]=120,!memcmp(p5_patch_of(&trk[2]),&patch,sizeof patch)));
-    args[3]=121;request(95,args,4);bad+=check("out-of-range native field edit leaves the full patch unchanged",host_wire[6]==1&&!memcmp(p5_patch_of(&trk[2]),&patch,sizeof patch));
+    args[2]=P5_KEY_FILTER;args[3]=3;request(95,args,4);bad+=check("out-of-range native field edit leaves the full patch unchanged",host_wire[6]==1&&!memcmp(p5_patch_of(&trk[2]),&patch,sizeof patch));
     args[0]=3;memcpy(args+2,"TWENTY CHARACTERS XYZ",20);request(95,args,22);memcpy(patch.raw+P5_NAME,args+2,20);
     bad+=check("native rename keeps all twenty name bytes",!host_wire[6]&&!memcmp(p5_patch_of(&trk[2]),&patch,sizeof patch));
     args[0]=1;memcpy(args+2,frame+1,size-2);args[2]=2;request(95,args,size);

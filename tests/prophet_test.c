@@ -114,6 +114,122 @@ static void voice_tests(void)
     int32_t hi=0;for(uint32_t k=0;k<100;k++){int32_t a=tick();if(a>hi)hi=a;}
     check("native velocity disabled bypasses common velocity gain",lo==hi&&lo>100);
 }
+/* Measure the real renderer's phase advance and filter coefficient, rather
+ * than duplicating the raw-to-DSP conversion in the expected values. */
+static void mapping_probe(uint8_t coarse, int key_b, int note, int key_filter,
+                          uint32_t step[2], double *filter_hz)
+{
+    setup();track_t *t=&trk[0];p5_patch_t *patch=p5_patch_of(t);
+    uint8_t *p=patch->raw;
+    p[P5_FREQ_A]=p[P5_FREQ_B]=coarse;p[P5_KEY_B]=(uint8_t)key_b;
+    p[P5_CUTOFF]=60;p[P5_KEY_FILTER]=(uint8_t)key_filter;p[P5_ENV_FILTER]=0;
+    p[P5_LFO_INITIAL]=p[P5_PRESS_FILTER]=0;
+    p5_patch_t original=*patch;
+    trk_note_on(t,(uint32_t)note,100);p5_block(t);
+    voice_t *v=0;for(uint32_t j=0;j<NVOICE;j++)if(t->v[j].gate){v=&t->v[j];break;}
+    if(!v){failures++;return;}
+    p5_voice_t *s=p5_voice(t,v);uint32_t before[2]={s->phase[0],s->phase[1]};
+    vmod_t m={0};m.pitch16=note*16;m.shape=64<<8;
+    int32_t out[1]={0};p5_render(t,v,out,1,&m);
+    for(uint32_t j=0;j<2;j++)step[j]=s->phase[j]-before[j];
+    double g=(double)s->coeff_g[0]/4096;
+    *filter_hz=atan(g/(1-g))*(FS*P5_OVERSAMPLE)/3.141592653589793;
+    if(memcmp(patch,&original,sizeof original))failures++;
+}
+static void mapping_tests(void)
+{
+    int detents=1,anchors=1;double fc;
+    uint32_t a[2],b[2];
+    for(uint32_t raw=0;raw<96;raw+=2){
+        mapping_probe((uint8_t)raw,1,69,0,a,&fc);
+        mapping_probe((uint8_t)(raw+1),1,69,0,b,&fc);
+        detents &= a[0]==b[0]&&a[1]==b[1];
+    }
+    for(uint32_t octave=0;octave<5;octave++){
+        mapping_probe((uint8_t)(octave*24),1,57,0,a,&fc);
+        uint32_t want=pitch_inc((45+octave*12)*16);
+        anchors &= a[0]==want&&a[1]==want;
+    }
+    mapping_probe(25,1,69,0,a,&fc);
+    check("factory raw 25 renders oscillator A/B at A4=440, without a half-semitone offset",a[0]==pitch_inc(69*16)&&a[1]==a[0]);
+    check("all keyed coarse-tuning raw pairs select identical semitone detents",detents);
+    check("keyed coarse-tuning octave anchors span exactly four octaves",anchors);
+    mapping_probe(96,1,57,0,a,&fc);int limit=1;
+    for(uint32_t raw=97;raw<=127;raw++){
+        mapping_probe((uint8_t)raw,1,57,0,b,&fc);limit &= a[0]==b[0]&&a[1]==b[1];
+    }
+    check("keyed coarse tuning saturates at the top octave without rewriting native bytes",limit);
+    mapping_probe(24,0,57,0,a,&fc);mapping_probe(25,0,57,0,b,&fc);
+    int continuous=a[0]==b[0]&&a[1]!=b[1];
+    mapping_probe(127,0,57,0,a,&fc);mapping_probe(127,0,69,0,b,&fc);
+    check("keyboard-off B remains continuous and independent of the played note",continuous&&a[1]==b[1]&&a[1]==pitch_inc(120*16));
+    int tracking=1;
+    for(int mode=0;mode<=2;mode++){
+        double lo,hi;mapping_probe(24,1,60,mode,a,&lo);mapping_probe(24,1,72,mode,b,&hi);
+        double ratio=hi/lo,want=mode==2?2:mode==1?sqrt(2):1;
+        printf("prophet: filter tracking %d: octave cutoff ratio %.5f (expected %.5f)\n",mode,ratio,want);
+        tracking &= fabs(ratio/want-1)<.01;
+    }
+    check("rendered filter coefficient follows off/half/full keyboard octave ratios",tracking);
+}
+static uint32_t wheel_probe(uint8_t initial,uint32_t phase,uint32_t osc)
+{
+    setup();track_t *t=&trk[0];uint8_t *p=p5_patch_of(t)->raw;
+    p[P5_LFO_INITIAL]=initial;p[P5_LFO_TRI]=1;p[P5_LFO_SAW]=p[P5_LFO_PULSE]=0;
+    p[P5_WHEEL_FREQ_A]=p[P5_WHEEL_FREQ_B]=1;p[P5_WHEEL_MIX]=0;
+    trk_note_on(t,69,100);p5_part(0)->lfo=phase;p5_block(t);
+    voice_t *v=0;for(uint32_t j=0;j<NVOICE;j++)if(t->v[j].gate){v=&t->v[j];break;}
+    if(!v){failures++;return 0;}
+    p5_voice_t *s=p5_voice(t,v);uint32_t before=s->phase[osc];
+    vmod_t m={0};m.pitch16=69*16;m.shape=64<<8;
+    int32_t out[1]={0};p5_render(t,v,out,1,&m);
+    return s->phase[osc]-before;
+}
+static void wheel_pitch_tests(void)
+{
+    int centered=1,neutral=1,positive=1,measured=1;uint32_t base=pitch_inc(69*16);
+    /* Rev-4 factory demo: initial 18 / 30 / 42 / 55 vibrato peaks at about
+     * 7.5 / 20 / 36 / 50 cents (0.0519 * raw^1.737, within 11 %). */
+    static const struct { uint8_t amount; double cents; } rev4[]={{18,7.5},{30,20},{42,36},{55,50}};
+    for(uint32_t osc=0;osc<2;osc++)for(uint32_t amount=0;amount<=127;amount++){
+        uint32_t down=wheel_probe((uint8_t)amount,0,osc);
+        uint32_t up=wheel_probe((uint8_t)amount,0x80000000u,osc);
+        double flat=1200*log2((double)down/base),sharp=1200*log2((double)up/base);
+        centered &= fabs(flat+sharp)<.2;
+        positive &= down>=base/2&&up>=base&&up<base*2;
+        if(!amount)neutral &= down==base&&up==base;
+        for(uint32_t k=0;k<NELEM(rev4);k++)if(rev4[k].amount==amount)measured &= fabs(sharp/rev4[k].cents-1)<.15;
+        if(amount==18&&osc==0)printf("prophet: first-preset triangle pitch: %.2f / +%.2f cents\n",flat,sharp);
+    }
+    check("triangle wheel pitch goes equally sharp/flat in cents for both oscillators",centered);
+    check("zero initial wheel depth leaves oscillator pitch exact",neutral);
+    check("maximum wheel pitch depth remains positive and does not stall an oscillator",positive);
+    check("triangle vibrato depth follows the measured Rev-4 amount curve",measured);
+    /* LFO rate: raw 74/80/89/94/97 measured at 2.40/3.37/5.48/7.10/8.39 Hz;
+     * the documented ends are .022 and 500 Hz. */
+    static const struct { uint8_t raw; double hz; } rate[]={{0,.022},{74,2.40},{80,3.37},{89,5.48},{94,7.10},{97,8.39},{127,500}};
+    int rates=1;
+    for(uint32_t k=0;k<NELEM(rate);k++){
+        double hz=(double)P5_LFO_INC[rate[k].raw]*FS/4294967296.0;
+        rates &= fabs(1200*log2(hz/rate[k].hz))<60;
+    }
+    check("LFO rate follows the measured Rev-4 curve and documented range",rates);
+}
+static void stolen_tail_test(void)
+{
+    setup();track_t *t=&trk[0];trk_note_on(t,69,100);
+    for(uint32_t k=0;k<100;k++)tick();
+    voice_t *v=0;for(uint32_t k=0;k<NVOICE;k++)if(t->v[k].gate){v=&t->v[k];break;}
+    if(!v){failures++;return;}
+    p5_voice_t *s=p5_voice(t,v);s->last_pcm=24000;
+    uint32_t phase[2]={s->phase[0],s->phase[1]};
+    voice_kill(v);env_tick(t,v);
+    vmod_t m={0};m.amp0=32767;m.amp1=0;
+    int32_t out[CTL]={0};p5_render(t,v,out,CTL,&m);
+    int smooth=out[0]==24000&&out[CTL-1]==0;
+    for(uint32_t k=1;k<CTL;k++)smooth &= out[k]>=0&&out[k]<=out[k-1]&&out[k-1]-out[k]<=800;
+    check("stolen Prophet voice fades continuously to zero without advancing its expensive synth",smooth&&s->phase[0]==phase[0]&&s->phase[1]==phase[1]&&s->last_pcm==0);
+}
 static void filter_tests(void)
 {
     int bounded=1, distinct=0;
@@ -194,6 +310,47 @@ static void demos(void)
 }
 int main(int argc,char **argv)
 {
+    int blep_ok=1;
+    for(uint32_t inc=1;inc<100000;inc++){
+        uint32_t phase[]={0,inc/2,inc-1,0xFFFFFFFFu-inc+1,0xFFFFFFFFu};
+        for(uint32_t j=0;j<NELEM(phase);j++){
+            int32_t correction=p5_fast_blep(phase[j],inc);
+            blep_ok &= correction>=-32768&&correction<=32768;
+        }
+    }
+    check("low-rate oscillator discontinuity correction stays bounded across Q15 division boundaries",blep_ok);
+    int high_blep_ok=1;uint32_t rng=57;double max_blep_error=0;
+    for(uint32_t k=0;k<10000;k++){
+        rng=rng*1664525u+1013904223u;
+        uint32_t inc=(1u<<27)+rng%(1932735280u-(1u<<27)),distance=rng%inc;
+        double x=(double)distance/inc;
+        double want=32768*(2*x-x*x-1);
+        double error=fabs(p5_fast_blep(distance,inc)-want);
+        if(error>max_blep_error)max_blep_error=error;
+        high_blep_ok &= error<=6;
+    }
+    printf("prophet: high-rate BLEP maximum error %.3f Q15 units\n",max_blep_error);
+    check("fast high-rate oscillator correction stays within six Q15 units of the normalized curve",high_blep_ok);
+    p5_part_t wheel_state={0};p5_patch_t wheel_patch;p5_patch_init(&wheel_patch);
+    int ratio_ok=1;
+    for(uint32_t wave=0;wave<2;wave++){
+        wheel_patch.raw[P5_LFO_TRI]=!wave;wheel_patch.raw[P5_LFO_PULSE]=(uint8_t)wave;
+        for(uint32_t ph=0;ph<=65535;ph++){
+            wheel_state.lfo=ph<<16;
+            p5_mod_samples(&wheel_state,wheel_patch.raw,0,32767,0);
+            double cents=wheel_state.wheel[0]*235.0/16384;
+            double expected=32768*pow(2,cents/1200);
+            ratio_ok &= fabs(wheel_state.wheel_pitch[0]-expected)<=3;
+        }
+    }
+    check("shared wheel pitch ratio stays within three Q15 units of 2^(cents/1200)",ratio_ok);
+    int exp_ok=1;
+    for(int32_t x=-8*4096;x<=6*4096;x+=7){
+        uint32_t base=pitch_inc(60*16),y=p5_inc(base,x);
+        double want=base*pow(2,x/4096.0);if(want>1932735280.0)want=1932735280.0;
+        exp_ok &= fabs(y/want-1)<2e-4;
+    }
+    check("exponential Poly-Mod frequency stays within 0.35 cent across its range",exp_ok);
     int sat_ok=1;int32_t previous=-1;
     for(int32_t x=0;x<=131072;x++){
         int32_t actual=p5_fast_softclip(x),expected=(int32_t)(32767*tanh((double)(x>65536?65536:x)/32768));
@@ -203,8 +360,20 @@ int main(int argc,char **argv)
     check("fast saturation stays odd, monotonic and within 17 Q15 units of tanh",sat_ok);
     int fraction_ok=1;uint32_t seed=43;for(uint32_t k=0;k<10000;k++){seed=seed*1664525u+1013904223u;uint32_t inc=(seed>>1)+1u;uint32_t distance=seed%inc;uint32_t exact=(uint32_t)(((uint64_t)distance<<15)/inc),fast=p5_sync_fraction(distance,inc);fraction_ok &= fast>=exact&&fast-exact<=1u;}
     check("32-bit hard-sync fraction stays within one Q15 unit of exact division",fraction_ok);
+    int gains_ok=1,wheel_ok=1;
+    for(int32_t wave=-120000;wave<=120000;wave+=17)
+    for(int32_t gain=0;gain<=32766;gain+=258)
+        gains_ok &= p5_wave_gain(wave,gain)==(int32_t)(((int64_t)wave*gain)>>15);
+    for(uint32_t k=0;k<10000;k++){
+        seed=seed*1664525u+1013904223u;uint32_t base=seed%1932735281u;
+        uint16_t ratio=(uint16_t)(16384u+seed%49152u);
+        uint64_t exact=((uint64_t)base*ratio)>>15;
+        wheel_ok &= p5_wheel_inc(base,ratio)==(exact>1932735280u?1932735280u:(uint32_t)exact);
+    }
+    check("summed-wave gain uses exact overflow-free arithmetic across the native signal range",gains_ok);
+    check("32-bit wheel pitch multiplication equals the wide reference across pitch/depth limits",wheel_ok);
     native_tests();for(int k=1;k<argc;k++)factory_file(argv[k]);
-    voice_tests();filter_tests();demos();
+    mapping_tests();wheel_pitch_tests();stolen_tail_test();voice_tests();filter_tests();demos();
     printf("prophet: %d failure(s); patch %zu B, state %zu B per track\n",failures,sizeof(p5_patch_t),sizeof(p5_part_t));
     return failures?1:0;
 }
