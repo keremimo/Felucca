@@ -89,6 +89,8 @@ run "flash storage (A/B, torn writes)" "$OUT/storage_test"
 
 $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_preset_test" tests/fm6_preset_test.c -lm
 run "native FM6/CZ user presets, scrolling, migration and interrupted saves" "$OUT/fm6_preset_test"
+$CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/prophet_integration_test" tests/prophet_integration_test.c -lm
+run "Prophet native slots, atomic saves, projects, undo and performance" "$OUT/prophet_integration_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/resources_test" tests/resources_test.c -lm
 run "resource lifetimes, cache eviction, tails and capacity" "$OUT/resources_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/engine_retirement_test" tests/engine_retirement_test.c -lm
@@ -128,7 +130,12 @@ run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" bui
 if [ -f build/gen/melodee_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/prophet_test" tests/prophet_test.c -lm
-    run "Prophet measurement prototype: native frames, five voices, filters, sync and Poly-Mod" "$OUT/prophet_test"
+    run "Prophet native frames, five voices, filters, sync and Poly-Mod" "$OUT/prophet_test"
+    if [ -d "build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03" ]; then
+        run "Prophet factory-file playback and exact round trips" "$OUT/prophet_test" \
+            "build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03/P5_Factory_Programs_FACTORY_v1.03.syx" \
+            "build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03/P5_Factory_Programs_USER_v1.03.syx"
+    fi
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/scale_test" tests/scale_test.c -lm
     run "scales: white-key mapping and note lifecycle" "$OUT/scale_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/microtonal_test" tests/microtonal_test.c -lm
@@ -193,6 +200,8 @@ if [ -f build/gen/melodee_tables.h ]; then
         "$OUT/ui_render_fm4" build/ui_fm4 build/ui_fm4_slot
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/audio_test" tests/audio_test.c -lm
     run "audio: overload protection, bounded fades and DMA diagnostics" "$OUT/audio_test"
+    $CC -w -DMELODEE_BENCH_SILENT=1 -Ibuild/gen -Ifirmware/src -o "$OUT/audio_silent_test" tests/audio_test.c -lm
+    run "audio: silent bench keeps synthesis running and silences physical output" "$OUT/audio_silent_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/persistence_test" tests/persistence_test.c -lm
     run "persistence: deferred settings, retry and failed-save rollback" "$OUT/persistence_test"
     $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/backup_test" tests/backup_test.c -lm

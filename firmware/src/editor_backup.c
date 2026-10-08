@@ -8,7 +8,7 @@
 #ifndef ED_BK_FLASH_PTR
 #define ED_BK_FLASH_PTR(off) fm1_xip_ptr(off)
 #endif
-static const uint8_t ED_BK_IDS[23] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22};
+static const uint8_t ED_BK_IDS[28] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27};
 #define ED_BK_N ((uint32_t)sizeof ED_BK_IDS)
 #define ED_BK_MAX ((uint32_t)sizeof proj_wire_u)
 #define ED_BK_RAW ((uint8_t *)&proj_wire_u)  /* reuse the existing serialized main-loop scratch */
@@ -41,6 +41,7 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
 #if MELODEE_FLASH
     ed_bk_source_obj = OBJ_COUNT;
 #endif
+    if(id>=23u && id<=27u){p5_bank_t *b=p5_user_bank(id-23u);*len=sizeof *b;return (const uint8_t *)b;}
     if (id == 0u) { *len = BANK_STORE_SIZE; return ED_BK_RAW; }
     if (id == 1u) { *len = ed_bk_set_len; return (const uint8_t *)&ed_bk_set; }
     if (id >= 2u && id <= 5u) {
@@ -144,10 +145,10 @@ static uint32_t ed_bk_commit_inner(void)
             memcpy(&ts, t + tl - 8u, 4);
             memcpy(&tm, t + tl - 4u, 4);
         }
-        if (!(ed_bk_len == sizeof *p || ed_bk_len == sizeof ed_bk_set || (ed_bk_len==sizeof *p+TMPL_CZ_OLD || ed_bk_len==sizeof *p+TMPL_CZ_NEXT || ed_bk_len == sizeof *p + TMPL_SIZE5 || ed_bk_len == sizeof *p + TMPL_SIZE6) ?
-              p->magic == PERSIST_MAGIC && p->ext.usb_off <= 3u && p->ext.boot <= 4u &&
-              (ed_bk_len == sizeof *p || (ts == tl && tm == (tl==TMPL_CZ_OLD?0x384C5054u:tl==TMPL_CZ_NEXT?0x394C5054u:tl == TMPL_SIZE5 ? TMPL_MAGIC5 : tl == TMPL_SIZE6 ? TMPL_MAGIC6 : TMPL_MAGIC))) :
-              ed_bk_len == PERSIST_LEN4 && p->magic == PERSIST_MAGIC4) || !palette_stored_ok(p->palette) ||
+        if (!(ed_bk_len==PERSIST_LEN4 ? p->magic==PERSIST_MAGIC4 :
+              ed_bk_len>=sizeof *p && ed_bk_len<=sizeof ed_bk_set && p->magic==PERSIST_MAGIC &&
+              p->ext.usb_off<=3u && p->ext.boot<=4u &&
+              (ed_bk_len==sizeof *p || tmpl_blob_valid(t,tl))) || !palette_stored_ok(p->palette) ||
             p->lowcut > 2u || p->zoom > 1u || !hold_stored_ok(p->bold) || p->favorites.filter > 1u || !ed_bk_panel_valid(&p->panel)) return 2;
         if(tl && ed_bk_len>sizeof *p && !tmpl_blob_valid(t,tl))return 2;
         obj = OBJ_SETTINGS;
@@ -180,6 +181,13 @@ static uint32_t ed_bk_commit_inner(void)
         if(ed_bk_len)memcpy(native_cz_bank(b),raw,sizeof(cz_bank_t));else {cz_bank_empty(native_cz_bank(b),b);native_cz_bank(b)->ver=2;}
         if(native_save_bank(ENGI_CZ,b)==2){(*native_cz_bank(b))=old;return 4;}
         cz_bank_import(b,(const uint8_t *)native_cz_bank(b),sizeof(cz_bank_t));
+        up_gen++;sync_reload=1;ui.force=1;return 0;
+    } else if(ed_bk_id>=23u && ed_bk_id<=27u){
+        uint32_t bank=ed_bk_id-23u;
+        if(ed_bk_len && (ed_bk_len!=sizeof(p5_bank_t)||!p5_bank_valid((const p5_bank_t *)raw,bank)))return 2;
+        p5_bank_t *dst=p5_user_bank(bank),old=*dst;
+        if(ed_bk_len)memcpy(dst,raw,sizeof *dst);else {memset(dst,0,sizeof *dst);dst->magic=P5_BANK_MAGIC;}
+        if(p5_user_save_bank(bank)){*dst=old;p5_index(bank,dst);return 4;}
         up_gen++;sync_reload=1;ui.force=1;return 0;
     } else return 1;
 #if MELODEE_FLASH
@@ -220,19 +228,20 @@ static uint32_t ed_bk_commit(void)
 }
 static uint32_t ed_bk_write(const uint8_t *a, uint32_t n)
 {
-    if (n < 2u || a[0] > 3u || a[1] > 22u) return 1;
+    if (n < 2u || a[0] > 3u || a[1] > 27u) return 1;
     if (ed_flash_stop()) return 3;
     if (a[0] == 0u) {
         if (n != 12u || a[6] > 15u || a[11] > 15u) return 1;
         uint32_t len = ed_bk_r32(a + 2);
-        if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != PROJ_STORE_V12 && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+        if (len > ED_BK_MAX || (a[1] == 0u && !bank_full(len) && len != PROJ_STORE_V13 && len != PROJ_STORE_V12 && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             (a[1] == 1u && len != sizeof(persist_t) && len != PERSIST_LEN4 && len != sizeof ed_bk_set &&
              len != sizeof(persist_t)+TMPL_SIZE_A && len != sizeof(persist_t)+TMPL_CZ_OLD && len != sizeof(persist_t)+TMPL_CZ_NEXT && len != sizeof(persist_t) + TMPL_SIZE5 && len != sizeof(persist_t) + TMPL_SIZE6) ||
-            (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != PROJ_STORE_V12 && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
+            (a[1] >= 2u && a[1] <= 5u && len && !bank_full(len) && len != PROJ_STORE_V13 && len != PROJ_STORE_V12 && len != PROJ_STORE_V11 && len != PROJ_STORE_V8 && len!=PROJ_LEGACY_CZ && len!=PROJ_LEGACY_CZ_OLD && len != sizeof(project_store_t) && len != PROJ_STORE_V7) ||
             ((a[1] == 6u || a[1] == 7u || a[1] == 17u || a[1] == 18u) && len && len != sizeof(up_bank_t) && len!=UP_BANK_LEGACY_SIZE) ||
             (a[1] == 8u && len && len != sizeof(fm6_bank_t)) ||
             (a[1]>=9u && a[1]<=16u && len && len!=sizeof(cz_bank_t)) ||
-            (a[1]>=19u && len && len!=sizeof(native_fm_t) && !(a[1]<=20u && len==sizeof(upf_t)))) return 1;
+            (a[1]>=23u && len && len!=sizeof(p5_bank_t)) ||
+            (a[1]>=19u && a[1]<=22u && len && len!=sizeof(native_fm_t) && !(a[1]<=20u && len==sizeof(upf_t)))) return 1;
         ed_bk_valid = 0; ed_bk_put = 1; ed_bk_id = a[1]; ed_bk_len = len; ed_bk_gen = ++proj_wire_gen;
         ed_bk_crc = ed_bk_r32(a + 7); ed_bk_pos = 0;
         ed_bk_usb = usb.resets; ed_bk_ms = fm1_ms;

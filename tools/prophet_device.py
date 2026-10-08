@@ -127,7 +127,10 @@ def patch(raw, mode, stress):
         for k in (3,4,5,6,7,10,12,34,35,36,51): raw[k]=1
         for k in (14,15,18,33,48): raw[k]=127
         raw[0]=64;raw[1]=24;raw[8]=raw[9]=64;raw[17]=88;raw[37]=0
-        raw[32]=110;raw[43]=raw[44]=0;raw[47]=80;raw[49]=raw[50]=0
+        raw[21]=120;raw[22]=120;raw[26]=60
+        for k in (23,24,25,27,28,29,30,31,38,39,41,42):raw[k]=1
+        raw[52]=0;raw[53]=5;raw[86]=11;raw[87]=3
+        raw[32]=127;raw[43]=raw[44]=0;raw[47]=80;raw[49]=raw[50]=0
     return bytes([1,0x32,3]+pack(raw))
 
 def measure(d,seconds,label,expected,before,expected_steals=0):
@@ -173,6 +176,7 @@ def bench(d,args):
                     if reply[:2]!=[1,0]:raise RuntimeError(f'Native patch PUT failed: {reply[:3]}')
                     readback=d.request(95,[0,0])
                     if readback[3:]!=list(patch(raw,mode,True)):raise RuntimeError('Native patch readback mismatch')
+                d.request(27,[0])  # Show the Prophet track while measuring the mix.
                 with usb_streams(args.usb):
                     # Include note attack and overload shedding in the window.
                     # Resetting after a warmup hides the expensive onset.
@@ -197,7 +201,7 @@ def recordings(d,args):
     devices=sd.query_devices()
     inp=next(i for i,x in enumerate(devices) if x['name']=='Melodee In')
     out=next(i for i,x in enumerate(devices) if x['name']=='Melodee Out')
-    rows=[]
+    rows=json.loads((directory/'manifest.json').read_text()) if args.action=='factory-recordings' and (directory/'manifest.json').exists() else []
     try:
         d.silence();_,g=param_ids();d.request(3,[1,g['G_ROUTE'],0,64])
         for tr in range(4):
@@ -207,13 +211,19 @@ def recordings(d,args):
                             P_DIST=0,P_CHOR=0,P_DLY=0,P_REV=0,P_LD_AMP=0,
                             P_LD_FLT=0,P_LD_PIT=0,P_ED_FLT=0,P_ED_PIT=0,
                             P_M1AMT=0,P_M2AMT=0,P_M3AMT=0,P_M4AMT=0))
-        for sound in ('pad','brass','bass','sync','polymod'):
+        bank=next(Path(args.factory).glob('Prophet*/P5*USER*.syx')).read_bytes()
+        programs=[bank[i:i+159] for i in range(0,len(bank),159)]
+        native=args.action=='factory-recordings'
+        choices=tuple(n-1 for n in args.programs) if native and args.programs else (0,2,3,5,14,16,23) if native else ('pad','brass','bass','sync','polymod')
+        for sound in choices:
             for mode in (0,1):
-                d.silence();r=bytearray(raw);r[:55]=bytes(55)
-                for k,value in {0:24,1:25,3:1,5:1,8:64,9:64,12:1,14:127,15:90,
+                d.silence();r=bytearray(unpack(programs[sound][6:-1]) if native else raw)
+                if not native:r[:55]=bytes(55)
+                for k,value in ({} if native else {0:24,1:25,3:1,5:1,8:64,9:64,12:1,14:127,15:90,
                                 17:65,18:50,20:mode,37:105,40:70,45:60,46:60,
-                                47:30,48:127,49:65,50:65,51:1}.items():r[k]=value
-                if sound=='pad':r[43]=40;r[44]=65;r[49]=r[50]=80
+                                47:30,48:127,49:65,50:65,51:1}).items():r[k]=value
+                if native:r[20]=mode
+                elif sound=='pad':r[43]=40;r[44]=65;r[49]=r[50]=80
                 elif sound=='brass':r[43]=42;r[44]=15
                 elif sound=='bass':r[17]=45;r[18]=75;r[48]=80
                 else:
@@ -221,9 +231,16 @@ def recordings(d,args):
                     if sound=='sync':r[10]=1;r[32]=90;r[34]=1
                     else:
                         r[5]=0;r[6]=1;r[4]=1;r[33]=95;r[34]=r[35]=r[36]=1
-                body=[1,0x32,3]+pack(r)
+                body=(list(programs[sound][1:6]) if native else [1,0x32,3])+pack(r)
                 if d.request(95,[1,0]+body)[:2]!=[1,0]:raise RuntimeError('Recording patch rejected')
-                notes=[60,63,67,70,74] if sound in ('pad','brass') else [36 if sound=='bass' else 60]
+                if d.request(95,[0,0])[3:]!=body:raise RuntimeError('Recording patch readback mismatch')
+                d.request(27,[0])
+                notes=([36] if sound==3 else [60] if sound in (16,23) else [60,64,67,71,74]) if native else \
+                      [60,63,67,70,74] if sound in ('pad','brass') else [36 if sound=='bass' else 60]
+                name=bytes(r[65:85]).decode('ascii',errors='replace').strip()
+                stem=(f'{sound+1:03d}-'+re.sub(r'[^a-z0-9]+','-',name.lower()).strip('-')) if native else sound
+                filename=stem+'-'+('curtis' if mode else 'ssi')+'.wav'
+                (directory/filename.replace('.wav','.syx')).write_bytes(bytes([0xf0]+body+[0xf7]))
                 chunks=[];statuses=[]
                 def collect(data,frames,when,status):
                     chunks.append(data.copy())
@@ -231,17 +248,23 @@ def recordings(d,args):
                 def silent(data,frames,when,status):data.fill(0)
                 with sd.InputStream(device=inp,channels=4,samplerate=44100,dtype='int16',callback=collect), \
                      sd.OutputStream(device=out,channels=2,samplerate=44100,dtype='int16',callback=silent):
-                    time.sleep(.2);chunks.clear();d.stats(True)
+                    time.sleep(.2);chunks.clear();before=d.stats(True)
                     for note in notes:d.outgoing.send(mido.Message('note_on',channel=0,note=note,velocity=110))
                     time.sleep(2)
                     for note in notes:d.outgoing.send(mido.Message('note_off',channel=0,note=note,velocity=0))
                     time.sleep(4);stats=d.stats()
                 pcm=np.concatenate(chunks)[:,0].astype('<i2')
-                filename=f'{sound}-'+('curtis' if mode else 'ssi')+'.wav'
                 with wave.open(str(directory/filename),'wb') as file:
                     file.setnchannels(1);file.setsampwidth(2);file.setframerate(44100);file.writeframes(pcm.tobytes())
                 row=dict(file=filename,frames=len(pcm),peak=int(np.abs(pcm.astype(np.int32)).max()),
-                         host_stream_status=statuses,device_stats=stats)
+                         clipped_samples=int(np.count_nonzero((pcm==32767)|(pcm==-32768))),
+                         factory_program=sound+1 if native else None,patch_name=name,filter_mode=mode,
+                         notes=notes,native_sha256=hashlib.sha256(bytes([0xf0]+body+[0xf7])).hexdigest(),
+                         original_sha256=hashlib.sha256(programs[sound]).hexdigest() if native else None,
+                         host_stream_status=statuses,device_stats=stats,
+                         counter_delta={k:stats[k]-before[k] for k in ('audio_late','voices_shed','voices_given_up',
+                            'play_underruns','play_overruns','cap_underruns','cap_overruns','missed_frames')})
+                rows=[x for x in rows if x['file']!=filename]
                 rows.append(row);print(json.dumps(row),flush=True)
     finally:
         (directory/'manifest.json').write_text(json.dumps(rows,indent=2)+'\n')
@@ -250,24 +273,26 @@ def recordings(d,args):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['backup','restore-runtime','verify','bench','recordings'])
+    parser.add_argument('action',choices=['backup','restore-runtime','verify','bench','recordings','factory-recordings'])
     parser.add_argument('--port',default='Felucca');parser.add_argument('--backup')
     parser.add_argument('--factory');parser.add_argument('--baseline',action='store_true')
     parser.add_argument('--note-base',type=int,default=60)
+    parser.add_argument('--programs',type=int,nargs='+',help='one-based factory program numbers for factory-recordings')
     parser.add_argument('--mixed-expected',type=int,choices=range(4,9),default=6)
     parser.add_argument('--usb',action='store_true');parser.add_argument('--seconds',type=float,default=5)
     parser.add_argument('--output',default='build/prophet5/device-performance.json')
     args=parser.parse_args()
     if not 0<=args.note_base<=115:parser.error('--note-base must be 0..115')
     if args.seconds<1:parser.error('--seconds must be at least 1')
-    if args.action not in ('bench','recordings') and not args.backup:parser.error('--backup directory is required')
-    if (args.action=='recordings' or args.action=='bench' and not args.baseline) and not args.factory:parser.error('--factory is required for prototype measurements')
+    if args.programs and (args.action!='factory-recordings' or any(n<1 or n>200 for n in args.programs)):parser.error('--programs requires factory-recordings and program numbers 1..200')
+    if args.action not in ('bench','recordings','factory-recordings') and not args.backup:parser.error('--backup directory is required')
+    if (args.action in ('recordings','factory-recordings') or args.action=='bench' and not args.baseline) and not args.factory:parser.error('--factory is required for prototype measurements')
     d=Device(args.port)
     try:
         if args.action=='backup':backup(d,Path(args.backup))
         elif args.action=='restore-runtime':restore_runtime(d,Path(args.backup))
         elif args.action=='verify':verify(d,Path(args.backup))
-        elif args.action=='recordings':recordings(d,args)
+        elif args.action in ('recordings','factory-recordings'):recordings(d,args)
         else:bench(d,args)
     finally:d.close()
 if __name__=='__main__':main()

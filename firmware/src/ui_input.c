@@ -504,6 +504,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max));
     *vp = (int16_t)v;
+    if(pg->scope==SC_P5){fm1_irq_off();p5_edit_value(TSEL,pg->id[slot],v-(pg->id[slot]==P5_BEND?1:0));fm1_irq_on();return;}
+    if(pg->scope==SC_P5STORE){p5_store_slot=(int16_t)v;return;}
     if (pg->scope == SC_CZ1) {                           /* (a copy of the tone's value: written back there) */
         uint8_t raw[CZ_BYTES];
         uint32_t tr = song.sel % NTRK;
@@ -573,6 +575,13 @@ static void act_do(void)
     uint32_t c = act_col(), id, k = (uint32_t)song.g[G_SLOT] - 1u;
     if (!c--)
         return;
+    if(cur_page()->scope==SC_P5STORE){
+        uint32_t slot=(uint32_t)p5_store_slot-1u;
+        if(c==1u){if(transport_busy())ui_message("STOP TO SAVE");else if(native_used(ENGI_PROPHET,slot))confirm_open(CF_OVR_USER,slot);else name_open(NK_USER_SAVE,slot);}
+        else if(c==2u)p5_send(song.sel);
+        else {load_begin(TSEL,UNDO_SOUND);panic_req|=1u<<song.sel;fm1_irq_off();p5_patch_init(p5_patch_of(TSEL));p5_track_accept(TSEL);fm1_irq_on();load_end(TSEL);ui_message("PROPHET INIT");}
+        ui.act=0;return;
+    }
     if (cur_page()->graph == GR_CZTOOLS) {               /* CZ-1: NAME, copy a line over the other, COMPARE */
         uint32_t tr = song.sel % NTRK;
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }

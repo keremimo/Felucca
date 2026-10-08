@@ -55,7 +55,7 @@ watches (v2, `WATCH`), the device also sends push frames (cmds 23, 24, 26) at an
 | string | ASCII bytes, ended by a 0 byte |
 | scope | 0 = parameter of the selected track (`P_*`, 0..P_COUNT−1); 1 = global parameter (`G_*`, 0..G_COUNT−1) |
 | track | 0..3: tracks 1..4 (synth parts) |
-| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 reserved (SAMPLE retired), 5 VOICE, 6 TRIO, 7 WHEEL, 8 reserved (GRAIN retired), 9 PHYS, 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 reserved (OBXF retired), 15 CZ-1 (NENGINES 16). The device and the editor list them in another order (ANALOG FM6 PHASE CZ-1 LOFI VOICE TRIO WHEEL PHYS NOISE DRUM: `ENGINE_ORDER`); the numbers stay |
+| engine byte | 0..NENGINES−1 (firmware before 1.0: NENGINES = its drum track, no engine). The numbers are fixed, new engines are appended: 0 ANALOG, 1 reserved (DIGITAL before 1.0: see below), 2 PHASE, 3 LOFI, 4 reserved (SAMPLE retired), 5 VOICE, 6 reserved (TRIO retired), 7 reserved (WHEEL retired), 8 reserved (GRAIN retired), 9 reserved (PHYS retired), 10 DRUM, 11 NOISE, 12 FM6, 13 reserved (SLICE retired), 14 reserved (OBXF retired), 15 CZ-1, 16–18 reserved, 19 PROPHET (NENGINES 20). The new-sound browser order is PROPHET FM6 PHASE CZ-1 LOFI VOICE NOISE DRUM (`ENGINE_ORDER`). ANALOG 0 remains playable for legacy data; the numbers stay |
 
 The engine parameters are `P_E0..P_E7`: P_COUNT−8 .. P_COUNT−1 (83..90), and `INFO` gives `P_E0`.
 Their meaning, range and names depend on the current engine, so re-read `DESC` for them
@@ -126,13 +126,13 @@ global `G_CLOCK` (id 2, label "CLK") 3 (INT, USB, TRS). `G_MIDI` (id 12) is an e
 | 1 INFO | — | version string, NENGINES, P_COUNT, G_COUNT, NSTEP, P_E0, then NENGINES engine-name strings, then (v3) NTRK (4), then (v6) CHAIN_ROWS (16), then the tagged blocks `55 01 uiCaps`, `4D 01 64 01` and `42 01 3` (below); older firmware ends earlier |
 | 2 GET | scope, id | scope, id, v14 |
 | 3 SET | scope, id, v14 | scope, id, v14 (the value after clamping). Setting global `G_ENGSEL` (id from DESC label "ENG") changes the engine: its defaults, then its first preset (as on the device) |
-| 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track), then G_COUNT × v14 (globals) |
+| 4 DUMP | — | engine, preset, then P_COUNT × v14 (the selected track), then G_COUNT × v14 (globals), then the preset's high bits (preset >> 7; see "Presets past 127") |
 | 5 DESC | scope, id | scope, id, fmt, min v14, max v14, def v14, label string, unit string, then for an enum (fmt 8) one name string per value (at most 24; firmware before the matrix: at most 16) |
 | 6 STEP_GET | index 0..NSTEP−1 | index, n (0..4 notes), note0..note3, time (0 NOTE, 1 TIE, 2 REST), flags (1 accent, 2 slide), vel, then (v5) hits (3 bytes, below), then (v7) chance 0..100 |
 | 7 STEP_SET | index, n, note0..3, time, flags, vel [, hits (3 bytes, v5) [, chance 0..100 (v7)]] | same as STEP_GET (after the write). Without the hits the step keeps its own; without the chance it keeps its own. The chance can only follow the hits |
-| 8 PRESET | engine, preset | engine, preset (applies the preset's sound and sends; the steps and the track's own parameters stay, see "Sound loads and undo") |
+| 8 PRESET | engine, preset [, preset >> 7] | engine, preset, preset >> 7 (applies the preset's sound and sends; the steps and the track's own parameters stay, see "Sound loads and undo") |
 | 9 PROJECT | op (0 load, 1 save, 2 query), slot 0..3 | op, slot, used (1/0). Save writes flash: allow ~2 s; it stops the transport first (see "Saves while playing") |
-| 10 NAMES | engine | engine, count, count preset-name strings, then the two edit-page titles |
+| 10 NAMES | engine [, first preset, 2 × 7 bit] | engine, count (≤ 127), count preset-name strings (≤ 20 characters) from the first, then the two edit-page titles, then all presets and the first (2 × 7 bit each). Ask again from first + count until all are read |
 | 11 SMP_BEGIN | slot 0..2 | slot, rc (0 ok). Erases the slot's header sector: the slot is empty from now on |
 | 12 SMP_WRITE | slot, offset (3 × 7 bit, LSB first), pack7 data (≤ 256 bytes) | slot, offset, rc: 0 ok, 1 arguments, 2 erase, 3 write, 4 slot in use (send SMP_BEGIN first). Offset ≥ 512 and a multiple of 256; writes go in increasing order (a write at a 4 KiB boundary erases that sector) |
 | 13 SMP_END | slot, pack7 header (480 bytes) | slot, rc: 0 ok, 1 size, 2 header, 3 data CRC, 4 flash, 5 zones |
@@ -146,15 +146,21 @@ global `G_CLOCK` (id 2, label "CLK") 3 (INT, USB, TRS). `G_MIDI` (id 12) is an e
 | 21 UP_ERASE | slot | slot, rc |
 | 22 WATCH | on (0/1; v4: 3 = also `TRACK_CHANGED`) | on (0/1; v4 firmware: 3 when 3 was asked for). While on, the device pushes cmds 23, 24, 26 (and 32 with bit 1) |
 | 23 CHANGED (push) | — | scope, id, v14 |
-| 24 RELOAD (push) | — | engine, preset, then (v3) the selected track |
+| 24 RELOAD (push) | — | engine, preset, then (v3) the selected track, then preset >> 7 |
 | 25 PING | — | 0 |
 | 26 STEP_CHANGED (push) | — | index, then (v3) the selected track |
 
+**Presets past 127.** PROPHET has 201 factory presets (INIT, then Sequential's 200 v1.03 programs).
+A preset number is 7 bits where the tables above say "preset"; its high bits follow at the end of the
+reply (older editors ignore them, older firmware sends none: read them only if present). `PRESET` takes
+them as a third byte. `NAMES` pages: firmware before this sends one reply with every name and no totals;
+an older editor sees the first page (the names that fit 1024 bytes).
+
 | cmd (v3) | Request args | Reply args |
 | --- | --- | --- |
-| 27 TRACK | — (query), or track (select it) | selected track, NTRK, then per track: engine byte, preset, level v14, mute (0/1), armed (0/1, live recording) |
+| 27 TRACK | — (query), or track (select it) | selected track, NTRK, then per track: engine byte, preset, level v14, mute (0/1), armed (0/1, live recording), then per track preset >> 7 |
 | 28 TRACK_MIX | track (get), or track, level v14 (0..127), mute (set) | track, level v14, mute: the track's `P_LEVEL` and `P_MUTE` |
-| 29 TRACK_DUMP | track | track, engine byte, preset, P_COUNT × v14 (that track's parameters; no globals) |
+| 29 TRACK_DUMP | track | track, engine byte, preset, P_COUNT × v14 (that track's parameters; no globals), then preset >> 7 |
 | 30 TRACK_STEP | track, index (get), or track, index, n, note0..3, time, flags, vel [, hits (v5) [, chance (v7)]] (set) | track, index, n, note0..3, time, flags, vel, then (v5) hits, then (v7) chance |
 
 | cmd (v4) | Request args | Reply args |
@@ -814,10 +820,10 @@ Indices are zero-based 7-bit bytes, including CZ index 127. rc 0 success, 1 inva
 
 List names use at most 12 characters for display; GET preserves the full native name (10 FM6, 16 CZ).
 The web editor imports DX7/Dexed .syx voices into free FM6 slots and Casio .syx frames into free CZ slots;
-collection exports use those same native formats. Native favorites use categories NENGINES+1 (17, FM6)
-and NENGINES+2 (18, CZ), through FAV_GET/SET with their existing signed v14 index encoding.
+collection exports use those same native formats. Native favorites use frozen categories 17 (FM6)
+and 18 (CZ), independent of NENGINES, through FAV_GET/SET with their existing signed v14 index encoding.
 
-Complete backup inventories now contain 23 objects, ids 0..22. General ids 6,7,17,18 are unchanged.
+Before Prophet, complete backup inventories contained 23 objects, ids 0..22. Current inventories add 23..27, as documented below. General ids 6,7,17,18 are unchanged.
 CZ ids 9..16 retain the layout above. FM6 ids 21,22,19,20 hold F001..F016, F017..F032, F033..F048,
 F049..F064 respectively. Each is 2060 bytes: LE magic 0x314D464E (NFM1), u16 version 1, u16 slot count
 16, u32 used mask (low 16 bits), then 16 × 128 native VMEM bytes. Used voices must contain only 7-bit
@@ -839,3 +845,84 @@ should read the names present in the reply, allowing older firmware's shorter de
 With a new scale and QNT enabled, note addresses are scale degrees around address 60 = ROOT at
 C4 + TRN. Recordings and STEP/NOTES keep these 7-bit addresses. MIDI OUT does not send tuning
 messages. See [the catalogue](../assets/scales/README.md) for mapping and register limits.
+
+
+### Prophet native programs (engine 19)
+
+INFO adds the capability bytes `35 01 13 10 11 12 14 00 01` (hex): tag 0x35,
+version 1, engine ID 19, frozen general/FM6/CZ/Prophet-user categories
+16/17/18/20, flags 0, native protocol version 1. Native collection capacities
+also include engine 19 with 128 slots. Never derive collection categories from
+the engine count when this namespace block is present. Factory Prophet
+favorites use category 19; general presets retain category 16. Preset command
+8 recognizes factory engine IDs only: use native command 78 for user slots.
+General UP_STORE/UP_PUT reject engine 19; full Prophet records use native storage.
+
+**Command 95:** `operation track [data]`, track 0–3.
+
+| operation | request data | reply |
+| --- | --- | --- |
+| 0 exact GET | none | `1 rc track` plus native frame without F0/F7 |
+| 1 complete PUT | native frame without F0/F7 | `1 rc track` |
+| 2 panel field | raw offset, value | `2 rc track` |
+| 3 rename | 1–20 printable ASCII bytes, no terminator | `3 rc track` |
+| 4 send native edit dump | none | `4 rc track`, plus a separate native dump |
+
+rc 0 success, 1 invalid arguments/frame. Field/rename operations require engine
+19 on the destination track. Field offsets are 0–54, 86 (bend) and 87
+(priority/retrigger); only defined descriptors are accepted. Bool fields are
+0/1; knobs usually 0–120, Fine B/Poly-Mod envelope/Vintage 0–127; keyboard
+tracking 0–2, unison count 1–5, detune 0–7, bend raw 0–11, priority 0–3.
+Bend displays 1–12 semitones. Imported native records can retain values above
+panel limits: DSP clamps these without rewriting them.
+
+A complete PUT validates before changing RAM, initializes native performance,
+sets engine 19, resets its eight common macros and clears user-slot origin.
+It retains effects, matrix, scales, chords and sequencer and participates in
+sound undo/redo. Whole patches replace sounding voices using the normal panic
+fade. Field edits affect held notes; unknown/opaque fields cannot be addressed
+by panel operation 2. Native names occupy raw 65–84.
+
+Native frames use `F0 01 model command ... F7`, model 0x31 or 0x32, command
+2 (program: group 0–9, program 0–39) or 3 (edit buffer). Payloads are exactly
+128 raw / 147 packed bytes or 133 raw / 152 packed bytes. Eight-byte packed
+groups contain a high-bit mask then up to seven low-seven-bit bytes. Final
+unused mask bits must be zero. Length, embedded status bytes and addresses
+are checked before mutation. Exact GET/export preserves original model,
+length, command, address and all unused bytes. Native dump send uses command 3.
+
+Direct USB native command 2/3 loads the selected RAM track without a flash
+save. Native command 6 requests its edit dump. Command 5 plus group/program
+requests a used user slot at `group * 40 + program`, limited to 0–127.
+Unsupported/empty program requests have no native reply. Native NRPN/CC
+parameter editing and TRS native SysEx are outside this implementation.
+
+Command **78** adds engine 19 using the same operations as FM6/CZ. Its native
+record is 138 bytes: raw[133], raw size, model, command, group, program. All
+138 bytes use low-first nibble pairs (276 transfer bytes). Rename permits
+1–20 characters, GET retains all twenty, LIST truncates only its display name
+to twelve. LOAD sets native performance and keeps track effects/matrix/patterns.
+The dedicated collection stores the complete native record rather than common
+Melodee parameters. Native slot indices remain unsigned bytes 0–127.
+
+**Backups:** inventory IDs 0–22 remain fixed; 23–27 are Prophet banks. Each bank
+is 3600 bytes: LE u32 magic `0x31553550` (P5U1), used mask, favorite mask,
+then 26 complete 138-byte records. Banks 0–3 use mask bits 0–25; bank 4 uses
+0–23. Bank 0's favorite bit 31 represents factory INIT. Other high bits are
+invalid. Used records require valid wire metadata. An empty restore produces
+a valid empty bank. Older archives that omit these objects leave them intact.
+The editor validates nonempty Prophet objects and target capability before
+starting restore writes.
+
+**Projects:** FUN14 magic `0x46554E3E`, size 12904, preserves all previous
+FM6/CZ/timed-note offsets. Four 138-byte Prophet records start at offset
+12336; name/checksum move to the final sixteen bytes. FBKH magic `0x484B4246`,
+size 27752, embeds the FUN14 record at offset 8; its extra-bank sections follow
+the larger record. TPLC magic `0x434C5054` includes the same four full native
+records. Older FUN13/FBKG/TPLB and earlier data migrate with INIT Prophet
+records for tracks without native data. Projects, runtime backups, templates
+and sound undo/redo retain opaque bytes independent of user collection slots.
+
+The app boundary is 0x89000. Five native A/B pairs occupy 0x89000–0x92FFF.
+Normal OTA/loader paths reject mismatched older app extents before writing.
+See [prototype validation and release gates](../docs/PROPHET5_PROTOTYPE.md).

@@ -103,7 +103,7 @@ static int up_bank_shape(uint32_t len,uint32_t rsize){return (len==sizeof(up_ban
 static int up_valid(const up_rec_t *r)
 {
     if (r->used == UP_USED && (up_native_cz(r) || up_legacy_cz(r))) { uint8_t raw[CZ_BYTES];return r->np==P_COUNT && r->name[0] && up_cz_raw(r,raw); }
-    if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < NENGINES &&
+    if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < USER_GENERAL &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
     /* Pre-1.0 Melodee reused UPB1/version 1, but its MPC/chord ids and engine 9 mean different things.
      * Fresh-start policy: preserve the bytes while treating these fork layouts as empty. */
@@ -264,6 +264,7 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     r->used = UP_USED;
     r->ver = UP_VER;
     r->engine = a[1];
+    if(r->engine==ENGI_PROPHET)return 1;
     r->np = P_COUNT;
     for (i = 0; i < n; i++)
         r->name[i] = (char)a[2 + i];
@@ -344,7 +345,7 @@ static void up_boot(void)                      /* persist_boot: the banks from f
     upf_release();
 #ifdef MELODEE_FAVORITES
     for (uint32_t k = 0; k < UP_SLOTS; k++)
-        if (!up_used(k)) favorite_set(NENGINES, k, 0);
+        if (!up_used(k)) favorite_set(USER_GENERAL, k, 0);
 #endif
 }
 
@@ -392,7 +393,7 @@ static int up_put(uint32_t k, const up_rec_t *r)
 #endif
     if (!r) {
 #ifdef MELODEE_FAVORITES
-        if (favorite_set(NENGINES, k, 0)) settings_save();
+        if (favorite_set(USER_GENERAL, k, 0)) settings_save();
 #endif
         uint32_t i;
         for (i = 0; i < NTRK; i++)
@@ -443,7 +444,7 @@ static void up_set_name(up_rec_t *r, uint32_t k, const char *name)
 /* the selected part's sound -> slot k; name 0 or "": the automatic name (up_auto_name); up_put's result */
 static int up_store(uint32_t k, const char *name)
 {
-    if (k >= UP_SLOTS) return 1;
+    if (k >= UP_SLOTS || TSEL->eng_req == ENGI_PROPHET) return 1;
     up_rec_t r;
     uint32_t i;
     memset(&r, 0, sizeof r);
@@ -657,5 +658,6 @@ static void up_ui_named(uint32_t op, uint32_t k, const char *name)   /* 0 load, 
     ui.force = 1;
 }
 static void up_ui(uint32_t op, uint32_t k) { up_ui_named(op, k, 0); }
+#include "prophet_user.c"
 #include "native_presets.c"
 #endif

@@ -144,7 +144,7 @@ int main(int argc, char **argv)
     nfo = flash_off(logical);
     /* device: OLD installed, plus a valid update record at 0xE4F00 */
     memset(nor, 0xFF, sizeof nor);
-    memcpy(nor, old + ofo, 0x93000);
+    memcpy(nor, old + ofo, LDR_APP_HI);
     memcpy(head, nor, sizeof head);
     {
         uint8_t r[112] = {0};
@@ -157,11 +157,15 @@ int main(int argc, char **argv)
     static uint8_t extensions[0x10000];
     for(uint32_t i=0;i<sizeof extensions;i++)extensions[i]=(i%4096u>=3840u)?0xFFu:(uint8_t)(i*31u);
     memcpy(nor+0xEA000u,extensions,sizeof extensions);
+    static uint8_t prophet_banks[0xA000];memset(prophet_banks,0xA5,sizeof prophet_banks);
+    for(uint32_t i=0;i<10u;i++)memset(prophet_banks+i*4096u+3840u,0xFF,256u);
+    memcpy(nor+0x89000,prophet_banks,sizeof prophet_banks);
     rc = ldr_session();
+    bad += check("Prophet native banks survive firmware installation",!memcmp(nor+0x89000,prophet_banks,sizeof prophet_banks));
     bad += check("project extensions survive firmware installation",!memcmp(nor+0xEA000u,extensions,sizeof extensions));
     printf("  rc %d, %u requests, %u sector erases\n", rc, requests, erases);
     bad += check("install completes", rc == 0);
-    bad += check("app area == the new package's flash.bin", !memcmp(nor + 0x4000, logical + nfo + 0x4000, 0x93000 - 0x4000));
+    bad += check("app area == the new package's flash.bin", !memcmp(nor + 0x4000, logical + nfo + 0x4000, LDR_APP_HI - 0x4000));
     bad += check("flash head [0, 0x4000) untouched", !memcmp(nor, head, sizeof head));
     bad += check("finish asked (0xF0000000)", f0_asked >= 1);
     bad += check("update record cleared (RAM + flash)", record_cleared && nor[0xE4F06] == 0xFF);
@@ -174,11 +178,19 @@ int main(int argc, char **argv)
     {
         uint8_t save = logical[nfo + 0x4000 + 5];
         logical[nfo + 0x4000 + 5] ^= 0x5A;           /* app area head no longer decrypts */
-        memcpy(nor, old + ofo, 0x93000);
+        memcpy(nor, old + ofo, LDR_APP_HI);
         erases = 0;
         rc = ldr_session();
         bad += check("foreign key / damaged app head refused, nothing erased", rc == -6 && erases == 0);
         logical[nfo + 0x4000 + 5] = save;
+    }
+    {   /* A valid UFW entry with the old 0x93000 flash partition. */
+        uint8_t saved[0x400];memcpy(saved,logical,sizeof saved);uint8_t *h=logical;
+        uint8_t header[64];memcpy(header,h,64);ota_jl_enc(header,64);uint32_t count=ota_rd16(header+8);
+        for(uint32_t k=0;k<count;k++){uint8_t *e=h+0x40+k*0x50u;ota_jl_enc(e,0x50);if(ota_rd16(e)==0)ota_wr32(e+12,0x93000u);ota_jl_enc(e,0x50);}
+        ota_wr16(header+2,ota_crc16(h+0x40,count*0x50u,0));ota_wr16(header,ota_crc16(header+2,62,0));ota_jl_enc(header,64);memcpy(h,header,64);
+        erases=0;rc=ldr_session();bad+=check("old larger partition refused before erasing Prophet banks",rc==-3&&!erases&&!memcmp(nor+0x89000,prophet_banks,sizeof prophet_banks));
+        memcpy(logical,saved,sizeof saved);
     }
     printf("%s\n", bad ? "LOADER TEST FAILED" : "loader test passed");
     return bad != 0;

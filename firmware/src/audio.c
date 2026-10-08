@@ -44,6 +44,11 @@ static void audio_block(int32_t *out, uint32_t n)       /* mix (fx.c), then Q15 
             scope_buf[scope_w++ & (SCOPE_N - 1u)] = (int16_t)out[2u * i];
         out[2u * i] *= 1 << OUT_SHIFT;
         out[2u * i + 1u] *= 1 << OUT_SHIFT;
+#if defined(MELODEE_BENCH_SILENT) && MELODEE_BENCH_SILENT
+        /* Bench builds silence only the physical output. Full engine/FX work,
+         * scope and USB capture still run; never use track mutes for timing. */
+        out[2u * i] = out[2u * i + 1u] = 0;
+#endif
     }
 }
 

@@ -260,6 +260,7 @@ static int test_sound_loads(void)
         empty &= (uint32_t)seq_is_empty(&trk[i]);
     bad += check("power-on: the four sounds, every sequencer empty, no undo copy", empty && undo.trk == 0 && undo_depth == 0 &&
                  trk[3].eng_req == ENGI_DRUM && trk[3].preset == 0u && trk[0].preset == TRK_DEF[0][1]);
+    set_engine_of(t,3);
     my_steps(t);
     t->p[P_E0 + 1] = 77;                          /* a sound edit */
     t->p[P_AMODE] = 2;                            /* and the track's own settings */
@@ -272,18 +273,18 @@ static int test_sound_loads(void)
     t->p[P_LEVEL] = 90;
     before = *t;
     turn(EN_PRESET, 1);                           /* HOME: the next preset */
-    bad += check("PRESETS on HOME loads the sound: steps, LEN, DIV untouched", t->preset == (uint8_t)((before.preset + 1u) % ENGINES[0]->npresets) &&
+    bad += check("PRESETS on HOME loads the sound: steps, LEN, DIV untouched", t->preset == (uint8_t)((before.preset + 1u) % ENGINES[3]->npresets) &&
                  !memcmp(t->step, before.step, sizeof t->step) && t->p[P_SLEN] == 32 && t->p[P_SDIV] == 1);
     bad += check("..ARP, SCL, the SLICER and the mix stay the track's", t->p[P_AMODE] == 2 && t->p[P_AOCT] == 3 && t->p[P_SCALE] == 2 &&
                  t->p[P_TRANS] == 5 && t->p[P_SLCR] == SL_GATE && t->p[P_SLPAT] == 4 && t->p[P_LEVEL] == 90);
     bad += check("..and no warning about the sequence", !msg_is("T1 SEQ REPLACED"));
-    for (i = 0; i < ENGINES[0]->npresets; i++)
-        if (str_eq(ENGINES[0]->presets[i].name, "RAVE"))
+    for (i = 0; i < ENGINES[3]->npresets; i++)
+        if (str_eq(ENGINES[3]->presets[i].name, "ARP 8BIT"))
             break;
     t->p[P_AMODE] = 0;
     t->preset = (uint8_t)(i - 1u);
     turn(EN_PRESET, 1);
-    bad += check("RAVE (an ARP preset) leaves the arp off; it suggests pattern 13 ARP", t->preset == i && t->p[P_AMODE] == 0 &&
+    bad += check("ARP 8BIT (an ARP preset) leaves the arp off; it suggests pattern 13 ARP", t->preset == i && t->p[P_AMODE] == 0 &&
                  preset_pat_hint() == 12 && ui.ppick == 12 && str_eq(PATTERNS[12].name, "ARP"));
     t->p[P_AMODE] = 2;
     before = *t;
@@ -447,6 +448,7 @@ static int test_patterns(void)
     bad += check("over a project's steps: the dialog", ui.confirm == CF_LOAD_PAT);
     press(B_OCTDN);
     /* the hint: PRESETS page K3 PAT, and a load moves the pick there */
+    set_engine_of(t,ENGI_FM6);apply_preset_to(t,0);
     go_page(GR_BROWSE);
     turn(EN_K1, 1);
     bad += check("PRESETS: a factory preset's suggested pattern becomes the pick", preset_pat_hint() >= 0 &&
@@ -1093,6 +1095,7 @@ static int test_favorites(void)
     uint32_t total, pos;
     track_t before;
     ui_power_on();
+    set_engine_of(TSEL,ENGI_PROPHET);
     my_steps(TSEL);
     TSEL->p[P_AMODE] = 2;
     go_page(GR_BROWSE);
@@ -1112,12 +1115,12 @@ static int test_favorites(void)
                  favorite_has(ENGI_DRUM, 0) && !memcmp(TSEL, &before, sizeof before));
     turn(EN_PRESET, 1);
     bad += check("filtered browsing crosses DRUM and synth sounds while retaining the track's pattern and ARP",
-                 TSEL->eng_req == 0 && preset_favorite() && !memcmp(TSEL->step, before.step, sizeof before.step) &&
+                 TSEL->eng_req == ENGI_PROPHET && preset_favorite() && !memcmp(TSEL->step, before.step, sizeof before.step) &&
                  TSEL->p[P_AMODE] == 2);
     turn(EN_K3, -1);
     pos = preset_pos(&total);
     bad += check("unmarking the current sound leaves it loaded even when outside the filtered list",
-                 !preset_favorite() && total == 1 && pos == total && TSEL->eng_req == 0);
+                 !preset_favorite() && total == 1 && pos == total && TSEL->eng_req == ENGI_PROPHET);
     turn(EN_PRESET, -1);
     bad += check("browsing from a nonfavorite selects the last favorite", TSEL->eng_req == ENGI_DRUM);
     turn(EN_K3, -1);
@@ -1132,14 +1135,14 @@ static int test_favorites(void)
     up_store(31, "Favorite");
     up_load(31);
     turn(EN_K3, 1);
-    bad += check("user slot 32 has its own favorite reference", favorite_has(NENGINES, 31) && preset_favorite());
+    bad += check("user slot 32 has its own favorite reference", favorite_has(USER_GENERAL, 31) && preset_favorite());
     up_store(31, "Renamed");
-    bad += check("overwriting or renaming a user slot retains its star", favorite_has(NENGINES, 31));
+    bad += check("overwriting or renaming a user slot retains its star", favorite_has(USER_GENERAL, 31));
     up_put(31, 0);
     bad += check("successful erasure removes the user slot star and source label",
-                 !favorite_has(NENGINES, 31) && !up_used(31) && !TSEL->user);
+                 !favorite_has(USER_GENERAL, 31) && !up_used(31) && !TSEL->user);
     up_store(31, "New sound");
-    bad += check("reusing the erased slot does not restore its old star", !favorite_has(NENGINES, 31));
+    bad += check("reusing the erased slot does not restore its old star", !favorite_has(USER_GENERAL, 31));
     return bad;
 }
 
@@ -3814,7 +3817,7 @@ static int test_fm4_retired(void)
 {
     int bad = 0, ok = 1;
     uint32_t i, k, e, total, seen = 0, all = 0;
-    for(uint32_t eng=0;eng<NENGINES;eng++) if(eng_ok(eng))all |= 1u<<eng;
+    for(uint32_t eng=0;eng<NENGINES;eng++) if(eng_ok(eng)&&eng!=0)all |= 1u<<eng;
     int16_t p[P_COUNT];
     uint8_t v[FP_SIZE + 1u];
     ui_power_on();
@@ -3826,7 +3829,7 @@ static int test_fm4_retired(void)
         if (e < NENGINES)
             seen |= 1u << e;
     }
-    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == NENGINES - 5u - 3u * !MELODEE_LEGACY_EXTRAS);
+    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == NENGINES - 9u - 3u * !MELODEE_LEGACY_EXTRAS);
     go_page(GR_BROWSE);
     set_engine_of(TSEL, 0);
     for (i = 0, seen = 0; i < NENG_SHOWN; i++) {
@@ -3834,10 +3837,10 @@ static int test_fm4_retired(void)
         seen |= 1u << TSEL->eng_req;
     }
     bad += check("PRESETS KNOB 2: the engines in order, DIGITAL skipped, back to the first",
-                 seen == all && TSEL->eng_req == 0u && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == 2u &&
-                 eng_step(ENGI_FM6, -1) == 0u && eng_step(0, -1) == ENGI_DRUM);
+                 seen == all && TSEL->eng_req == ENGI_PROPHET && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == 2u &&
+                 eng_step(ENGI_FM6, -1) == ENGI_PROPHET && eng_step(0, -1) == ENGI_DRUM);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
-        static const char *const ORDER[] = {"ANALOG", "FM6", "PHASE", "CZ-1", "LOFI", "VOICE",
+        static const char *const ORDER[] = {"PROPHET", "FM6", "PHASE", "CZ-1", "LOFI", "VOICE",
 #if MELODEE_LEGACY_EXTRAS
                                             "TRIO", "WHEEL", "PHYS",
 #endif
@@ -3973,10 +3976,37 @@ static int test_home_notes(void)
     return bad;
 }
 
+static int test_prophet_pages(void)
+{
+    ui_power_on();set_engine_of(TSEL,ENGI_PROPHET);int bad=0,visible=0;
+    bad+=check("selecting Prophet starts on native P001 with its original factory bytes",TSEL->user_native&&TSEL->user==1u&&!memcmp(p5_patch_of(TSEL),&P5_FACTORY[0],sizeof(p5_patch_t)));
+    int factory=ENGINES[ENGI_PROPHET]->npresets==P5_FACTORY_N+1u;
+    for(uint32_t k=1;k<=P5_FACTORY_N;k++){
+        apply_preset_to(TSEL,k);char name[21];p5_patch_name(name,&P5_FACTORY[k-1u]);
+        factory &= TSEL->preset==k&&!TSEL->user&&!memcmp(p5_patch_of(TSEL),&P5_FACTORY[k-1u],sizeof(p5_patch_t))&&
+                   !strcmp(ENGINES[ENGI_PROPHET]->presets[k].name,name)&&!TSEL->p[P_DIST]&&!TSEL->p[P_REV];
+    }
+    bad+=check("all 200 Sequential programs are dry factory presets with exact native bytes, whatever the user bank holds",factory);
+    apply_preset_to(TSEL,0);
+    for(uint32_t i=0;i<NPAGES;i++)if(PAGES[i].scope==SC_P5||PAGES[i].scope==SC_P5STORE)visible+=page_visible(i);
+    bad+=check("Prophet exposes all sixteen native editing and store pages",visible==16);
+    go_title("P5 OSC A");p5_patch_t before=*p5_patch_of(TSEL);turn(EN_K1,1);before.raw[P5_FREQ_A]++;
+    bad+=check("native oscillator knob changes its field and preserves opaque bytes",!memcmp(&before,p5_patch_of(TSEL),sizeof before));
+    go_title("P5 STORE");p5_store_slot=128;turn(EN_K2,1);
+    bad+=check("native STORE waits for OCT+ before opening NAME",!name_on()&&act_col()==2);
+    press(B_OCTUP);bad+=check("default P128 asks before overwriting its factory patch",ui.confirm==CF_OVR_USER&&!name_on());
+    press(B_OCTUP);bad+=check("confirmed STORE opens native slot 128 naming",name_on()&&nm.slot==127&&name_limit()==20);
+    nm.len=nm.cur=0;nm.s[0]=0;for(uint32_t k=0;k<20;k++){nm_insert((char)('A'+k));nm.cur++;}
+    bad+=check("native NAME holds twenty characters and refuses a twenty-first",nm.len==20&&!nm_insert('Z')&&nm.s[20]==0);
+    name_close();go_title("P5 STORE");p5_patch_of(TSEL)->raw[97]=255;turn(EN_K4,1);press(B_OCTUP);
+    bad+=check("native INIT resets the full patch with sound undo available",p5_patch_of(TSEL)->raw[97]==0&&undo.keep);
+    undo_swap();bad+=check("undo after native INIT restores opaque bytes",p5_patch_of(TSEL)->raw[97]==255);
+    return bad;
+}
 int main(void)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
-    int bad = 0;
+    int bad = test_prophet_pages();
     bad += test_large_face();
     bad += test_home_notes();
     bad += test_sound_loads();

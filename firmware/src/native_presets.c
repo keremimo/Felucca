@@ -7,7 +7,7 @@
 #define NATIVE_FM_MAGIC 0x314D464Eu /* NFM1 */
 typedef struct { uint32_t magic; uint16_t ver, slots; uint32_t used; uint8_t tone[16][FM6_PACKED]; } native_fm_t;
 _Static_assert(sizeof(native_fm_t)==2060u, "native DX7 preset object");
-static uint32_t native_limit(uint32_t e) { return e==ENGI_FM6 ? NATIVE_FM_SLOTS : e==ENGI_CZ ? NATIVE_CZ_SLOTS : 0u; }
+static uint32_t native_limit(uint32_t e) { return e==ENGI_FM6 ? NATIVE_FM_SLOTS : e==ENGI_CZ ? NATIVE_CZ_SLOTS : e==ENGI_PROPHET ? P5_USER_SLOTS : 0u; }
 #if MELODEE_FLASH
 static uint32_t native_fm_obj(uint32_t b) { return b<2u ? OBJ_NATIVEFM0+b : b==2u ? OBJ_FM6BANK : OBJ_UPFM6_EXT; }
 #endif
@@ -52,6 +52,7 @@ static cz_bank_t *native_cz_bank(uint32_t b) { return &native_cz_host[b]; }
 static void native_cache_reset(void)
 {
     memset(native_meta, 0, sizeof native_meta);
+    p5_user_reset();
 #if MELODEE_FLASH
     native_fm_cached = native_cz_cached = 255;
 #else
@@ -93,15 +94,17 @@ static int native_fm_active(void)
 static void native_fm_empty(uint32_t b) { native_fm_t *f = native_fm_bank(b); memset(f,0,sizeof *f);f->magic=NATIVE_FM_MAGIC;f->ver=1;f->slots=16; }
 static int native_used(uint32_t e,uint32_t k)
 {
+    if(e==ENGI_PROPHET)return p5_user_used(k);
     if(k>=native_limit(e))return 0;
     uint32_t idx = k/16u + (e == ENGI_FM6 ? 0u : 4u);
     if (!native_meta[idx].ready) native_index(e, k/16u);
     return (native_meta[idx].used >> (k%16u)) & 1u;
 }
-static const uint8_t *native_raw(uint32_t e,uint32_t k) { return e==ENGI_FM6 ? native_fm_bank(k/16u)->tone[k%16u] : native_cz_bank(k/16u)->tone[k%16u].raw; }
-static uint32_t native_size(uint32_t e) { return e==ENGI_FM6 ? FM6_PACKED : CZ_BYTES; }
+static const uint8_t *native_raw(uint32_t e,uint32_t k) { return e==ENGI_PROPHET ? (const uint8_t *)&p5_user_bank(k/P5_BANK_SLOTS)->patch[k%P5_BANK_SLOTS] : e==ENGI_FM6 ? native_fm_bank(k/16u)->tone[k%16u] : native_cz_bank(k/16u)->tone[k%16u].raw; }
+static uint32_t native_size(uint32_t e) { return e==ENGI_PROPHET ? sizeof(p5_patch_t) : e==ENGI_FM6 ? FM6_PACKED : CZ_BYTES; }
 static void native_name(uint32_t e,uint32_t k,char *out)
 {
+    if(e==ENGI_PROPHET){const char *n=p5_user_name(k);uint32_t i=0;for(;i<12u&&n[i];i++)out[i]=n[i];out[i]=0;return;}
     uint32_t idx = k/16u + (e == ENGI_FM6 ? 0u : 4u);
     if (!native_meta[idx].ready) native_index(e, k/16u);
     memcpy(out, native_meta[idx].name[k%16u], 13);
@@ -135,7 +138,7 @@ static void native_release_shared(void)
             if(e==ENGI_FM6 && native_used(e,k))slot=k;
             else if(e==ENGI_CZ){uint8_t raw[CZ_BYTES];if(up_cz_raw(up_rec(k),raw))for(uint32_t i=0;i<NATIVE_CZ_SLOTS;i++)if(native_used(e,i) && !memcmp(native_raw(e,i),raw,CZ_BYTES)){slot=i;break;}}
             if(slot==USER_NONE)continue;
-            if(favorite_has(NENGINES,k)){favorite_set(e==ENGI_FM6?USER_NATIVE_FM:USER_NATIVE_CZ,slot,1);favorite_set(NENGINES,k,0);marked=1;}
+            if(favorite_has(USER_GENERAL,k)){favorite_set(e==ENGI_FM6?USER_NATIVE_FM:USER_NATIVE_CZ,slot,1);favorite_set(USER_GENERAL,k,0);marked=1;}
             memset(up_rec(k),0,sizeof(up_rec_t));changed++;
         }
         if(changed){
@@ -190,6 +193,7 @@ static void native_boot(void)
 /* Mutations keep the last committed tone in RAM if flash fails. */
 static int native_put(uint32_t e,uint32_t k,const uint8_t *raw)
 {
+    if(e==ENGI_PROPHET){if(transport_busy())return 2;p5_patch_t p;if(raw)memcpy(&p,raw,sizeof p);int rc=p5_user_put(k,raw?&p:0);if(!rc){if(!raw)for(uint32_t t=0;t<NTRK;t++)if(trk[t].user_native && trk[t].eng_req==e && trk[t].user==k+1u)trk[t].user=0;up_gen++;sync_reload=1;ui.force=1;}return rc;}
     if(k>=native_limit(e))return 1;
     if(raw){if(e==ENGI_CZ){if(!cz_patch_valid(raw))return 1;}else for(uint32_t j=0;j<FM6_PACKED;j++)if(raw[j]>127u)return 1;}
 #if MELODEE_FLASH
@@ -240,16 +244,17 @@ static int native_load(uint32_t e,uint32_t k,uint32_t tr)
     track_t *t=&trk[tr];load_begin(t,UNDO_SOUND);panic_req|=(uint8_t)(1u<<tr);fm1_irq_off();
     uint32_t previous=t->eng_req;
     t->eng_req=(uint8_t)e;t->preset=0;t->user=(uint8_t)(k+1u);t->user_native=1;
-    if(previous!=e)for(uint32_t j=0;j<8u;j++)t->p[P_E0+j]=ENGINES[e]->edit[j].def;
+    if(previous!=e || e==ENGI_PROPHET)for(uint32_t j=0;j<8u;j++)t->p[P_E0+j]=ENGINES[e]->edit[j].def;
     if(e==ENGI_FM6){uint8_t v[FP_SIZE+1u];fm6_unpack(loaded,v);fm6_set_patch(tr,v);}
+    else if(e==ENGI_PROPHET){memcpy(&p5_patch[tr],loaded,sizeof(p5_patch_t));p5_ready[tr]=1;p5_track_accept(t);}
     else {memcpy(cz_patch[tr].raw,loaded,CZ_BYTES);t->p[P_E7]=CZ_NATIVE;cz_track_accept(t);}
     fm1_irq_on();load_end(t);sync_reload=1;ui.force=1;return 0;
 }
 static int native_store(uint32_t e,uint32_t k,uint32_t tr,const char *name)
 {
     if(tr>=NTRK || trk[tr].eng_req!=e)return 1;
-    uint8_t raw[CZ_BYTES];if(e==ENGI_FM6)fm6_pack(fm6_patch[tr],raw);else memcpy(raw,cz_patch[tr].raw,CZ_BYTES);
-    if(name && name[0]){uint32_t off=e==ENGI_FM6?118u:128u,n=e==ENGI_FM6?10u:16u;memset(raw+off,' ',n);for(uint32_t i=0;i<n && name[i];i++)raw[off+i]=(uint8_t)name[i];}
+    uint8_t raw[CZ_BYTES];if(e==ENGI_FM6)fm6_pack(fm6_patch[tr],raw);else if(e==ENGI_PROPHET)memcpy(raw,p5_patch_of(&trk[tr]),sizeof(p5_patch_t));else memcpy(raw,cz_patch[tr].raw,CZ_BYTES);
+    if(name && name[0]){uint32_t off=e==ENGI_PROPHET?P5_NAME:e==ENGI_FM6?118u:128u,n=e==ENGI_PROPHET?20u:e==ENGI_FM6?10u:16u;memset(raw+off,' ',n);for(uint32_t i=0;i<n && name[i];i++)raw[off+i]=(uint8_t)name[i];}
     return native_put(e,k,raw);
 }
 /* Older archives carry two 32-slot owned-voice objects. Copy their restored
@@ -277,7 +282,7 @@ static void user_name(uint32_t k,char *out) { if(native_limit(TSEL->eng_req))nat
 static void user_label(char *out,uint32_t k)
 {
     if(!native_limit(TSEL->eng_req)){up_slot_label(out,k);return;}
-    out[0]=TSEL->eng_req==ENGI_FM6?'F':'Z';out[1]=(char)('0'+(k+1u)/100u);out[2]=(char)('0'+(k+1u)/10u%10u);out[3]=(char)('0'+(k+1u)%10u);out[4]=0;
+    out[0]=TSEL->eng_req==ENGI_PROPHET?'P':TSEL->eng_req==ENGI_FM6?'F':'Z';out[1]=(char)('0'+(k+1u)/100u);out[2]=(char)('0'+(k+1u)/10u%10u);out[3]=(char)('0'+(k+1u)%10u);out[4]=0;
 }
 static void user_ui_named(uint32_t op,uint32_t k,const char *name)
 {
@@ -287,7 +292,7 @@ static void user_ui_named(uint32_t op,uint32_t k,const char *name)
     else if(op==1u)rc=native_put(e,k,0);
     else if(op==2u)rc=native_store(e,k,song.sel,name);
     else if(!native_used(e,k))rc=1;
-    else {uint8_t raw[CZ_BYTES];memcpy(raw,native_raw(e,k),native_size(e));uint32_t off=e==ENGI_FM6?118u:128u,n=e==ENGI_FM6?10u:16u;memset(raw+off,' ',n);for(uint32_t i=0;i<n && name && name[i];i++)raw[off+i]=(uint8_t)name[i];rc=native_put(e,k,raw);}
+    else {uint8_t raw[CZ_BYTES];memcpy(raw,native_raw(e,k),native_size(e));uint32_t off=e==ENGI_PROPHET?P5_NAME:e==ENGI_FM6?118u:128u,n=e==ENGI_PROPHET?20u:e==ENGI_FM6?10u:16u;memset(raw+off,' ',n);for(uint32_t i=0;i<n && name && name[i];i++)raw[off+i]=(uint8_t)name[i];rc=native_put(e,k,raw);}
     if(rc==1)ui_message("EMPTY SLOT");else if(rc==2)ui_message(transport_busy()?"STOP TO SAVE":"SAVE ERROR");else {char label[5];user_label(label,k);ui_say(op==0?"LOADED ":op==1?"ERASED ":op==3?"RENAMED ":"SAVED ",label);}
     ui.force=1;
 }

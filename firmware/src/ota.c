@@ -264,7 +264,9 @@ static int ota_stage(void)                       /* steps 1..6; 0 = host said su
     ota_show(1, 0);
     if ((rc = ota_ufw(hdr, &fl_off, &fl_len, &ota_off, &ota_len)) != 0)
         return rc;
-    if (!fl_off || !ota_off)
+    /* A package with another partition can carry a loader that overwrites
+     * native Prophet storage. Refuse it before staging or erasing anything. */
+    if (!fl_off || !ota_off || fl_len != 0x89000u)
         return -3;
     /* 2. which loader: the official one (known CRCs; it rewrites the whole flash.bin
      *    including the head) or Melodee's own (app area only, checks the chip key) */

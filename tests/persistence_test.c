@@ -302,12 +302,12 @@ int main(void)
     fail_after = -1;
     bad += check("failed preset save rolls back bank and generation", ok && up_gen == before &&
                   !memcmp(up_cache_bank(0), &bank, sizeof bank));
-    favorite_set(NENGINES, 3, 1);
+    favorite_set(USER_GENERAL, 3, 1);
     fail_after = 1;
     ok = up_put(3, 0) == 2;
     fail_after = -1;
     bad += check("failed preset erasure retains both the sound and its favorite", ok && up_used(3) &&
-                  favorite_has(NENGINES, 3) && !memcmp(up_cache_bank(0), &bank, sizeof bank));
+                  favorite_has(USER_GENERAL, 3) && !memcmp(up_cache_bank(0), &bank, sizeof bank));
     memset(up_cache_bank(0), 0, sizeof (*up_cache_bank(0)));
     up_boot();
     bad += check("failed preset save keeps old flash", !memcmp(up_cache_bank(0), &bank, sizeof bank));

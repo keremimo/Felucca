@@ -32,7 +32,7 @@ static void p5_patch_init(p5_patch_t *p)
     p->size = P5_RAW_MAX; p->model = 0x32; p->command = 3;
     p->raw[P5_FREQ_A] = p->raw[P5_FREQ_B] = 24;
     p->raw[P5_FINE_B] = 0;
-    p->raw[P5_VINTAGE] = 127;
+    p->raw[P5_VINTAGE] = 0;    /* 0: stable Rev 4 .. 127: Rev 1 */
     p->raw[P5_SAW_A] = p->raw[P5_KEY_B] = 1;
     p->raw[P5_PW_A] = p->raw[P5_PW_B] = 64;
     p->raw[P5_LEVEL_A] = p->raw[P5_CUTOFF] = 127;
@@ -41,7 +41,8 @@ static void p5_patch_init(p5_patch_t *p)
     p->raw[P5_SUSTAIN_FILTER] = p->raw[P5_SUSTAIN_AMP] = 127;
     p->raw[P5_RELEASE_FILTER] = p->raw[P5_RELEASE_AMP] = 35;
     p->raw[P5_RELEASE_ON] = 1;
-    p->raw[P5_BEND] = 1;
+    p->raw[P5_BEND] = 0;
+    p->raw[P5_UNISON_COUNT] = 5;
     memset(p->raw + P5_NAME, ' ', P5_NAME_LEN);
     memcpy(p->raw + P5_NAME, "INIT PROPHET", 12);
 }
@@ -94,4 +95,19 @@ static uint32_t p5_patch_encode(const p5_patch_t *p, uint8_t *f, uint32_t cap)
     }
     f[n++] = 0xF7;
     return n;
+}
+
+static int p5_patch_valid(const p5_patch_t *p)
+{
+    uint8_t frame[P5_FRAME_MAX];
+    return p5_patch_encode(p, frame, sizeof frame) != 0;
+}
+static void p5_patch_name(char *name, const p5_patch_t *p)
+{
+    uint32_t end=0;
+    for(uint32_t i=0;i<P5_NAME_LEN;i++){
+        uint8_t c=p->raw[P5_NAME+i];name[i]=(char)(c>=32u&&c<=126u?c:' ');
+        if(name[i]!=' ')end=i+1u;
+    }
+    name[end]=0;
 }
