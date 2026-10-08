@@ -31,7 +31,7 @@ const E = vm.runInNewContext(proto + `
 ;({ frame, unframe, parse, req, Link, parseWav, resample, normalize, takeSample, autoTrim, zoomView, rootFromName, buildSlot, makeMockDevice, CMD, SMP,
    UP, bank, nativeBank, capturePatch, auditionPatch, startWatch, libraryFile, readLibraryFile, paramKeys, patternFromSteps, stepsFromPattern, upName,
    mixer, parseNotes, parseHits, hitsText, gridFromSteps, LANE_NOTE, LANE_OF, readDevicePreferences, devicePresetRows, engineOrder, ENGINE_ORDER, aliasOf, fmtValue, FM6,
-   FM4, fromDigital, CZ, P5, p5LibraryPatch, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
+   FM4, fromDigital, CZ, P5, p5LibraryPatch, nativeImportTargets, scaleRows, SCALE_INFO, czLibraryPatch, czBankEncode, czBankDecode, czBankUpload, czBankRead, czLegacyTone })`,
 { setTimeout, clearTimeout, setInterval, clearInterval, console });
 
 {
@@ -47,6 +47,18 @@ const E = vm.runInNewContext(proto + `
 }
 
 async function prophetTests(){
+  {   /* bulk .syx import into a native collection: empty slots first, else overwrite from the selected slot */
+    const slots=(used)=>Array.from({length:128},(_,slot)=>({slot,used:used(slot)}));
+    const some=E.nativeImportTargets(slots(s=>s%2===0),3,10);
+    ok(!some.overwrite&&some.targets.map(x=>x.slot).join()==="1,3,5","native import: free slots are filled before anything is overwritten");
+    const full=E.nativeImportTargets(slots(()=>true),5,10);
+    ok(full.overwrite&&full.overwrite.from===10&&full.overwrite.to===14&&full.overwrite.used===5&&full.targets.map(x=>x.slot).join()==="10,11,12,13,14",
+      "native import: a full collection overwrites consecutive slots from the selected one");
+    const bank=E.nativeImportTargets(slots(s=>s<100),40,0);
+    ok(bank.overwrite&&bank.overwrite.used===40&&bank.targets.length===40,"native import: a bank larger than the free space asks to overwrite from P001");
+    let refused=false;try{E.nativeImportTargets(slots(()=>true),40,100);}catch(e){refused=/do not fit/.test(e.message);}
+    ok(refused,"native import: a bank that does not fit after the selected slot is refused before any write");
+  }
   const b=E.P5.init();for(let i=88;i<133;i++)b[i]=(i*179)&255;b[97]=255;b[98]=255;
   let exact=true;for(const size of [128,133])for(const cmd of [2,3])for(const model of [49,50]){const raw=b.slice();raw[133]=size;raw[134]=model;raw[135]=cmd;raw[136]=9;raw[137]=39;const f=E.P5.sysex(raw),v=E.P5.read(f).voices[0];exact&&=eq(f,E.P5.sysex(v.raw));}
   ok(exact,"Prophet: exact single/edit SysEx round trips for both models and sizes");
