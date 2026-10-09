@@ -109,7 +109,7 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
     const aafont_t *f = k < ROLL_BPM ? &AF_M : &AF_S;
     uint32_t e = (uint8_t)(ui.frame - ui.roll[k].t0) + 1u, i, p = 0;
     const char *a = ui.roll[k].from;
-    int32_t cy = k < ROLL_BPM ? ROLL_Y : 0, h = k < ROLL_BPM ? ROLL_H : H_HEAD;
+    int32_t cy = k < ROLL_BPM ? y : 0, h = k < ROLL_BPM ? ROLL_H : H_HEAD;   /* (a card's value: at ROLL_Y) */
     uint16_t bg = k < ROLL_BPM ? roll_bg : T_BG;
     char t[8], ch[2] = {0, 0};
     if (e >= ROLL_FRAMES)
@@ -232,7 +232,7 @@ static void draw_head(void)
         cv_free_hint(88, 3, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - 88);
     } else {
         int32_t cw = text_w(&AF_X, chip) + 16;
-        if (cw < 82) cw = 82;
+        if (cw < (ui.home ? 82 : 46)) cw = ui.home ? 82 : 46;   /* (a page: its name's, the dots beside it) */
         if (!ui.home && !song.octave && !chain.running)   /* a page: where it is in its family */
             head_pages(232 - cw - (low ? 20 : 0));
         if (song.octave || chain.running) {             /* the octave shift, or the song's row */
@@ -276,7 +276,17 @@ static void draw_frame(int stage)
  * a label too long to share the card with its icon goes without it.
  * vc: the value's colour (T_THEME, T_DIM inactive, T_ACCENT the knob just turned) */
 static uint8_t stage_drop_rows;                         /* Stage's knobs dropping in: the cards' bottom rows only, 0 all */
-enum { CS_CARD, CS_STRIP };                             /* how draw_column draws a knob: a card, the redesign's pages' */
+static void col_old_value(uint32_t c, char *ov)          /* the value card c drew before (in its cache key), 16 bytes */
+{
+    const char *k = ui.col[c];
+    uint32_t i = 0;
+    while (*k && *k != '|')
+        k++;
+    while (*k && k[1] && k[1] != '|' && i + 1u < 16u)
+        ov[i++] = *++k;
+    ov[i] = 0;
+}
+enum { CS_CARD, CS_STRIP, CS_RING, CS_FADER };          /* how draw_column draws a knob: a card, the redesign's pages' */
 static uint8_t col_style;                               /* (ui_pages.c pv_column) */
 static void pv_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
                       int hot);
@@ -311,13 +321,6 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     key[n + 5] = (char)(icon == ICON_NONE ? '~' : '!' + icon % 90u);
     key[n + 6] = (char)('0' + hot);
     key[n + 7] = 0;
-    if (col_style != CS_CARD) {                         /* the redesign's pages: their own style (ui_pages.c) */
-        if (!ui.force && str_eq(key, ui.col[c]))
-            return;
-        str_cpy(ui.col[c], key, sizeof ui.col[c]);
-        pv_column(c, label, val, unit, vc, ratio, hot);
-        return;
-    }
     uw = unit[0] ? text_w(&AF_X, unit) + 2 : 0;
     if (text_w(vf, val) + uw > room)
         vf = &AF_S;
@@ -330,6 +333,20 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     strip = !snap && str_eq(key, ui.col[c]);
     if (strip && !ui.roll[c].from[0])
         return;
+    if (col_style != CS_CARD) {                         /* the redesign's pages (ui_pages.c): the cell again, rolling */
+        if (!strip) {                                   /* (or not: CS_STRIP's values snap) */
+            char ov[16];
+            col_old_value(c, ov);
+            ui.roll[c].sig = sig;
+            if (!str_eq(ov, val))
+                roll_note(c, ov, val, snap || named || vf != &AF_M || kid >= 0 || col_style == CS_STRIP);
+            else if (snap)
+                ui.roll[c].from[0] = 0;
+            str_cpy(ui.col[c], key, sizeof ui.col[c]);
+        }
+        pv_column(c, label, val, unit, vc, ratio, hot);
+        return;
+    }
     roll_bg = cbg;
     if (strip) {                                        /* rolling: the value strip only */
         cv_begin(COL_W, ROLL_H, cbg);
@@ -340,13 +357,7 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         cv_oy = -ROLL_Y;
     } else {
         char ov[16];                                    /* the value drawn before (in the cache key) */
-        const char *k = ui.col[c];
-        uint32_t i = 0;
-        while (*k && *k != '|')
-            k++;
-        while (*k && k[1] && k[1] != '|' && i + 1u < sizeof ov)
-            ov[i++] = *++k;
-        ov[i] = 0;
+        col_old_value(c, ov);
         ui.roll[c].sig = sig;
         if (!str_eq(ov, val))
             roll_note(c, ov, val, snap || named || vf != &AF_M || kid >= 0);

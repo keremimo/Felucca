@@ -5,9 +5,13 @@
  * picture.
  * CURVE (ENV, LFO, LFO 2): the curve is the page (a panel of 160 rows, drawn in two slices: a canvas holds 124 x 240),
  * a value on each of its segments; the knobs as a slim strip under it.
+ * RINGS (the pages of plain values: EDIT, DLY, REVERB, CHORUS, the engines' own ..): a ring a knob (its value under it,
+ * a dot at the arc's end) over what the page shapes: ANALOG's oscillator, the delay's echoes on the beat, a filter's
+ * response (a page with a cutoff), FM6's algorithm (its chart), else the sound itself (the scope, smooth, live).
+ * FADERS (FX): the four sends as faders.
  * Each part remembers what it drew. draw_column draws the knobs in the style col_style asks (pv_column). Included by
  * ui_draw.c */
-enum { PV_NONE, PV_CURVE };
+enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS };
 #define PV_PANEL_X 4
 #define PV_PANEL_W 232
 #define PV_SLICE 128                                    /* rows of a panel slice (232 x 128 fits CV_MAX) */
@@ -16,6 +20,12 @@ enum { PV_NONE, PV_CURVE };
 #define PV_STRIP_Y 188                                  /* .. the knobs, 54 x 30, rows 188 .. 217 */
 #define PV_STRIP_H 30
 #define PV_SOUND_Y 220                                  /* the sound: rows 220 .. 239 */
+#define PV_RING_Y 24                                    /* RINGS: a knob 58 x 80 at x 1 + 60 c, rows 24 .. 103 */
+#define PV_RING_H 80
+#define PV_PIC_Y 108                                    /* .. the picture: 240 x 112, rows 108 .. 219 */
+#define PV_PIC_H 112
+#define PV_FADER_Y 24                                   /* FADERS: a send 60 x 190 at x 60 c, rows 24 .. 213 */
+#define PV_FADER_H 190
 
 static struct { uint32_t panel, sound; int32_t slice0; } pv;
 static struct { int16_t x0, y0, x1, y1; } pv_box[6];   /* the labels on a panel (pv_text) */
@@ -28,10 +38,90 @@ static uint32_t pv_kind(void)
         return PV_NONE;
     if ((pg->graph == GR_ADSR && pg->scope == SC_TRACK) || pg->graph == GR_LFO)
         return PV_CURVE;
+    if (pg->graph == GR_NONE)
+        return PV_RINGS;
+    if (pg->graph == GR_FX)
+        return PV_FADERS;
     return PV_NONE;
 }
 
 /* ---------------------------------------------------------- knobs --- */
+/* the value and its unit centred on xc (M, rolling as column c's when it changes; S, X when it is wide; the unit 9 px,
+ * mid) */
+static void pv_value_c(uint32_t c, int32_t xc, int32_t y, const char *val, const char *unit, uint16_t vc, uint16_t bg,
+                       int32_t room)
+{
+    const aafont_t *f = &AF_M;
+    int32_t uw = unit[0] ? text_w(&AF_X, unit) + 2 : 0, w, x;
+    if (text_w(f, val) + uw > room) f = &AF_S;
+    if (text_w(f, val) + uw > room) f = &AF_X;
+    if (text_w(f, val) + uw > room) uw = 0;
+    w = text_w(f, val) + uw;
+    x = xc - (w < room ? w : room) / 2;
+    if (f == &AF_M) {
+        roll_bg = bg;
+        x = roll_text(c, x, y, val, vc);
+    } else {
+        x = cv_free_text(x, y + (f == &AF_S ? 4 : 6), f, val, vc, bg, room - uw);
+    }
+    if (uw)
+        cv_text_on(x + 2, y + 6, &AF_X, unit, T_MID, bg);
+}
+/* a ring's pointer: the arc's end, 33 places from 7:30 to 4:30 (12.5 px from the centre) */
+static const int8_t PV_DOT[33][2] = {
+    {-9, 9}, {-10, 7}, {-11, 6}, {-12, 4}, {-12, 2}, {-12, 1}, {-12, -1}, {-12, -3}, {-12, -5}, {-11, -6}, {-10, -8},
+    {-8, -9}, {-7, -10}, {-5, -11}, {-4, -12}, {-2, -12}, {0, -12}, {2, -12}, {4, -12}, {5, -11}, {7, -10}, {8, -9},
+    {10, -8}, {11, -6}, {12, -5}, {12, -3}, {12, -1}, {12, 1}, {12, 2}, {12, 4}, {11, 6}, {10, 7}, {9, 9}};
+/* CS_RING: a 58 x 80 cell: the label (9 px, the track's colour), the ring (3 px, KNOB_RING) with a dot at its value,
+ * the value under it; the knob just turned: lifted, outlined */
+static void pv_ring(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
+                    int hot)
+{
+    uint16_t bg = hot ? T_LIFT : T_BG, lc = vc == T_DIM ? T_DIM : T_THEME;
+    cv_begin(58, PV_RING_H, T_BG);
+    if (hot) {
+        cv_rrect(0, 0, 58, PV_RING_H - 2, 8, T_THEME, T_BG);
+        cv_rrect(1, 1, 56, PV_RING_H - 4, 7, bg, T_THEME);
+    }
+    if (label[0] || val[0]) {
+        cv_text_c(29, 2, &AF_X, label, lc, bg);
+        if (ratio >= 0) {
+            int32_t r = ratio > 1000 ? 1000 : ratio, a1 = -KA_END + r * 2 * KA_END / 1000, k = (r * 32 + 500) / 1000;
+            knob_arc(29 - KNOB_RING_R, 36 - KNOB_RING_R, KNOB_RING_R, KNOB_RING_COV, KNOB_RING_ANG, -KA_END, a1, T_LINE,
+                     lc, bg);
+            cv_disc(29 + PV_DOT[k][0], 36 + PV_DOT[k][1], 8, bg, 0);
+            cv_disc(29 + PV_DOT[k][0], 36 + PV_DOT[k][1], 6, T_TEXT, 0);
+        } else {                                        /* (a list of names: the ring alone) */
+            knob_arc(29 - KNOB_RING_R, 36 - KNOB_RING_R, KNOB_RING_R, KNOB_RING_COV, KNOB_RING_ANG, -KA_END, -KA_END - 1,
+                     T_LINE, lc, bg);
+        }
+        pv_value_c(c, 29, 55, val, unit, vc, bg, 54);
+    }
+    cv_blit((uint32_t)(1 + 60 * (int32_t)c), PV_RING_Y);
+}
+/* CS_FADER: a send: its label, the fader (6 px, filled to its value in the track's colour, a cap), its value */
+static void pv_fader(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
+                     int hot)
+{
+    uint16_t lc = vc == T_DIM ? T_DIM : T_THEME, bg = hot ? T_LIFT : T_BG;
+    int32_t top = 22, bot = 162;
+    cv_begin(60, PV_FADER_H, T_BG);
+    if (hot) {
+        cv_rrect(1, 0, 58, PV_FADER_H, 8, T_THEME, T_BG);
+        cv_rrect(2, 1, 56, PV_FADER_H - 2, 7, bg, T_THEME);
+    }
+    if (label[0] || val[0]) {
+        cv_text_c(30, 3, &AF_X, label, lc, bg);
+        cv_rrect(27, top, 6, bot - top, 3, T_LINE, bg);
+        if (ratio >= 0) {
+            int32_t y = bot - (bot - top) * (ratio > 1000 ? 1000 : ratio) / 1000;
+            cv_rrect(27, y, 6, bot - y, 3, lc, T_LINE);
+            cv_rrect(18, y - 5, 24, 10, 4, T_TEXT, bg);
+        }
+        pv_value_c(c, 30, 169, val, unit, ratio > 0 ? vc : T_DIM, bg, 56);
+    }
+    cv_blit((uint32_t)(60 * (int32_t)c), PV_FADER_Y);
+}
 /* CS_STRIP: a 54 x 30 cell, its label (8 px, the track's colour) over its value (11 px) and unit; the knob just turned:
  * tinted, outlined */
 static void pv_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
@@ -39,7 +129,14 @@ static void pv_column(uint32_t c, const char *label, const char *val, const char
 {
     uint16_t bg = hot ? ux_mix(T_SURF, T_THEME, 22) : T_SURF, lc = vc == T_DIM ? T_DIM : T_THEME;
     int32_t x;
-    (void)ratio;
+    if (col_style == CS_RING) {
+        pv_ring(c, label, val, unit, vc, ratio, hot);
+        return;
+    }
+    if (col_style == CS_FADER) {
+        pv_fader(c, label, val, unit, vc, ratio, hot);
+        return;
+    }
     cv_begin(CARD_W, PV_STRIP_H, T_BG);
     if (hot) {
         cv_rrect(0, 0, CARD_W, PV_STRIP_H, 6, T_THEME, T_BG);
@@ -236,10 +333,138 @@ static uint32_t pv_curve_sig(void)
     return h ^ (uint32_t)(pv_hot() + 1) * 40503u ^ ux.gen * 977u ^ ux.pal * 31u ^ ui.page * 7919u ^ song.sel * 13u;
 }
 
+/* ---------------------------------------------------------- RINGS --- */
+/* ANALOG's oscillator (EDIT 1): three cycles of its wave, the second oscillator (MIX) behind it drifting by DTN, the
+ * noise as grain; its name at the top */
+static void pv_osc(void)
+{
+    static const char *const WN[5] = {"Saw", "Square", "Triangle", "Sine", "Pulse"};
+    const int16_t *p = TSEL->p;
+    uint32_t wave = (uint32_t)p[P_E0] % 5u, o;
+    int32_t det = p[P_E1], mix = p[P_E2], noise = p[P_E3], x, py = 0;
+    for (o = mix ? 0u : 1u; o < 2u; o++) {              /* (the second oscillator first, behind) */
+        uint16_t c = o ? T_THEME : ux_mix(T_PANEL, T_THEME, 25 + mix * 30 / 127);
+        int32_t drift = o ? 0 : 6 + det * 18 / 127;
+        for (x = 0; x < 216; x++) {
+            int32_t ph = ((x + drift * x / 216) % 72) * 1024 / 72, v, y;   /* 0..1023 of a cycle */
+            if (wave == 0u) v = 2 * ph - 1024;
+            else if (wave == 1u || wave == 4u) v = ph < (wave == 4u ? 300 : 512) ? 1024 : -1024;
+            else if (wave == 2u) v = ph < 512 ? -1024 + 4 * ph : 3072 - 4 * ph;
+            else v = ph < 512 ? ph * (512 - ph) / 64 : -((ph - 512) * (1024 - ph) / 64);   /* (a sine as parabolas) */
+            if (o && noise)
+                v += (int32_t)(((uint32_t)x * 2654435761u >> 22) & 255u) * noise / 127 * 3 - 384 * noise / 127;
+            y = (58 * 16) - v * 36 * 16 / 1024;
+            cv_vspan_aa(12 + x, x ? py : y, y, c);
+            py = y;
+        }
+    }
+    cv_rect(12, 96, 216, 1, T_LINE);
+    cv_text_r(228, 6, &AF_S, WN[wave], T_THEME, T_PANEL);
+}
+/* the delay: the dry hit (text), then its echoes at TIME on the beat, each FDBK of the one before, fading with TONE;
+ * the beat grid behind; how many echoes are heard */
+static void pv_echo(void)
+{
+    static const uint16_t SIXTHS[14] = {24, 12, 6, 3, 8, 4, 48, 96, 192, 384, 9, 18, 36, 16};   /* N_DDIV, 1/6 16ths */
+    int32_t sp = SIXTHS[clamp(song.g[G_DTIME], 0, 13)] * 13 / 6, fb = clamp(song.g[G_DFDBK], 0, 120);
+    int32_t tone = song.g[G_DCOLOR], mix = song.g[G_DMIX], k, h = 88 * 1024, n = 0, x;
+    char b[16];
+    if (sp < 4) sp = 4;
+    for (x = 10; x <= 228; x += sp)                     /* the grid: TIME's steps, every other one brighter */
+        cv_rect(x, 8, 1, 94, (x - 10) / sp % 2 ? T_LINE : ux_mix(T_PANEL, T_MID, 35));
+    for (k = 0; 10 + k * sp <= 228 && k < 24; k++) {
+        int32_t hh = h / 1024;
+        if (k && hh < 2)
+            break;
+        cv_rrect(10 + k * sp - 3, 102 - hh, 7, hh, 2,
+                 k ? ux_mix(T_PANEL, T_THEME, clamp(100 - k * (140 - tone) / 12, 25, 100)) : T_TEXT, T_PANEL);
+        n += k && hh >= 3;
+        h = k ? h * (fb > 115 ? 115 : fb) / 120 : h * (mix ? mix : 1) / 127;
+    }
+    fmt_int(b, n);
+    str_cpy(b + str_len(b), n == 1 ? " repeat" : " repeats", 9);
+    cv_text_r(228, 8, &AF_X, b, T_MID, T_PANEL);
+}
+/* a page with a cutoff: the filter's response (flat, the resonance's peak at the cutoff, then the slope) */
+static void pv_filter(int32_t cut, int32_t res)
+{
+    int32_t x, fc = 16 + clamp(cut, 0, 127) * 196 / 127, peak = clamp(res, 0, 127) * 30 / 127, y0 = 44 * 16, py = 0;
+    for (x = 10; x < 102; x += 5)
+        cv_rect(fc, x, 1, 2, ux_mix(T_PANEL, T_THEME, 60));
+    for (x = 0; x < 216; x++) {
+        int32_t d = 12 + x - fc, y = y0 - peak * 16 * 64 / (64 + d * d) + (d > 0 ? d * 14 : 0);
+        y = clamp(y, 8 * 16, 100 * 16);
+        cv_vspan_aa(12 + x, x ? py : y, y, T_THEME);
+        py = y;
+    }
+}
+/* which picture: 1 ANALOG's oscillator, 2 the echoes, 3 a filter (cut: its knob), 4 FM6's chart, 0 the scope */
+static uint32_t pv_pic(int32_t *cut, int32_t *res)
+{
+    const page_t *pg = cur_page();
+    uint32_t e = TSEL->eng_req % NENGINES, c;
+    *cut = -1;
+    *res = 0;
+    if ((pg->scope == SC_ENGINE || pg->scope == SC_FM6 || pg->scope == SC_FMOP) && e == ENGI_FM6)
+        return 4;
+    if (pg->scope == SC_ENGINE && e == 0u && pg->id[0] == P_E0)
+        return 1;
+    if (pg->id[0] == G_DTIME && pg->scope == SC_GLOBAL)
+        return 2;
+    for (c = 0; c < 4u; c++) {
+        int16_t *vp;
+        const param_desc_t *d = page_desc(pg, c, &vp);
+        if (!d || !vp)
+            continue;
+        if (d->fmt == F_CUTOFF) *cut = *vp;
+        else if (str_eq(d->label, "RES") || str_eq(d->label, "RESO")) *res = *vp;
+    }
+    return *cut >= 0 ? 3u : 0u;
+}
+static void pv_picture(void)
+{
+    int32_t cut, res;
+    uint32_t pic = pv_pic(&cut, &res), sig = pv_curve_sig() ^ pic * 131u ^ (uint32_t)(cut + 1) * 7919u;
+    sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
+    if (pic == 4u) {                                    /* FM6: its chart, drawn as the panel draws it */
+        graph_y = PV_PIC_Y;
+        graph_h = PV_PIC_H;
+        draw_graph();
+        graph_y = Y_GRAPH;
+        graph_h = H_GRAPH;
+        return;
+    }
+    if (!ui.force && sig == pv.panel)
+        return;
+    pv.panel = sig;
+    cv_begin(240, PV_PIC_H, T_BG);
+    cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, PV_PIC_H, 6, T_PANEL, T_BG);
+    cv_bg = T_PANEL;
+    if (pic == 1u) pv_osc();
+    else if (pic == 2u) pv_echo();
+    else if (pic == 3u) pv_filter(cut, res);
+    else stage_wave(T_THEME, 8, PV_PIC_H - 16);
+    cv_blit(0, PV_PIC_Y);
+}
+
 /* ----------------------------------------------------------- draw --- */
 static void pv_draw(void)
 {
     uint32_t kind = pv_kind(), sig;
+    if (kind != PV_CURVE) {                             /* RINGS, FADERS */
+        if (ui.force) {                                 /* (the parts then cover what they draw) */
+            lcd_fill(0, H_HEAD, 240, PV_SOUND_Y - H_HEAD, T_BG);
+            ui.graph_sig = 0;
+        }
+        draw_head();
+        col_style = kind == PV_RINGS ? CS_RING : CS_FADER;
+        draw_columns();
+        col_style = CS_CARD;
+        pv_sound();
+        if (kind == PV_RINGS)
+            pv_picture();
+        return;
+    }
     if (ui.force) {                                     /* the BG the parts do not cover */
         uint32_t i;
         lcd_fill(0, H_HEAD, 240, PV_CURVE_Y - H_HEAD, T_BG);
