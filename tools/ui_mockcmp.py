@@ -17,7 +17,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REF = os.path.join(ROOT, "docs", "design", "ref")
-SCREENS = ["stage_held", "stage_cutoff", "stage_drum", "browser", "patterns", "song", "env", "lfo", "edit_osc", "fx", "dly", "mixer", "notes", "settings", "dialog"]
+SCREENS = ["stage_held", "stage_cutoff", "stage_drum", "browser", "patterns", "song", "env", "lfo", "edit_osc", "fx", "dly", "mixer", "notes", "settings", "dialog", "sheet_sound", "sheet_song", "picker_wave"]
 
 
 def blocks(im, n=8):

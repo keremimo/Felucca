@@ -1,0 +1,72 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--surface-1:#2a2a2e;--text-secondary:#aaa}
+body{background:#111;color:#eee;font-family:system-ui;margin:12px;width:1100px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+</style></head><body><style>
+@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500&display=swap');
+.mg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:1rem 0}
+.mc{background:var(--surface-1);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.mc svg{width:100%;max-width:300px;border-radius:8px;font-family:Rubik,system-ui,sans-serif}
+.cap{font-size:13px;color:var(--text-secondary);text-align:center}
+h3{font:500 15px system-ui;color:#ccc;margin:18px 0 0}
+</style>
+<h2 class="sr-only">R6 popups: an action sheet (OCT+ on an item; OCT+ held: the page's own), a picker (a list-valued knob turning), the question.</h2>
+<h3>Action sheets: OCT+ on the item, OCT+ held for the page</h3>
+<div class="mg">
+<div class="mc"><svg viewBox="0 0 240 240" id="s_project"></svg><div class="cap">PROJECT: the list alone; OCT+ on a slot: its actions</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="s_note"></svg><div class="cap">NOTES: OCT+ on a note: its sheet (KNOB 1 changes a value)</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="s_song"></svg><div class="cap">SONG: OCT+ held: the song's own actions (TOOLS' go here)</div></div>
+</div>
+<div class="mg">
+<div class="mc"><svg viewBox="0 0 240 240" id="s_hit"></svg><div class="cap">Drum STEP: OCT+ on an empty step sets it; on a hit: its sheet</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="s_motion"></svg><div class="cap">MOTION: no chips; OCT+ on a lane: clear it</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="s_edit"></svg><div class="cap">A sound page, OCT+ held: Init sound, Save as…</div></div>
+</div>
+<h3>Pickers: a knob whose value is a list</h3>
+<div class="mg">
+<div class="mc"><svg viewBox="0 0 240 240" id="p_mod"></svg><div class="cap">MOD, source turning: the sources around the one picked</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="p_wave"></svg><div class="cap">EDIT, WAVE turning: the waves with their shapes</div></div>
+</div>
+<script>
+const C=['#FF7A5C','#FFC145','#46D9B0','#9D8CFF'],TX='#F3EEF8',MD='#9A93A8',DM='#5A5468',LN='#2E2939',SF='#221E2C',BG='#17141F',PN='#1D1926',RS='#262033',SC='#C9C2D6',REC='#FF5A6E',QT='#1A1722';
+const t=(x,y,s,f,c,a,w)=>`<text x="${x}" y="${y}" font-size="${f}" fill="${c}" ${a?`text-anchor="${a}"`:''} font-weight="${w?500:400}">${s}</text>`;
+const r=(x,y,w,h,f,rx,st,dash,sw)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx==null?4:rx}" fill="${f}" ${st?`stroke="${st}" stroke-width="${sw||1}"`:''} ${dash?'stroke-dasharray="3 2"':''}/>`;
+const mix=(a,b,k)=>{const p=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));const A=p(a),B=p(b);return '#'+A.map((v,i)=>Math.round(v*k+B[i]*(1-k)).toString(16).padStart(2,'0')).join('')};
+const path=(d,c,w)=>`<path d="${d}" fill="none" stroke="${c}" stroke-width="${w||2}" stroke-linejoin="round" stroke-linecap="round"/>`;
+const head=(chip,c,sel,more)=>{let s=t(8,14,'▶',10,TX)+t(20,14,'124',11,TX,0,1)+[0,1,2,3].map(i=>`<circle cx="${54+i*8}" cy="10" r="2.5" fill="${i==sel?TX:DM}"/>`).join('');
+ const w=Math.max(46,chip.length*6.4+16);if(more)s+=t(232-w-8,14,'⋯',12,MD,'end',1);return s+r(232-w,3,w,14,c,4)+t(232-w/2,13.5,chip,9,BG,'middle',1)};
+const dim=()=>`<rect x="0" y="0" width="240" height="240" fill="${BG}" opacity=".72"/>`;
+/* an action sheet from the bottom: title, rows (label, value, destructive), the row picked lifted */
+const sheet=(title,sub,rows,sel,c)=>{const h=30+rows.length*22+8,y0=236-h;let s=r(6,y0,228,h,SF,10,LN)+t(16,y0+18,title,11,TX,0,1)+(sub?t(224,y0+18,sub,9,MD,'end'):'');
+ rows.forEach((q,i)=>{const y=y0+28+i*22,on=i==sel;if(on)s+=r(6,y,228,20,RS,0)+r(6,y,3,20,c,0);s+=t(16,y+14,q[0],11,q[2]?REC:(on?TX:SC),0,on)+(q[1]?t(224,y+14,q[1],11,on?c:MD,'end',on):'')});return s};
+/* a picker under the knob's ring: a column of choices, the current one in the middle, family headers */
+const picker=(x,items,cur,c,w)=>{w=w||110;let s=r(x,40,w,188,SF,10,LN);let y=50;items.forEach((q,i)=>{if(q[0]=='#'){s+=t(x+10,y+9,q.slice(1),8,MD,0,1);y+=14;return}const on=i==cur;if(on)s+=r(x+4,y-2,w-8,20,RS,5,c);s+=t(x+12,y+12,q,on?11:10,on?TX:(Math.abs(i-cur)>3?DM:SC),0,on);y+=20});return s};
+const c=C[1],d=C[0];
+const put=(id,s)=>document.getElementById(id).innerHTML=r(0,0,240,240,BG,0)+s;
+/* PROJECT list + its sheet */
+{let s=head('PROJECT',c,1,1);[['A','Night drive',1],['B','—',0],['C','Sketch 4',1],['D','—',0],['T','Template',1]].forEach((p,i)=>{const y=26+i*30,on=i==0;if(on)s+=r(0,y,240,26,RS,0)+r(0,y,3,26,c,0);s+=t(14,y+18,p[0],11,on?c:p[2]?MD:DM,0,1)+t(30,y+18,p[1],13,on?TX:p[2]?SC:DM,0,on);if(i==0)s+=r(188,y+6,38,14,mix(c,RS,.2),4)+t(207,y+16,'Boot',8.5,c,'middle',1)});
+ s+=dim()+sheet('A · Night drive','saved 22:31',[['Load',''],['Save here',''],['Rename',''],['Boot','On'],['Erase','',1]],1,c);put('s_project',s)}
+/* NOTES note sheet */
+{let s=head('NOTES',c,1,1)+r(4,22,232,174,PN,6);for(let b=0;b<=16;b++)s+=path(`M${22+b*13} 26 L${22+b*13} 194`,b%4?mix(LN,PN,.5):LN,1);
+ [[0,9,2],[3,6,1],[4,4,3],[8,9,2],[12,4,2]].forEach(([st,row,len],i)=>s+=r(23+st*13,29+row*12,len*13-2,9,i==2?TX:c,3));
+ s+=dim()+sheet('Note G#3','step 5',[['Length','3 steps'],['Velocity','100'],['Chance','100 %'],['Slide','Off'],['Delete note','',1]],1,c);put('s_note',s)}
+/* SONG page sheet */
+{let s=t(8,16,'Song',11,TX,0,1)+t(42,16,'· 1:02',9,MD)+t(232,16,'⋯',12,MD,'end',1);['A','B','C','D'].forEach((l,i)=>s+=t(11+i*56,36,l,9,MD,0,1)+path(`M${8+i*56} 28 L${8+i*56} 192`,LN,1));
+ [[0,'P1'],[0,'P2'],[0,'P2'],[0,'P3']].forEach((q,i)=>s+=r(9+i*56,46,54,28,d,5)+t(14+i*56,64,q[1],10,BG,0,1));s+=r(9,82,54,28,c,5)+r(65,82,110,28,c,5)+r(177,82,54,28,c,5)+r(65,118,54,28,C[2],5)+r(121,118,54,28,C[2],5)+r(177,118,54,28,C[2],5)+r(121,154,54,28,C[3],5)+r(177,154,54,28,C[3],5);
+ s+=dim()+sheet('Song','4 sections',[['Insert section',''],['Duplicate section',''],['Delete section','',1],['Take jam','2 rows'],['Clear song','',1]],0,c);put('s_song',s)}
+/* drum hit sheet */
+{let s=head('STEP',d,0,1)+r(4,22,232,174,PN,6);['BD','SD','CP','CH','OH','TM','RS','CB'].forEach((l,i)=>{const y=28+i*21;s+=t(14,y+12,l,9,i==1?d:MD,0,1);for(let k=0;k<16;k++){const x=36+k*12.2+Math.floor(k/4)*2,on='1000100010001000,0000100000001000,0000000000001001,1010101010101010,0010001000100010,0000000001000000,0001000000010000,1000000000000000'.split(',')[i][k]=='1';s+=on?r(x,y+1,10,14,d,3):`<circle cx="${x+5}" cy="${y+8}" r="1.2" fill="${DM}"/>`}});
+ s+=dim()+sheet('SD · step 5','',[['Accent','On'],['Chance','75 %'],['Velocity','110'],['Clear hit','',1]],1,d);put('s_hit',s)}
+/* MOTION lane sheet */
+{let s=head('MOTION',c,1,1)+r(4,24,232,196,PN,6);['CUTOFF','RESO','DRIVE'].forEach((l,i)=>{const y0=40+i*58;s+=t(12,y0+26,l,8.5,i==0?c:MD,0,1);let p='';[3,3,5,8,8,6,4,4,7,9,9,6,5,5,3,2].forEach((v,k)=>{const x=50+k*11,y=y0+44-((v+i*3)%10)*4;p+=(k?`L${x} ${y} `:`M${x} ${y} `)+`L${x+11} ${y} `});s+=path(p,i==0?c:mix(c,PN,.6),2)});
+ s+=dim()+sheet('Cutoff','12 events',[['Play','On'],['Clear cutoff','',1],['Clear all motion','',1]],1,c);put('s_motion',s)}
+/* sound page held sheet */
+{let s=head('OSC',c,1,1);['WAVE','DETUNE','MIX','NOISE'].forEach((l,i)=>{const cx=30+i*60;s+=t(cx,35,l,8.5,c,'middle',1)+`<circle cx="${cx}" cy="60" r="15" fill="none" stroke="${LN}" stroke-width="3"/>`+t(cx,94,['Saw','0','0','0'][i],14,TX,'middle',1)});s+=r(4,108,232,112,PN,6);
+ s+=dim()+sheet('Pickle Pincher','PROPHET',[['Init sound',''],['Save as user…',''],['Favourite','★'],['Undo last load','']],0,c);put('s_edit',s)}
+/* MOD source picker */
+{let s=head('MOD',c,1,0);[0,1,2,3].forEach(i=>s+=r(8,26+i*48,224,42,i==1?RS:PN,6,i==1?c:null));
+ s+=dim()+picker(14,['Off','LFO','LFO 2','Envelope','Velocity','Key','Mod wheel','Aftertouch'],6,c,104);put('p_mod',s)}
+/* WAVE picker with shapes */
+{let s=head('OSC',c,1,0);s+=dim();const W=[['Saw','M0 10 L14 0 L14 10'],['Square','M0 10 L0 0 L7 0 L7 10 L14 10'],['Triangle','M0 10 L7 0 L14 10'],['Sine','M0 5 Q3.5 -3 7 5 Q10.5 13 14 5'],['Pulse','M0 10 L0 0 L3 0 L3 10 L14 10']];
+ s+=r(8,40,118,124,SF,10,LN);W.forEach((w,i)=>{const y=48+i*22,on=i==0;if(on)s+=r(12,y,110,20,RS,5,c);s+=`<g transform="translate(20 ${y+5})">${path(w[1],on?c:MD,1.5)}</g>`+t(42,y+14,w[0],on?11:10,on?TX:SC,0,on)});put('p_wave',s)}
+</script></body></html>

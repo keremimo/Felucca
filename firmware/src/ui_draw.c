@@ -163,6 +163,7 @@ static void head_chip_text(char *b)
         str_cpy(b, t, 16);
     }
 }
+static uint32_t page_sheet(void);                       /* ui_popup.c */
 /* the page's place in its family: a dot a page, the page's a pill in the track's colour (no room: "3/12") */
 static void head_pages(int32_t x1)                     /* (x1: where the chip, or the battery, starts) */
 {
@@ -177,12 +178,13 @@ static void head_pages(int32_t x1)                     /* (x1: where the chip, o
         }
     if (n < 2u)
         return;
-    if (x + (int32_t)n * 9 + 8 > x1 - 6) {              /* (no room for the dots) */
+    if (x + (int32_t)n * 9 + 8 > x1 - 6) {              /* (no room for the dots; none for that either: nothing) */
         char b[8];
         fmt_int(b, (int32_t)k + 1);
         str_cpy(b + str_len(b), "/", 2);
         fmt_int(b + str_len(b), (int32_t)n);
-        cv_text_on(x, 4, &AF_X, b, T_MID, T_BG);
+        if (x + text_w(&AF_X, b) <= x1 - 4)
+            cv_text_on(x, 4, &AF_X, b, T_MID, T_BG);
         return;
     }
     for (i = 0; i < n; i++) {
@@ -200,7 +202,7 @@ static void draw_head(void)
     sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + (uint32_t)(song.octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
           (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
-          (ui.home ? 0u : ui.page * 2654435761u);
+          (ui.home ? 0u : ui.page * 2654435761u) + page_sheet() * 524287u;
     if (song.g[G_BPM] != ui.roll_bpm) {
         char a[8];
         fmt_int(a, ui.roll_bpm);
@@ -234,7 +236,7 @@ static void draw_head(void)
         int32_t cw = text_w(&AF_X, chip) + 16;
         if (cw < (ui.home ? 82 : 46)) cw = ui.home ? 82 : 46;   /* (a page: its name's, the dots beside it) */
         if (!ui.home && !song.octave && !chain.running)   /* a page: where it is in its family */
-            head_pages(232 - cw - (low ? 20 : 0));
+            head_pages(232 - cw - (low ? 20 : 0) - (page_sheet() ? 16 : 0));
         if (song.octave || chain.running) {             /* the octave shift, or the song's row */
             if (chain.running) { str_cpy(b, "ROW ", 8); fmt_int(b + 4, (int32_t)chain.row + 1); }
             else { str_cpy(b, song.octave > 0 ? "OCT +" : "OCT ", 8); fmt_int(b + str_len(b), song.octave); }
@@ -242,6 +244,8 @@ static void draw_head(void)
         }
         if (low)                                        /* the battery, only when it runs low */
             cv_icon_mid(232 - cw - 18, H_HEAD / 2, 12, batt_level() ? ICON_X_BAT1 : ICON_X_BAT0, T_REC, T_BG);
+        if (page_sheet())                               /* the page has a sheet (OCT+ held) */
+            cv_text_r(232 - cw - 6 - (low ? 18 : 0), 2, &AF_S, "\x85", T_MID, T_BG);
         if (!ui.home && cur_page()->graph == GR_PATGRID) {   /* PATTERNS: its name plain (the grid is in colour) */
             cv_text_r(232, 4, &AF_X, "patterns", T_MID, T_BG);
         } else {
@@ -1026,6 +1030,7 @@ static void draw_confirm(void)
 }
 
 #include "ui_pages.c"                                   /* the redesign's other pages (R5) */
+#include "ui_popup.c"                                   /* action sheets, pickers */
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
@@ -1101,6 +1106,18 @@ static void ui_draw(void)
             ui.force = 0;
         }
         draw_head();                                    /* recording remains visible over confirmations */
+        return;
+    }
+    pick_poll();
+    if (pop.on) {                                       /* a popup over the page, dimmed (ui_popup.c) */
+        if (ui.force) {
+            cv_dim = 1;
+            draw_page();
+            cv_dim = 0;
+            ui.force = 1;
+        }
+        pop_draw();
+        ui.force = 0;
         return;
     }
     if (name_on()) {                                    /* NAME: a user preset's or a project's (ui_name.c) */

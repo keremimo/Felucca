@@ -117,6 +117,8 @@ static void ui_power_on(void)
     seq_midi_reset();
     memset(&nm, 0, sizeof nm);                    /* NAME closed, no project name */
     memset(&nw, 0, sizeof nw);                    /* NEW SONG closed */
+    memset(&pop, 0, sizeof pop);                  /* no popup (ui_popup.c) */
+    oct_eat = oct_deferred = 0;
     proj_name[0] = 0;
     proj_cur = PROJ_NO_SLOT;
     memset(&favorites, 0, sizeof favorites);
@@ -1749,6 +1751,40 @@ static void chain_screens(const char *dir)
 }
 
 /* PATTERNS and SONG (ui_patterns.c): a row's letter is its set of patterns; a pattern's bars follow LEN and DIV */
+/* popups (ui_popup.c): OCT+ on a sound page an octave on release, held its sheet; the sheet's rows; a list knob's picker */
+static int test_popups(void)
+{
+    int bad = 0, o;
+    ui_power_on();
+    ui.home = 0; ui.page = (uint8_t)page_first(FAM_EDIT); page_entered(); frame();
+    o = song.octave;
+    press(B_OCTUP);
+    bad += check("POPUPS: OCT+ tapped on a sound page: an octave up (on release), no sheet", song.octave == o + 1 && !pop.on);
+    hold(B_OCTUP);
+    bad += check("POPUPS: OCT+ held: the sound's sheet, no octave", pop.on == POP_SHEET && song.octave == o + 1);
+    turn(EN_K2, 1); turn(EN_K2, 1);
+    press(B_OCTUP);
+    bad += check("POPUPS: KNOB 2 the row, OCT+ does it (Favourite) and closes", !pop.on && preset_favorite());
+    hold(B_OCTUP); press(B_OCTDN);
+    bad += check("POPUPS: OCT- closes the sheet", !pop.on && !ui.confirm);
+    hold(B_OCTUP); press(B_OCTUP);
+    bad += check("POPUPS: a destructive row (Init sound) asks first", !pop.on && ui.confirm == CF_INIT_SOUND);
+    press(B_OCTDN);
+    turn(EN_K1, 1);
+    bad += check("POPUPS: a list knob (WAVE) turning: its picker", pop.on == POP_PICK && pop.col == 0u);
+    fm1_ms += 2000u; frame();
+    bad += check("POPUPS: the picker goes once the knob rests", !pop.on);
+    turn(EN_K1, 1); turn(EN_K2, 1);
+    bad += check("POPUPS: another knob turning closes it", !pop.on);
+    turn(EN_K1, 1); press(B_OCTDN);
+    bad += check("POPUPS: OCT- closes the picker, no octave", !pop.on && song.octave == o + 1);
+    go_page(GR_SONG); frame();
+    hold(B_OCTUP);
+    bad += check("POPUPS: SONG, OCT+ held: the song's sheet (no play)", pop.on == POP_SHEET && !song.playing);
+    press(B_OCTUP);
+    bad += check("POPUPS: Insert section: a row", !pop.on && chain_config.count == 1u);
+    return bad;
+}
 static int test_song_view(void)
 {
     static const uint8_t ROWS[6][NTRK] = {{0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {2, 0, 0, 0}, {0, 0, 0, 0}};
@@ -4577,6 +4613,7 @@ int main(void)
     bad += test_quick_layers();
     bad += test_chord_page();
     bad += test_song_view();
+    bad += test_popups();
     bad += test_bughunt_ui();
     bad += test_bughunt_ui2();
     bad += test_piano_roll();

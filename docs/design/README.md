@@ -51,3 +51,63 @@ Stage (`stage_note_overlay`), all positions in device pixels:
   8 px / 500; 16 steps 4 x 8 r 1 from x 128, 5.6 apart (on: the track's colour, the playhead text, off: line); the
   level at x 222: a 3 px bar over a 10 x 2 line.
 - Drum track: the lanes BD SD CP CH OH RS as chips 32 x 14 at y 132 (hitting: filled), the waveform dimmed above.
+
+## Navigation (R6)
+
+One way to move on every screen with something to move through (Kerem, 2026-10-10):
+
+- **KNOB 1 across, KNOB 2 up / down**: the cursor (a step, a cell, a column), the row (a slot, a lane, a route, a
+  setting); KNOB 3 / 4 edit what the cursor is on where a page has more.
+- **OCT+ Enter, OCT- Esc** on these screens (lists, menus, the browser, PROJECT / USER / FM6 STORE / PHRASES, TOOLS,
+  SONG, NOTES and drum STEP, NAME, NEW SONG, the questions). Esc closes the innermost thing first: a question (No),
+  an action picked, a sub-screen (About, a name, a pending browse), and only then goes to Stage. On Stage and the
+  sound pages the OCT keys stay the octave; while recording live on STEP too (the keys played need them).
+- **SELECT** turns the pages, as before.
+- **Direct pages stay direct**: one knob per track where speed matters (Stage, MIXER, PATTERNS, NEW SONG's roles);
+  the sound pages' four knobs edit their four values. PATTERNS: OCT- clears what is queued.
+
+| Screen | KNOB 1 | KNOB 2 | KNOB 3 / 4 | OCT+ | OCT- |
+|---|---|---|---|---|---|
+| Browser | list (category) | sound | FAV / engine | keep | back (revert) |
+| Settings | value | row | - | open / step | close |
+| PROJECT, USER, STORE, PHRASES | action | slot | - | do it | unpick, then Stage |
+| TOOLS | tile across | tile down | - | do it | unpick, then Stage |
+| SONG | section | track | pattern / repeats | play / stop | Stage |
+| MOD | source | route | destination / amount | - | Stage |
+| NOTES | step | pitch | length / velocity | place a note | Stage |
+| Drum STEP | step | lane | hit / accent | set the hit | Stage |
+| SCALES | family | scale | - | pick | Stage |
+| NAME | place | letter | - | save | cancel |
+| NEW SONG | (as its page) | | | next / create | back |
+
+TAKE JAM: REC held on SONG (elsewhere REC held captures).
+
+## Popups (R6)
+
+- **Action sheet**: OCT+ on an item opens what can be done with it (KNOB 2 the row, KNOB 1 a row's value, OCT+ does
+  it, OCT- closes); OCT+ held opens the page's own (a ⋯ in the header says there are some). A destructive row asks the
+  question first. TOOLS' actions move into these (Clear pattern: NOTES / PATTERN; Init sound: the sound pages;
+  Delete section, Clear song: SONG); PROJECT / USER / FM6 STORE / PHRASES and MOTION lose their action chips.
+- **Picker**: a knob whose value is a list (wave, MOD source / destination, chord, delay division) shows the list
+  around its value while it turns, gone ST_KNOB_MS after the last turn. SCALES keeps its own list page (Kerem: the
+  list is intuitive), no picker.
+
+## Pages: lists or knobs (R6)
+
+- **List pages** (set and leave): a row a setting (KNOB 2 the row, KNOB 1 its value, OCT+ a list value's full list,
+  OCT- back), the page's picture under the rows where it has one. SCL (OCT+ on Scale: the SCALES list), CHORD, TEMPO,
+  GLOBAL, SYSTEM, VOICE 1-3, TIMING, MPC, ENV DEST, LFO DEST, LFO 2, ARP 2, DLY 2, FM6's setup pages.
+- **Knob pages** (played while tweaked): four rings over the page's picture (R5): the engines' EDIT pages, ENV, LFO,
+  DLY, REVERB, CHORUS, FX, SLICER, ARP, PATTERN; MIXER, Stage, PATTERNS direct.
+- Defaults (Kerem, 2026-10-10): OCT+ held (about 0.5 s) opens a page's own sheet, a tap stays OCT+; CHANCE keeps its
+  page and is in the note / hit sheets too; a picker closes ST_KNOB_MS after the last turn or on OCT-.
+
+## Sound pages, fast (R7: mock/r7_sound_nav)
+
+- **Sections**: an engine's pages in sections (Prophet: Osc, Mixer, Filter, Amp, Mod, LFO, Wheel, Voice; FM6:
+  Algorithm, OP1-OP6, Pitch, LFO, Controls; CZ-1 ..). PRESETS jumps a section (to its last-used page), SELECT turns the
+  pages (on across the sections). The sections as tabs under the header, the pages of one as the header's dots.
+- **The map**: EDIT pressed on an EDIT page: a row a section, a tile a page (FM6: operators x their pages); KNOB 1 / 2
+  move, OCT+ opens, OCT- closes.
+- **EDIT held**: the sections on the white keys; Init, Favourite, Undo, Store on the black keys. The engine is chosen
+  in the browser only (KNOB 4; Kerem, 2026-10-10).

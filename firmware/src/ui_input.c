@@ -1015,6 +1015,8 @@ static void act_do(void)
 
 /* OCT- / OCT+ where they answer (the dialogs, the menu, action pages): on release, and only a press
  * that began there; both down together (UPDATE MODE, main.c) is no tap. Bit 0 OCT-, bit 1 OCT+ */
+static uint8_t oct_eat;                                 /* OCT taps not to come (an OCT+ held for a sheet) */
+static uint8_t oct_deferred;                            /* OCT+ pressed on a page with a sheet: its octave on release */
 static uint32_t oct_taps(uint32_t pressed, int here)
 {
     static uint8_t down, chord;
@@ -1030,6 +1032,8 @@ static uint32_t oct_taps(uint32_t pressed, int here)
         tap = 0;
         chord = now != 0u;
     }
+    tap &= ~(uint32_t)oct_eat;
+    oct_eat &= (uint8_t)now;
     return tap;
 }
 
@@ -1480,8 +1484,19 @@ static void ui_input(void)
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && !ui.confirm && !name_on());   /* held: MIXER */
     uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm);
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
-    uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || new_on() || layer_set_open() ||
-                            step_oct_context());
+    uint32_t octup = btn_hold(&ui.oct_t0, B_OCTUP, now, page_sheet() != 0u);   /* held: the page's sheet */
+    uint32_t oct;
+    if (octup == BT_HOLD) {
+        oct_eat |= 2u;                                  /* (its release is no OCT+) */
+        oct_deferred = 0;
+        page_sheet_open();
+    } else if (octup == BT_TAP && oct_deferred) {
+        song.octave += song.octave < 3 ? 1 : 0;         /* (OCT+ pressed on a page with a sheet: on release) */
+    }
+    if (octup != BT_NONE || !((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u))
+        oct_deferred = 0;
+    oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || new_on() || layer_set_open() ||
+                   step_oct_context() || pop.on == POP_SHEET);
     uint32_t lay, knob_layer, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
     seq_erase_update(pressed);
@@ -1669,6 +1684,13 @@ static void ui_input(void)
         enc_drop();
         return;
     }
+    if (pop.on == POP_SHEET) {                          /* an action sheet: KNOB 1 / 2, OCT+ / OCT- (ui_popup.c) */
+        int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);
+        sheet_input(k1, k2, oct);
+        ui.pg_down = 0;
+        enc_drop();
+        return;
+    }
     if (lytap)                                          /* a layer's button acts on release (held: the layer) */
         layer_tap(lytap);
     if (seq == BT_HOLD) {                               /* SEQ held: PATTERNS, the song under it (SONG: SELECT) */
@@ -1725,10 +1747,15 @@ static void ui_input(void)
         case B_OCTDN:
         case B_OCTUP: {
             uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
+            if (pop.on == POP_PICK && b == B_OCTDN) {   /* a picker: OCT- closes it (ui_popup.c) */
+                pop_close();
+                break;
+            }
             if (act_cols() || layer_set_open())         /* action pages: enter / back (below); SET layers: OCT- */
                 break;
             if (step_page() && ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u)) {   /* SAVE held: undo further / redo */
                 ui.save_t0 |= 2u;                       /* (no page, no other undo when SAVE is let go) */
+                ui.oct_t0 |= 2u;                        /* (OCT+: no tap, no sheet) */
                 ui.step_oct_used |= b == B_OCTUP ? 2u : 1u;
                 if (chain_busy())
                     ui_message("STOP TO UNDO");
@@ -1738,6 +1765,7 @@ static void ui_input(void)
             }
             if ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u) {   /* SAVE held elsewhere: OCT- undoes a load further, */
                 ui.save_t0 |= 2u;                       /* OCT+ redoes (no page, no undo when SAVE is let go) */
+                ui.oct_t0 |= 2u;
                 if (chain_busy())
                     ui_message("STOP TO UNDO");
                 else
@@ -1750,10 +1778,15 @@ static void ui_input(void)
             }
             if (step_oct_context())                    /* STEP OCT taps: the cursor; EDIT consumes them below */
                 break;
-            if ((fm1_in.buttons & both) == both)
+            if ((fm1_in.buttons & both) == both) {
                 song.octave = 0;
-            else
+                ui.oct_t0 |= 2u;                        /* (OCT+ then neither a tap nor a sheet) */
+                oct_deferred = 0;
+            } else if (b == B_OCTUP && page_sheet() == 1u) {
+                oct_deferred = 1;                       /* a page with a sheet: OCT+ on release, held: the sheet */
+            } else {
                 song.octave += b == B_OCTDN ? (song.octave > -3 ? -1 : 0) : (song.octave < 3 ? 1 : 0);
+            }
             break;
         }
         default:                                        /* page buttons (GLO SCL ENV LFO EDIT ARP): when let go */
@@ -1862,6 +1895,7 @@ static void ui_input(void)
             page_over = 0;
         } else {
             edit_param(k, s);
+            pick_touch(k);                              /* a name from a long list: its picker (ui_popup.c) */
         }
     }
     if (step_modifier_context()) {
