@@ -28,6 +28,7 @@
 #endif
 
 static int bad;
+static const int32_t nod[CTL];                  /* the delay's send: none (delay_test.c tests the delay) */
 static void check(const char *what, int ok)
 {
     printf("reverb: %-92s %s\n", what, ok ? "ok" : "FAIL");
@@ -124,7 +125,7 @@ static void test_room_identical(void)
             d[i] = on ? noise(60000) : 0;
             r[i] = on ? noise(b % 2000u < 1000u ? 90000 : 4000) : 0;
         }
-        fx_buses(c, r, w0, CTL);
+        fx_buses(c, nod, r, w0, CTL);
         ref_buses(c, r, w1, CTL);
         for (i = 0; i < CTL; i++)
             diff += w0[i] != w1[i];
@@ -698,7 +699,7 @@ static void test_switch(void)
                     c[i] = d[i] = 0;
                     r[i] = b < FS / CTL ? (int32_t)(30000 * sin(2 * M_PI * 220 * (b * CTL + i) / FS)) : 0;
                 }
-                fx_buses(c, r, w, CTL);
+                fx_buses(c, nod, r, w, CTL);
                 for (i = 0; i < CTL; i++) {
                     int32_t L = w[i] + (hl.side ? rev_side[i] : 0), s = abs(L - prev);   /* the left channel */
                     if (b >= 2u * FS / CTL - 4u && b <= 2u * FS / CTL + 4u)
@@ -715,7 +716,7 @@ static void test_switch(void)
             check(what, step <= 2 * own + 64 && after == 0 && fx.rtype == to);
         }
     song.g[G_RTYPE] = 0;
-    fx_buses(c, r, w, CTL);
+    fx_buses(c, nod, r, w, CTL);
     check("  and back to ROOM", fx.rtype == 0 && !hl.side);
 }
 
@@ -737,7 +738,7 @@ static double cost_of(int m, int bus)        /* model m alone (rev_room, rev_spr
     i0 = instr_now();
     for (b = 0; b < nb; b++) {
         if (bus) {
-            fx_buses(c, r, w, CTL);
+            fx_buses(c, nod, r, w, CTL);
             if (hl.side)
                 rev_side_mix(c, d, CTL);                /* (as mix_block: HALL's stereo) */
         } else if (m == M_HALL)

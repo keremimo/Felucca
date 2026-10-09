@@ -333,9 +333,9 @@ mode/VOICE/LEGATO 791e9531711adc14
 mode/VOICE/UNISON e99f1ac75a359854
 sends/ANALOG/dry 48d6d38da94549d4
 sends/ANALOG/chorus 98f545aff43158e0
-sends/ANALOG/delay 48d6d38da94549d4
+sends/ANALOG/delay ddb93d32b828444c
 sends/ANALOG/reverb 217d0dceb6ded8e8
-sends/ANALOG/all 49c8d733ed704f14
+sends/ANALOG/all 9666fa35b36fad80
 sends/ANALOG/dist 1ff75ac225e918e0
 song/4track_mix a94a693b5f64f2f0
 slicer/gate/ANALOG_ACID 447bf5c719805818

@@ -106,7 +106,12 @@ static void test_compatibility(void)
     persist_t p={0};settings_export(&p);settings_click=settings_countin=settings_preview=settings_chord_add=0;settings_click_level=1;
     assert(settings_import(&p,sizeof p));assert(settings_click==2 && !settings_click_level && settings_countin==2 && settings_preview && settings_chord_add);
     p.zoom=1;assert(settings_import(&p,sizeof p));assert(!settings_click && settings_click_level==1 && !settings_countin && !settings_preview && !settings_chord_add);
-    project_t q,back;project_store_t current,old;project_capture(&q);q.t[0].p[P_E4]=53;assert(proj_pack(&current,&q));
+    project_t q,back;project_store_t current,old;project_capture(&q);q.t[0].p[P_E4]=53;
+    for(uint32_t t=0;t<NTRK;t++)q.t[t].p[P_DLY]=77;   /* delay sends and their automation (a FUN16's are kept) */
+    q.g[G_DTYPE]=3;q.g[G_DWEAR]=9;q.g[G_DTIME]=2;q.motion.count=1;q.motion.event[0]=(motion_event_t){0,P_DLY,100};q.sum=proj_sum(&q);
+    assert(proj_pack(&current,&q));
+    assert(proj_import(&back,&current,PROJ_STORE_SIZE) && back.t[1].p[P_DLY]==77 && back.g[G_DTYPE]==3 && back.g[G_DWEAR]==9 &&
+           back.motion.count==1 && back.motion.event[0].value==100);
     memcpy(old.raw,current.raw,68);uint32_t src=68,dst=68;
     for(uint32_t t=0;t<NTRK;t++){
         memcpy(old.raw+dst,current.raw+src,84);src+=P_E0;dst+=84;
@@ -116,6 +121,9 @@ static void test_compatibility(void)
     uint32_t magic=PROJ_MAGIC_V14,size=PROJ_STORE_V14;memcpy(old.raw,&magic,4);memcpy(old.raw+4,&size,4);old.raw[66]=92;
     uint32_t hash=proj_hash(old.raw,size-4);memcpy(old.raw+size-4,&hash,4);
     assert(proj_import(&back,&old,size));assert(back.t[0].p[P_E4]==53);
+    for(uint32_t t=0;t<NTRK;t++)assert(back.t[t].p[P_DLY]==0);   /* before the delay came back: its sends 0, */
+    assert(back.g[G_DTYPE]==GP[G_DTYPE].def && back.g[G_DWEAR]==GP[G_DWEAR].def && back.g[G_DTIME]==GP[G_DTIME].def);   /* x0x's defaults */
+    assert(back.motion.count==1 && back.motion.event[0].param==P_DLY && back.motion.event[0].value==0);   /* (its place kept) */
     for(uint32_t t=0;t<NTRK;t++)for(uint32_t lane=P_LN0;lane<=P_LN7;lane++)assert(back.t[t].p[lane]==127);
     assert(!memcmp(q.p5,back.p5,sizeof q.p5));assert(!memcmp(q.fm6,back.fm6,sizeof q.fm6));
     static uint8_t bank[BANK_STORE_SIZE],legacy[BANK_STORE_SIZE];assert(bank_pack(bank,&q,0));
@@ -126,16 +134,27 @@ static void test_compatibility(void)
     magic=BANK_MAGIC_H;size=BANK_SIZE_H;memcpy(legacy,&magic,4);memcpy(legacy+4,&size,4);
     hash=proj_hash(legacy,size-4);memcpy(legacy+size-4,&hash,4);
     assert(bank_valid(legacy,size));bank_upgrade(legacy);assert(bank_valid(legacy,BANK_STORE_SIZE));
-    assert(proj_scratch.t[0].p[P_E4]==53 && proj_scratch.t[0].p[P_LN0]==127);
+    assert(proj_scratch.t[0].p[P_E4]==53 && proj_scratch.t[0].p[P_LN0]==127 && !proj_scratch.t[2].p[P_DLY]);
+    for(uint32_t t=0;t<NTRK;t++)trk[t].p[P_DLY]=77;
     template_save();tmpl_t before=tmpl;uint8_t old_template[TMPL_SIZE_C];
     frozen_template92(old_template,(const uint8_t *)&tmpl,TMPL_SIZE_C-8);
     magic=TMPL_MAGIC_C;size=TMPL_SIZE_C;memcpy(old_template+size-8,&size,4);memcpy(old_template+size-4,&magic,4);
     assert(tmpl_take(old_template,sizeof old_template));
     assert(!memcmp(before.p5,tmpl.p5,sizeof tmpl.p5) && !memcmp(before.cz,tmpl.cz,sizeof tmpl.cz));
     for(uint32_t tr=0;tr<NTRK;tr++)for(uint32_t lane=P_LN0;lane<=P_LN7;lane++)assert(tmpl.t[tr].p[lane]==127);
+    for(uint32_t tr=0;tr<NTRK;tr++)assert(before.t[tr].p[P_DLY]==77 && !tmpl.t[tr].p[P_DLY]);
+    {   /* a user preset: a record of today's keeps its delay send, one of before (np 100) has none */
+        up_rec_t r;int16_t v[P_COUNT];memset(&r,0,sizeof r);r.used=UP_USED;r.ver=UP_VER_GRID;r.engine=0;r.np=P_COUNT;memcpy(r.name,"DLY",3);
+        for(uint32_t i=0;i<P_COUNT;i++)up_set_value(&r,i,param_desc_of(0,i)->def);
+        up_set_value(&r,P_DLY,77);up_values(&r,v);assert(v[P_DLY]==77);
+        r.np=100;up_values(&r,v);assert(v[P_DLY]==0);
+    }
+    {   /* a factory preset: no delay send (its sends predate the delay coming back) */
+        TSEL->eng_req=0;TSEL->p[P_DLY]=77;apply_preset_to(TSEL,8);assert(TSEL->p[P_DLY]==0 && TSEL->p[P_REV]>0);
+    }
 }
 int main(void)
 {
     test_recording_tools();test_click_volume();test_editing_tools();test_midi_and_levels();test_compatibility();
-    puts("performance tools: count-in, click, additive entry, audition, momentary restore/keep, MIDI, drum levels and FUN14 migration passed");return 0;
+    puts("performance tools: count-in, click, additive entry, audition, momentary restore/keep, MIDI, drum levels, FUN14 migration and the revived delay's zeroed old sends passed");return 0;
 }

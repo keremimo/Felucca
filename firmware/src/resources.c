@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* Bounded audio working-memory arena. Only the audio owner (or boot/host
  * setup before audio starts) mutates it; main-loop migration reserves/releases
- * its two temporary handles with audio interrupts excluded. Thirteen fixed handles, no heap,
+ * its two temporary handles with audio interrupts excluded. Fourteen fixed handles, no heap,
  * relocation, or searches proportional to the number of voices/samples.
  * The linker leaves the rest of POOL available after permanent buffers. */
 enum { RES_ENGINE0, RES_SLICER0 = RES_ENGINE0 + NPART,
-       RES_PERFORM = RES_SLICER0 + NTRK, RES_CHORUS, RES_REVERB, RES_LEGACY0, RES_LEGACY1, RES_COUNT };
+       RES_PERFORM = RES_SLICER0 + NTRK, RES_CHORUS, RES_REVERB, RES_DELAY, RES_LEGACY0, RES_LEGACY1, RES_COUNT };
 static struct { uint32_t off, size; } resource[RES_COUNT];
 static uint32_t resource_peak, resource_failures;
 #ifdef FM1_IRQ_TARGET
@@ -13,7 +13,7 @@ extern uint8_t _resource_start[], _resource_end[];
 #define RESOURCE_BASE _resource_start
 #define RESOURCE_CAPACITY ((uint32_t)(_resource_end - _resource_start))
 #else
-static uint32_t resource_host[32768];
+static uint32_t resource_host[40960];
 #define RESOURCE_BASE ((uint8_t *)resource_host)
 #define RESOURCE_CAPACITY ((uint32_t)sizeof resource_host)
 #endif

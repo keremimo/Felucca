@@ -112,11 +112,15 @@ enum {                          /* global parameters */
     G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING, 2 HALL (fx.c). Was G_DRCH, the GM drum part's MIDI
                                  * channel (inert since 1.0, never read); projects of formats before FUN7 load it
                                  * as ROOM (project.c proj_rtype_room) */
-    G_DRLVL, G_DRREV,           /* inert (label "-", on no page): the GM drum part they set is gone; kept
-                                 * because the ids and G_COUNT are fixed by the formats and the protocol (only
-                                 * the import of an old project reads them: proj_drums_to_part) */
+    G_DTYPE, G_DWEAR,           /* DELAY TYPE (DIGI, TAPE, DG-PP, TP-PP) and WEAR (delay.c, x0x's tape delay).
+                                 * Were G_DRLVL / G_DRREV, the GM drum part's level and reverb send (inert since
+                                 * 1.0): ids and G_COUNT are fixed by the formats and the protocol; a project from
+                                 * before 1.0 still gives them to its drum part (project.c proj_drums_to_part), any
+                                 * project from before the delay came back their defaults (proj_delay_off) */
     G_COUNT
 };
+#define G_DRLVL G_DTYPE         /* (their meaning in a project from before 1.0: proj_drums_to_part) */
+#define G_DRREV G_DWEAR
 
 /* stored parameters of an older layout -> today's P_* order. A store keeps np = the P_COUNT it was
  * written with; common parameters are only ever added just before P_E0, so the first np - 8 are

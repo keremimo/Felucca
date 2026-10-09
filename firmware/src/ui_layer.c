@@ -603,7 +603,7 @@ static void layer_cards(uint32_t l)
                     perf_k[1] * 10, ICON_BITS);
         fmt_int(val, perf_k[2]);
         draw_column(2, "THROW", perf_k[2] ? val : "OFF", perf_k[2] ? "%" : "", perf_k[2] ? VAL(2u) : T_DIM,
-                    perf_k[2] * 10, ICON_REVERB);
+                    perf_k[2] * 10, ICON_DELAY);
         if (perf_harm_on()) {                           /* OCT UP / DN playing: KNOB 4 is its shimmer (SHIMR) */
             fmt_int(val, perf_k[3]);
             draw_column(3, "SHIMR", perf_k[3] ? val : "OFF", perf_k[3] ? "%" : "", perf_k[3] ? VAL(3u) : T_DIM,

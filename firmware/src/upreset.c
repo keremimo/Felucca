@@ -302,6 +302,8 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
     for (i = 0; i < P_COUNT; i++)
         def[i] = param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->def;
     up_params(r, v, def);
+    if (r->np < P_COUNT)                          /* (before the delay came back: its send inert, so none) */
+        v[P_DLY] = 0;
     if (r->ver == 1u && r->engine == ENGI_PHYS)   /* (before 1.0: MODEL 2 was DUST) */
         phys_legacy(&v[P_E0]);
     for (i = 0; i < P_COUNT; i++)

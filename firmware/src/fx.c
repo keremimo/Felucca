@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Effects: per-track DIST insert, then chorus and reverb sends.
- * Delay retired; its stored parameter IDs remain inert for compatibility. */
+/* Effects: per-track DIST insert, then sends into three shared buses (chorus, delay: delay.c, reverb). Mono
+ * buses (HALL's and the delay's ping-pong add a stereo difference), stereo dry mix. */
 #define CHO_LEN 2048u
 static int16_t *cho_buf;
 #define REV_COMB_LEN (1116u + 1188u + 1277u + 1356u)
@@ -252,6 +252,7 @@ static uint32_t seq_div_samples(uint32_t div)
 }
 
 #include "perform.c"                                 /* the FX hold layer's effects (the master) */
+#include "delay.c"                                   /* the delay bus: x0x's tape delay */
 
 /* ROOM (G_RTYPE 0): 4 damped combs + 2 allpasses (Freeverb-like, mono), added to out */
 static __attribute__((noinline)) void rev_room(const int32_t *rev_in, int32_t *out, uint32_t n,
@@ -624,7 +625,7 @@ static __attribute__((noinline)) void rev_side_mix(int32_t *l, int32_t *r, uint3
     }
 }
 
-static void fx_buses(const int32_t *cho_in, const int32_t *rev_in, int32_t *wet,
+static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t *rev_in, int32_t *wet,
                      uint32_t n)
 {
     uint32_t i;
@@ -652,6 +653,7 @@ static void fx_buses(const int32_t *cho_in, const int32_t *rev_in, int32_t *wet,
     if (cho_buf && !cin && (cho_idle += n) >= CHO_LEN) {
         resource_release(RES_CHORUS); cho_buf = 0; cho_idle = 0;
     }
+    dly_bus(dly_in, wet, n);                            /* (delay.c: before the reverb's idle returns) */
     rt = song.g[G_RTYPE];
     rt = rt == 1 || rt == 2 ? rt : 0;
     hl.side = 0;
@@ -686,7 +688,7 @@ static void fx_buses(const int32_t *cho_in, const int32_t *rev_in, int32_t *wet,
 /* one block of the whole mix (shared with hostsim.c): events -> each part (with its modulation matrix)
  * -> dist -> SLICER -> level / pan / sends -> buses -> master; out: stereo Q15 */
 static void events_block(uint32_t n);                    /* seq.c */
-static int32_t send_c[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
+static int32_t send_c[CTL], send_d[CTL], send_r[CTL], wet[CTL], mix_l[CTL], mix_r[CTL];
 #if MELODEE_USB_AUDIO
 static int ua_capture_active(void);                    /* usb.c; snapshot before rendering */
 static uint8_t track_capture_on;
@@ -697,18 +699,18 @@ static int32_t track_capture[CTL * NTRK];               /* the parts after their
 /* Keys are the effective values after mod_begin, so automation and matrix
  * modulation invalidate the same cache as direct edits and preset loads. */
 typedef struct {
-    int16_t level, pan, chor, rev;
+    int16_t level, pan, chor, dly, rev;
     uint8_t valid;
-    int32_t lvl, gl, gr, c, r, xmax;
+    int32_t lvl, gl, gr, c, d, r, xmax;
 } mix_cache_t;
 static mix_cache_t mix_cache[NTRK];
 static __attribute__((noinline)) void mix_cache_update(const track_t *t, mix_cache_t *mc)
 {
-    mc->level=t->p[P_LEVEL];mc->pan=t->p[P_PAN];mc->chor=t->p[P_CHOR];mc->rev=t->p[P_REV];mc->valid=1;
+    mc->level=t->p[P_LEVEL];mc->pan=t->p[P_PAN];mc->chor=t->p[P_CHOR];mc->dly=t->p[P_DLY];mc->rev=t->p[P_REV];mc->valid=1;
     mc->lvl=LEVEL_Q12[mc->level & 127];
     mc->gl=4096-(mc->pan>0?mc->pan*64:0);mc->gr=4096+(mc->pan<0?mc->pan*64:0);
-    mc->c=mc->chor*258;mc->r=mc->rev*258;
-    mc->xmax=0x7FFFFFFF/((mc->c>mc->r?mc->c:mc->r)|1);
+    mc->c=mc->chor*258;mc->d=mc->dly*258;mc->r=mc->rev*258;
+    {int32_t m=mc->c>mc->d?mc->c:mc->d;mc->xmax=0x7FFFFFFF/((m>mc->r?m:mc->r)|1);}
 }
 
 static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_t n)
@@ -720,8 +722,9 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
     int32_t gla = 4096 - (pa > 0 ? pa * 64 : 0), gra = 4096 + (pa < 0 ? pa * 64 : 0);
     int32_t glb = 4096 - (pb > 0 ? pb * 64 : 0), grb = 4096 + (pb < 0 ? pb * 64 : 0);
     int32_t glm = (gla + glb) >> 1, grm = (gra + grb) >> 1, gld = (gla - glb) >> 1, grd = (gra - grb) >> 1;
-    int32_t c = t->p[P_CHOR] * 258, r = t->p[P_REV] * 258, pk = t->peak;
-    int32_t xmax = 0x7FFFFFFF / ((c > r ? c : r) | 1);
+    int32_t c = t->p[P_CHOR] * 258, dl_ = t->p[P_DLY] * 258, r = t->p[P_REV] * 258, pk = t->peak;
+    int32_t xmax = c > dl_ ? c : dl_;
+    xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);
     for (i = 0; i < n; i++)
         d[i] = (d[i] << 1) - b[i];                      /* left - right */
     track_dist(t, b, n);
@@ -739,6 +742,8 @@ static __attribute__((noinline)) void mix_spread(track_t *t, int32_t *b, uint32_
             pk = a;
         if (c)
             send_c[i] += mulq15(xs, c);
+        if (dl_)
+            send_d[i] += mulq15(xs, dl_);
         if (r)
             send_r[i] += mulq15(xs, r);
         mix_l[i] += ((x * glm) >> 12) + ((y * gld) >> 12);
@@ -767,10 +772,10 @@ static void mix_part(track_t *t, uint32_t n)
         uint32_t ti = (uint32_t)(t - trk);
         mix_cache_t *mc = &mix_cache[ti];
         if (!mc->valid || mc->level != t->p[P_LEVEL] || mc->pan != t->p[P_PAN] ||
-            mc->chor != t->p[P_CHOR] || mc->rev != t->p[P_REV]) {
+            mc->chor != t->p[P_CHOR] || mc->dly != t->p[P_DLY] || mc->rev != t->p[P_REV]) {
             mix_cache_update(t,mc);
         }
-        int32_t lvl=mc->lvl,gl=mc->gl,gr=mc->gr,c=mc->c,r=mc->r,xmax=mc->xmax,pk=t->peak;
+        int32_t lvl=mc->lvl,gl=mc->gl,gr=mc->gr,c=mc->c,d=mc->d,r=mc->r,xmax=mc->xmax,pk=t->peak;
         track_dist(t, b, n);
         slicer_track(t, b, n);                          /* slicer.c: before the level, pan and sends */
         if ((pf.mute >> (t - trk)) & 1u)
@@ -787,6 +792,8 @@ static void mix_part(track_t *t, uint32_t n)
                 pk = a;
             if (c)
                 send_c[i] += mulq15(xs, c);
+            if (d)
+                send_d[i] += mulq15(xs, d);
             if (r)
                 send_r[i] += mulq15(xs, r);
             mix_l[i] += (x * gl) >> 12;
@@ -824,16 +831,18 @@ static void mix_block(int32_t *out, uint32_t n)
     if (track_capture_on) for (i = 0; i < n * NTRK; i++) track_capture[i] = 0;
 #endif
     for (i = 0; i < n; i++)
-        send_c[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
+        send_c[i] = send_d[i] = send_r[i] = mix_l[i] = mix_r[i] = 0;
     events_block(n);
     perf = perf_begin(n);                               /* the FX hold layer at work (perform.c) */
     for (i = 0; i < NPART; i++)
         mix_part(&trk[i], n);
     if (perf)
-        perf_pre(mix_l, mix_r, send_r, n);
-    fx_buses(send_c, send_r, wet, n);
+        perf_pre(mix_l, mix_r, send_d, send_r, n);
+    fx_buses(send_c, send_d, send_r, wet, n);
     if (hl.side)
         rev_side_mix(mix_l, mix_r, n);                  /* HALL: stereo */
+    if (dl.side)
+        dly_side_mix(mix_l, mix_r, n);                  /* the delay's ping-pong */
     if (perf) {
         perf_master(out, n);
         return;

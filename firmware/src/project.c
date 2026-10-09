@@ -55,7 +55,7 @@
 #define PROJ_MAGIC_V13 0x46554E3Du
 #define PROJ_MAGIC_V14 0x46554E3Eu
 #define PROJ_MAGIC_V15 0x46554E3Fu
-#define PROJ_MAGIC 0x46554E40u                 /* FUN15: drum lane levels, native patches and 1024 timed notes */
+#define PROJ_MAGIC 0x46554E40u                 /* FUN16: LFO 2, SPREAD (P_COUNT 104); the delay back (proj_delay_off) */
 #define PROJ_MAGIC_V7 0x46554E37u              /* "FUN7": serialized (byte params, packed steps), chain, motion */
 #define PROJ_MAGIC_V6 0x46554E36u              /* FUN6: 69 parameters, drum grid, chain */
 #define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": the grid, without the chain; read only */
@@ -447,6 +447,25 @@ static int proj_import(project_t *q, const void *b, int n)
     proj_fm4(q);
     return 1;
 }
+/* a project from before the delay came back (FUN16, delay.c; Melodee 0.13's 1024 notes had retired the bus): its
+ * delay sends and their automation were inert all that time, so 0 now (nothing echoes until a send is turned up), the
+ * delay's globals x0x's defaults (ids 25 / 26 held the GM drum part's before 1.0: proj_drums_to_part has read them).
+ * Motion events keep their places (a bank's tags follow their order): their values 0 */
+static int proj_delay_off(project_t *q)
+{
+    uint32_t i;
+    for (i = 0; i < NTRK; i++)
+        q->t[i].p[P_DLY] = 0;
+    for (i = 0; i < q->motion.count && i < MOTION_MAX; i++)
+        if (q->motion.event[i].param == P_DLY)
+            q->motion.event[i].value = 0;
+    for (i = G_DTIME; i <= G_DMIX; i++)
+        q->g[i] = GP[i].def;
+    q->g[G_DTYPE] = GP[G_DTYPE].def;
+    q->g[G_DWEAR] = GP[G_DWEAR].def;
+    q->sum = proj_sum(q);
+    return 1;
+}
 static int proj_fn_none(project_t *q)          /* a record without FM6 function settings: Dexed's */
 {
     memset(q->fm6_fn, 0, sizeof q->fm6_fn);
@@ -456,25 +475,25 @@ static int proj_fn_none(project_t *q)          /* a record without FM6 function 
 }
 static int proj_import_any(project_t *q, const void *b, int n)
 {
-    if((n==PROJ_LEGACY_CZ && ((const uint32_t *)b)[0]==0x46554E42u) || (n==PROJ_LEGACY_CZ_OLD && ((const uint32_t *)b)[0]==0x46554E41u))return proj_unpack(q,b,(uint32_t)n) && proj_fn_none(q);
+    if((n==PROJ_LEGACY_CZ && ((const uint32_t *)b)[0]==0x46554E42u) || (n==PROJ_LEGACY_CZ_OLD && ((const uint32_t *)b)[0]==0x46554E41u))return proj_unpack(q,b,(uint32_t)n) && proj_fn_none(q) && proj_delay_off(q);
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[0] == PROJ_MAGIC)
         return proj_unpack(q, b, PROJ_STORE_SIZE) && proj_fn_none(q);
     if (n == PROJ_STORE_V15 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V15)
-        return proj_unpack(q,b,PROJ_STORE_V15) && proj_fn_none(q);
+        return proj_unpack(q,b,PROJ_STORE_V15) && proj_fn_none(q) && proj_delay_off(q);
     if (n == PROJ_STORE_V14 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V14)
-        return proj_unpack(q,b,PROJ_STORE_V14) && proj_fn_none(q);
+        return proj_unpack(q,b,PROJ_STORE_V14) && proj_fn_none(q) && proj_delay_off(q);
     if (n == PROJ_STORE_V13 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V13)
-        return proj_unpack(q,b,PROJ_STORE_V13) && proj_fn_none(q);
+        return proj_unpack(q,b,PROJ_STORE_V13) && proj_fn_none(q) && proj_delay_off(q);
     if (n == PROJ_STORE_V12 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V12)
-        return proj_unpack(q, b, PROJ_STORE_V12) && proj_fn_none(q);
+        return proj_unpack(q, b, PROJ_STORE_V12) && proj_fn_none(q) && proj_delay_off(q);
     if (n == PROJ_STORE_V11 && (((const uint32_t *)b)[0] == PROJ_MAGIC_V11 || ((const uint32_t *)b)[0] == PROJ_MAGIC_V10))
-        return proj_unpack(q, b, PROJ_STORE_V11) && proj_fn_none(q);
+        return proj_unpack(q, b, PROJ_STORE_V11) && proj_fn_none(q) && proj_delay_off(q);
     if (n == PROJ_STORE_V8 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V8)
-        return proj_unpack(q, b, PROJ_STORE_V8) && proj_fn_none(q);
+        return proj_unpack(q, b, PROJ_STORE_V8) && proj_fn_none(q) && proj_delay_off(q);
     if (n == PROJ_STORE_SIZE && ((const uint32_t *)b)[1] >= 8u && ((const uint32_t *)b)[1] < PROJ_STORE_SIZE)
         return proj_import_any(q, b, (int)((const uint32_t *)b)[1]); /* padded cache: validate the original format */
     if (n == (int)PROJ_STORE_V7 && ((const uint32_t *)b)[0] == PROJ_MAGIC_V7)
-        return proj_unpack(q, b, PROJ_STORE_V7) && proj_fn_none(q);
+        return proj_unpack(q, b, PROJ_STORE_V7) && proj_fn_none(q) && proj_delay_off(q);
     if (n == (int)sizeof *q && proj_ok((const project_t *)b)) {
         memcpy(q, b, sizeof *q);
         proj_drums_to_part(q);
@@ -484,7 +503,7 @@ static int proj_import_any(project_t *q, const void *b, int n)
     if (!proj_import_old(q, b, n))
         return 0;
     proj_fm6_init(q);
-    return proj_fn_none(q);
+    return proj_fn_none(q) && proj_delay_off(q);
 }
 static int proj_import_old(project_t *q, const void *b, int n)
 {
@@ -692,7 +711,7 @@ static void proj_legacy_perc(track_t *t)
     t->p[P_ED_FLT] = pr->fenv;
     t->p[P_VOICE] = pr->mono ? V_LEGATO : V_POLY;
     for (i = 0; i < 4u; i++)
-        t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
+        t->p[P_DIST + i] = (int16_t)(i == 2u ? 0 : pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
 }
 
 static project_t proj_scratch __attribute__((section(".pool")));              /* decoded main-loop work, never audio ISR */
@@ -1091,6 +1110,11 @@ static int tmpl_take(const uint8_t *b, uint32_t len)
         params_by_count(tmpl.t[k].p, values, np, def);
         uint32_t magic; memcpy(&magic, b + len - 4u, 4);
         if (magic != TMPL_MAGIC && magic != TMPL_MAGIC_D && magic != TMPL_MAGIC_C && magic != TMPL_MAGIC_B) tmpl.t[k].p[P_RECQ] = 0;
+        if (len != sizeof tmpl) tmpl.t[k].p[P_DLY] = 0;   /* (before the delay came back: proj_delay_off) */
+    }
+    if (len != sizeof tmpl) {
+        for (uint32_t i = G_DTIME; i <= G_DMIX; i++) tmpl.g[i] = GP[i].def;
+        tmpl.g[G_DTYPE] = GP[G_DTYPE].def; tmpl.g[G_DWEAR] = GP[G_DWEAR].def;
     }
     memcpy(tmpl.fm6, b + pos, sizeof tmpl.fm6); pos += sizeof tmpl.fm6;
     if (len != TMPL_SIZE5) { memcpy(tmpl.fm6_fn, b + pos, sizeof tmpl.fm6_fn); pos += sizeof tmpl.fm6_fn; }

@@ -42,6 +42,9 @@
 #                   its chirp (group delay rising with frequency), stability at the corners, level; HALL's decay,
 #                   damping, echo density, ringing, flutter, stereo and exact silence; model changes without a
 #                   click, the cost against ROOM (+30 % at most); demos in build/fx_demo/.
+# DELAY (tests/delay_test.c): the delay bus (src/delay.c, fm1-x0x's tape delay): silent without a send, echoes on the
+#                   note value, FDBK and TONE, a long division halved, TAPE's bounded self-oscillation and its pitch
+#                   swing, the ping-pong, glides without clicks, the line given back when silent, the cost.
 # MOD / SPREAD (tests/mod_spread_test.c): the matrix's S&H / SLEW sources and DEPTH destination, SPREAD's sides.
 # LAYERS / SCREEN (tests/layer_screen_test.c): double-tapped layers, FX LATCH, the FX key map, SCREEN OFF, LFO 2.
 # INPUT (tests/input_test.c): the key / button debounce of hal/fm1_input.h against the TIMER5 scan and bouncing
@@ -234,6 +237,9 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "FX layer effects: on the 1/16, stereo, too-long REPEAT, SLICER, silent keys, idle bit-identical, clicks, OCT UP / DN, cost, demos" "$OUT/perform_test" build/perform_demo build/fx_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/reverb_test" tests/reverb_test.c -lm
     run "REVERB TYPE: ROOM bit-identical, SPRING decay / chirp / stability / level, HALL decay / damping / density / stereo / silence, model change, cost, demos" "$OUT/reverb_test" build/fx_demo
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/delay_test" tests/delay_test.c -lm
+    mkdir -p build/delay_demo
+    run "DELAY (x0x's tape delay): off = silent, echo timing, feedback, TAPE bounded / swing, ping-pong, glides, idle release, cost, demos" "$OUT/delay_test" build/delay_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mod_spread_test" tests/mod_spread_test.c -lm
     run "matrix S&H / SLEW / DEPTH, SPREAD: off = bit-identical, sides, sends mono, SLICER and mutes" "$OUT/mod_spread_test"
     $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/layer_screen_test" tests/layer_screen_test.c -lm

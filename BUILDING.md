@@ -83,7 +83,7 @@ bank and owned-voice caches are replaced by temporary migration workspace,
 released after conversion. Existing flash and backup formats remain readable.
 
 The build reports both permanent POOL usage and the available working arena,
-and requires at least 112 KiB for simultaneous maximum engine state, recording,
+and requires at least 152 KiB for simultaneous maximum engine state, recording,
 effects and legacy conversion workspace. The resource tests cover eviction,
 engine transitions, effect tails and resumption, and allocation failure.
 

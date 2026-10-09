@@ -71,6 +71,8 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
     reverb_prepare(); rev_clear();
     memset(rev_ap, 0, sizeof rev_ap);
     memset(&fx, 0, sizeof fx);
+    if (dly_buf) resource_release(RES_DELAY);
+    dly_buf = 0; memset(&dl, 0, sizeof dl);   /* (the delay at rest) */
     memset(&pf, 0, sizeof pf);
     for (k = 0; k < NTRK; k++)
         pf.mg[k] = 32768;
@@ -136,7 +138,7 @@ static uint64_t phrase_child(uint32_t e, uint32_t pi, void (*setup)(track_t *t))
 static void test_matrix(void)
 {
     static const char *const SRC_V12[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR"};
-    static const char *const DST_V12[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "-", "REV", "RATE",
+    static const char *const DST_V12[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
                                           "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"};
     track_t *t = &trk[0];
     uint32_t i, k, steps = 0, changes_in_cycle = 0, pos = 0, neg = 0, same_as_wave = 1;

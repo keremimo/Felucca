@@ -102,6 +102,11 @@ static void to_v4(project_v4_t *v, const project_t *q)
 
 /* track t of the converted project has the old values where they belong; drum: track 4 was the drum part,
  * lvl / rev: its level and reverb send (the old globals) */
+/* global i of an old project as it loads: v, but id 24 ROOM and the delay's (4..7, 25, 26: proj_delay_off) defaults */
+static int16_t g_loaded(uint32_t i, int16_t v)
+{
+    return i == G_RTYPE ? 0 : (i >= G_DTIME && i <= G_DMIX) || i == G_DTYPE || i == G_DWEAR ? GP[i].def : v;
+}
 static int track_ok(const proj_trk_t *n, const proj_trk_v2_t *o, uint32_t t, int drum, int16_t lvl, int16_t rev)
 {
     uint32_t k;
@@ -109,7 +114,7 @@ static int track_ok(const proj_trk_t *n, const proj_trk_v2_t *o, uint32_t t, int
                    : n->engine == o->engine && n->preset == o->preset) &&
              (drum ? drum_steps_same(n->step,o->step) : steps_same(n->step, o->step));
     for (k = 0; k <= P_DETUNE; k++)
-        ok &= n->p[k] == (drum && k == P_LEVEL ? lvl : drum && k == P_REV ? rev : k == P_RECQ ? 0 : oldv(t, k));
+        ok &= n->p[k] == (drum && k == P_LEVEL ? lvl : drum && k == P_REV ? rev : k == P_RECQ || k == P_DLY ? 0 : oldv(t, k));
     ok &= n->p[P_SLCR] == 0 && n->p[P_SLPAT] == TP[P_SLPAT].def && n->p[P_SLRATE] == TP[P_SLRATE].def &&
           n->p[P_SLDEPTH] == TP[P_SLDEPTH].def;
     for (k = P_M1SRC; k <= P_M4AMT; k++)
@@ -142,7 +147,7 @@ static int track_v3_ok(const proj_trk_t *n, const proj_trk_v3_t *o, uint32_t t)
     uint32_t k;
     int ok = n->engine == o->engine && n->preset == o->preset && steps_same(n->step, o->step);
     for (k = 0; k <= P_SLDEPTH; k++)
-        ok &= n->p[k] == (k == P_RECQ ? 0 : oldv3(t, k));           /* up to the SLICER: the same ids */
+        ok &= n->p[k] == (k == P_RECQ || k == P_DLY ? 0 : oldv3(t, k));   /* up to the SLICER: the same ids */
     for (k = P_M1SRC; k <= P_M4AMT; k++)
         ok &= n->p[k] == TP[k].def && TP[k].def == 0;
     for (k = 0; k < 8u; k++)
@@ -188,8 +193,8 @@ int main(void)
     bad += check("FUN2 -> FUN6: converted, valid format 5 slot", ok && proj_ok(&q) && q.magic == PROJ_MAGIC);
     ok = q.sel == 2;
     for (i = 0; i < G_COUNT; i++)
-        ok &= q.g[i] == (i == G_RTYPE ? 0 : (int16_t)(500 + i));
-    bad += check("FUN2 -> FUN6: globals (id 24, the old drum channel: ROOM) and selected track", ok);
+        ok &= q.g[i] == g_loaded(i, (int16_t)(500 + i));
+    bad += check("FUN2 -> FUN6: globals (id 24, the old drum channel: ROOM; the delay's its defaults) and selected track", ok);
     ok = 1;
     for (t = 0; t < NTRK; t++)
         ok &= track_ok(&q.t[t], &v2.t[t], t, t == 3u, 127, 127);   /* (G_DRLVL / G_DRREV 525 / 526: 127) */
@@ -219,7 +224,7 @@ int main(void)
     ok = proj_import(&q, &buf, (int)sizeof v3) && proj_ok(&q) && q.magic == PROJ_MAGIC && q.sel == 3 &&
          q.parts == NPART;
     for (i = 0; i < G_COUNT; i++)
-        ok &= q.g[i] == (i == G_RTYPE ? 0 : (int16_t)(600 + i));
+        ok &= q.g[i] == g_loaded(i, (int16_t)(600 + i));
     for (t = 0; t < NTRK; t++)
         ok &= track_v3_ok(&q.t[t], &v3.t[t], t);
     bad += check("FUN3 -> FUN6: every parameter kept, the matrix OFF, steps, globals (24: ROOM)", ok);
@@ -348,7 +353,7 @@ int main(void)
     fill_v2_track(&v1.t, 0);
     v1.sum = proj_hash(&v1, sizeof v1 - 4u);
     memcpy(&buf, &v1, sizeof v1);
-    ok = proj_import(&q, &buf, (int)sizeof v1) && proj_ok(&q) && track_ok(&q.t[0], &v1.t, 0, 0, 0, 0) && q.g[5] == 705 &&
+    ok = proj_import(&q, &buf, (int)sizeof v1) && proj_ok(&q) && track_ok(&q.t[0], &v1.t, 0, 0, 0, 0) && q.g[G_SWING] == 701 && q.g[G_DFDBK] == GP[G_DFDBK].def &&
          q.parts == NPART;
     for (t = 1; t < NTRK; t++)
         ok &= q.t[t].preset == PROJ_DEF_SOUND && q.t[t].engine == trk_def_engine(t) && q.t[t].p[P_SLCR] == 0 && q.t[t].p[P_LEVEL] == TP[P_LEVEL].def &&

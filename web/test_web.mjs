@@ -324,11 +324,16 @@ async function editorMock() {
     const rd = E.parse[E.CMD.DESC](await rq(E.req.desc(1, 24)));
     const r1 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 10)));
     const r0 = E.parse[E.CMD.SET](await rq(E.req.set(1, 24, 0)));
-    const inert = [25, 26].map(async (id) => E.parse[E.CMD.DESC](await rq(E.req.desc(1, id))));
-    const [d25, d26] = await Promise.all(inert);
-    ok(rd.label === "TYPE" && rd.def === 0 && eq(rd.names, ["ROOM", "SPRING", "HALL"]) && r1.value === 2 && r0.value === 0 &&
-       d25.label === "-" && d26.label === "-" && d25.max === 0 && info.gcount === 27,
-      "editor: REVERB TYPE (ROOM / SPRING / HALL, global id 24; 25, 26 still inert)");
+    const dly = [4, 5, 6, 7, 25, 26].map(async (id) => E.parse[E.CMD.DESC](await rq(E.req.desc(1, id))));
+    const [d4, d5, d6, d7, d25, d26] = await Promise.all(dly);
+    ok(rd.label === "TYPE" && rd.def === 0 && eq(rd.names, ["ROOM", "SPRING", "HALL"]) && r1.value === 2 && r0.value === 0 && info.gcount === 27,
+      "editor: REVERB TYPE (ROOM / SPRING / HALL, global id 24)");
+    /* the delay back (x0x's tape delay): 4..7 TIME FDBK TONE MIX, 25 / 26 (the old drum part's) TYPE WEAR; P 35 DLY */
+    const p35 = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 35)));
+    ok(d4.label === "TIME" && d4.names.length === 14 && d4.names[11] === "1/8." && d4.def === 11 && d5.label === "FDBK" && d5.max === 120 &&
+       d6.label === "TONE" && d7.label === "MIX" && d25.label === "TYPE" && eq(d25.names, ["DIGI", "TAPE", "DG-PP", "TP-PP"]) && d25.def === 1 &&
+       d26.label === "WEAR" && d26.max === 127 && p35.label === "DLY",
+      "editor: the delay's globals (4..7, 25 TYPE, 26 WEAR) and track send 35 over DESC");
   }
   const st = E.parse[E.CMD.STEP_SET](await rq(E.req.stepSet(5, { n: 2, notes: [60, 64], time: 0, flags: 1, vel: 100 })));
   ok(st.n === 2 && st.notes[1] === 64 && st.vel === 100, "editor: STEP_SET");

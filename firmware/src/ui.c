@@ -166,7 +166,6 @@ static int page_visible(uint32_t i)
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum_track(TSEL);
     if(TSEL->eng_req==ENGI_CZ && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
-    if (PAGES[i].scope == SC_GLOBAL && PAGES[i].id[0] == G_DTIME) return 0;
     if (PAGES[i].scope == SC_CZ)
         return TSEL->eng_req == 2u && TSEL->p[P_E7] == 1;
     if(PAGES[i].scope==SC_P5 || PAGES[i].scope==SC_P5STORE)return TSEL->eng_req==ENGI_PROPHET;
@@ -544,7 +543,7 @@ static void momentary_take(uint32_t slot)
     if(!d || !vp || d->max==d->min)return;
     uint32_t native=!ui.home?(pg->scope==SC_FM6 || pg->scope==SC_FMOP?1:pg->scope==SC_CZ1?2:pg->scope==SC_P5?3:0):0;
     if(!native && !ui.home && pg->scope!=SC_TRACK && pg->scope!=SC_ENGINE &&
-       !(pg->scope==SC_GLOBAL && (pg->id[slot]<=G_SWING || (pg->id[slot]>=G_DTIME && pg->id[slot]<=G_CDEPTH))))return;
+       !(pg->scope==SC_GLOBAL && (pg->id[slot]<=G_SWING || (pg->id[slot]>=G_DTIME && pg->id[slot]<=G_CDEPTH) || pg->id[slot]==G_DWEAR)))return;
     if(!native && !ui.home && pg->scope==SC_TRACK && scale_shared((uint32_t)(vp-TSEL->p)))return;
     if(!momentary.active){momentary.track=song.sel;momentary.active=1;}
     if(native && !momentary.native){
@@ -899,8 +898,8 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     {   /* the sends */
         static const uint8_t FX_DEF[4] = {0, 24, 28, 36};
         const preset_t *pr = &e->presets[pi];
-        for (i = 0; i < 4u; i++)
-            t->p[P_DIST + i] = (int16_t)(pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
+        for (i = 0; i < 4u; i++)                      /* (no delay: its sends predate the delay bus coming back) */
+            t->p[P_DIST + i] = (int16_t)(i == 2u ? 0 : pr->fx[i] ? pr->fx[i] - 1 : FX_DEF[i]);
     }
     if(t->eng_req==ENGI_PROPHET)p5_preset_loaded(t,pi);
     cz_factory_loaded(t);

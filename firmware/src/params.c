@@ -6,6 +6,10 @@ static const uint8_t LSYNC_DIV[11] = {0, 9, 8, 7, 6, 0, 1, 4, 2, 5, 3};
 static const char *const N_LWAVE[] = {"SIN", "TRI", "SAW", "SQR", "S&H"};
 static const char *const N_AMODE[] = {"OFF", "UP", "DN", "UPDN", "RND", "ORD", "REPEAT"};
 static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
+/* the delay's TIME (delay.c dly_samples): N_DIV's ten (their stored ids), then x0x's dotted and 1/4 triplet */
+static const char *const N_DDIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR",
+                                     "1/16.", "1/8.", "1/4.", "4T"};
+static const char *const N_DTYPE[] = {"DIGI", "TAPE", "DG-PP", "TP-PP"};   /* G_DTYPE (delay.c): PP ping-pong */
 static const char *const N_RECQ[] = {"OFF", "1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"};
 static const char *const N_LTRIG[] = {"NOTE", "FREE"};
 static const char *const N_LPOL[] = {"BI", "UNI"};
@@ -45,7 +49,7 @@ static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};             /* SL_O
 static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
 /* modulation matrix (mod.c): sources, destinations (E1..E8 = P_E0..P_E7: shown with the engine's labels) */
 static const char *const N_MSRC[] = {"OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"};
-static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "-", "REV", "RATE",
+static const char *const N_MDST[] = {"OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "DLY", "REV", "RATE",
                                      "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH"};
 static const char *const N_ENGNAME[] = {"ANALOG", MELODEE_FM4 ? "DIGITAL" : "-", "PHASE", "LOFI", "-", "VOICE", MELODEE_LEGACY_EXTRAS ? "TRIO" : "-", MELODEE_LEGACY_EXTRAS ? "WHEEL" : "-", "-", MELODEE_LEGACY_EXTRAS ? "PHYS" : "-",
                                              "DRUM", "NOISE", "FM6", MELODEE_SLICE ? "SLICE" : "-", "-", "CZ-1", "-", "-", "-", "PROPHET"};
@@ -171,7 +175,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SGATE] = PD("GATE", F_PCT, 1, 127, 64),
     [P_DIST] = PD("DST", F_PCT, 0, 127, 0),
     [P_CHOR] = PD("CHO", F_PCT, 0, 127, 0),
-    [P_DLY] = PD("-", F_PCT, 0, 127, 0),
+    [P_DLY] = PD("DLY", F_PCT, 0, 127, 0),
     [P_REV] = PD("REV", F_PCT, 0, 127, 0),
     [P_VOICE] = PE("VCE", N_VOICE, 0),
     [P_GLIDE] = PD("GLD", F_TIME, 0, 127, 0),
@@ -209,10 +213,11 @@ static const param_desc_t GP[G_COUNT] = {
     [G_SWING] = PD("SWG", F_PCT, 0, 100, 0),
     [G_CLOCK] = PE("CLK", N_CLOCK, 0),
     [G_TUNE] = PD("TUNE", F_INT, -50, 50, 0),
-    [G_DTIME] = PE("-", N_DIV, 1),
-    [G_DFDBK] = PD("-", F_PCT, 0, 120, 60),
-    [G_DCOLOR] = PD("-", F_PCT, 0, 127, 70),
-    [G_DMIX] = PD("-", F_PCT, 0, 127, 90),
+    /* the delay (delay.c): the defaults x0x's (dotted eighths, TAPE) */
+    [G_DTIME] = PE("TIME", N_DDIV, 11),
+    [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 50),
+    [G_DCOLOR] = PD("TONE", F_PCT, 0, 127, 51),
+    [G_DMIX] = PD("MIX", F_PCT, 0, 127, 85),
     [G_RSIZE] = PD("SIZE", F_PCT, 0, 127, 90),
     [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
     [G_CRATE] = PD("CRT", F_LFOHZ, 0, 127, 40),
@@ -231,11 +236,9 @@ static const param_desc_t GP[G_COUNT] = {
     [G_INITSND] = PE("INIT", N_GO, 0),
     /* the reverb's model on the REVERB page: the id of the old GM drum channel (G_DRCH, inert since 1.0) */
     [G_RTYPE] = PE("TYPE", N_RTYPE, 0),
-    /* inert: they set the GM drum part (level, reverb send), which is gone (drums are the SAMPLE engine's
-     * PERC set on any part). On no page; kept so the ids and G_COUNT, which the project format and the
-     * editor protocol depend on, do not move */
-    [G_DRLVL] = PD("-", F_INT, 0, 0, 0),
-    [G_DRREV] = PD("-", F_INT, 0, 0, 0),
+    /* the delay's TYPE and WEAR on the DLY 2 page: the ids of the old GM drum part's level and reverb send */
+    [G_DTYPE] = PE("TYPE", N_DTYPE, 1),
+    [G_DWEAR] = PD("WEAR", F_PCT, 0, 127, 64),
 };
 
 static uint32_t scale_count(const track_t *t);          /* seq.c */
@@ -449,10 +452,11 @@ static const page_t PAGES[] = {
     {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"MOD", FAM_LFO, SC_TRACK, GR_MOD, {0xFF, P_M1SRC, P_M1DST, P_M1AMT}},   /* KNOB 1: the slot (mod_ui_slot) */
-    {"FX", FAM_FX, SC_TRACK, GR_FX, {P_DIST, P_CHOR, 0xFF, P_REV}},
+    {"FX", FAM_FX, SC_TRACK, GR_FX, {P_DIST, P_CHOR, P_DLY, P_REV}},
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},
     {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
-    {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},   /* TYPE: ROOM / SPRING */
+    {"DLY 2", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTYPE, G_DWEAR, 0xFF, 0xFF}},       /* x0x's tape delay (delay.c) */
+    {"REVERB", FAM_FX, SC_GLOBAL, GR_NONE, {G_RTYPE, G_RSIZE, G_RDAMP, 0xFF}},   /* TYPE: ROOM / SPRING / HALL */
     {"CHORUS", FAM_FX, SC_GLOBAL, GR_NONE, {G_CRATE, G_CDEPTH, 0xFF, 0xFF}},
     {"SCALES", FAM_SCL, SC_TRACK, GR_SCALE_PICKER, {0xFF, P_SCALE, P_ROOT, P_QUANT}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, 0xFF, P_QUANT, P_TRANS}}, /* K2: scale favorite */

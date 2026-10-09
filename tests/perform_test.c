@@ -292,6 +292,10 @@ static void song_setup(void)
     memset(trk, 0, sizeof trk);
     host_tracks_init();
     perf_reset();
+    if (dly_buf)                                   /* the delay at rest (a THROW before rings on in it) */
+        resource_release(RES_DELAY);
+    dly_buf = 0;
+    memset(&dl, 0, sizeof dl);
     song.g[G_BPM] = 120;
     host_preset(t1, 0, 4);
     host_preset(t2, 1, 5);
@@ -539,8 +543,8 @@ static int test_misc(void)
         snprintf(what, sizeof what, "KNOB 1 FILTER all the way left: a 5 kHz sine down to %d", peak(out_l, 10000, 20000));
         bad += check(what, peak(out_l, 10000, 20000) < 3000);
     }
-    {   /* THROW (KNOB 3): the dry mix into the reverb send; mutes: a track ramps out */
-        static int32_t ml[CTL], mr[CTL], sr[CTL];
+    {   /* THROW (KNOB 3): the dry mix into the delay and reverb sends; mutes: a track ramps out */
+        static int32_t ml[CTL], mr[CTL], sd[CTL], sr[CTL];
         uint32_t i;
         host_tracks_init();
         perf_reset();
@@ -548,12 +552,12 @@ static int test_misc(void)
         perf_k[2] = 100;
         for (t = 0; t < 1024u; t += CTL) {
             for (i = 0; i < CTL; i++)
-                ml[i] = mr[i] = 8000, sr[i] = 0;
+                ml[i] = mr[i] = 8000, sd[i] = sr[i] = 0;
             if (perf_begin(CTL))
-                perf_pre(ml, mr, sr, CTL);
+                perf_pre(ml, mr, sd, sr, CTL);
         }
-        bad += check("KNOB 3 THROW at 100: the dry mix into reverb, full, the dry mix untouched",
-                     sr[CTL - 1] > 7900 && ml[CTL - 1] == 8000 && mr[CTL - 1] == 8000);
+        bad += check("KNOB 3 THROW at 100: the dry mix into both sends, full, the dry mix untouched",
+                     sd[CTL - 1] > 7900 && sr[CTL - 1] > 7900 && ml[CTL - 1] == 8000 && mr[CTL - 1] == 8000);
         perf_k[2] = 0;
     }
     {

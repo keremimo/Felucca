@@ -380,8 +380,8 @@ static __attribute__((noinline)) void perf_mute_sd(uint32_t k, int32_t *b, int32
     pf.mg[k] = g;
 }
 
-/* before the buses: THROW (KNOB 3) adds the dry mix to the reverb sends */
-static __attribute__((noinline)) void perf_pre(const int32_t *ml, const int32_t *mr, int32_t *sr,
+/* before the buses: THROW (KNOB 3) adds the dry mix to the delay and reverb sends */
+static __attribute__((noinline)) void perf_pre(const int32_t *ml, const int32_t *mr, int32_t *sd, int32_t *sr,
                                                uint32_t n)
 {
     uint32_t i;
@@ -390,6 +390,7 @@ static __attribute__((noinline)) void perf_pre(const int32_t *ml, const int32_t 
         pf.td += clamp(m - pf.td, -SL_SLOPE, SL_SLOPE);
         if (pf.td) {
             int32_t x = mulq16((ml[i] + mr[i]) >> 1, (uint32_t)pf.td << 1);
+            sd[i] += x;
             sr[i] += x;
         }
     }
