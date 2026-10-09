@@ -344,8 +344,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     if (ed_native_handle(cmd, a, na)) { ed_send(); return; }
     switch (cmd) {
 #if MELODEE_USB_AUDIO
-    case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 adds voice counters (schema 3); otherwise schema 2 */
-        uint32_t snapshot[32] = {0}, k, count = na && (a[0] & 4u) ? 32u : na && (a[0] & 2u) ? 26u : 20u;
+    case ED_AUDIO_STATS: {                         /* flags: 1 resets maxima, 2 voices, 4 cores, 8 resource/cache banks */
+        uint32_t snapshot[47] = {0}, k, count = na && (a[0] & 8u) ? 47u : na && (a[0] & 4u) ? 32u : na && (a[0] & 2u) ? 26u : 20u;
         fm1_irq_off();
         snapshot[0] = ua.play_alt;
         snapshot[1] = ua.cap_alt;
@@ -379,7 +379,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             snapshot[25] = voice_kills;
         }
 #if MELODEE_DUAL_CORE
-        if (count == 32u) {
+        if (count >= 32u) {
             snapshot[26] = audio_worker_online;
             snapshot[27] = audio_worker.jobs;
             snapshot[28] = audio_worker.max_job_ticks / FM1_TICKS_PER_US;
@@ -388,6 +388,26 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             snapshot[31] = fm6_pairs;
         }
 #endif
+        if (count == 47u) {
+            snapshot[32] = fm1_cache.status;
+            snapshot[33] = fm1_cache.con_before;
+            snapshot[34] = fm1_cache.data_before;
+            snapshot[35] = fm1_cache.instruction_before;
+            snapshot[36] = fm1_cache.con_after;
+            snapshot[37] = fm1_cache.data_after;
+            snapshot[38] = fm1_cache.instruction_after;
+            snapshot[39] = fm1_cache.failure_address;
+            snapshot[40] = fm1_cache.test_ticks / FM1_TICKS_PER_US;
+            snapshot[41] = RESOURCE_CAPACITY;
+            snapshot[42] = resource_used();
+            snapshot[43] = resource_peak;
+            snapshot[44] = resource_failures;
+            snapshot[45] = RESOURCE_CACHE_AVAILABLE ? 28672u : 0u;
+            for (uint32_t r = 0; r < RES_COUNT; r++)
+                if ((uintptr_t)resource[r].ptr >= (uintptr_t)_resource_cache_start &&
+                    (uintptr_t)resource[r].ptr < (uintptr_t)_resource_cache_end)
+                    snapshot[46] += resource[r].size;
+        }
         if (na && (a[0] & 1u)) {
             ua.poll_max_ticks = ua.service_max_ticks = melodee_dbg.max_us = 0;
 #if MELODEE_DUAL_CORE
@@ -395,7 +415,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
 #endif
         }
         fm1_irq_on();
-        ed_b(count == 32u ? 4u : count == 26u ? 3u : 2u);
+        ed_b(count == 47u ? 5u : count == 32u ? 4u : count == 26u ? 3u : 2u);
         for (i = 0; i < count; i++)
             for (k = 0; k < 5u; k++)
                 ed_b(snapshot[i] >> (7u * k));

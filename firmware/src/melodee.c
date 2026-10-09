@@ -10,6 +10,9 @@
 #ifndef MELODEE_DUAL_CORE
 #define MELODEE_DUAL_CORE 0     /* experimental paired FM6/Prophet kernels; enable after target validation */
 #endif
+#ifndef MELODEE_CACHE_RAM
+#define MELODEE_CACHE_RAM 0     /* seven data-cache ways as RAM; opt in after device validation */
+#endif
 #ifndef MELODEE_FLASH
 #define MELODEE_FLASH 1          /* flash driver + storage.c: settings, projects, user presets */
 #endif
@@ -45,6 +48,7 @@
 #include "fm1_sys.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
+#include "fm1_cache.h"
 #if MELODEE_DUAL_CORE
 #include "fm1_multicore.h"
 #endif

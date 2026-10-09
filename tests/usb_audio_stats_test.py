@@ -20,11 +20,11 @@ def reply(schema, count):
     return values, incoming, outgoing, sent
 
 
-for schema, count in [(2, 20), (3, 26), (4, 32)]:
+for schema, count in [(2, 20), (3, 26), (4, 32), (5, 47)]:
     expected, incoming, outgoing, sent = reply(schema, count)
-    result = stats.snapshot(incoming, outgoing, window=True, voices=schema >= 3, cores=schema == 4)
+    result = stats.snapshot(incoming, outgoing, window=True, voices=schema >= 3, cores=schema >= 4, memory=schema == 5)
     assert list(result.values()) == expected
-    assert sent[0].data == stats.HEADER + [7 if schema == 4 else 3 if schema == 3 else 1]
+    assert sent[0].data == stats.HEADER + [15 if schema == 5 else 7 if schema == 4 else 3 if schema == 3 else 1]
 
 _, incoming, outgoing, _ = reply(2, 20)
 try:
@@ -41,4 +41,11 @@ except RuntimeError:
     pass
 else:
     raise AssertionError('truncated telemetry must be rejected')
-print('audio stats: schemas 2/3/4, full-width counters, flags and malformed replies ok')
+_, incoming, outgoing, _ = reply(4, 32)
+try:
+    stats.snapshot(incoming, outgoing, memory=True)
+except RuntimeError as exc:
+    assert 'schema 5' in str(exc)
+else:
+    raise AssertionError('old firmware must not appear to have memory telemetry')
+print('audio stats: schemas 2/3/4/5, full-width counters, flags and malformed replies ok')

@@ -341,6 +341,12 @@ void fm1_cstart(void)
     for (s = _dt_load, d = _dt_start; d < _dt_end; s++, d++)
         *d = *s;                                /* the oscillator correction tables */
     fm1_mailbox_clear();
+#if MELODEE_CACHE_RAM
+    {   /* XIP-to-SRAM exceeds the direct-call range on pi32v2. */
+        void (*volatile init)(uint32_t) = fm1_cache_init;
+        init(bootguard.failed);             /* copied RAM code; IRQs off, CPU1 held */
+    }
+#endif
     fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS
 #if !MELODEE_DUAL_CORE
                      | FM1_GUARD_PC
