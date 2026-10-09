@@ -321,6 +321,79 @@ static uint32_t step_samples(const track_t *t, uint32_t period, uint32_t idx)
 
 #include "recording.c"
 
+/* Capture: every note played (keys, MIDI, a chord's notes) while the transport runs and its track is not recording,
+ * with its place: the steps the track has entered since PLAY (cap_step) and the 1/256 of the step, as recording.c
+ * keeps them. A ring of 8-byte events (RAM is the audio arena's: kept small); REC held writes the selected track's last
+ * bars into its pattern (ui_input.c capture_take). Durations in 1/256 of a step; tr bit 7: still held */
+#define CAP_N 128u
+typedef struct { uint16_t step, dur; uint8_t on, note, vel, tr; } cap_ev_t;
+static cap_ev_t cap_ev[CAP_N];
+static uint32_t cap_w, cap_from;                /* events written; the first of this run of the transport */
+static uint16_t cap_step[NTRK];                 /* the step playing, counted from PLAY (65535 before the first) */
+static uint32_t cap_frac(const track_t *t)      /* RECORD_UNIT fraction of the step playing */
+{
+    uint32_t span = step_samples(t, seq_div_samples((uint32_t)t->p[P_SDIV]), t->seq_idx);
+    uint32_t on = t->seq_pos >= 0x7FFFFFFFu || !span ? 0u : (uint32_t)(((uint64_t)t->seq_pos * RECORD_UNIT) / span);
+    return on > 65535u ? 65535u : on;
+}
+static uint32_t cap_now(const track_t *t)       /* the place now in 1/256 steps (mod 2^24) */
+{
+    uint32_t k = trk_index(t), st = t->seq_pos >= 0x7FFFFFFFu ? (uint16_t)(cap_step[k] + 1u) : cap_step[k];
+    return (st << 8) + (cap_frac(t) >> 8);
+}
+static uint32_t cap_len(const cap_ev_t *e, uint32_t now)   /* its length (held: up to now), 1/256 steps */
+{
+    uint32_t d = (e->tr & 128u) ? (now - ((uint32_t)e->step << 8) - e->on) & 0xFFFFFFu : e->dur;
+    return d < 1u ? 1u : d > 65535u ? 65535u : d;
+}
+static void cap_on(const track_t *t, uint32_t note, uint32_t vel)
+{
+    uint32_t k = trk_index(t);
+    cap_ev_t *e = &cap_ev[cap_w % CAP_N];
+    if (!song.playing || chain.running || rec_on(t))
+        return;
+    e->step = t->seq_pos >= 0x7FFFFFFFu ? (uint16_t)(cap_step[k] + 1u) : cap_step[k];
+    e->on = (uint8_t)(cap_frac(t) >> 8);
+    e->dur = 0;
+    e->note = (uint8_t)note;
+    e->vel = (uint8_t)vel;
+    e->tr = (uint8_t)(k | 128u);
+    cap_w++;
+}
+static void cap_off(const track_t *t, uint32_t note)
+{
+    uint32_t i, k = trk_index(t);
+    for (i = 0; i < 32u && i < cap_w - cap_from && i < CAP_N; i++) {
+        cap_ev_t *e = &cap_ev[(cap_w - 1u - i) % CAP_N];
+        if (e->tr == (k | 128u) && e->note == note) {
+            e->dur = (uint16_t)cap_len(e, cap_now(t));
+            e->tr = (uint8_t)k;
+            return;
+        }
+    }
+}
+
+/* Jam -> song: while the transport runs (no song), each time track 1 starts its loop the four tracks' patterns are
+ * a row: the same as the last row: its repeats + 1 (up to 16), else a new row (up to CHAIN_ROWS). From PLAY on;
+ * SEQ > SONG TAKE JAM makes them the song (ui_input.c jam_take) */
+static struct { uint8_t n, pat[CHAIN_ROWS][NTRK], rep[CHAIN_ROWS]; } jam;
+static void jam_loop(void)
+{
+    uint32_t r = jam.n, k, same = r != 0u;
+    for (k = 0; same && k < NTRK; k++)
+        same = jam.pat[r - 1u][k] == trk[k].pattern;
+    if (same && jam.rep[r - 1u] < 16u) {
+        jam.rep[r - 1u]++;
+        return;
+    }
+    if (r >= CHAIN_ROWS)
+        return;
+    for (k = 0; k < NTRK; k++)
+        jam.pat[r][k] = trk[k].pattern;
+    jam.rep[r] = 1;
+    jam.n = (uint8_t)(r + 1u);
+}
+
 /* The STEP overview rounds to the nearest swung onset, with loop wrap.
  * SEQ > STEP follows playback (ui_input.c). Overdub: a step that
  * holds notes gets this one added (a chord of up to 4; when full, the last note is
@@ -517,6 +590,7 @@ static void input_on(track_t *t, uint32_t note, uint32_t vel)
     countin_note(t,note,vel);
     last_note = (uint8_t)note;
     live_note_on(t, note);
+    cap_on(t, note, vel);
     if (rec_on(t) && !t->p[P_AMODE])               /* (ARP on: arp_tick records its notes) */
         rec_note(t, note, vel);
     if (t->p[P_AMODE])
@@ -532,6 +606,7 @@ static void input_off(track_t *t, uint32_t note)
     if (midi_note_held(t, note))
         return;
     live_held[trk_index(t)][note >> 5] &= ~(1u << (note & 31u));
+    cap_off(t, note);
     rec_release(t, note);
     arp_remove(t, note);                            /* both: the note may have started in the */
     if (!recording_owns(t, note)) trk_note_off(t, note); /* other mode (ARP switched while held) */
@@ -746,7 +821,10 @@ static void seq_start(void)
         t->seq_pos = 0x7FFFFFFF;                   /* step 0 fires on the first block */
         t->rskip_n = 0;
         t->rh_n = 0;
+        cap_step[i] = 0xFFFFu;                     /* (capture: step 0 is the first) */
     }
+    cap_from = cap_w;                              /* capture and the jam log: this run */
+    jam.n = 0;
     song.tick = 0;
     beat_pos = 0; beat_n = 0;                      /* the ARP LED's beat from the top too */
     song.playing = 1;
@@ -886,6 +964,9 @@ static void seq_grid_tick(track_t *t, uint32_t n)
             period = seq_div_samples((uint32_t)t->p[P_SDIV]);
             len = (uint32_t)t->p[P_SLEN];
         }
+        cap_step[trk_index(t)]++;
+        if (!t->seq_idx && t == &trk[0] && !chain.running)
+            jam_loop();
         motion_step(t, t->seq_idx, &motion);
         seq_erase_pass(t, t->seq_idx, 1);
         if (!seq_erase_active(t)) rec_hold(t, t->seq_idx, len ? len : 1u);

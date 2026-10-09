@@ -345,12 +345,132 @@ static void qsave_poll(void)
     }
 }
 
-/* REC held: the MIXER (FAM_TRK), the tracks' arming and mutes at a glance */
-static void rec_hold_mixer(void)
+/* REC held: Capture. What the selected track played in its last bars while it was not recording (seq.c cap_ev) into
+ * its pattern, as recorded notes (timing, velocity and length as played): an empty pattern takes 1, 2 or 4 bars (16, 32
+ * or 64 steps), as many as the notes span, its LEN set to it; a pattern with notes the last LEN steps, over them. The
+ * bars end at the bar playing when a note in it was played, else at its start. SAVE held undoes it */
+static void capture_take(void)
 {
-    ui.page = (uint8_t)page_first(FAM_TRK);
-    ui.home = 0;
-    page_entered();
+    track_t *t = TSEL;
+    uint32_t k = song.sel, n = 0, i, now, first = 0xFFFFu, last = 0, end, w, start, put = 0, full = 0, j = 0, from;
+    uint64_t touched = 0;
+    int empty;
+    if (chain_busy()) { ui_message("STOP SONG TO CAPTURE"); return; }
+    if ((song.rec >> k) & 1u) { ui_message("RECORDING"); return; }
+    fm1_irq_off();                                      /* the selected track's events of this run: the newest, the oldest */
+    now = cap_now(t);
+    from = cap_w - cap_from > CAP_N ? cap_w - CAP_N : cap_from;
+    for (i = from; i != cap_w; i++) {
+        const cap_ev_t *e = &cap_ev[i % CAP_N];
+        uint32_t back = (uint16_t)((now >> 8) - e->step);
+        if ((e->tr & 127u) != k || back >= 64u)
+            continue;
+        n++;
+        if (back > last) last = back;
+        if (back < first) first = back;
+    }
+    fm1_irq_on();
+    if (!n) { ui_message("NOTHING TO CAPTURE"); return; }
+    {   /* (16-bit step counts: they wrap) */
+        uint32_t cur = (now >> 8) & 0xFFFFu, pos = cur & 15u, span;
+        end = (uint16_t)(cur - pos + (first <= pos ? 16u : 0u));     /* a bar's start */
+        span = (uint16_t)(end - (uint16_t)(cur - last));
+        empty = seq_is_empty(t) && !notes_have_recording(t);
+        w = empty ? (span <= 16u ? 16u : span <= 32u ? 32u : 64u) : (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP);
+        start = (uint16_t)(end - w);
+    }
+    load_begin(t, UNDO_PAT);
+    if (empty)
+        t->p[P_SLEN] = (int16_t)w;
+    fm1_irq_off();
+    for (i = from; i != cap_w; i++) {
+        const cap_ev_t *e = &cap_ev[i % CAP_N];
+        uint32_t actual = (uint16_t)(e->step - start), on = (uint32_t)e->on << 8, view, dur, exp = 0;
+        recorded_note_t r;
+        if ((e->tr & 127u) != k || actual >= w)
+            continue;                                   /* (another track's; before the bars, or after them) */
+        for (; j < RECORD_MAX && recording[j].vel && (recording_present(&recording[j]) || recording_run[j].left); j++)
+            ;
+        if (j == RECORD_MAX) { full = 1; break; }
+        if (recording[j].vel) recording_unlink(j);
+        view = on >= RECORD_UNIT / 2u ? (actual + 1u) % w : actual;
+        dur = cap_len(e, now) << 8;                     /* RECORD_UNIT a step */
+        while (dur > 65535u && exp < 7u) { dur >>= 1; exp++; }
+        memset(&r, 0, sizeof r);
+        r.on = (uint16_t)on;
+        r.duration = (uint16_t)dur;
+        r.note = e->note;
+        r.vel = e->vel ? e->vel : 1u;
+        r.owner = (uint8_t)(recording_owner(t) | exp << 5);
+        r.step = (uint8_t)(actual | (view != actual ? 64u : 0u) | (!view && actual ? 128u : 0u));
+        r.length = drum_track(t) ? 1u : 0u;
+        recording_restore_note(t, j, r);
+        t->step[view].time = ST_NOTE;
+        t->step[view].flags |= SF_RECORDED;
+        touched |= 1ull << view;
+        put++;
+    }
+    for (i = 0; i < NSTEP; i++)
+        if ((touched >> i) & 1u)
+            notes_rebuild(t, i);
+    if (put)
+        t->seq_active = 1;
+    fm1_irq_on();
+    load_end(t);
+    if (!put) { ui_message("NOTHING TO CAPTURE"); return; }
+    {
+        char b[16];
+        fmt_int(b, (int32_t)(w % 16u ? w : w / 16u));
+        str_cpy(b + str_len(b), w % 16u ? " STEPS" : w > 16u ? " BARS" : " BAR", 8);
+        ui_say(full ? "FULL: " : "CAPTURED ", b);
+    }
+    ui.force = 1;
+}
+
+/* SEQ > SONG TAKE JAM: the patterns played since PLAY (seq.c jam) become the song's rows */
+static void jam_take(void)
+{
+    uint32_t i, k;
+    if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
+    chain_defaults(&chain_config);
+    memset(chain_patterns, 0, sizeof chain_patterns);
+    for (i = 0; i < jam.n; i++) {
+        for (k = 0; k < NTRK; k++)
+            chain_patterns[i][k] = jam.pat[i][k];
+        chain_config.row[i].slot = jam.pat[i][0];
+        chain_config.row[i].repeat = jam.rep[i];
+    }
+    chain_config.count = jam.n;
+    ui.song_row = 0;
+    ui.act = 0;
+    ui_message("SONG FROM JAM");
+    ui.force = 1;
+}
+
+/* Autosave: stopped and untouched for AUTOSAVE_MS (no key, button, knob or MIDI), the project back to its slot when it
+ * differs from what is there (project.c project_autosave); once per rest */
+#define AUTOSAVE_MS 5000u
+static void project_autosave(void);
+static void autosave_poll(uint32_t active)
+{
+    static uint32_t t0, rx;
+    static uint8_t done;
+#if MELODEE_UART
+    uint32_t r = usb.rx_pkts + um.bytes;
+#else
+    uint32_t r = usb.rx_pkts;
+#endif
+    if (active || r != rx || transport_busy() || ui.menu || ui.confirm || name_on() || ui.layer || momentary.active ||
+        browse_pending() || qsave_req) {
+        t0 = fm1_ms;
+        rx = r;
+        done = 0;
+        return;
+    }
+    if (!done && fm1_ms - t0 >= AUTOSAVE_MS) {
+        done = 1;
+        project_autosave();
+    }
 }
 
 /* live recording into the selected track now: the STEP page's key entry pauses meanwhile */
@@ -581,6 +701,10 @@ static void edit_param(uint32_t slot, int32_t steps)
         patgrid_edit(slot, steps);
         return;
     }
+    if (pg->graph == GR_SONG && slot == 3u) {         /* KNOB 4: TAKE JAM picked (right) or dropped */
+        ui.act = steps > 0 && jam.n ? 4u : 0u;
+        return;
+    }
     if (pg->graph == GR_SONG) {
         if (slot == 0u) {
             ui.song_row = (uint8_t)clamp((int32_t)ui.song_row + steps, 0,
@@ -784,6 +908,12 @@ static void act_do(void)
         }
         confirm_open(c == 0u ? CF_CLEAR_SEQ : c == 1u ? CF_INIT_SOUND :
                      c == 2u ? CF_DEL_ROW : CF_CLEAR_SONG, c == 2u ? ui.song_row : song.sel);
+        return;
+    }
+    if (cur_page()->graph == GR_SONG && c == 3u) {      /* TAKE JAM: over a song with rows, the dialog first */
+        if (chain_busy()) ui_message("STOP TO EDIT");
+        else if (chain_config.count) confirm_open(CF_TAKE_JAM, 0);
+        else jam_take();
         return;
     }
     if (cur_page()->graph == GR_SONG) {
@@ -1430,7 +1560,7 @@ static void ui_input(void)
     } else if (rec == BT_TAP) {
         rec_tap();
     } else if (rec == BT_HOLD) {
-        rec_hold_mixer();
+        capture_take();
     }
     if (ui.menu) {
         momentary_restore();                                      /* HOME / SAVE / REC taps do nothing here */
@@ -1485,6 +1615,8 @@ static void ui_input(void)
                     if (ui.song_row > chain_config.count) ui.song_row = chain_config.count;
                     ui_message("ROW DELETED");
                 }
+            } else if (kind == CF_TAKE_JAM) {
+                jam_take();
             } else if (kind == CF_CLEAR_SONG) {
                 if (!chain_busy()) { chain_defaults(&chain_config); memset(chain_patterns, 0, sizeof chain_patterns); ui.song_row = 0; ui_message("SONG CLEARED"); }
             } else if (kind == CF_INIT_SOUND) {
@@ -1734,6 +1866,7 @@ static void ui_input(void)
 
     if(momentary.active && !(fm1_in.buttons&(1u<<panel.btn[B_LFO])))momentary_restore();
     seq_erase_update(0);
+    autosave_poll(pressed || bank_notes || fm1_in.buttons || fm1_in.notes || ui.hot_t);
     if (recording_full) { recording_full = 0; ui_message("RECORDING FULL"); }
     step_history_end();                                 /* (seq_undo.c: this frame's STEP edit) */
     ui_notices();

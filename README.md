@@ -151,8 +151,9 @@ On top of Felucca 1.0 it adds:
 - **Startup:** a BOOT project loaded at power-on and a template for new projects; CLK, TUNE, MIDI and
   ROUT kept between starts
 - **Panel:** HOME names the notes and chords you play; key lights for the scale and the sounding
-  notes (the menu's LIGHTS); REC + PLAY records at once and REC held opens the MIXER; SAVE + REC
-  saves the project to its slot; BPM and swing on SEQ > TEMPO, saved with the project
+  notes (the menu's LIGHTS); REC + PLAY records at once and REC held captures what you just played; SAVE + REC
+  saves the project to its slot, and it saves itself when stopped and left alone; BPM and swing on SEQ > TEMPO, saved
+  with the project
 - **MIDI:** a DRUM channel (10 by default) for the first DRUM track; QNT ALL and MPC pad layouts that
   incoming MIDI follows too; a more reliable TRS input; GLO > SYSTEM shows the input's activity
 
@@ -226,7 +227,7 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - FX, SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
   HOME returns home
 - **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the song,
-  REC the MIXER.
+  REC captures (below).
   When editing synth steps, SCL and EDIT use the editing controls below instead; FX keeps its layer
 - PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
   transport; **REC + PLAY** arms it and starts recording in one gesture
@@ -234,7 +235,12 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   and OCT− goes back. During synth step editing, OCT− / OCT+ move the step cursor
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
 - **SAVE + REC** saves the project back to the slot it was loaded from or last saved to (`SAVED B`), stopping
-  the transport first; a new project opens SAVE > PROJECT on a free slot
+  the transport first; a new project opens SAVE > PROJECT on a free slot. **Autosave:** stopped and untouched for
+  5 seconds (no key, button, knob or MIDI), a project that has a slot saves itself there when it changed
+- **Capture:** while the transport runs, Melodee keeps what you play on every track that is not recording. Hold
+  **REC** to write the selected track's last bars into its pattern, with their timing, velocities and lengths: an
+  empty pattern takes 1, 2 or 4 bars (as many as your notes span) and its LEN follows; a pattern with notes takes its
+  last LEN steps over what it holds. Hold SAVE to undo
 
 ### Browsing sounds
 
@@ -262,7 +268,9 @@ track changes at its own loop end. Selecting the active pattern cancels a queued
 it has played), the one waiting outlined, the others holding notes raised. **KNOB 1–4** pick tracks 1–4's patterns.
 
 On **SEQ > SONG**, KNOB 1 chooses the row, **ALGORITHM** chooses the track, KNOB 2 chooses that
-track's pattern, and KNOB 3 sets repeats. PLAY runs the arrangement; rows change all four tracks
+track's pattern, and KNOB 3 sets repeats. **Jam to song:** from PLAY on, every loop of track 1 logs the four tracks'
+patterns as a row (the same patterns again: a repeat), so switching patterns while you jam writes a song; KNOB 4
+**JAM** shows the rows logged, turn it right and press OCT+ to make them the song (over a song with rows: confirm). PLAY runs the arrangement; rows change all four tracks
 at track 1's loop boundary and the last row stops. STOP returns to the patterns selected before
 SONG. Project saves and complete backups include all 32 banks and the arrangement.
 

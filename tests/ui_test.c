@@ -489,8 +489,8 @@ static int test_rec(void)
         press(B_REC);
         bad += check("REC again disarms (the transport runs on)", song.rec == 0u && transport_req == 0u);
         hold(B_REC);
-        bad += check("REC held opens the MIXER (no arming) and never clears a pattern", ui.confirm == CF_NONE && song.rec == 0u &&
-                     !ui.home && cur_page()->fam == FAM_TRK);
+        bad += check("REC held captures (nothing played: nothing), no arming, no dialog", ui.confirm == CF_NONE && song.rec == 0u &&
+                     msg_is("NOTHING TO CAPTURE"));
     }
     ui_power_on();
     press(B_REC);
@@ -2798,7 +2798,7 @@ static int test_quick_save(void)
     return bad;
 }
 
-/* REC + PLAY: armed and playing at once, REC's release no tap (no disarm); REC held: the MIXER */
+/* REC + PLAY: armed and playing at once, REC's release no tap (no disarm); REC held: Capture */
 static int test_rec_gestures(void)
 {
     int bad = 0;
@@ -2814,7 +2814,7 @@ static int test_rec_gestures(void)
     transport_req = 0;
     song.rec = 0;
     hold(B_REC);
-    bad += check("REC held: the MIXER, nothing armed", !ui.home && cur_page()->fam == FAM_TRK && !song.rec && !transport_req);
+    bad += check("REC held: Capture, nothing armed", !song.rec && !transport_req && msg_is("NOTHING TO CAPTURE"));
     go_home();
     press(B_REC);
     bad += check("REC tapped: armed, transport remains stopped", (song.rec & 1u) && transport_req == 0u && ui.home);
@@ -4257,6 +4257,92 @@ static int test_stage(void)
     return bad;
 }
 
+/* Phase 4: Capture (REC held: what the selected track played in its last bars, unarmed, into its pattern), the jam log
+ * (the patterns played since PLAY, a row per track 1 loop) and TAKE JAM, autosave (stopped and untouched) */
+static uint32_t cap_events(const track_t *t)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < RECORD_MAX; i++)
+        if (recording[i].vel && (recording[i].owner & 31u) == recording_owner(t) && recording_present(&recording[i])) n++;
+    return n;
+}
+static int test_capture(void)
+{
+    int bad = 0;
+    uint32_t i, steps;
+    ui_power_on();
+    recording_reset();
+    track_defaults_steps(TSEL);
+    TSEL->p[P_SLEN] = 16;
+    transport_req = 1;
+    events_block(1);                                    /* (PLAY: the sequencer from step 0) */
+    for (i = 0; i < 20u; i++) {                         /* a bar and a quarter: notes on steps 2, 6 .. of bar 1 and bar 2 */
+        while (cap_step[0] != (uint16_t)i) events_block(1);
+        if (i % 4u == 2u) input_on(TSEL, 60 + i, 100);
+        events_block(2);
+        if (i % 4u == 2u) input_off(TSEL, 60 + i);
+    }
+    steps = TSEL->p[P_SLEN];
+    hold(B_REC);
+    bad += check("Capture: an empty pattern takes the bars played (2 bars: LEN 32), every note, nothing armed",
+                 TSEL->p[P_SLEN] == 32 && steps == 16 && cap_events(TSEL) == 5u && !song.rec && msg_is("CAPTURED 2 BARS"));
+    bad += check("  .. on their steps (2 6 10 14 18), as recorded notes", (TSEL->step[2].flags & SF_RECORDED) &&
+                 TSEL->step[2].note[0] == 62 && TSEL->step[18].note[0] == 78 && TSEL->step[14].n == 1u);
+    hold(B_SAVE);
+    bad += check("  SAVE held undoes it (LEN and steps back)", TSEL->p[P_SLEN] == 16 && !TSEL->step[2].n);
+    song.rec = 1;
+    hold(B_REC);
+    bad += check("Capture while the track records: refused", msg_is("RECORDING"));
+    song.rec = 0;
+    stop_transport();
+    {   /* the jam log: track 1's loop with pattern 1, then 2 twice, then 1 */
+        ui_power_on();
+        stop_transport();
+        for (i = 0; i < NTRK; i++) trk[i].p[P_SLEN] = 4;
+        transport_req = 1;
+        events_block(1);
+        while (jam.n < 1u) events_block(1);
+        pattern_request(&trk[0], 1);
+        while (jam.n < 2u) events_block(1);
+        while (jam.rep[1] < 2u) events_block(1);
+        pattern_request(&trk[0], 0);
+        while (jam.n < 3u) events_block(1);
+        stop_transport();
+        bad += check("jam log: a row per change, repeats counted (1, 2 x2, 1)", jam.n == 3u && jam.pat[0][0] == 0u &&
+                     jam.pat[1][0] == 1u && jam.rep[1] == 2u && jam.pat[2][0] == 0u);
+        go_page(GR_SONG);
+        turn(EN_K4, 1);
+        press(B_OCTUP);
+        bad += check("SONG: KNOB 4 picks TAKE JAM, OCT+ makes it the song (empty song: no dialog)", chain_config.count == 3u &&
+                     chain_patterns[1][0] == 1u && chain_config.row[1].repeat == 2u && !ui.confirm);
+        turn(EN_K4, 1);
+        press(B_OCTUP);
+        bad += check("  over a song with rows: the dialog first", ui.confirm == CF_TAKE_JAM);
+        press(B_OCTDN);
+        go_home();
+    }
+    {   /* autosave: a project with a slot, changed, stopped, untouched 5 s: saved once; unchanged: no write */
+        uint32_t writes;
+        ui_power_on();
+        stop_transport();
+        project_save(1);
+        TSEL->p[P_LEVEL] = 77;
+        writes = stored_param(1, 0, P_LEVEL) == 77;
+        for (i = 0; i < 400u; i++) frame();             /* 6.4 s */
+        bad += check("autosave: changed, stopped, untouched: back to its slot (B)", !writes && stored_param(1, 0, P_LEVEL) == 77);
+        TSEL->p[P_LEVEL] = 66;
+        for (i = 0; i < 100u; i++) frame();
+        bad += check("  .. not before AUTOSAVE_MS of rest", stored_param(1, 0, P_LEVEL) == 77);
+        turn(EN_K1, 1);
+        for (i = 0; i < 200u; i++) frame();
+        bad += check("  .. and any touch starts the rest again", stored_param(1, 0, P_LEVEL) == 77);
+        memset(proj_slot, 0, sizeof proj_slot);
+        memset(proj_bank_slot, 0, sizeof proj_bank_slot);
+    }
+    ui_power_on();
+    return bad;
+}
+
 static int test_prophet_pages(void)
 {
     ui_power_on();set_engine_of(TSEL,ENGI_PROPHET);int bad=0,visible=0;
@@ -4291,6 +4377,7 @@ int main(void)
     bad += test_large_face();
     bad += test_home_notes();
     bad += test_stage();
+    bad += test_capture();
     bad += test_sound_loads();
     bad += test_patterns();
     bad += test_rec();

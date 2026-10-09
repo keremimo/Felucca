@@ -599,7 +599,13 @@ static void draw_columns(void)
         if (used) fmt_int(val, chain_config.row[row].repeat);
         else str_cpy(val, "--", sizeof val);
         draw_column(2, "REPS", val, "", used ? VAL(2u) : T_DIM, -1, ICON_AUTO);
-        draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
+        if (act_col() == 4u)                            /* TAKE JAM picked: OCT+ */
+            draw_act_column(3, "JAM", T_THEME, ICON_X_SONG);
+        else {                                          /* the rows played since PLAY */
+            if (jam.n) fmt_int(val, jam.n);
+            else str_cpy(val, "--", sizeof val);
+            draw_column(3, "JAM", val, jam.n ? (jam.n > 1u ? "ROWS" : "ROW") : "", jam.n ? VAL(3u) : T_DIM, -1, ICON_X_SONG);
+        }
         return;
     }
     if (cur_page()->graph == GR_CHANCE) {
@@ -882,6 +888,11 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_CLEAR_SONG:
         str_cpy(a, "CLEAR SONG ORDER?", 24);
+        break;
+    case CF_TAKE_JAM:                                   /* the rows it replaces */
+        str_cpy(a, "SONG FROM JAM?", 24);
+        fmt_int(b, (int32_t)chain_config.count);
+        str_cpy(b + str_len(b), " ROWS REPLACED", 16);
         break;
     case CF_INIT_SOUND:
         str_cpy(a, "INITIALIZE SOUND?", 24);

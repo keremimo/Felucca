@@ -816,6 +816,8 @@ static void proj_bound(project_t *q)
 
 #include "pattern_store.c"
 
+/* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
+static uint32_t proj_saved_hash[4];
 static int proj_read_slot(uint32_t slot)
 {
     int n = -1;
@@ -843,6 +845,7 @@ static int proj_read_slot(uint32_t slot)
     proj_meta[slot].used = (uint8_t)valid;
     if (valid) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
     else proj_meta[slot].name[0] = 0;
+    proj_saved_hash[slot] = valid && n == BANK_STORE_SIZE ? proj_hash(proj_wire_u.raw, BANK_STORE_SIZE) : 0u;
     return valid ? n : 0;
 }
 static void proj_fetch(uint32_t slot) { (void)proj_read_slot(slot); }
@@ -858,6 +861,7 @@ static int proj_write_slot(uint32_t slot, const uint8_t *raw, uint32_t len)
     if (len) { memcpy(proj_bank_slot[slot], raw, len); memcpy(&proj_slot[slot], raw + 8u, sizeof proj_slot[slot]); }
 #endif
     proj_meta[slot].used = len != 0;
+    proj_saved_hash[slot] = len ? proj_hash(raw, len) : 0u;
     if (len) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
     else proj_meta[slot].name[0] = 0;
     return 0;
@@ -947,6 +951,22 @@ static void project_quick_save(void)
     ui.act = 4;                                         /* (SAVE: OCT+ names and writes it) */
     ui.force = 1;
     ui_message("NEW PROJECT: PICK SLOT");
+}
+/* autosave (ui_input.c autosave_poll: stopped, untouched a while): the music back to the slot it was loaded from or last
+ * saved to when it differs from what that slot holds ("SAVED B"); a new project (no slot yet) waits for a save */
+static void project_autosave(void)
+{
+    project_t *p = &proj_scratch;
+    uint32_t slot = proj_cur;
+    if (slot >= 4u || transport_busy())
+        return;
+    project_capture(p);
+    proj_wire_gen++;                                    /* (the staging RAM: a backup's copy there is gone) */
+    if (!bank_pack(proj_wire_u.raw, p, 1))
+        return;
+    if (proj_hash(proj_wire_u.raw, BANK_STORE_SIZE) == proj_saved_hash[slot])
+        return;                                         /* as saved: nothing to write */
+    project_quick_save();
 }
 static void project_cur_name(char *b) { str_cpy(b, proj_name, PROJ_NAME_LEN + 1u); }   /* b: 13 bytes */
 

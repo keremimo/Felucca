@@ -150,7 +150,7 @@ static struct {
 #include "screen.c"
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
-       CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER };   /* ui.confirm: REC held on
+       CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM };   /* ui.confirm: REC held on
                                    * SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern over the user's steps;
                                    * USER ERASE */
 
@@ -1136,7 +1136,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     if (pg->graph == GR_MOTION) return 8u;
     if (pg->graph == GR_TOOLS) return 15u;
     if (pg->graph == GR_SONG)
-        return 1u;                               /* PLAY / STOP (also the PLAY button) */
+        return 1u | (jam.n ? 8u : 0u);           /* PLAY / STOP (also the PLAY button); TAKE JAM */
     if (pg->graph == GR_PATS)
         return 2u;                               /* LOAD */
     if (pg->graph == GR_USER)
@@ -1157,7 +1157,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
 /* the action OCT+ does: its column + 1, 0 = none picked yet (PATTERNS has LOAD only) */
 static uint32_t act_col(void)
 {
-    if (!ui.home && cur_page()->graph == GR_SONG) return 1u;
+    if (!ui.home && cur_page()->graph == GR_SONG) return ui.act == 4u ? 4u : 1u;
     return !ui.home && cur_page()->graph == GR_PATS ? 2u : ui.act;
 }
 
@@ -1171,7 +1171,7 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
         return actions[c & 3u];
     }
     if (cur_page()->graph == GR_SONG)
-        return song.playing || chain_busy() ? "STOP" : "PLAY";
+        return c == 3u ? "TAKE" : song.playing || chain_busy() ? "STOP" : "PLAY";
     if (cur_page()->graph == GR_PATS)
         return "LOAD";
     if (cur_page()->graph == GR_USER)
@@ -1197,7 +1197,7 @@ static int act_ready(void)
         return !chain_busy() && (c == 0u ? !seq_is_empty(TSEL) || motion_count(TSEL) : c == 1u ? 1 :
                                  c == 2u ? ui.song_row < chain_config.count : chain_config.count != 0u);
     if (cur_page()->graph == GR_SONG)
-        return song.playing || chain_busy() || chain_config.count;
+        return c == 3u ? jam.n && !chain_busy() : song.playing || chain_busy() || chain_config.count;
     if (cur_page()->graph == GR_PATS)
         return pat_last[s] != pat_pick() + 1u || steps_sig(TSEL) != pat_sig[s];
     if (cur_page()->graph == GR_USER)
