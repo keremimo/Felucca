@@ -426,7 +426,7 @@ static void name_draw(void)
     uint32_t sig = fnv(fnv(2166136261u, st, sizeof st), nm.s, sizeof nm.s) + ux.gen * 7919u +
                    (uint32_t)transport_busy() * 104729u;
     if (ui.force) {
-        draw_frame();
+        draw_frame(0);
         nm.sig = ~sig;
     }
     draw_head();

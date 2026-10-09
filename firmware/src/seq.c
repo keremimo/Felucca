@@ -19,9 +19,9 @@ static volatile uint8_t kb_asleep;
 static uint32_t kb_prev;
 static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on which track */
 static uint8_t last_note = 60;
-/* HOME's played notes, after scale/chord mapping. The ISR owns the held bits per
- * track; the last complete voicing survives release, including a tap between UI frames. */
-static uint32_t live_held[NTRK][4], live_last[4];
+/* Stage's played notes, after scale/chord mapping. The ISR owns the held bits per
+ * track; each track's last complete voicing survives release, including a tap between UI frames. */
+static uint32_t live_held[NTRK][4], live_last[NTRK][4];
 static volatile uint8_t transport_req;   /* 1 start, 2 stop, 3 restart (from the UI) */
 /* audio ISR -> the UI's STEP entry (ui_input.c seq_midi_events): the edges of the notes MIDI plays, with the track and
  * the pitch they went to (after the scale layout and the chord), so the UI never guesses after a change */
@@ -53,16 +53,12 @@ static int drum_track(const track_t *t) { return ENGINES[eng_idx(t->eng_req)] ==
 
 static void live_note_on(const track_t *t, uint32_t note)
 {
-    uint32_t i, p;
+    uint32_t i, k = trk_index(t);
     if (drum_track(t))
         return;
-    live_held[trk_index(t)][note >> 5] |= 1u << (note & 31u);
-    for (i = 0; i < 4u; i++) {
-        uint32_t bits = 0;
-        for (p = 0; p < NTRK; p++)
-            bits |= live_held[p][i];
-        live_last[i] = bits;
-    }
+    live_held[k][note >> 5] |= 1u << (note & 31u);
+    for (i = 0; i < 4u; i++)
+        live_last[k][i] = live_held[k][i];
 }
 
 /* the 27 keys from F: black or white, and the key's place among the keys of its colour (white 0..15, black

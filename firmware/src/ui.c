@@ -545,16 +545,17 @@ static void momentary_restore(void)
     for(uint32_t i=0;i<momentary.count;i++)*momentary.ptr[i]=momentary.value[i];
     momentary.active=momentary.count=momentary.native=0;fm1_irq_on();ui.force=1;
 }
+static const page_t *stage_page(void);
 static void momentary_take(uint32_t slot)
 {
-    const page_t *pg=cur_page();int16_t *vp;const param_desc_t *d;
-    if(!(fm1_in.buttons&(1u<<panel.btn[B_LFO])) || (!ui.home && (pg->graph==GR_FMSTORE || pg->graph==GR_CZTOOLS)))return;
-    if(ui.home)d=home_param(slot,&vp);else d=page_desc(pg,slot,&vp);
+    const page_t *pg=ui.home?stage_page():cur_page();int16_t *vp;const param_desc_t *d;   /* (HOME: Stage's knobs) */
+    if(!(fm1_in.buttons&(1u<<panel.btn[B_LFO])) || pg->graph==GR_FMSTORE || pg->graph==GR_CZTOOLS)return;
+    d=page_desc(pg,slot,&vp);
     if(!d || !vp || d->max==d->min)return;
-    uint32_t native=!ui.home?(pg->scope==SC_FM6 || pg->scope==SC_FMOP?1:pg->scope==SC_CZ1?2:pg->scope==SC_P5?3:0):0;
-    if(!native && !ui.home && pg->scope!=SC_TRACK && pg->scope!=SC_ENGINE &&
+    uint32_t native=pg->scope==SC_FM6 || pg->scope==SC_FMOP?1:pg->scope==SC_CZ1?2:pg->scope==SC_P5?3:0;
+    if(!native && pg->scope!=SC_TRACK && pg->scope!=SC_ENGINE &&
        !(pg->scope==SC_GLOBAL && (pg->id[slot]<=G_SWING || (pg->id[slot]>=G_DTIME && pg->id[slot]<=G_CDEPTH) || pg->id[slot]==G_DWEAR)))return;
-    if(!native && !ui.home && pg->scope==SC_TRACK && scale_shared((uint32_t)(vp-TSEL->p)))return;
+    if(!native && pg->scope==SC_TRACK && scale_shared((uint32_t)(vp-TSEL->p)))return;
     if(!momentary.active){momentary.track=song.sel;momentary.active=1;}
     if(native && !momentary.native){
         uint32_t tr=song.sel;fm1_irq_off();momentary.native=(uint8_t)native;
@@ -1076,12 +1077,27 @@ static uint32_t preset_visible(uint32_t cur, uint32_t total, uint32_t row)
     return first + row < total ? first + row : total;
 }
 
-/* HOME: what KNOB k edits: the engine's four main parameters */
+/* Stage's (HOME's) four knobs: the selected track's engine's EDIT values (engine_t .knob), a native sound's own panel
+ * values for PROPHET (filter, its envelope amount, the amp release) and CZ-1 (line 1's wave and DCW peak, detune,
+ * vibrato): a page of their scope, edited and drawn as its pages are (ui_input.c edit_param, ui_stage.c) */
+static page_t stage_pg;
+static const page_t *stage_page(void)
+{
+    static const uint8_t P5_K[4] = {P5_CUTOFF, P5_RESONANCE, P5_ENV_FILTER, P5_RELEASE_AMP};
+    static const uint8_t CZ_K[4] = {LCZ_LBASE(0) + LCZ_W1, LCZ_EBASE(0, 1) + 8, LCZ_FINE, LCZ_VDEP};
+    uint32_t e = eng_idx(TSEL->eng_req), k;
+    stage_pg.title = "STAGE";
+    stage_pg.fam = FAM_HOME;
+    stage_pg.graph = GR_NONE;
+    stage_pg.scope = e == ENGI_PROPHET ? SC_P5 : e == ENGI_CZ ? SC_CZ1 : SC_ENGINE;
+    for (k = 0; k < 4u; k++)
+        stage_pg.id[k] = e == ENGI_PROPHET ? P5_K[k] : e == ENGI_CZ ? CZ_K[k] : ENGINES[e]->knob[k];
+    return &stage_pg;
+}
+/* HOME: what KNOB k edits (0: nothing there) */
 static const param_desc_t *home_param(uint32_t k, int16_t **vp)
 {
-    uint32_t id = ENGINES[TSEL->eng_req % NENGINES]->knob[k & 3u];
-    *vp = &TSEL->p[id];
-    return track_desc(TSEL, id);
+    return page_desc(stage_page(), k & 3u, vp);
 }
 
 /* select track i (KNOB 1 on TRACKS, the editor): its sound, pages and pattern from now on */

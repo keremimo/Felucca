@@ -207,13 +207,18 @@ static void draw_head(void)
     }
     cv_blit(0, Y_HEAD);
 }
-/* full redraw: the strips (header, cards, panel, footer) cover the rest; only the BG between them is filled */
-static void draw_frame(void)
+/* full redraw: the strips (header, cards, panel, footer; Stage: its panel and lanes) cover the rest; only the BG
+ * between them is filled */
+static void stage_frame(void);
+static void draw_frame(int stage)
 {
     uint32_t i;
     lcd_fill(0, H_HEAD, 240, Y_LABEL - H_HEAD, T_BG);
     lcd_fill(0, Y_SEP_END, 240, Y_GRAPH - Y_SEP_END, T_BG);
-    lcd_fill(0, Y_GRAPH + H_GRAPH, 240, Y_FOOT - Y_GRAPH - H_GRAPH, T_BG);
+    if (stage)
+        stage_frame();
+    else
+        lcd_fill(0, Y_GRAPH + H_GRAPH, 240, Y_FOOT - Y_GRAPH - H_GRAPH, T_BG);
     lcd_fill(0, Y_LABEL, (uint32_t)CARD_X(0), CARD_H, T_BG);
     for (i = 0; i < 4u; i++)                            /* right of each card */
         lcd_fill((uint32_t)(CARD_X(i) + CARD_W), Y_LABEL, i < 3u ? (uint32_t)(CARD_X(i + 1u) - CARD_X(i) - CARD_W) :
@@ -551,6 +556,7 @@ static void engine_columns(void)
     draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
 }
+#include "ui_stage.c"                                   /* Stage (HOME) and SEQ > PATTERNS */
 static void draw_columns(void)
 {
     if(cur_page()->scope==SC_DRUM){
@@ -574,13 +580,12 @@ static void draw_columns(void)
     uint32_t c;
     char val[12];
     const char *unit;
-    if (ui.home) {
-        for (c = 0; c < 4u; c++) {
-            int16_t *vp;
-            const param_desc_t *d = home_param(c, &vp);
-            param_format(d, *vp, val, &unit);
-            draw_column(c, d->label, val, unit, VAL(c), RATIO(d, *vp), param_icon(d, *vp));
-        }
+    if (ui.home) {                                      /* Stage: the selected track's engine's four */
+        stage_columns();
+        return;
+    }
+    if (cur_page()->graph == GR_PATGRID) {              /* PATTERNS: a track's each */
+        patgrid_columns();
         return;
     }
     if (cur_page()->graph == GR_SONG) {
@@ -972,7 +977,7 @@ static void ui_draw(void)
     }
     if (ui.layer) {                                     /* a layer's map over the page (ui_layer.c) */
         if (ui.force)
-            draw_frame();
+            draw_frame(0);
         draw_head();
         draw_layer();
         if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {
@@ -994,13 +999,16 @@ static void ui_draw(void)
     }
     cursor_fix();
     if (ui.force)
-        draw_frame();
+        draw_frame(ui.home);
     melodee_dbg.stage = 3;
     draw_head();
     melodee_dbg.stage = 4;
     draw_columns();
     melodee_dbg.stage = 5;
-    draw_graph();
+    if (ui.home)                                        /* Stage: its panel and the lanes (ui_stage.c), no footer */
+        stage_draw();
+    else
+        draw_graph();
     if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {     /* the second message (ui_notices) */
         str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
         ui.msg2[0] = 0;
@@ -1011,7 +1019,8 @@ static void ui_draw(void)
     if (ui.hot_t)
         ui.hot_t--;
     melodee_dbg.stage = 6;
-    draw_foot();
+    if (!ui.home)
+        draw_foot();
     ui.force = 0;
     scr_shown();
 }

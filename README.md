@@ -194,11 +194,15 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   RECENT, with knob acceleration; factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
 - **Screen:** Melodee's own look: Rubik type, icons drawn for Melodee, every track in its own colour (the screen takes the
-  selected track's), three palettes: NIGHT, DAY and CONTRAST;
-  HOME shows the played notes and recognized chords above the live waveform, retaining the last voicing after release
-- **Lights:** the keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up while
-  its note sounds, MIDI in too, and the idle buttons glow; the HOME-held menu's LIGHTS sets the level (OFF: only
-  what is pressed or engaged)
+  selected track's), three palettes: NIGHT, DAY and CONTRAST
+- **Stage (HOME):** the selected track's own four knobs (its engine's: the Prophet's cutoff, resonance, filter envelope
+  and release, the CZ-1's wave, DCW, detune and vibrato), the notes and chord it plays in front of the live waveform
+  (the last voicing stays after release; a DRUM track lights its lanes as they hit), and a lane per track: its sound,
+  its pattern (and the next one while it waits for the bar), the bar playing and its level
+- **Lights:** one grammar for keys and buttons: dark nothing there, dim something there, bright happening now,
+  breathing waiting. The keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up
+  while its note sounds, MIDI in too, and the idle buttons glow; REC breathes while armed and stopped, PLAY while
+  counting in; the HOME-held menu's LIGHTS sets the level (OFF: only what is pressed, engaged or selectable)
 - **USB:** class-compliant MIDI in and out; **Melodee Out** plays the computer through the FM-1,
   **Melodee In** records four mono tracks (one channel per track, after level and before pan, sends
   and master effects). Both support 16/24-bit audio at 44.1 kHz; each can be disabled in the
@@ -249,10 +253,13 @@ loads it at once. Hold **SAVE** to return to the sound you had before browsing.
 
 ### Patterns and songs
 
-Hold **SEQ** and press one of the first eight white keys to pick pattern 1–8. Hold a pattern key
-and press a second one to copy its notes, ties, timing, chance, drum hits and automation. **SEQ + SELECT**
-also chooses a pattern. While playing, each track changes at its own loop end; the queued key blinks.
-Selecting the active pattern cancels a queued change. STOP applies pending choices.
+Hold **SEQ** and press one of the first eight white keys to pick pattern 1–8: the pattern playing is lit, the others
+holding notes glow, the one waiting for the loop end breathes. Hold a pattern key and press a second one to copy its
+notes, ties, timing, chance, drum hits and automation. **SEQ + SELECT** also chooses a pattern. While playing, each
+track changes at its own loop end. Selecting the active pattern cancels a queued change. STOP applies pending choices.
+
+**SEQ > PATTERNS** shows the four tracks' eight patterns at once: the one playing in the track's colour (with how far
+it has played), the one waiting outlined, the others holding notes raised. **KNOB 1–4** pick tracks 1–4's patterns.
 
 On **SEQ > SONG**, KNOB 1 chooses the row, **ALGORITHM** chooses the track, KNOB 2 chooses that
 track's pattern, and KNOB 3 sets repeats. PLAY runs the arrangement; rows change all four tracks

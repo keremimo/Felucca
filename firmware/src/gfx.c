@@ -352,6 +352,29 @@ static const uint16_t *ramp(uint16_t fg, uint16_t bg)
     return v;
 }
 
+/* text over a picture (the Stage's notes over the waveform): with cv_over set, a glyph's pixel blends cv_over_fg into
+ * the pixel already on the canvas, with the ramps' coverage curve, instead of taking a ramp's colour over a flat bg */
+static uint8_t cv_over;
+static uint16_t cv_over_fg;
+/* fg over bg, a of 32 (0..32): the three channels at once, spread apart in a word (no division); MONO on the red
+ * channel, so it stays gray */
+static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a)
+{
+    uint32_t b, f;
+    if (ux.mono) {
+        int32_t x = bg >> 11;
+        return ux_gray((uint32_t)(x + ((((fg >> 11) - x) * (int32_t)a) >> 5)));
+    }
+    b = (bg | (uint32_t)bg << 16) & 0x07E0F81Fu;
+    f = (fg | (uint32_t)fg << 16) & 0x07E0F81Fu;
+    b = (b + (((f - b) * a) >> 5)) & 0x07E0F81Fu;
+    return (uint16_t)(b | b >> 16);
+}
+static uint16_t cv_over_px(uint16_t under, uint32_t v)       /* under: the canvas pixel (byte-swapped), v: 1..15 */
+{
+    return swap16(mix565(swap16(under), cv_over_fg, ((ux.light ? CURVE_LIGHT : CURVE_DARK)[v & 15u] + 4u) >> 3));
+}
+
 /* w x h nibbles, rows back to back, at canvas (x, y) */
 static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint16_t *rv)
 {
@@ -369,7 +392,7 @@ static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t
             uint32_t v = (d[k >> 1] >> ((k & 1u) ? 0 : 4)) & 15u;
             int32_t px = x + (int32_t)gx;
             if (v && (uint32_t)px < cv_w)
-                row[px] = rv[v];
+                row[px] = cv_over ? cv_over_px(row[px], v) : rv[v];
         }
     }
     GFX_HOOK_PIXELS(w * h);
@@ -445,7 +468,7 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
                 uint32_t k;
                 for (k = 0; k < n; k++, px++)
                     if ((uint32_t)px < cv_w)
-                        row[px] = rv[v];
+                        row[px] = cv_over ? cv_over_px(row[px], v) : rv[v];
             }
             gx += n;
             run -= n;
@@ -526,6 +549,7 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
     int32_t pen = 0, err = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF;
     const int32_t step = 16 >> f->psh;
     uint32_t prev = 0;
+    cv_over_fg = fg;                                 /* (cv_over: blended over the canvas, bg unused) */
     for (; *s; s++) {
         uint32_t c = fold(f, (uint8_t)*s);
         const aag_t *g;
@@ -579,6 +603,23 @@ static int32_t cv_text_on(int32_t x, int32_t y, const aafont_t *f, const char *s
 static int32_t cv_text(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t fg)
 {
     return cv_text_flags(x, y, f, s, fg, cv_bg, 0);
+}
+/* a scrim: the canvas inside (x, y, w, h) a of 32 of the way to c, the last f px towards each edge less (feathered): a
+ * picture calmed behind text (cv_over) and still seen through it. Per pixel a blend of the row's or the column's
+ * alpha (mix565), nothing else */
+static void cv_scrim(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c, uint32_t a, int32_t f)
+{
+    int32_t i, j, x0 = x < 0 ? 0 : x, x1 = x + w < (int32_t)cv_w ? x + w : (int32_t)cv_w;
+    y += cv_oy;
+    for (j = y < 0 ? 0 : y; j < y + h && j < (int32_t)cv_h; j++) {
+        int32_t dy = j - y < y + h - 1 - j ? j - y : y + h - 1 - j;
+        uint16_t *row = &cv_px[(uint32_t)j * cv_w];
+        for (i = x0; i < x1; i++) {
+            int32_t d = i - x < x + w - 1 - i ? i - x : x + w - 1 - i;
+            if (dy < d) d = dy;
+            row[i] = swap16(mix565(swap16(row[i]), c, d >= f ? a : a * (uint32_t)(d + 1) / (uint32_t)(f + 1)));
+        }
+    }
 }
 /* right-aligned: the advance ends at xr */
 static int32_t cv_text_r(int32_t xr, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg)

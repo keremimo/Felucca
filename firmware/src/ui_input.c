@@ -25,6 +25,11 @@ static void led_put(uint8_t *nl, uint32_t id, int on)
     if (q != 0xFF && on)
         nl[q >> 3] |= (uint8_t)(1u << (q & 7u));
 }
+static int led_get(const uint8_t *nl, uint32_t id)
+{
+    uint8_t q = led_pos[id];
+    return q != 0xFF && ((nl[q >> 3] >> (q & 7u)) & 1u);
+}
 
 static const uint8_t FAM_BTN[FAM_COUNT] = {B_HOME, B_ENV, B_LFO, B_FX, B_SCL, B_EDIT, B_GLO, B_SAVE,
                                            B_ARP, B_SEQ, B_GLO};   /* GLO: mixer + global settings; REC is transport */
@@ -84,11 +89,19 @@ static int pattern_keys_on(void)
     return !ui.menu && !ui.confirm && !name_on() && !ui.ly && !ui.uboot &&
         (fm1_in.buttons & (1u << panel.btn[B_SEQ]));
 }
-static uint32_t pattern_leds(void)
+/* the pattern keys (SEQ held), as the keys show things everywhere: bright the pattern playing (and the one held to copy),
+ * dim the others that hold something, breathing the one waiting for the bar; the empty ones dark */
+static uint32_t pattern_leds(uint32_t *dim, uint32_t *breath)
 {
-    uint32_t m = 1u << PAT_KEY[TSEL->pattern];
-    if (TSEL->pattern_next < NPAT && !(fm1_ms / 180u & 1u)) m |= 1u << PAT_KEY[TSEL->pattern_next];
+    uint32_t m = 1u << PAT_KEY[TSEL->pattern], b;
+    *dim = *breath = 0;
+    for (b = 0; b < NPAT; b++)
+        if (b != TSEL->pattern && pattern_used(song.sel, b))
+            *dim |= 1u << PAT_KEY[b];
+    if (TSEL->pattern_next < NPAT) *breath = 1u << PAT_KEY[TSEL->pattern_next];
     if (ui.pat_key) m |= 1u << PAT_KEY[ui.pat_key - 1u];
+    *dim &= ~(m | *breath);
+    *breath &= ~m;
     return m;
 }
 static void pattern_keys(uint32_t notes)
@@ -137,12 +150,18 @@ static uint32_t play_key_led(const track_t *t, uint32_t k)
 
 static const uint8_t LIGHTS_MASK[LIGHTS_N] = {0, 7, 3, 1, 0};   /* the dim keys' frames: -, 1/8, 1/4, 1/2, all */
 #define BTN_DIM_MASK 3u                                         /* idle buttons: 1/4 of the frames */
+/* The lights' grammar, keys and buttons alike: dark nothing there, dim something there, bright happening now, breathing
+ * waiting (a pattern for the bar, REC armed before the transport runs, PLAY counting in). Breathing: the third dim plane,
+ * its level swept full .. 1/8 .. dark .. 1/8 .. full over a second (BREATH, 125 ms a step; 0xFF: dark) */
+static const uint8_t BREATH[8] = {0, 1, 3, 7, 0xFF, 7, 3, 1};
+static uint32_t breath_on(void) { return BREATH[(fm1_ms / 125u) & 7u] != 0xFFu; }
 
 static void ui_leds(void)
 {
-    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0};
-    uint32_t k, c, play, lights = settings_lights % LIGHTS_N;
+    uint8_t nl[FM1_NCOL] = {0}, nd[FM1_NCOL] = {0}, nb[FM1_NCOL] = {0}, nw[FM1_NCOL] = {0};
+    uint32_t k, c, play, lights = settings_lights % LIGHTS_N, pdim = 0, pbr = 0;
     uint32_t fam = cur_fam();
+    uint32_t armed = song.rec != 0u, rolling = song.playing != 0u, counting = (uint32_t)seq_counting();
     static uint8_t ready;
     if (!ready) {
         led_pos_init();
@@ -154,14 +173,16 @@ static void ui_leds(void)
         led_put(nl, panel.btn[B_ARP], FAM_BTN[fam] == B_ARP ? !k : (int)k);   /* (on ARP's page: dark flashes) */
     if (ui.layer)                                       /* the layer's button blinks while its map is up */
         led_put(nl, panel.btn[layer_btn()], ((fm1_ms / 250u) & 1u) == 0u);
-    led_put(nl, panel.btn[B_PLAY], song.playing != 0u); /* steady transport state, independent of audio block rate */
-    led_put(nl, panel.btn[B_REC], song.rec != 0u);
+    led_put(nl, panel.btn[B_PLAY], rolling && !counting); /* steady transport state, independent of audio block rate; */
+    led_put(nw, panel.btn[B_PLAY], counting);           /* counting in: waiting */
+    led_put(nl, panel.btn[B_REC], armed && rolling && !counting);   /* recording; armed, not yet: waiting */
+    led_put(nw, panel.btn[B_REC], armed && !(rolling && !counting));
     k = oct_leds();
     led_put(nl, panel.btn[B_OCTDN], (int)(k & 1u));
     led_put(nl, panel.btn[B_OCTUP], (int)(k >> 1));
     play = !pattern_keys_on() && !(name_on() && !ui.menu) && !ui.layer && !grid_on();
-    c = pattern_keys_on() ? pattern_leds() : name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds() : grid_on() ? grid_leds() :
-        fm1_in.notes & ~kb_layer;                       /* NAME's keys, the map, the grid, the keys held */
+    c = pattern_keys_on() ? pattern_leds(&pdim, &pbr) : name_on() && !ui.menu ? name_leds() : ui.layer ? layer_leds() :
+        grid_on() ? grid_leds() : fm1_in.notes & ~kb_layer;   /* the patterns, NAME's keys, the map, the grid, the keys held */
 #if MELODEE_SLICE
     if (!ui.layer && !ui.menu && !name_on() && slice_page_on())
         c |= slice_leds();                              /* SLICES: and the keys of the selected slice */
@@ -170,14 +191,19 @@ static void ui_leds(void)
         uint32_t lv = play ? play_key_led(TSEL, k) : KL_OFF;   /* playing: the layout, MIDI's notes too (LIGHTS) */
         led_put(nl, 14u + k, (int)(((c >> k) & 1u) || lv == KL_ON));
         led_put(nd, 14u + k, lv == KL_DIM && lights != LIGHTS_OFF);
+        led_put(nb, 14u + k, (int)((pdim >> k) & 1u));  /* the patterns holding something: selectable, so lit with
+                                                         * LIGHTS OFF too (the buttons' plane) */
+        led_put(nw, 14u + k, (int)((pbr >> k) & 1u));
     }
-    for (k = 0; lights != LIGHTS_OFF && k < NB; k++)   /* the buttons glow when idle */
-        led_put(nb, panel.btn[k], 1);
+    for (k = 0; lights != LIGHTS_OFF && k < NB; k++)   /* the buttons glow when idle (one breathing: not under it) */
+        led_put(nb, panel.btn[k], !led_get(nw, panel.btn[k]));
     fm1_led_dim_mask[0] = LIGHTS_MASK[lights];
     fm1_led_dim_mask[1] = BTN_DIM_MASK;
+    fm1_led_dim_mask[2] = BREATH[(fm1_ms / 125u) & 7u];
     for (c = 0; c < FM1_NCOL; c++) {
         fm1_led_dim[0][c] = (uint8_t)(nd[c] | nl[c]);   /* first: a key going dim <-> bright never goes dark */
         fm1_led_dim[1][c] = nb[c];
+        fm1_led_dim[2][c] = breath_on() ? nw[c] : 0u;
         fm1_led[c] = nl[c];
     }
 }
@@ -549,6 +575,10 @@ static void edit_param(uint32_t slot, int32_t steps)
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
         if (slot == 0u) motion_set_enabled(TSEL, steps > 0);
         else if (slot == 3u) ui.act = steps > 0 ? 4u : 0u;
+        return;
+    }
+    if (pg->graph == GR_PATGRID) {                      /* PATTERNS: KNOB k queues track k's (ui_stage.c) */
+        patgrid_edit(slot, steps);
         return;
     }
     if (pg->graph == GR_SONG) {
@@ -1650,17 +1680,16 @@ static void ui_input(void)
             continue;
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || ((pg->scope==SC_DRUM || pg->scope==SC_DRUMHIT) && pg->id[k]!=255) || page_desc(pg, k, &hv) ||
             ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
-            || pg->graph == GR_SONG || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
+            || pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
             || (pg->graph == GR_SLICES && k < 2u)) {   /* (not an empty column) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
         }
         momentary_take(k);
-        if (ui.home) {
-            int16_t *vp;
-            const param_desc_t *d = home_param(k, &vp);
-            *vp = (int16_t)enum_step(d, *vp, clamp(*vp + accel(EN_K1 + k, s, desc_range(d)), d->min, d->max));
-            if(!momentary.active)motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
+        if (ui.home) {                                  /* Stage: the selected track's engine's four, as its pages */
+            page_over = stage_page();
+            edit_param(k, s);
+            page_over = 0;
         } else {
             edit_param(k, s);
         }

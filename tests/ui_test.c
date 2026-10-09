@@ -38,7 +38,7 @@ static uint32_t host_slots[3u * 0x14000u / 4u];          /* USR1..3 (zero: empty
 #define FM1_NCOL 11u
 static const int8_t FM1_KEYMAP[6][FM1_NCOL];
 static uint8_t fm1_led[FM1_NCOL];
-static uint8_t fm1_led_dim[2][FM1_NCOL], fm1_led_dim_mask[2];   /* (hal/fm1_input.h: the dim planes) */
+static uint8_t fm1_led_dim[3][FM1_NCOL], fm1_led_dim_mask[3];   /* (hal/fm1_input.h: the dim planes) */
 #define FM1_TICKS_PER_US 1u
 static uint32_t host_ticks, host_pressed, host_notes;
 static int32_t host_enc[7];
@@ -4107,15 +4107,15 @@ static int test_home_notes(void)
     ui_power_on();
     bad += check("HOME has no invented notes before the first key", !graph_notes());
     key_down(7); /* C4 */
-    bad += check("panel C4 enters HOME after mapping", live_last[1] == (1u << 28));
+    bad += check("panel C4 enters HOME after mapping", live_last[0][1] == (1u << 28));
     key_up(7);
     frame();
     bad += check("a panel tap between frames remains visible after release", graph_notes() &&
-                 live_last[1] == (1u << 28) && !live_held[0][1]);
+                 live_last[0][1] == (1u << 28) && !live_held[0][1]);
     ui_power_on();
     TSEL->p[P_QUANT] = Q_MPC;
     midi_event(0x90, 0, 21, 100);
-    bad += check("MPC's mapped C4 is displayed, not source MIDI note 21", live_last[1] == (1u << 28) && !live_last[0]);
+    bad += check("MPC's mapped C4 is displayed, not source MIDI note 21", live_last[0][1] == (1u << 28) && !live_last[0][0]);
     midi_event(0x80, 0, 21, 0);
     ui_power_on();
     midi_event(0x90, 0, 60, 100);
@@ -4123,7 +4123,10 @@ static int test_home_notes(void)
     midi_event(0x80, 0, 60, 0);
     bad += check("same pitch on another track remains held in HOME", !live_held[0][1] && live_held[1][1] == (1u << 28));
     midi_event(0xB0, 1, 120, 0);
-    bad += check("CC120 clears held HOME notes only on its track", !live_held[1][1] && live_last[1] == (1u << 28));
+    bad += check("CC120 clears held HOME notes only on its track", !live_held[1][1] && live_last[1][1] == (1u << 28));
+    midi_event(0x90, 1, 64, 100); midi_event(0x80, 1, 64, 0);
+    bad += check("each track keeps its own last notes (Stage shows the selected one's)",
+                 live_last[0][1] == (1u << 28) && live_last[1][2] == (1u << 0) && !live_last[1][1]);
     ui_power_on();
     midi_event(0x90, 0, 60, 100);
     midi_event(0x90, 10, 60, 100);
@@ -4132,23 +4135,124 @@ static int test_home_notes(void)
     midi_event(0xB0, 10, 64, 127); midi_event(0x80, 10, 60, 0);
     bad += check("sustain keeps the displayed pitch held", live_held[0][1] == (1u << 28));
     midi_event(0xB0, 10, 64, 0);
-    bad += check("pedal-up releases emphasis but retains the last note", !live_held[0][1] && live_last[1] == (1u << 28));
+    bad += check("pedal-up releases emphasis but retains the last note", !live_held[0][1] && live_last[0][1] == (1u << 28));
     ui_power_on(); set_engine_of(TSEL, ENGI_FM6); events_block(32);
     midi_event(0x90, 0, 60, 100); midi_event(0x90, 0, 64, 100); midi_event(0x90, 0, 67, 100);
     q = chord_of((1u << 0) | (1u << 4) | (1u << 7), 0, &root);
-    bad += check("FM6 notes are visible and a major triad is recognized", live_last[1] == (1u << 28) &&
-                 live_last[2] == ((1u << 0) | (1u << 3)) && q && !q[0] && root == 0);
+    bad += check("FM6 notes are visible and a major triad is recognized", live_last[0][1] == (1u << 28) &&
+                 live_last[0][2] == ((1u << 0) | (1u << 3)) && q && !q[0] && root == 0);
     /* C4 is bit 28 of word 1; E4/G4 are bits 0/3 of word 2. */
-    for (i = 0; i < 4u; i++) saved[i] = live_last[i];
+    for (i = 0; i < 4u; i++) saved[i] = live_last[0][i];
     input_on(&trk[3], 36, 100); input_off(&trk[3], 36);
-    bad += check("drum hits do not replace HOME's last synth chord", !memcmp(saved, live_last, sizeof saved));
+    bad += check("drum hits do not replace HOME's last synth chord", !memcmp(saved, live_last[0], sizeof saved) && !live_last[3][1]);
     q = chord_of((1u << 0) | (1u << 4) | (1u << 7), 4, &root);
     bad += check("an inverted major triad resolves its root for slash bass", q && !q[0] && root == 0);
     q = chord_of((1u << 9) | (1u << 0) | (1u << 4) | (1u << 7), 9, &root);
     bad += check("minor seventh chord name retained from next", q && !strcmp(q, "m7") && root == 9);
     for (i = 0; i < 4u; i++) midi_forget_track(i);
     for (i = 0; i < NTRK * 4u; i++) held |= ((uint32_t *)live_held)[i];
-    bad += check("panic clears every held bit without erasing the readout", !held && !memcmp(saved, live_last, sizeof saved));
+    bad += check("panic clears every held bit without erasing the readout", !held && !memcmp(saved, live_last[0], sizeof saved));
+    ui_power_on();
+    return bad;
+}
+
+/* Stage (HOME, ui_stage.c): the selected track's engine's own four knobs (PROPHET and CZ-1: their native panel values,
+ * edited as their pages edit them), no footer; SEQ > PATTERNS: KNOB k queues track k's pattern; the lights' grammar:
+ * dim something there, bright happening now, breathing waiting (the third plane); the DRUM lanes' flashes */
+static uint32_t plane_led(uint32_t plane, uint32_t id)          /* led id in dim plane `plane` (0..2) */
+{
+    uint8_t q = led_pos[id];
+    return q != 0xFF && ((fm1_led_dim[plane][q >> 3] >> (q & 7u)) & 1u);
+}
+static int test_stage(void)
+{
+    int bad = 0;
+    int16_t *vp;
+    uint32_t k, before;
+    ui_power_on();
+    go_home();
+    frame();
+    bad += check("Stage: ANALOG's knobs are its EDIT values (CUT RES ATK REL)", stage_page()->scope == SC_ENGINE &&
+                 stage_page()->id[0] == P_E4 && stage_page()->id[3] == P_REL && home_param(0, &vp) && vp == &TSEL->p[P_E4]);
+    set_engine_of(TSEL, ENGI_PROPHET);
+    go_home();
+    frame();
+    before = p5_patch_of(TSEL)->raw[P5_CUTOFF];
+    turn(EN_K1, before < P5_PANEL[P5_CUTOFF].max ? 1 : -1);
+    bad += check("Stage: PROPHET's KNOB 1 is the program's own CUTOFF", stage_page()->scope == SC_P5 &&
+                 p5_patch_of(TSEL)->raw[P5_CUTOFF] != before && home_param(2, &vp) && str_eq(home_param(2, &vp)->label, "ENV AMT"));
+    set_engine_of(TSEL, ENGI_CZ);
+    apply_preset(3);
+    go_home();
+    frame();
+    {
+        const param_desc_t *d = home_param(2, &vp);
+        int16_t was = vp ? *vp : -1;
+        uint8_t raw[CZ_BYTES];
+        memcpy(raw, cz_patch[song.sel].raw, CZ_BYTES);
+        turn(EN_K3, was < d->max ? 1 : -1);
+        d = home_param(2, &vp);
+        bad += check("Stage: CZ-1's KNOB 3 detunes the native tone (DETUNE: its FINE)", stage_page()->scope == SC_CZ1 &&
+                     d && vp && *vp != was && memcmp(raw, cz_patch[song.sel].raw, CZ_BYTES) &&
+                     str_eq(stage_label(2, d), "DETUNE"));
+    }
+    ui_power_on();
+    stop_transport();
+    go_page(GR_PATGRID);
+    turn(EN_K2, 1);
+    bad += check("PATTERNS stopped: KNOB 2 switches track 2 to pattern 2 at once", trk[1].pattern == 1u && trk[0].pattern == 0u);
+    song.playing = 1;
+    turn(EN_K3, 1);
+    bad += check("  playing: KNOB 3 queues track 3's pattern 2 for its bar", trk[2].pattern == 0u && trk[2].pattern_next == 1u);
+    turn(EN_K3, -1);
+    bad += check("  .. back to the one playing: nothing waits", trk[2].pattern_next == 0xFFu);
+    {   /* the lights: SEQ held, the pattern keys; REC armed while stopped */
+        static const uint8_t PK[NPAT] = {0, 2, 4, 6, 7, 9, 11, 12};
+        ui_power_on();
+        ui_leds();
+        for (k = 0; k < 41u; k++)
+            led_pos[k] = (uint8_t)((k % FM1_NCOL) << 3 | (1u + k / FM1_NCOL));
+        stop_transport();
+        pattern_switch(TSEL, 2); my_steps(TSEL); pattern_switch(TSEL, 0); my_steps(TSEL);
+        song.playing = 1;
+        TSEL->pattern_next = 5;
+        btn_down(B_SEQ);
+        frame();
+        fm1_ms = 0;                                       /* (the breath at its brightest) */
+        ui_leds();
+        bad += check("SEQ held: the pattern playing bright, one holding notes dim, the one waiting breathing, empty dark",
+                     key_light(14u + PK[0]) == 2u && plane_led(1, 14u + PK[2]) && !key_light(14u + PK[2]) &&
+                     plane_led(2, 14u + PK[5]) && !key_light(14u + PK[5]) && !plane_led(1, 14u + PK[5]) &&
+                     !key_light(14u + PK[3]) && !plane_led(1, 14u + PK[3]) && !plane_led(2, 14u + PK[3]));
+        fm1_ms = 500;                                     /* (the breath's dark step) */
+        ui_leds();
+        bad += check("  .. the breath goes dark between its swells", !plane_led(2, 14u + PK[5]));
+        btn_up(B_SEQ);
+        frame();
+        stop_transport();
+        song.rec = 1;
+        fm1_ms = 0;
+        ui_leds();
+        bad += check("REC armed, stopped: REC breathes (waiting), not lit", plane_led(2, panel.btn[B_REC]) &&
+                     !((fm1_led[led_pos[panel.btn[B_REC]] >> 3] >> (led_pos[panel.btn[B_REC]] & 7u)) & 1u));
+        song.playing = 1;
+        ui_leds();
+        bad += check("  .. recording: REC lit", !plane_led(2, panel.btn[B_REC]) &&
+                     ((fm1_led[led_pos[panel.btn[B_REC]] >> 3] >> (led_pos[panel.btn[B_REC]] & 7u)) & 1u));
+        song.rec = 0;
+        led_pos_init();
+    }
+    ui_power_on();
+    track_select(3);
+    set_engine_of(TSEL, ENGI_DRUM);
+    events_block(4);
+    drum_flash[3] = 0;
+    input_on(TSEL, 38, 100); input_off(TSEL, 38);
+    events_block(2);
+    bad += check("a DRUM hit flags its lane for Stage (SNARE)", (drum_flash[3] >> 1) & 1u);
+    go_home();
+    frame();
+    bad += check("  .. Stage takes it and lights the lane's name", !drum_flash[3] && stage.hit_t[1]);
     ui_power_on();
     return bad;
 }
@@ -4186,6 +4290,7 @@ int main(void)
     int bad = test_prophet_pages();
     bad += test_large_face();
     bad += test_home_notes();
+    bad += test_stage();
     bad += test_sound_loads();
     bad += test_patterns();
     bad += test_rec();

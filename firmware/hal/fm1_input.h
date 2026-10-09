@@ -38,7 +38,8 @@
  * while that column is selected. fm1_led_key/btn helpers address them by id.
  * fm1_led_dim[plane][col] LEDs are lit one frame in (fm1_led_dim_mask[plane] + 1),
  * staggered by column: dimmer levels from the ~900 Hz frame rate, at no cost per
- * tick. Two planes, each with its own level (the UI: idle keys, idle buttons).
+ * tick. Three planes, each with its own level (the UI: idle keys, idle buttons, and
+ * the breathing ones, whose level the UI sweeps over time).
  */
 #pragma once
 #include <stdint.h>
@@ -96,8 +97,8 @@ static volatile struct {
     uint32_t frames;
 } fm1_in;
 static uint8_t fm1_led[FM1_NCOL];
-static uint8_t fm1_led_dim[2][FM1_NCOL];
-static uint8_t fm1_led_dim_mask[2];       /* 0 = full, 1 = 1/2, 3 = 1/4, 7 = 1/8 of the frames */
+static uint8_t fm1_led_dim[3][FM1_NCOL];
+static uint8_t fm1_led_dim_mask[3];       /* 0 = full, 1 = 1/2, 3 = 1/4, 7 = 1/8 of the frames */
 
 /* scan diagnostics (console `inp`, read and cleared by the main loop): the gap between ticks
  * = the on-time of the column lit in it, in TIMER4 ticks (24 MHz) */
@@ -125,7 +126,7 @@ static uint32_t fm1__led_col(uint32_t p)          /* LED rows of column p in thi
 {
     uint32_t f = fm1_in.frames + p;
     return fm1_led[p] | ((f & fm1_led_dim_mask[0]) ? 0u : fm1_led_dim[0][p]) |
-           ((f & fm1_led_dim_mask[1]) ? 0u : fm1_led_dim[1][p]);
+           ((f & fm1_led_dim_mask[1]) ? 0u : fm1_led_dim[1][p]) | ((f & fm1_led_dim_mask[2]) ? 0u : fm1_led_dim[2][p]);
 }
 
 static void fm1__sr_word(uint32_t w)
