@@ -45,7 +45,15 @@ static int32_t host_enc[7];
 static uint32_t fm1_ticks(void) { return host_ticks; }
 static uint32_t fm1_input_edges(int x) { uint32_t p = host_pressed; (void)x; host_pressed = 0; return p; }
 static uint32_t fm1_input_note_edges(void) { uint32_t n = host_notes; host_notes = 0; return n; }
-static int32_t fm1_enc_take(uint32_t e) { int32_t s = host_enc[e % 7u]; host_enc[e % 7u] = 0; return s; }
+static int32_t fm1_enc_take(uint32_t e)
+{
+    e %= 7u;
+    int32_t s = host_enc[e]; host_enc[e] = 0;
+#ifdef UI_ENC_TAKE_HOOK
+    UI_ENC_TAKE_HOOK(e);                           /* a scan interrupt can publish another detent immediately */
+#endif
+    return s;
+}
 static void fm1_wdt_feed(void) {}
 static void fm1_irq_off(void) {}
 static void fm1_irq_on(void) {}
@@ -1873,6 +1881,8 @@ static int test_layer(void)
     usb.config = 1; mo = mo_w;
     btn_down(B_FX); key_down(white(8)); frame();
     ok = ui.layer == LAYER_FX && !gates() && mo_w == mo && perf_held == PF_BIT(PF_OUP);
+    perf_begin(CTL);                                  /* audio activates OCT UP, so the card / knob is SHIMR */
+    ok &= perf_harm_on();
     turn(EN_K4, 40);
     ok &= perf_k[3] == 40;
     key_up(white(8)); key_down(white(9)); frame();

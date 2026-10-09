@@ -303,6 +303,8 @@ static void layer_knob(uint32_t k, int32_t s)
 {
     uint32_t l = layer_open();
     if (l == LAYER_FX) {                                /* perform.c perf_k, not recorded */
+        /* DEPTH displays 100 - cut: clockwise raises the level. SHIMR displays its gain directly. */
+        if (k == 3u && !perf_harm_on()) s = -s;
         perf_k[k] = (int8_t)clamp(perf_k[k] + s, k ? 0 : -100, 100);
     } else if (l == LAYER_GLO) {                        /* T1..T4 LEVEL, recorded as on MIXER */
         int16_t *vp = &trk[k].p[P_LEVEL];

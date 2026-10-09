@@ -184,7 +184,10 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
   (OCT UP / OCT DN with shimmer), flanger and phaser, and mutes on the black keys; any effect on any
   white key (hold the key, turn PRESETS; EDIT restores it), MENU > FX LATCH toggles instead of holding;
-  double-tap a layer button to keep its layer open
+  double-press FX within 300 ms to keep punch-in mode open with both hands free, then press FX again to close it.
+  The keys punch effects while held; the knobs change only performance macros, leaving the preset untouched.
+  KNOB 4 increases DEPTH clockwise (or SHIMMER while OCT UP / OCT DN plays).
+  GLO, SCL and EDIT also support double-press locking
 - **Quick layers:** hold FX, GLO, SCL or EDIT for shortcuts on the keys and knobs; one-step undo
   (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
 - **Presets:** factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
