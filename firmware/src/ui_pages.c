@@ -9,11 +9,14 @@
  * a dot at the arc's end) over what the page shapes: ANALOG's oscillator, the delay's echoes on the beat, a filter's
  * response (a page with a cutoff), FM6's algorithm (its chart), else the sound itself (the scope, smooth, live).
  * FADERS (FX): the four sends as faders.
- * MIXER: Stage's columns as channel strips: the sound, its level (a ring, dB in it) and meter, PAN and REV, MUTE, armed;
+ * NOTES (SEQ > STEP, CHANCE; a melodic track): the roll the whole height (PR_TOP, PR_H: ui_graph.c, in two slices),
+ * the knobs as chips under it (the one turning filled).
+ * MIXER: Stage's columns as channel strips: the sound, its level (a ring, dB in it) and meter, PAN and REV, MUTE,
+ * armed;
  * the selected track's lifted, the knob just turned (its control) in text.
  * Each part remembers what it drew. draw_column draws the knobs in the style col_style asks (pv_column). Included by
  * ui_draw.c */
-enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER };
+enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER, PV_NOTES };
 #define PV_PANEL_X 4
 #define PV_PANEL_W 232
 #define PV_SLICE 128                                    /* rows of a panel slice (232 x 128 fits CV_MAX) */
@@ -28,6 +31,8 @@ enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER };
 #define PV_PIC_H 112
 #define PV_FADER_Y 24                                   /* FADERS: a send 60 x 190 at x 60 c, rows 24 .. 213 */
 #define PV_FADER_H 190
+#define PV_CHIP_Y 200                                   /* NOTES: a knob a chip, 54 x 18 at CARD_X(c) */
+#define PV_CHIP_H 18
 
 static struct { uint32_t panel, sound; int32_t slice0; } pv;
 static struct { int16_t x0, y0, x1, y1; } pv_box[6];   /* the labels on a panel (pv_text) */
@@ -46,6 +51,8 @@ static uint32_t pv_kind(void)
         return PV_FADERS;
     if (pg->graph == GR_TRK)
         return PV_MIXER;
+    if ((pg->graph == GR_ROLL || pg->graph == GR_CHANCE) && !drum_track(TSEL))
+        return PV_NOTES;
     return PV_NONE;
 }
 
@@ -96,7 +103,8 @@ static void pv_ring(uint32_t c, const char *label, const char *val, const char *
             cv_disc(29 + PV_DOT[k][0], 36 + PV_DOT[k][1], 8, bg, 0);
             cv_disc(29 + PV_DOT[k][0], 36 + PV_DOT[k][1], 6, T_TEXT, 0);
         } else {                                        /* (a list of names: the ring alone) */
-            knob_arc(29 - KNOB_RING_R, 36 - KNOB_RING_R, KNOB_RING_R, KNOB_RING_COV, KNOB_RING_ANG, -KA_END, -KA_END - 1,
+            knob_arc(29 - KNOB_RING_R, 36 - KNOB_RING_R, KNOB_RING_R, KNOB_RING_COV, KNOB_RING_ANG, -KA_END,
+                     -KA_END - 1,
                      T_LINE, lc, bg);
         }
         pv_value_c(c, 29, 55, val, unit, vc, bg, 54);
@@ -126,6 +134,33 @@ static void pv_fader(uint32_t c, const char *label, const char *val, const char 
     }
     cv_blit((uint32_t)(60 * (int32_t)c), PV_FADER_Y);
 }
+/* CS_CHIP: "Step 7/16" in a 54 x 18 chip (its label in words, the value and unit after it; too long: the value); the
+ * knob just turned: filled in the track's colour */
+static void pv_chip(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int hot)
+{
+    char b[32];
+    uint32_t i, n;
+    uint16_t bg = hot ? T_THEME : T_SURF, fg = hot ? T_INK : vc == T_DIM ? T_DIM : T_TEXT;
+    str_cpy(b, label, 12);
+    for (i = 1; b[i]; i++)                              /* STEP -> Step */
+        if (b[i] >= 'A' && b[i] <= 'Z' && b[i - 1] != ' ') b[i] = (char)(b[i] + 32);
+    n = str_len(b);
+    if (n) b[n++] = ' ';
+    str_cpy(b + n, val, sizeof b - n);
+    str_cpy(b + str_len(b), unit, sizeof b - str_len(b));
+    if (text_w(&AF_X, b) > CARD_W - 6) {
+        str_cpy(b, val, sizeof b);
+        str_cpy(b + str_len(b), unit, sizeof b - str_len(b));
+    }
+    cv_begin(CARD_W, PV_CHIP_H, T_BG);
+    if (label[0] || val[0]) {
+        cv_rrect(0, 0, CARD_W, PV_CHIP_H, 5, bg, T_BG);
+        int32_t w = text_w(&AF_X, b) < CARD_W - 6 ? text_w(&AF_X, b) : CARD_W - 6;
+        cv_free_text(3 + (CARD_W - 6 - w) / 2, 3, &AF_X, b, fg,
+                     bg, CARD_W - 6);
+    }
+    cv_blit((uint32_t)CARD_X(c), PV_CHIP_Y);
+}
 /* CS_STRIP: a 54 x 30 cell, its label (8 px, the track's colour) over its value (11 px) and unit; the knob just turned:
  * tinted, outlined */
 static void pv_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
@@ -139,6 +174,10 @@ static void pv_column(uint32_t c, const char *label, const char *val, const char
     }
     if (col_style == CS_FADER) {
         pv_fader(c, label, val, unit, vc, ratio, hot);
+        return;
+    }
+    if (col_style == CS_CHIP) {
+        pv_chip(c, label, val, unit, vc, hot);
         return;
     }
     cv_begin(CARD_W, PV_STRIP_H, T_BG);
@@ -296,7 +335,8 @@ static void pv_lfo(int32_t h)
         }
     }
     for (x = 0; x < w; x++) {                           /* two cycles (lfo_wave only reads the track) */
-        int32_t wv = lfo_wave((track_t *)t, ph + (uint32_t)x * (0xFFFFFFFFu / ((uint32_t)w / 2u))), y, f = fw && x < fw ? x * 1024 / fw : 1024;
+        int32_t wv = lfo_wave((track_t *)t, ph + (uint32_t)x * (0xFFFFFFFFu / ((uint32_t)w / 2u))), y;
+        int32_t f = fw && x < fw ? x * 1024 / fw : 1024;
         if (t->p[P_LWAVE] == 4)
             wv = (int32_t)((x / 20 * 2654435761u) >> 16) - 32768;
         y = uni ? cy * 16 - (wv + 32768) * amp / 4096 * f / 1024 : cy * 16 - wv * amp / 2048 * f / 1024;
@@ -495,7 +535,8 @@ static void pv_strip(uint32_t k)
     trk_short_name(k, nm);
     if (t->eng_req == ENGI_PROPHET)
         p5_short_name(t, nm, sizeof nm);
-    sig = str_hash(1u + sel * 2u + mute * 4u + arm * 8u + hot * 16u, nm) + lvl * 7919u + (uint32_t)(pan + 128) * 104729u +
+    sig = str_hash(1u + sel * 2u + mute * 4u + arm * 8u + hot * 16u, nm) + lvl * 7919u +
+          (uint32_t)(pan + 128) * 104729u +
           (uint32_t)rv * 1299709u + ux.gen * 977u + ux.pal * 31u;
     if (!ui.force && sig == pvm.strip[k]) {
         if (m != pvm.meter[k]) {                        /* the meter alone */
@@ -568,6 +609,36 @@ static void pv_strip(uint32_t k)
 static void pv_draw(void)
 {
     uint32_t kind = pv_kind(), sig;
+    if (kind == PV_NOTES) {
+        if (ui.force) {
+            lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
+            ui.graph_sig = 0;
+        }
+        draw_head();
+        col_style = CS_CHIP;
+        draw_columns();
+        col_style = CS_CARD;
+        pv_sound();
+        sig = graph_signature();
+        if (ui.force || sig != ui.graph_sig) {          /* the roll, in two slices (its labels may cross the seam) */
+            int32_t top;
+            ui.graph_sig = sig;
+            for (top = 0; top < PR_H; top += H_GRAPH) {
+                int32_t sh = PR_H - top < H_GRAPH ? PR_H - top : H_GRAPH;
+                cv_begin(240, (uint32_t)sh, T_BG);
+                cv_oy = -top;
+                cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, PR_H, 6, T_PANEL, T_BG);
+                cv_bg = T_PANEL;
+                cv_scroll = 1;
+                if (cur_page()->graph == GR_CHANCE) graph_roll(TSEL, T_THEME);
+                else graph_recorded_notes(TSEL, T_THEME);
+                cv_scroll = 0;
+                cv_oy = 0;
+                cv_blit(0, (uint32_t)(PR_TOP + top));
+            }
+        }
+        return;
+    }
     if (kind == PV_MIXER) {
         uint32_t k;
         if (ui.force)
@@ -599,7 +670,8 @@ static void pv_draw(void)
         lcd_fill(0, PV_CURVE_Y + PV_CURVE_H, 240, PV_STRIP_Y - PV_CURVE_Y - PV_CURVE_H, T_BG);
         lcd_fill(0, PV_STRIP_Y, (uint32_t)CARD_X(0), PV_STRIP_H, T_BG);
         for (i = 0; i < 4u; i++)
-            lcd_fill((uint32_t)(CARD_X(i) + CARD_W), PV_STRIP_Y, i < 3u ? (uint32_t)(CARD_X(i + 1u) - CARD_X(i) - CARD_W) :
+            lcd_fill((uint32_t)(CARD_X(i) + CARD_W), PV_STRIP_Y,
+                     i < 3u ? (uint32_t)(CARD_X(i + 1u) - CARD_X(i) - CARD_W) :
                      240u - (uint32_t)(CARD_X(i) + CARD_W), PV_STRIP_H, T_BG);
         lcd_fill(0, PV_STRIP_Y + PV_STRIP_H, 240, PV_SOUND_Y - PV_STRIP_Y - PV_STRIP_H, T_BG);
     }

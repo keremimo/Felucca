@@ -118,9 +118,9 @@ static int timing_geometry_and_context(void)
     seq_advance(3u*span/8u);input_on(t,64,110);seq_advance(span/8u);input_off(t,64);seq_stop();song.rec=0;
     go_page(GR_ROLL);cursor_set(0);turn(EN_PRESET,4);
     uint32_t a,b;notes_window(t,period,&a,&b);
-    int32_t x=notes_x(recording_raw_on(t,&recording[0],period),a,b), y=pr_row_y(61)+Y_GRAPH;
+    int32_t x=notes_x(recording_raw_on(t,&recording[0],period),a,b), y=pr_row_y(61)+PR_TOP;
     int bad=check("swung off-grid notes draw at their original quarter-step position at maximum zoom",
-                  x==PR_X0+48&&pr_is_bar((uint32_t)x+1u,(uint32_t)y+2u)&&!pr_is_bar((uint32_t)x-2u,(uint32_t)y+2u));
+                  x==PR_X0+4*PR_CW&&pr_is_bar((uint32_t)x+1u,(uint32_t)y+2u)&&!pr_is_bar((uint32_t)x-2u,(uint32_t)y+2u));
     notes_cycle(1); frame();uint16_t selection=ui.note_pick;
     t->p[P_RECQ]=3;frame();
     bad+=check("playback quantization leaves the displayed original onset unchanged",

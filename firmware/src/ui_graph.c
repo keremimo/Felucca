@@ -123,21 +123,23 @@ static void graph_steps(const track_t *t, uint16_t c)
 }
 
 /* STEP page (a melodic track): a piano roll of the cursor's 16-step page. PR_ROWS semitone rows of PR_RH px,
- * the highest on top; on the left the C rows named (S, DIM) and a keyboard strip (white keys RAISE, black keys a
- * shorter DIM; a key held on the track: its row ACCENT). Rows in the track's scale (SCL ROOT / SCALE; CHR: the white
- * keys) are tinted LANE, a C row closes with a RAISE line; step lines GRID, every 4th RAISE. A note is a 9 x 3 bar in
+ * the highest on top; on the left a keyboard strip (a C key named on it, 9 px) (white keys RAISE, black keys a
+ * shorter DIM; a key held on the track: its row ACCENT). Rows out of the track's scale (SCL ROOT / SCALE; CHR: the
+ * black keys) are darker (QUIET), a C row closes with a RAISE line; step lines GRID, every 4th RAISE. A note is a bar in
  * its column (an accent: TEXT, the row's full height; the cursor step's notes: ACCENT), chords stacked, lane hits as
  * their notes; a TIE carries the bars of the note before through its column; a REST is empty; a slide is a TEXT
  * diagonal from the end of its bar into the next note. Notes outside the view: a 1 px mark on the edge. The cursor:
  * a TEXT column frame; the playhead: a 1 px ACCENT line. The view (proll.lo, the bottom row) fits the notes of the
  * page, else centres on the cursor's note, and follows in steps (a third of the way per frame); graph_signature()
  * holds it, so a page that does not change is not drawn again. */
-#define PR_ROWS 21                                  /* semitones shown (1.75 octaves) */
-#define PR_RH 5                                     /* px per row */
-#define PR_Y0 9                                     /* the top row (canvas y) */
-#define PR_X0 35                                    /* the first step column */
-#define PR_CW 12                                    /* px per step */
-#define PR_KX 24                                    /* the keyboard strip, 9 px */
+#define PR_TOP 22                                   /* the panel's top on the screen (ui_pages.c: NOTES, CHANCE) */
+#define PR_H 174                                    /* .. its rows */
+#define PR_ROWS 14                                  /* semitones shown (1.17 octaves) */
+#define PR_RH 12                                    /* px per row */
+#define PR_Y0 6                                     /* the top row (panel y) */
+#define PR_X0 22                                    /* the first step column */
+#define PR_CW 13                                    /* px per step */
+#define PR_KX 8                                     /* the keyboard strip, 12 px (black keys 7; a C key named on it) */
 static struct {
     uint8_t lo, trk, init, moving;                    /* lo: the note of the bottom row; moving: on its way */
     uint32_t frame;
@@ -241,16 +243,16 @@ static void graph_roll(const track_t *t, uint16_t c)
         int32_t n = (int32_t)proll.lo + PR_ROWS - 1 - r, y = PR_Y0 + r * PR_RH;
         uint32_t pc = (uint32_t)n % 12u;
         int in = micro_active(t) ? ((n - 60) & 1) == 0 : mask == 0xFFFu ? !KEY_BLACK[pc] : (int)((mask >> ((uint32_t)(n - t->p[P_ROOT] + 120) % 12u)) & 1u);
-        if (in)
-            cv_rect(PR_X0, y, gw, PR_RH, T_LANE);
+        if (!in)                                    /* (out of the scale: darker) */
+            cv_rect(PR_X0, y, gw, PR_RH, T_QUIET);
         if ((held >> r) & 1u)
-            cv_rect(PR_KX, y, 9, PR_RH - 1, T_ACCENT);
+            cv_rect(PR_KX, y, 12, PR_RH - 1, T_ACCENT);
         else
-            cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[pc] ? 5 : 9, PR_RH - 1, !micro_active(t) && KEY_BLACK[pc] ? T_DIM : T_RAISE);
+            cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[pc] ? 7 : 12, PR_RH - 1, !micro_active(t) && KEY_BLACK[pc] ? T_DIM : T_RAISE);
         if (micro_active(t) ? ((n - 60) % (int32_t)scale_note_period(t) == 0) : pc == 0u) {
             cv_rect(PR_X0, y + PR_RH - 1, gw, 1, T_RAISE);
             if (micro_active(t)) str_cpy(nb, "D1", sizeof nb); else note_name(nb, (uint32_t)n);
-            cv_text_r(23, y - 5, &AF_S, nb, T_DIM, T_SURF);   /* (the widest, "C-1", inside the panel: x 3..21) */
+            cv_text_on(PR_KX, y, &AF_X, nb, T_MID, T_RAISE);   /* (on its key; the widest, "C-1", inside the panel) */
         }
     }
     for (i = 0; i <= ncol; i++)                       /* step lines, the beats brighter */
@@ -367,13 +369,13 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
     int32_t bottom = PR_Y0 + PR_ROWS * PR_RH;
     for (int32_t row = 0; row < PR_ROWS; row++) {
         int32_t note = (int32_t)proll.lo + PR_ROWS - 1 - row, y = PR_Y0 + row * PR_RH;
-        if (micro_active(t) ? ((note - 60) & 1) == 0 : scale_mask(t) == 0xFFFu ? !KEY_BLACK[note % 12] : (scale_mask(t) >> ((note - t->p[P_ROOT] + 120) % 12)) & 1u) cv_rect(PR_X0, y, 16 * PR_CW + 1, PR_RH, T_LANE);
-        cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[note % 12] ? 5 : 9, PR_RH - 1, !micro_active(t) && KEY_BLACK[note % 12] ? T_DIM : T_RAISE);
-        if ((held >> row) & 1u) cv_rect(PR_KX, y, 9, PR_RH - 1, T_ACCENT);
+        if (!(micro_active(t) ? ((note - 60) & 1) == 0 : scale_mask(t) == 0xFFFu ? !KEY_BLACK[note % 12] : (scale_mask(t) >> ((note - t->p[P_ROOT] + 120) % 12)) & 1u)) cv_rect(PR_X0, y, 16 * PR_CW + 1, PR_RH, T_QUIET);   /* (out of the scale: darker) */
+        cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[note % 12] ? 7 : 12, PR_RH - 1, !micro_active(t) && KEY_BLACK[note % 12] ? T_DIM : T_RAISE);
+        if ((held >> row) & 1u) cv_rect(PR_KX, y, 12, PR_RH - 1, T_ACCENT);
         if (micro_active(t) ? ((note - 60) % (int32_t)scale_note_period(t) == 0) : note % 12 == 0) {
             char name[8];
             if (micro_active(t)) str_cpy(name, "D1", sizeof name); else note_name(name, (uint32_t)note);
-            cv_text_r(23, y - 5, &AF_S, name, T_DIM, T_SURF);
+            cv_text_on(PR_KX, y, &AF_X, name, T_MID, T_RAISE);
         }
     }
     uint32_t base = notes_base(), end = base + notes_span();
@@ -383,7 +385,7 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
         cv_rect(x, PR_Y0, 1, bottom - PR_Y0, step % 4u ? T_GRID : T_RAISE);
         if (step < end && step == ui.cursor) {
             int32_t xe = notes_x(recording_prefix(t, period, step + 1u), a, b);
-            cv_frame(x, PR_Y0 - 2, xe - x + 1, bottom - PR_Y0 + 4, T_MID);
+            cv_frame(x, PR_Y0 - 2, xe - x + 1, bottom - PR_Y0 + 4, T_TEXT);
         }
     }
     if (song.playing) {
@@ -402,8 +404,10 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
         for (uint32_t j = 0; j < st->n; j++) {
             int32_t y = pr_row_y(st->note[j]);
             int selected = chosen >= RECORD_MAX && source == selected_start && (j == notes_manual_slot(st) || (st->n > 1u && ui.hot_t && (ui.hot_col == 2u || ui.hot_col == 3u)));
+            /* (a note tied on: no gap at its column's end, one bar) */
+            int32_t lead = source == si ? 2 : 0, cont = si + 1u < end && pr_src(t, si + 1u, step_pattern_len(t)) == source;
             if (y < PR_Y0 || y >= bottom) { cv_rect(x + 1, y < PR_Y0 ? PR_Y0 : bottom - 1, xe - x - 1, 1, c); continue; }
-            cv_rect(x + (source == si ? 2 : 0), y + 1, xe - x - (source == si ? 3 : 0), PR_RH - 2, selected ? T_ACCENT : c);
+            cv_rect(x + lead, y + 1, xe - x - lead - (cont ? 0 : 1), PR_RH - 2, selected ? T_ACCENT : c);
             if (selected) cv_frame(x + (source == si ? 1 : 0), y, xe - x - (source == si ? 2 : 0), PR_RH, T_TEXT);
             uint32_t next = (si + 1u) % step_pattern_len(t);
             const step_t *ns = &seq_steps(t)[next];

@@ -286,7 +286,7 @@ static void col_old_value(uint32_t c, char *ov)          /* the value card c dre
         ov[i++] = *++k;
     ov[i] = 0;
 }
-enum { CS_CARD, CS_STRIP, CS_RING, CS_FADER };          /* how draw_column draws a knob: a card, the redesign's pages' */
+enum { CS_CARD, CS_STRIP, CS_RING, CS_FADER, CS_CHIP };   /* how draw_column draws a knob (ui_pages.c) */
 static uint8_t col_style;                               /* (ui_pages.c pv_column) */
 static void pv_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
                       int hot);
@@ -334,12 +334,13 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     if (strip && !ui.roll[c].from[0])
         return;
     if (col_style != CS_CARD) {                         /* the redesign's pages (ui_pages.c): the cell again, rolling */
-        if (!strip) {                                   /* (or not: CS_STRIP's values snap) */
+        if (!strip) {                                   /* (or not: strips' and chips' values snap) */
             char ov[16];
             col_old_value(c, ov);
             ui.roll[c].sig = sig;
             if (!str_eq(ov, val))
-                roll_note(c, ov, val, snap || named || vf != &AF_M || kid >= 0 || col_style == CS_STRIP);
+                roll_note(c, ov, val, snap || named || vf != &AF_M || kid >= 0 || col_style == CS_STRIP ||
+                          col_style == CS_CHIP);
             else if (snap)
                 ui.roll[c].from[0] = 0;
             str_cpy(ui.col[c], key, sizeof ui.col[c]);

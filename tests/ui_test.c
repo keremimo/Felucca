@@ -3728,7 +3728,7 @@ static int pr_columns_match(const track_t *t, uint32_t *nbars)
             if (n >= 0 && rr >= 0 && rr < PR_ROWS) want |= 1u << rr;
         }
         for (r = 0; r < PR_ROWS; r++)
-            if (pr_is_bar((uint32_t)(PR_X0 + (int32_t)i * PR_CW + 6), Y_GRAPH + PR_Y0 + r * PR_RH + 2u)) got |= 1u << r;
+            if (pr_is_bar((uint32_t)(PR_X0 + (int32_t)i * PR_CW + 6), PR_TOP + PR_Y0 + r * PR_RH + 2u)) got |= 1u << r;
         if (got != want) {
             printf("ui:   roll column %u: rows %05x drawn, %05x wanted\n", base + i, got, want);
             ok = 0;
@@ -3750,7 +3750,7 @@ static int test_piano_roll(void)
     memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
     ok = pr_columns_match(t, &nb);
     bad += check("piano roll: ACID's bars drawn at their notes' rows, ties carried, rests empty", ok && nb >= 10u);
-    bad += check("  the view holds the page's notes (A2..A3 in 21 rows), MONO gray", proll.lo <= 45 && proll.lo + PR_ROWS - 1 >= 57 &&
+    bad += check("  the view holds the page's notes (A2..A3 in 14 rows), MONO gray", proll.lo <= 45 && proll.lo + PR_ROWS - 1 >= 57 &&
                  screen_gray());
     t->p[P_VOICE] = V_POLY;                                           /* chords: up to 4 bars in a column */
     for (i = 0; i < 16u; i += 4u) {
@@ -3784,7 +3784,7 @@ static int test_piano_roll(void)
     key_down(7); frames(200);                                         /* a key held: its row lit on the strip */
     {
         int32_t r = (int32_t)proll.lo + PR_ROWS - 1 - (int32_t)kb_chord[7][0];
-        uint16_t c = r >= 0 && r < PR_ROWS ? swap16(host_screen[(Y_GRAPH + PR_Y0 + (uint32_t)r * PR_RH + 1u) * 240u + PR_KX + 7]) : 0;
+        uint16_t c = r >= 0 && r < PR_ROWS ? swap16(host_screen[(PR_TOP + PR_Y0 + (uint32_t)r * PR_RH + 1u) * 240u + PR_KX + 7]) : 0;
         bad += check("  a key held: its row on the keyboard strip is the accent", kb_chn[7] && c == T_ACCENT);
     }
     key_up(7); frames(100);
@@ -3937,7 +3937,7 @@ static int test_bughunt_ui2(void)
             t->step[0].note[0] = lo; t->step[5].note[0] = hi;
             go_page(GR_ROLL); cursor_set(0); ui.force = 1; frame(); frame();
             bg = (uint16_t)((T_BG >> 8) | (T_BG << 8));
-            for (y = Y_GRAPH; y < Y_GRAPH + H_GRAPH; y++)
+            for (y = PR_TOP; y < PR_TOP + PR_H; y++)
                 for (x = 0; x < 3u; x++)
                     out += host_screen[y * 240u + x] != bg;
         }
