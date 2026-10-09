@@ -8,6 +8,8 @@
 static void draw_menu(void);
 static int name_on(void);                              /* NAME (ui_name.c) */
 static void name_draw(void);
+static int new_on(void);                               /* NEW SONG (ui_new.c) */
+static void new_draw(void);
 
 /* --------------------------------------------------------- drawing --- */
 #define COL_W CARD_W                                  /* a card: 57 x 44 at x 3 + 59 c, y 28 */
@@ -825,6 +827,11 @@ static void draw_columns(void)
             draw_act_column(c, d->label, T_THEME, ICON_AUTO);
             continue;
         }
+        if (cur_page()->scope == SC_GLOBAL && ui.proj_new && (cur_page()->id[c] == G_SLOT || cur_page()->id[c] == G_SAVE)) {
+            draw_column(c, d->label, cur_page()->id[c] == G_SLOT ? "NEW" : "--", "",   /* SLOT past TMPL: NEW (no SAVE) */
+                        cur_page()->id[c] == G_SLOT ? VAL(c) : T_DIM, -1, ICON_AUTO);
+            continue;
+        }
         if (cur_page()->id[c] == G_INFO && cur_page()->scope == SC_GLOBAL) {
             fmt_int(val, (int32_t)(song.cpu_q8 * 100u / 256u));
             unit = "%";
@@ -888,6 +895,10 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_CLEAR_SONG:
         str_cpy(a, "CLEAR SONG ORDER?", 24);
+        break;
+    case CF_NEW_SONG:                                   /* what is lost */
+        str_cpy(a, "START A NEW SONG?", 24);
+        str_cpy(b, "UNSAVED CHANGES", 24);
         break;
     case CF_TAKE_JAM:                                   /* the rows it replaces */
         str_cpy(a, "SONG FROM JAM?", 24);
@@ -984,6 +995,10 @@ static void ui_draw(void)
     }
     if (name_on()) {                                    /* NAME: a user preset's or a project's (ui_name.c) */
         name_draw();
+        return;
+    }
+    if (new_on()) {                                     /* NEW SONG (ui_new.c) */
+        new_draw();
         return;
     }
     if (ui.layer) {                                     /* a layer's map over the page (ui_layer.c) */

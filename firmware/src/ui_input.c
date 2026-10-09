@@ -2,6 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee UI input: LEDs, knobs and buttons, SEQ step entry, panel setup. */
 #include "ui_name.c"                                    /* NAME: naming user presets and projects */
+#include "ui_new.c"                                     /* NEW SONG: key, tempo, roles */
 /* ----------------------------------------------------------- LEDs --- */
 /* The LED picture is built off-line and copied one byte per column: clearing
  * and relighting would let the 10 kHz scan catch the dark gap and flicker. */
@@ -42,7 +43,7 @@ static int layer_set_open(void);                       /* (ui_layer.c) */
 static uint32_t oct_leds(void)
 {
     uint32_t blink = ((fm1_ms / 250u) & 1u) == 0u;
-    if (name_on() && !ui.confirm && !ui.menu)           /* NAME: OCT- cancels, OCT+ (blinking) writes */
+    if ((name_on() || new_on()) && !ui.confirm && !ui.menu)   /* NAME, NEW SONG: OCT- cancels, OCT+ (blinking) goes on */
         return 1u | (blink ? 2u : 0u);
     if (layer_set_open())                               /* a SET layer: OCT- puts back (UNDO), OCT+ nothing */
         return 1u;
@@ -460,7 +461,7 @@ static void autosave_poll(uint32_t active)
 #else
     uint32_t r = usb.rx_pkts;
 #endif
-    if (active || r != rx || transport_busy() || ui.menu || ui.confirm || name_on() || ui.layer || momentary.active ||
+    if (active || r != rx || transport_busy() || ui.menu || ui.confirm || name_on() || new_on() || ui.layer || momentary.active ||
         browse_pending() || qsave_req) {
         t0 = fm1_ms;
         rx = r;
@@ -695,6 +696,11 @@ static void edit_param(uint32_t slot, int32_t steps)
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
         if (slot == 0u) motion_set_enabled(TSEL, steps > 0);
         else if (slot == 3u) ui.act = steps > 0 ? 4u : 0u;
+        return;
+    }
+    if (pg->graph == GR_SLOTS && slot == 0u && (ui.proj_new || (steps > 0 && song.g[G_SLOT] == PROJ_TMPL))) {
+        ui.proj_new = steps > 0;                        /* past TMPL: NEW (SLOT itself stays) */
+        if (!ui.proj_new && ui.act == 4u) ui.act = 0;
         return;
     }
     if (pg->graph == GR_PATGRID) {                      /* PATTERNS: KNOB k queues track k's (ui_stage.c) */
@@ -968,6 +974,13 @@ static void act_do(void)
     id = cur_page()->id[c & 3u];
     if (id != G_LOAD)
         ui.act = 0;
+    if (id == G_LOAD && ui.proj_new) {                  /* NEW: a new song (unsaved changes: the dialog first) */
+        if (transport_busy()) ui_message("STOP FIRST");
+        else if (project_dirty()) confirm_open(CF_NEW_SONG, 0);
+        else new_open();
+        ui.act = 0;
+        return;
+    }
     if (song.g[G_SLOT] == PROJ_TMPL && (id == G_LOAD || id == G_SAVE)) {   /* the template: no name, no dialog */
         if (id == G_LOAD)
             template_load();
@@ -1466,7 +1479,8 @@ static void ui_input(void)
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && !ui.confirm && !name_on());   /* held: MIXER */
     uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm);
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
-    uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || step_oct_context());
+    uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || new_on() || layer_set_open() ||
+                            step_oct_context());
     uint32_t lay, knob_layer, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
     seq_erase_update(pressed);
@@ -1549,6 +1563,7 @@ static void ui_input(void)
             ui.menu_sel = 0;
             ui.confirm = 0;                             /* (a clear dialog is cancelled, NAME too) */
             name_close();
+            new_close();
             ui.force = 1;
             song.seq_mode = 0;
         }
@@ -1579,6 +1594,13 @@ static void ui_input(void)
                                                          * editor) so the name can be saved; it never starts one */
         ui.pg_down = 0;
         name_input(notes, oct);
+        return;
+    }
+    if (new_on() && !ui.confirm) {                      /* NEW SONG: its knobs, OCT+ / OCT-, HOME cancels (ui_new.c) */
+        if (ui.save_t0)
+            ui.save_t0 |= 2u;
+        ui.pg_down = 0;
+        new_input(oct, home == BT_TAP);
         return;
     }
     if (save == BT_HOLD && chain_busy())
@@ -1617,6 +1639,8 @@ static void ui_input(void)
                 }
             } else if (kind == CF_TAKE_JAM) {
                 jam_take();
+            } else if (kind == CF_NEW_SONG) {
+                new_open();
             } else if (kind == CF_CLEAR_SONG) {
                 if (!chain_busy()) { chain_defaults(&chain_config); memset(chain_patterns, 0, sizeof chain_patterns); ui.song_row = 0; ui_message("SONG CLEARED"); }
             } else if (kind == CF_INIT_SOUND) {
@@ -1646,9 +1670,9 @@ static void ui_input(void)
     }
     if (lytap)                                          /* a layer's button acts on release (held: the layer) */
         layer_tap(lytap);
-    if (seq == BT_HOLD) {
-        for (k = 0; k < NPAGES; k++) if (PAGES[k].graph == GR_SONG) break;
-        ui.home = 0; ui.page = (uint8_t)k; page_entered();
+    if (seq == BT_HOLD) {                               /* SEQ held: PATTERNS, the song under it (SONG: SELECT) */
+        for (k = 0; k < NPAGES; k++) if (PAGES[k].graph == GR_PATGRID) break;
+        ui.home = 0; ui.page = (uint8_t)k; ui.fam_last[FAM_SEQ] = ui.page; page_entered();
     } else if (seq == BT_TAP) {
         open_family(FAM_SEQ);
     }
@@ -1709,6 +1733,14 @@ static void ui_input(void)
                     ui_message("STOP TO UNDO");
                 else if (!step_history_apply(b == B_OCTUP))
                     ui_message(b == B_OCTUP ? "NOTHING TO REDO" : "NOTHING TO UNDO");
+                break;
+            }
+            if ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u) {   /* SAVE held elsewhere: OCT- undoes a load further, */
+                ui.save_t0 |= 2u;                       /* OCT+ redoes (no page, no undo when SAVE is let go) */
+                if (chain_busy())
+                    ui_message("STOP TO UNDO");
+                else
+                    undo_step(b == B_OCTUP);
                 break;
             }
             if (step_oct_context())                    /* STEP OCT taps: the cursor; EDIT consumes them below */

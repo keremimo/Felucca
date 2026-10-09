@@ -116,13 +116,14 @@ static void ui_power_on(void)
     memset(&step_history, 0, sizeof step_history);
     seq_midi_reset();
     memset(&nm, 0, sizeof nm);                    /* NAME closed, no project name */
+    memset(&nw, 0, sizeof nw);                    /* NEW SONG closed */
     proj_name[0] = 0;
     proj_cur = PROJ_NO_SLOT;
     memset(&favorites, 0, sizeof favorites);
     memset(&brw, 0, sizeof brw);                  /* the browser: nothing pending, LIST ALL, RECENT empty */
     list_recent = 0;
     recent_n = 0;
-    memset(&undo, 0, sizeof undo);
+    undo_clear();
     memset(pat_last, 0, sizeof pat_last);
     memset(proj_slot, 0, sizeof proj_slot);
     up_cache_reset(); native_cache_reset();
@@ -200,6 +201,15 @@ static void hold(uint32_t label)                  /* held 0.8 s, then let go */
     for (k = 0; k < 52u; k++)
         frame();
     fm1_in.buttons &= ~(1u << panel.btn[label]);
+    frame();
+}
+static void press(uint32_t label);
+static void save_redo(void)                       /* SAVE held + OCT+: redo a load */
+{
+    fm1_in.buttons |= 1u << panel.btn[B_SAVE];
+    frame();
+    press(B_OCTUP);
+    fm1_in.buttons &= ~(1u << panel.btn[B_SAVE]);
     frame();
 }
 static void turn(uint32_t role, int32_t s)
@@ -311,11 +321,12 @@ static int test_sound_loads(void)
                  undo.p[P_E0 + 1] == before.p[P_E0 + 1] && undo.eng == before.eng_req && undo.preset == before.preset);
     t->step[0].note[0] = 99;                      /* recorded after the loads */
     hold(B_SAVE);
-    bad += check("SAVE held: the sound back (UNDO/REDO T1); steps recorded since stay", same_sound(t, &before) &&
-                 t->step[0].note[0] == 99 && msg_is("UNDO/REDO T1"));
+    bad += check("SAVE held: the sound back (UNDO T1); steps recorded since stay", same_sound(t, &before) &&
+                 t->step[0].note[0] == 99 && msg_is("UNDO T1"));
     bad += check("SAVE held does not open the SAVE pages", ui.home);
-    hold(B_SAVE);
-    bad += check("SAVE held again: the loads again (redo)", t->eng_req != before.eng_req && t->step[0].note[0] == 99);
+    save_redo();
+    bad += check("SAVE + OCT+: the loads again (REDO T1)", t->eng_req != before.eng_req && t->step[0].note[0] == 99 &&
+                 msg_is("REDO T1") && ui.home && !song.octave);
     hold(B_SAVE);
     t->p[P_LEVEL] = 50;                           /* a mix change after the undo */
     turn(EN_PRESET, 1);                           /* a load after an undo copies the track as it is now */
@@ -396,7 +407,7 @@ static int test_sound_loads(void)
                  trk[3].p[P_LEVEL] == 71 && trk[3].p[P_REV] == 43 && trk[3].p[P_SDIV] == 3 &&
                  !memcmp(trk[3].step, before.step, sizeof trk[3].step));
     bad += check("  its old drum channel (10, in id 24) loads as REVERB TYPE ROOM", song.g[G_RTYPE] == 0);
-    printf("ui: undo copy %u bytes\n", (unsigned)sizeof undo);
+    printf("ui: undo level %u bytes\n", (unsigned)sizeof undo);
     return bad;
 }
 
@@ -1846,7 +1857,9 @@ static int test_product_ux(void)
     press(B_GLO); ok &= cur_page()->graph == GR_TRK;
     bad += check("GLO cycles MIXER > GLOBAL > SYSTEM > MIXER", ok);
     go_home(); hold(B_SEQ);
-    bad += check("long SEQ goes directly to SONG with no tap on release", cur_page()->graph == GR_SONG);
+    bad += check("long SEQ goes directly to PATTERNS (the song under it) with no tap on release", cur_page()->graph == GR_PATGRID);
+    turn(EN_SELECT, 1);
+    bad += check("  SELECT: SONG next to it", cur_page()->graph == GR_SONG);
     song.rec = 1; chain.armed = 1; press(B_REC);
     bad += check("REC cannot write borrowed patterns while SONG is armed", song.rec == 1 && msg_is("STOP TO RECORD"));
     ui_power_on(); open_family(FAM_EDIT);
@@ -2106,7 +2119,7 @@ static int test_layer(void)
     ok = transport_req == 1u && ui.layer == LAYER_FX;
     transport_req = 0;
     press(B_SAVE); ok &= ui.home;
-    hold(B_SAVE); ok &= !msg_is("UNDO/REDO T1") && ui.home;
+    hold(B_SAVE); ok &= !msg_is("UNDO T1") && ui.home;
     press(B_ENV); ok &= ui.home;
     hold(B_HOME); ok &= !ui.menu && ui.home;
     btn_up(B_FX); frame();
@@ -2140,8 +2153,8 @@ static int test_layer(void)
     bad += check("EDIT on STEP clears the step when let go (not on press)", ok && !step_on(&TSEL->step[0]) && ui.cursor == 1);
     ui_power_on(); hold(B_HOME);
     ok = ui.menu == 1; hold(B_HOME); ok &= !ui.menu;
-    go_home(); hold(B_SEQ); ok &= cur_page()->graph == GR_SONG;
-    bad += check("HOME (menu) and SEQ (SONG) holds of 0.7 s unchanged", ok);
+    go_home(); hold(B_SEQ); ok &= cur_page()->graph == GR_PATGRID;
+    bad += check("HOME (menu) and SEQ (PATTERNS) holds of 0.7 s", ok);
     /* no layer in the menu or a dialog: FX + a key is a note */
     ui_power_on(); hold(B_HOME);
     btn_down(B_FX); frame(); key_down(white(3)); frame();
@@ -3395,7 +3408,7 @@ static int test_bughunt_ui(void)
         hold(B_SAVE);                                   /* UNDO */
         frame();
         ok = TSEL->eng_req == ENGI_FM6 && !memcmp(mine, fm6_patch[1], FP_SIZE);
-        hold(B_SAVE);                                   /* REDO */
+        save_redo();                                    /* REDO */
         frame();
         bad += check("UNDO of a sound load on FM6: the track's edited patch back; REDO: the load's",
                      ok && memcmp(mine, next, FP_SIZE) && !memcmp(next, fm6_patch[1], FP_SIZE));
@@ -4343,6 +4356,77 @@ static int test_capture(void)
     return bad;
 }
 
+/* undo levels in the cache RAM's UI part (resources.c ui_cache): loads on two tracks, SAVE held twice undoes both
+ * (newest first), SAVE + OCT+ redoes the older; without cache RAM one level */
+static int test_undo_levels(void)
+{
+    int bad = 0;
+    uint8_t p0, p1;
+    resource_host_cache_enabled = 1;
+    ui_power_on();
+    stop_transport();
+    p0 = trk[0].preset;
+    turn(EN_PRESET, 1);                                 /* T1: a sound load */
+    track_select(1);
+    p1 = trk[1].preset;
+    turn(EN_PRESET, 1);                                 /* T2: another (a level of its own) */
+    hold(B_SAVE);
+    hold(B_SAVE);
+    bad += check("cache RAM: undo levels; SAVE held twice undoes T2's load, then T1's", undo_nlv == UNDO_LV_MAX &&
+                 trk[0].preset == p0 && trk[1].preset == p1 && msg_is("UNDO T1"));
+    save_redo();
+    bad += check("  SAVE + OCT+ redoes the older first (T1), T2 stays undone", trk[0].preset != p0 && trk[1].preset == p1 &&
+                 msg_is("REDO T1"));
+    turn(EN_PRESET, 1);                                 /* a new load: the redo levels go */
+    save_redo();
+    bad += check("  a new load drops what was left to redo", msg_is("NOTHING TO REDO"));
+    undo_lv = &undo_one;                                /* (back to the one level the other tests expect) */
+    undo_nlv = 1;
+    resource_host_cache_enabled = 0;
+    ui_power_on();
+    return bad;
+}
+
+/* NEW SONG: SAVE > PROJECT, KNOB 1 past TMPL (NEW), KNOB 3 picks it, OCT+ (notes unsaved: the dialog first); KEY: KNOB 1
+ * ROOT, 2 SCALE, 3 TEMPO, OCT+; ROLES: KNOB k track k's, OCT+ creates it: the power-on sounds (no template), BASS on
+ * track 2 (a BASS sound), the key on every track, the tempo, every pattern empty, no slot */
+static int test_new_song(void)
+{
+    int bad = 0;
+    uint32_t i, src, k, empty = 1;
+    ui_power_on();
+    stop_transport();
+    my_steps(&trk[0]);
+    go_page(GR_SLOTS);
+    for (i = 0; i < 6u; i++) turn(EN_K1, 1);
+    bad += check("PROJECT: KNOB 1 past TMPL shows NEW (SLOT itself stays)", ui.proj_new && song.g[G_SLOT] == PROJ_TMPL);
+    turn(EN_K3, 1);
+    press(B_OCTUP);
+    bad += check("  OCT+ on NEW with notes not saved: the dialog first", ui.confirm == CF_NEW_SONG);
+    press(B_OCTUP);
+    bad += check("  .. then the KEY screen", new_on() && nw.on == 1);
+    turn(EN_K1, 1); turn(EN_K1, 1);                     /* D */
+    turn(EN_K3, 1);
+    press(B_OCTUP);
+    bad += check("  OCT+: the ROLES screen", nw.on == 2);
+    turn(EN_K2, 1); turn(EN_K2, 1);                     /* track 2: BASS */
+    press(B_OCTUP);
+    for (k = 0; k < NTRK; k++) empty &= seq_is_empty(&trk[k]);
+    song.sel = 1; cur_entry(&src, &k); song.sel = 0;
+    bad += check("  OCT+ creates it: HOME, every pattern empty, D on every track, the tempo, track 2 a BASS sound, no slot",
+                 !new_on() && ui.home && empty && trk[0].p[P_ROOT] == 2 && trk[3].p[P_ROOT] == 2 && song.g[G_BPM] == nw.bpm &&
+                 entry_cat(src, k) == CAT_BASS && proj_cur == PROJ_NO_SLOT && msg_is("NEW SONG"));
+    go_page(GR_SLOTS);
+    for (i = 0; i < 6u; i++) turn(EN_K1, 1);
+    turn(EN_K3, 1);
+    press(B_OCTUP);
+    bad += check("  a new song with nothing in it: no dialog", !ui.confirm && new_on());
+    press(B_OCTDN);
+    bad += check("  OCT- on KEY cancels", !new_on());
+    ui_power_on();
+    return bad;
+}
+
 static int test_prophet_pages(void)
 {
     ui_power_on();set_engine_of(TSEL,ENGI_PROPHET);int bad=0,visible=0;
@@ -4378,6 +4462,8 @@ int main(void)
     bad += test_home_notes();
     bad += test_stage();
     bad += test_capture();
+    bad += test_undo_levels();
+    bad += test_new_song();
     bad += test_sound_loads();
     bad += test_patterns();
     bad += test_rec();

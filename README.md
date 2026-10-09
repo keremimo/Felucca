@@ -226,14 +226,21 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   BOOT project's, the template's or 120); GLO > GLOBAL keeps CLK and TUNE, the device's
 - FX, SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
   HOME returns home
-- **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the song,
-  REC captures (below).
+- **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the PATTERNS grid with
+  the song under it, REC captures (below).
+- **Undo:** hold SAVE to undo the last sound or pattern load or Capture; hold it again to go further back (up to 8
+  levels with cache RAM, else one); while SAVE is held, OCT- undoes and OCT+ redoes. On the step pages SAVE's undo
+  covers the step edits first
   When editing synth steps, SCL and EDIT use the editing controls below instead; FX keeps its layer
 - PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
   transport; **REC + PLAY** arms it and starts recording in one gesture
 - OCT− / OCT+ shift the octave (both: reset). On action pages, in dialogs and the menu, OCT+ does it
   and OCT− goes back. During synth step editing, OCT− / OCT+ move the step cursor
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
+- **New song:** SAVE > PROJECT, turn KNOB 1 past TMPL to **NEW**, KNOB 3 to pick it and OCT+ (unsaved changes ask
+  first). Set the key (KNOB 1 ROOT, 2 SCALE) and tempo (KNOB 3), OCT+; give each track a role with KNOB 1–4 (KEEP,
+  DRUMS, BASS, CHORDS, LEAD, PAD), OCT+ creates it: your template's sounds (none saved: the power-on ones), a role's
+  first sound where the template's does not fit it, every pattern empty
 - **SAVE + REC** saves the project back to the slot it was loaded from or last saved to (`SAVED B`), stopping
   the transport first; a new project opens SAVE > PROJECT on a free slot. **Autosave:** stopped and untouched for
   5 seconds (no key, button, knob or MIDI), a project that has a slot saves itself there when it changed
@@ -264,8 +271,9 @@ holding notes glow, the one waiting for the loop end breathes. Hold a pattern ke
 notes, ties, timing, chance, drum hits and automation. **SEQ + SELECT** also chooses a pattern. While playing, each
 track changes at its own loop end. Selecting the active pattern cancels a queued change. STOP applies pending choices.
 
-**SEQ > PATTERNS** shows the four tracks' eight patterns at once: the one playing in the track's colour (with how far
-it has played), the one waiting outlined, the others holding notes raised. **KNOB 1–4** pick tracks 1–4's patterns.
+**SEQ > PATTERNS** (or hold SEQ) shows the four tracks' eight patterns at once: the one playing in the track's colour
+(with how far it has played), the one waiting outlined, the others holding notes raised; under it, the song's rows
+around the one playing (no song yet: the jam's). **KNOB 1–4** pick tracks 1–4's patterns; SELECT goes on to SONG.
 
 On **SEQ > SONG**, KNOB 1 chooses the row, **ALGORITHM** chooses the track, KNOB 2 chooses that
 track's pattern, and KNOB 3 sets repeats. **Jam to song:** from PLAY on, every loop of track 1 logs the four tracks'

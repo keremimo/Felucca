@@ -39,11 +39,15 @@ static uint32_t resource_host_cache[7168], resource_host_cache_enabled;
 #define _resource_retained_end ((uint8_t *)(resource_host_retained + 1024))
 #define RESOURCE_MAIN_CAPACITY ((uint32_t)sizeof resource_host)
 #endif
+/* The cache RAM's first UI_CACHE_BYTES are the UI's (ui.c: the undo levels), the rest the audio's: the audio's worst
+ * case fits the SRAM banks alone (the linker's budget), so the cache RAM only ever adds to it */
+#define UI_CACHE_BYTES 14336u
+static uint8_t *ui_cache(void) { return RESOURCE_CACHE_AVAILABLE ? _resource_cache_start : 0; }
 static const struct { uint8_t *start, *end; } resource_banks[] = {
     { _resource_data_start, _resource_data_end },
     { _resource_retained_start, _resource_retained_end },
     { _resource_low_start, _resource_low_end },
-    { _resource_cache_start, _resource_cache_end },
+    { _resource_cache_start + UI_CACHE_BYTES, _resource_cache_end },
     { _resource_start, _resource_end }
 };
 #define RESOURCE_BANKS ((uint32_t)(sizeof resource_banks / sizeof resource_banks[0]))
@@ -52,7 +56,7 @@ enum { RESOURCE_CACHE_BANK = 3 };
     (uint32_t)((uintptr_t)_resource_low_end - (uintptr_t)_resource_low_start) + \
     (uint32_t)((uintptr_t)_resource_data_end - (uintptr_t)_resource_data_start) + \
     (uint32_t)((uintptr_t)_resource_retained_end - (uintptr_t)_resource_retained_start) + \
-    (RESOURCE_CACHE_AVAILABLE ? (uint32_t)((uintptr_t)_resource_cache_end - (uintptr_t)_resource_cache_start) : 0u))
+    (RESOURCE_CACHE_AVAILABLE ? (uint32_t)((uintptr_t)_resource_cache_end - (uintptr_t)_resource_cache_start) - UI_CACHE_BYTES : 0u))
 static uint32_t resource_used(void)
 {
     uint32_t n = 0;

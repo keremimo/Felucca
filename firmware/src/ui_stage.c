@@ -394,7 +394,7 @@ static int pattern_used(uint32_t k, uint32_t b)
 }
 static uint32_t patgrid_sig(void)
 {
-    uint32_t h = 2166136261u, k, b;
+    uint32_t h = 2166136261u, k, b, i;
     for (k = 0; k < NTRK; k++) {
         const track_t *t = &trk[k];
         uint32_t len = (uint32_t)t->p[P_SLEN];
@@ -403,51 +403,89 @@ static uint32_t patgrid_sig(void)
         for (b = 0; b < NPAT; b++)
             h = (h ^ (uint32_t)pattern_used(k, b)) * 16777619u;
     }
+    h = (h ^ (chain_config.count + 32u * jam.n + 1024u * (chain.running ? chain.row + 1u : 0u) + 65536u * ui.song_row)) * 16777619u;
+    for (i = 0; i < CHAIN_ROWS; i++)
+        h = (h ^ (chain_config.row[i].repeat + 32u * chain_patterns[i][0] + 256u * chain_patterns[i][1] +
+                  2048u * chain_patterns[i][2] + 16384u * chain_patterns[i][3])) * 16777619u;
     return h ^ (fm1_ms / 250u & 1u) * 0x9E37u ^ song.sel * 131u;
+}
+/* the song under the grid (SEQ held opens PATTERNS): three of its rows around the one playing (else the one SONG
+ * picked): the row's number, each track's pattern in its colour, the repeats; the row playing filled. No song yet:
+ * the rows the jam logged, under JAM */
+static void patgrid_song(int32_t y0)
+{
+    uint32_t n = chain_config.count, jamrows = !n && jam.n, cur = chain.running ? chain.row : ui.song_row, i, k, first;
+    if (jamrows) n = jam.n;
+    cv_text_on(9, y0, &AF_S, jamrows ? "JAM" : "SONG", T_DIM, T_SURF);
+    if (!n) {
+        cv_text_on(48, y0, &AF_S, "--", T_DIM, T_SURF);
+        return;
+    }
+    if (cur >= n) cur = n - 1u;
+    first = cur > 1u ? cur - 1u : 0u;
+    if (n > 3u && first > n - 3u) first = n - 3u;
+    for (i = first; i < first + 3u && i < n; i++) {
+        int32_t y = y0 + (int32_t)(i - first) * 14;
+        int sel = !jamrows && chain.running && i == chain.row;
+        uint16_t bg = sel ? T_THEME : T_SURF;
+        char b[6];
+        if (sel)
+            cv_rrect(44, y, 150, 14, 4, T_THEME, T_SURF);
+        fmt_int(b, (int32_t)i + 1);
+        cv_text_r(64, y, &AF_S, b, sel ? T_INK : T_MID, bg);
+        for (k = 0; k < NTRK; k++) {
+            char d[2] = {(char)('1' + (jamrows ? jam.pat[i][k] : chain_patterns[i][k]) % NPAT), 0};
+            cv_text_c(84 + (int32_t)k * 20, y, &AF_S, d, sel ? T_INK : trk[k].p[P_MUTE] ? T_DIM : T_TRK(k), bg);
+        }
+        b[0] = 'x';
+        fmt_int(b + 1, jamrows ? jam.rep[i] : chain_config.row[i].repeat);
+        cv_text_on(162, y, &AF_S, b, sel ? T_INK : T_MID, bg);
+    }
 }
 /* the grid: a row per track (its number; selected: filled), a cell per pattern: playing / selected in the track's
  * colour (playing: how far through it at its foot), waiting for the bar: outlined, blinking; holding notes: raised;
- * empty: a faint outline */
+ * empty: a faint outline. The song under it */
 static void graph_patgrid(void)
 {
     uint32_t k, b, blink = (fm1_ms / 250u) & 1u;
     for (b = 0; b < NPAT; b++) {
         char n[2] = {(char)('1' + b), 0};
-        cv_text_c(45 + (int32_t)b * 25, 0, &AF_S, n, T_DIM, T_SURF);
+        cv_text_c(45 + (int32_t)b * 25, -1, &AF_S, n, T_DIM, T_SURF);
     }
     for (k = 0; k < NTRK; k++) {
         const track_t *t = &trk[k];
-        int32_t y = 16 + (int32_t)k * 26;
+        int32_t y = 13 + (int32_t)k * 16;
         uint16_t tc = t->p[P_MUTE] ? T_DIM : T_TRK(k);
         char n[2] = {(char)('1' + k), 0};
         if (k == song.sel) {
-            cv_rrect(9, y + 3, 16, 16, 4, tc, T_SURF);
-            cv_text_c(17, y + 4, &AF_S, n, T_INK, tc);
+            cv_rrect(10, y, 14, 14, 4, tc, T_SURF);
+            cv_text_c(17, y, &AF_S, n, T_INK, tc);
         } else {
-            cv_text_c(17, y + 4, &AF_S, n, tc, T_SURF);
+            cv_text_c(17, y, &AF_S, n, tc, T_SURF);
         }
         for (b = 0; b < NPAT; b++) {
             int32_t x = 34 + (int32_t)b * 25;
             uint32_t len = (uint32_t)t->p[P_SLEN];
             if (b == t->pattern) {
-                cv_rrect(x, y, 22, 22, 4, tc, T_SURF);
+                cv_rrect(x, y, 22, 14, 4, tc, T_SURF);
                 if (song.playing && len) {
                     int32_t w = (int32_t)((t->seq_idx % len + 1u) * 16u / len);
-                    cv_rrect(x + 3, y + 17, 16, 2, 1, ux_mix(tc, T_INK, 50), tc);
-                    cv_rrect(x + 3, y + 17, w < 2 ? 2 : w, 2, 1, T_INK, ux_mix(tc, T_INK, 50));
+                    cv_rrect(x + 3, y + 10, 16, 2, 1, ux_mix(tc, T_INK, 50), tc);
+                    cv_rrect(x + 3, y + 10, w < 2 ? 2 : w, 2, 1, T_INK, ux_mix(tc, T_INK, 50));
                 }
             } else if (b == t->pattern_next) {
                 uint16_t oc = blink ? T_DIM : tc;
-                cv_rrect(x, y, 22, 22, 4, oc, T_SURF);
-                cv_rrect(x + 2, y + 2, 18, 18, 3, pattern_used(k, b) ? T_RAISE : T_SURF, oc);
+                cv_rrect(x, y, 22, 14, 4, oc, T_SURF);
+                cv_rrect(x + 2, y + 2, 18, 10, 3, pattern_used(k, b) ? T_RAISE : T_SURF, oc);
             } else if (pattern_used(k, b)) {
-                cv_rrect(x, y, 22, 22, 4, T_RAISE, T_SURF);
+                cv_rrect(x, y, 22, 14, 4, T_RAISE, T_SURF);
             } else {
-                cv_rrect(x, y, 22, 22, 4, T_LINE, T_SURF);
-                cv_rrect(x + 1, y + 1, 20, 20, 3, T_SURF, T_LINE);
+                cv_rrect(x, y, 22, 14, 4, T_LINE, T_SURF);
+                cv_rrect(x + 1, y + 1, 20, 12, 3, T_SURF, T_LINE);
             }
         }
     }
+    patgrid_song(80);
 }
 /* the PATTERNS cards: KNOB k = track k's pattern (the one waiting, else the one playing) */
 static void patgrid_columns(void)

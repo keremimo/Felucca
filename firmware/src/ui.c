@@ -125,6 +125,7 @@ static struct {
     uint8_t ppick;               /* SEQ > PATTERNS: the pattern picked (pat_count list index) */
     uint8_t song_row;            /* SONG: row selected, count selects the next empty row */
     uint8_t uboot;               /* main.c: seconds left before UPDATE MODE (OCT- + OCT+ held), 0 = none */
+    uint8_t proj_new;            /* SAVE > PROJECT: KNOB 1 past TMPL, NEW (a new song: ui_new.c); SLOT unchanged */
     uint32_t ly_t0;              /* the layer button's press time | 1, LY_* bits (ui_layer.c layer_gesture) */
     uint8_t ly;                  /* the layer whose button is down (LAYER_*), 0 = none */
     uint8_t lock; /* double-tapped quick layer */
@@ -150,7 +151,7 @@ static struct {
 #include "screen.c"
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PAT,
-       CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM };   /* ui.confirm: REC held on
+       CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG };   /* ui.confirm: REC held on
                                    * SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern over the user's steps;
                                    * USER ERASE */
 
@@ -266,6 +267,7 @@ static void page_entered(void)
     seq_midi_reset();
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */
+    ui.proj_new = 0;
     ui.force = 1;
 }
 
@@ -473,19 +475,19 @@ static int seq_is_empty(const track_t *t)
     return 1;
 }
 
-/* One-step UNDO of a load. A sound load (a factory or user preset, an engine jump, TOOLS INIT, the
- * editor's PRESET / G_ENGSEL / UP_LOAD) changes the sound only; a pattern load (SEQ > PATTERNS) changes
- * the steps and the pattern parameters only. Each first copies the track as it was; SAVE held 0.7 s
- * swaps back what the loads changed (held again: the loads again), so steps recorded after a sound
- * load, or a sound edited after a pattern load, stay as they are. One copy for all tracks: the last
- * load wins. Loads in a row on one track with nothing changed in between (the PRESETS knob through the
- * list, one pattern after the other, an editor audition) keep the copy from before the first, so the
- * undo goes back past the whole browse. Not snapshotted: power-on, projects. */
+/* UNDO of loads. A sound load (a factory or user preset, an engine jump, TOOLS INIT, the editor's PRESET / G_ENGSEL /
+ * UP_LOAD) changes the sound only; a pattern load (SEQ > PATTERNS) or a Capture changes the steps and the pattern
+ * parameters only. Each first copies the track as it was into a level; SAVE held swaps back what the latest level's
+ * loads changed (held again: the level before, SAVE + OCT+ redoes), so steps recorded after a sound load, or a sound
+ * edited after a pattern load, stay as they are. Loads in a row on one track with nothing changed in between (the
+ * PRESETS knob through the list, one pattern after the other, an editor audition) keep the copy from before the first,
+ * so the undo goes back past the whole browse. Levels: UNDO_LV_MAX in the cache RAM's UI part (resources.c ui_cache),
+ * one without it. Not snapshotted: power-on, projects (a project load drops them all) */
 enum { UNDO_SOUND = 1, UNDO_PAT = 2 };
-static struct {
+typedef struct {
     uint8_t trk;                 /* track + 1, 0 = nothing to undo */
-    uint8_t keep;                /* the track is as the last load left it (undo.after): a next load keeps the copy */
-    uint8_t what;                /* UNDO_SOUND | UNDO_PAT: what the loads since the copy changed (undo_swap) */
+    uint8_t keep;                /* the track is as the last load left it (after): a next load keeps the copy */
+    uint8_t what;                /* UNDO_SOUND | UNDO_PAT: what the loads since the copy changed (undo_step) */
     uint8_t eng, preset, user, user_native, patn;
     uint8_t fm6[FP_SIZE + 1u];   /* the track's complete patch */
     cz_patch_t cz;
@@ -498,7 +500,24 @@ static struct {
     uint32_t after;              /* track_sig right after the last load */
     uint32_t pat;                /* pat_sig[] of the copy */
     uint32_t t_ms;               /* time of the last load (the editor's SETs after it belong to it) */
-} undo;
+} undo_t;
+#define UNDO_LV_MAX 8u
+_Static_assert(UNDO_LV_MAX * sizeof(undo_t) <= UI_CACHE_BYTES, "undo levels fit the cache RAM's UI part");
+static undo_t undo_one;          /* the level of a build without cache RAM */
+static undo_t *undo_lv = &undo_one;
+static uint8_t undo_nlv = 1, undo_top, undo_cnt;   /* levels; undoable 0 .. top-1, redoable top .. cnt-1 */
+static undo_t *undo_last(void) { return &undo_lv[undo_top ? undo_top - 1u : 0u]; }
+#define undo (*undo_last())      /* the latest level (tests, the layers: undo.keep); none: level 0 */
+static void undo_clear(void) { undo_top = undo_cnt = 0; undo_lv[0].trk = undo_lv[0].keep = 0; }
+static void undo_levels(void)    /* the cache RAM's UI part once it is there (boot self-test passed) */
+{
+    uint8_t *c = ui_cache();
+    if (c && undo_lv == &undo_one) {
+        undo_lv = (undo_t *)(void *)c;
+        undo_nlv = UNDO_LV_MAX;
+        undo_clear();
+    }
+}
 static uint8_t undo_depth;       /* loads nest (an engine jump loads its first preset): the outer one counts;
                                   * melodee_init / project_load raise it to take no copy at all */
 static uint32_t pat_sig[NTRK];   /* steps_sig of the pattern the last pattern load put into each track: such
@@ -569,38 +588,51 @@ static void momentary_take(uint32_t slot)
 }
 static void load_begin(track_t *t, uint32_t what)
 {
+    undo_t *u;
     momentary_restore();
     uint32_t i = trk_index(t);
     if (undo_depth++)
         return;
     motion_restore(t);
-    if (undo.keep && undo.pattern_gen == t->pattern_gen && undo.trk == i + 1u && track_sig(t) == undo.after) {
-        undo.what |= (uint8_t)what;               /* browsing on: the copy from before the first load stays */
+    undo_levels();
+    u = undo_last();
+    if (undo_top && u->keep && u->pattern_gen == t->pattern_gen && u->trk == i + 1u && track_sig(t) == u->after) {
+        u->what |= (uint8_t)what;                 /* browsing on: the copy from before the first load stays */
         motion_reset(t);
         return;
     }
-    undo.trk = (uint8_t)(i + 1u);
-    undo.pattern_gen = t->pattern_gen;
-    undo.what = (uint8_t)what;
-    undo.eng = t->eng_req;
-    undo.preset = t->preset;
-    undo.user = t->user;
-    undo.user_native=t->user_native;
-    memcpy(undo.p, t->p, sizeof undo.p);
-    memcpy(undo.step, t->step, sizeof undo.step);
-    memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
-    undo.cz = cz_patch[i];
-    undo.p5 = *p5_patch_of(&trk[i]);
-    undo.drum=drum_patch[i];
-    undo.pat = pat_sig[i];
-    undo.patn = pat_last[i];
-    motion_snapshot_track(t, &undo.motion_backup);
+    u->keep = 0;
+    if (undo_top == undo_nlv) {                   /* full: the oldest level goes (no memmove in libc.c) */
+        uint32_t k;
+        for (k = 0; k + 1u < undo_nlv; k++)
+            memcpy(&undo_lv[k], &undo_lv[k + 1u], sizeof *undo_lv);
+        undo_top--;
+    }
+    u = &undo_lv[undo_top++];                     /* a new level (the redoable ones go) */
+    undo_cnt = undo_top;
+    u->trk = (uint8_t)(i + 1u);
+    u->keep = 0;
+    u->pattern_gen = t->pattern_gen;
+    u->what = (uint8_t)what;
+    u->eng = t->eng_req;
+    u->preset = t->preset;
+    u->user = t->user;
+    u->user_native=t->user_native;
+    memcpy(u->p, t->p, sizeof u->p);
+    memcpy(u->step, t->step, sizeof u->step);
+    memcpy(u->fm6, fm6_patch[i], FP_SIZE);
+    u->cz = cz_patch[i];
+    u->p5 = *p5_patch_of(&trk[i]);
+    u->drum=drum_patch[i];
+    u->pat = pat_sig[i];
+    u->patn = pat_last[i];
+    motion_snapshot_track(t, &u->motion_backup);
     motion_reset(t);
 }
 
 static void load_end(track_t *t)
 {
-    if (--undo_depth)
+    if (--undo_depth || !undo_top)
         return;
     motion_rebase(t);
     undo.after = track_sig(t);
@@ -612,7 +644,7 @@ static void load_end(track_t *t)
  * values): part of that load, the copy from before it stays */
 static void load_extend(track_t *t)
 {
-    if (undo.keep && undo.trk == trk_index(t) + 1u && fm1_ms - undo.t_ms < 1500u) {
+    if (undo_top && undo.keep && undo.trk == trk_index(t) + 1u && fm1_ms - undo.t_ms < 1500u) {
         undo.after = track_sig(t);
         undo.t_ms = fm1_ms;
     }
@@ -620,85 +652,90 @@ static void load_extend(track_t *t)
 
 static int param_kept(uint32_t i);
 
-/* SAVE held: what the loads changed (undo.what) and the copy change places, so held again = the loads
- * again. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
+/* SAVE held (redo 0) / SAVE + OCT+ (redo 1): what a level's loads changed (what) and its copy change places, so its
+ * redo is the same swap. The sound: engine, preset and its parameters (not param_kept); the pattern: the steps and LEN
  * DIV SWING GATE. The mix (LEVEL PAN MUTE) stays: no load changes it */
-static void undo_swap(void)
+static void undo_step(int redo)
 {
     track_t *t;
+    undo_t *u;
     uint32_t i;
     char b[4] = {'T', 0, 0, 0};
-    if (!undo.trk) {
-        ui_message("NOTHING TO UNDO");
+    if (redo ? undo_top >= undo_cnt : !undo_top) {
+        ui_message(redo ? "NOTHING TO REDO" : "NOTHING TO UNDO");
         return;
     }
-    t = &trk[(undo.trk - 1u) % NTRK];
-    if (undo.pattern_gen != t->pattern_gen) { undo.trk = 0; ui_message("NOTHING TO UNDO"); return; }
+    u = &undo_lv[redo ? undo_top : undo_top - 1u];
+    t = &trk[(u->trk - 1u) % NTRK];
+    if (u->pattern_gen != t->pattern_gen) { undo_clear(); ui_message(redo ? "NOTHING TO REDO" : "NOTHING TO UNDO"); return; }
     motion_restore(t);
     motion_store_t current_motion;
     motion_snapshot_track(t, &current_motion);
-    if (motion_replace_track(t, &undo.motion_backup) != 0) {
+    if (motion_replace_track(t, &u->motion_backup) != 0) {
         ui_message("MOTION FULL");
         return;
     }
-    undo.motion_backup = current_motion;
+    u->motion_backup = current_motion;
     fm1_irq_off();                                /* the audio ISR must not see half a sound */
-    if (undo.what & UNDO_SOUND) {
-        uint8_t e = t->eng_req, pr = t->preset, u = t->user, un=t->user_native;
+    if (u->what & UNDO_SOUND) {
+        uint8_t e = t->eng_req, pr = t->preset, us = t->user, un=t->user_native;
         panic_req |= (uint8_t)(1u << trk_index(t));
-        t->eng_req = undo.eng;
-        t->preset = undo.preset;
-        t->user = undo.user;
-        t->user_native=undo.user_native;
-        undo.eng = e;
-        undo.preset = pr;
-        undo.user = u;
-        undo.user_native=un;
+        t->eng_req = u->eng;
+        t->preset = u->preset;
+        t->user = u->user;
+        t->user_native=u->user_native;
+        u->eng = e;
+        u->preset = pr;
+        u->user = us;
+        u->user_native=un;
         for (i = 0; i < P_COUNT; i++)
             if (!param_kept(i)) {
                 int16_t v = t->p[i];
-                t->p[i] = undo.p[i];
-                undo.p[i] = v;
+                t->p[i] = u->p[i];
+                u->p[i] = v;
             }
     }
-    if (undo.what & UNDO_PAT) {
+    if (u->what & UNDO_PAT) {
         uint32_t ps = pat_sig[trk_index(t)];
         uint8_t pn = pat_last[trk_index(t)];
-        pat_sig[trk_index(t)] = undo.pat;
-        undo.pat = ps;
-        pat_last[trk_index(t)] = undo.patn;
-        undo.patn = pn;
+        pat_sig[trk_index(t)] = u->pat;
+        u->pat = ps;
+        pat_last[trk_index(t)] = u->patn;
+        u->patn = pn;
         for (i = P_SLEN; i <= P_SGATE; i++) {
             int16_t v = t->p[i];
-            t->p[i] = undo.p[i];
-            undo.p[i] = v;
+            t->p[i] = u->p[i];
+            u->p[i] = v;
         }
         for (i = 0; i < NSTEP; i++) {
             step_t s = t->step[i];
-            t->step[i] = undo.step[i];
-            undo.step[i] = s;
+            t->step[i] = u->step[i];
+            u->step[i] = s;
         }
     }
     fm1_irq_on();
-    if (undo.what & UNDO_SOUND) {                 /* FM6: the track's patch as it was (edited, a project's, a
+    if (u->what & UNDO_SOUND) {                 /* FM6: the track's patch as it was (edited, a project's, a
                                                    * converted DIGITAL sound), preserved with the sound */
         uint32_t tr = trk_index(t);
         uint8_t v[FP_SIZE + 1u];
         memcpy(v, fm6_patch[tr], FP_SIZE);
-        fm6_set_patch(tr, undo.fm6);
-        memcpy(undo.fm6, v, FP_SIZE);
-        {drum_patch_t dp=drum_patch[tr];drum_patch[tr]=undo.drum;undo.drum=dp;}
-        { p5_patch_t pp=*p5_patch_of(t);p5_patch[tr]=undo.p5;undo.p5=pp;p5_ready[tr]=1; }
-        { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = undo.cz; undo.cz = cp; cz_track_accept(t); }
+        fm6_set_patch(tr, u->fm6);
+        memcpy(u->fm6, v, FP_SIZE);
+        {drum_patch_t dp=drum_patch[tr];drum_patch[tr]=u->drum;u->drum=dp;}
+        { p5_patch_t pp=*p5_patch_of(t);p5_patch[tr]=u->p5;u->p5=pp;p5_ready[tr]=1; }
+        { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = u->cz; u->cz = cp; cz_track_accept(t); }
 
     }
-    undo.keep = 0;                                /* the next load copies the track as it is now */
+    u->keep = 0;                                /* the next load copies the track as it is now */
+    undo_top = (uint8_t)(redo ? undo_top + 1u : undo_top - 1u);
+    if (undo_top) undo_lv[undo_top - 1u].keep = 0;
     if (t == TSEL)
         sync_reload = 1;
     b[1] = (char)('1' + trk_index(t));
-    ui_say("UNDO/REDO ", b);
+    ui_say(redo ? "REDO " : "UNDO ", b);
     ui.force = 1;
 }
+static void undo_swap(void) { undo_step(0); }
 
 /* a 16-step pattern (PATTERNS[] format, user presets too) into steps 1..16, the rest empty, LEN 16 */
 static void load_pat16(track_t *t, const uint8_t *note, const uint8_t *flags)
@@ -1149,7 +1186,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
         return 15u;                              /* NAME 1>2 2>1 COMP */
     if (pg->scope == SC_GLOBAL)
         for (c = 0; c < 4u; c++)
-            if (go_id(pg->id[c]))
+            if (go_id(pg->id[c]) && !(ui.proj_new && pg->id[c] == G_SAVE))   /* (NEW: LOAD makes it, no SAVE) */
                 m |= 1u << c;
     return m;
 }
@@ -1182,7 +1219,7 @@ static const char *act_name(uint32_t c)          /* column c's action (the foote
         return c == 1u ? "STORE" : c == 2u ? "SEND" : "INIT";
     if (cur_page()->graph == GR_CZTOOLS)
         return CZ_ACTIONS[c & 3u].label;
-    return id == G_CLRSEQ ? "CLEAR" : id == G_INITSND ? "INIT" : id == G_LOAD ? "LOAD" : "SAVE";
+    return id == G_CLRSEQ ? "CLEAR" : id == G_INITSND ? "INIT" : id == G_LOAD ? (ui.proj_new ? "NEW" : "LOAD") : "SAVE";
 }
 
 /* the picked action would do something now (OCT+ blinks): another pattern, a used slot, stopped for
@@ -1211,6 +1248,8 @@ static int act_ready(void)
     if (cur_page()->graph == GR_CZTOOLS)
         return !chain_busy();
     id = cur_page()->id[c & 3u];
+    if (id == G_LOAD && ui.proj_new)
+        return !transport_busy();
     if (id == G_LOAD && song.g[G_SLOT] == PROJ_TMPL)
         return template_used();
     if (id == G_LOAD)

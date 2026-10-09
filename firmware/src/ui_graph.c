@@ -1231,9 +1231,9 @@ static void graph_slots(void)
     uint32_t i, boot = settings_boot && graph_project_used(settings_boot - 1u) ? settings_boot
                      : template_used() ? (uint32_t)PROJ_TMPL : 0u;
     for (i = 0; i < (uint32_t)PROJ_TMPL; i++) {
-        int32_t y = 6 + (int32_t)i * 23;
+        int32_t y = 4 + (int32_t)i * 19;
         char b[4];
-        int sel = (int32_t)i + 1 == song.g[G_SLOT], tm = i + 1u == (uint32_t)PROJ_TMPL;
+        int sel = (int32_t)i + 1 == song.g[G_SLOT] && !ui.proj_new, tm = i + 1u == (uint32_t)PROJ_TMPL;
         int used = tm ? template_used() : graph_project_used(i);
         const char *n = tm ? "TEMPLATE" : graph_project_name(i);
         b[0] = (char)(tm ? 'T' : 'A' + i);
@@ -1242,6 +1242,7 @@ static void graph_slots(void)
         if (boot == i + 1u)
             cv_text_r(226, y + 1, &AF_S, "BOOT", sel ? T_INK : T_ACCENT, sel ? T_THEME : T_SURF);
     }
+    list_row(4 + PROJ_TMPL * 19, ui.proj_new, "+", T_MID, "NEW SONG", T_TEXT, 232);   /* KNOB 1 past TMPL */
 }
 /* MIXER page: four SURF columns, one under each card: the circled numeral (filled and in the accent:
  * the selected track) with a REC / ARM / MUTE badge (P_MUTE, KNOB 1), the sound's short name (a MUTE badge
