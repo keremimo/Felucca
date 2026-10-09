@@ -139,7 +139,7 @@ static struct {
 
 static int16_t fl_buf[FL_LEN][2];      /* FLANGER's line: L R, at half the level (headroom) */
 
-/* the key map in the settings (ui_layer.c: favorites.factory[15][14..23]): white key p's code in 5 bits from bit 5p
+/* the key map in the settings (ui_layer.c fx_keys, favorites.c FX_KEYS_ROW): white key p's code in 5 bits from bit 5p
  * of b: 0 its default (PF_DEF), 1 none, 2 + e effect e (an unknown code, a later firmware's effect: the default) */
 static uint32_t perf_map_of(const uint8_t *b, uint32_t p)
 {
