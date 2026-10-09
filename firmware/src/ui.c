@@ -1115,7 +1115,7 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     if (ui.home)
         return 0;
     if (pg->graph == GR_SONG)
-        return 1u | (jam.n ? 8u : 0u);           /* PLAY / STOP (also the PLAY button); TAKE JAM */
+        return 1u;                               /* PLAY / STOP (also the PLAY button; TAKE JAM: REC held) */
     if (pg->graph == GR_SLICES)
         return slice_page_ok() ? 12u : 0u;       /* SPLIT JOIN (a SLICE track only) */
     if (pg->graph == GR_CZTOOLS)
@@ -1126,14 +1126,14 @@ static uint32_t act_cols(void)                   /* the columns that are actions
 /* the action OCT+ does: its column + 1, 0 = none picked yet */
 static uint32_t act_col(void)
 {
-    if (!ui.home && cur_page()->graph == GR_SONG) return ui.act == 4u ? 4u : 1u;
+    if (!ui.home && cur_page()->graph == GR_SONG) return 1u;
     return ui.act;
 }
 
 static const char *act_name(uint32_t c)          /* column c's action (the footer hint) */
 {
     if (cur_page()->graph == GR_SONG)
-        return c == 3u ? "TAKE" : song.playing || chain_busy() ? "STOP" : "PLAY";
+        return song.playing || chain_busy() ? "STOP" : "PLAY";
     if (cur_page()->graph == GR_SLICES)
         return c == 3u ? "JOIN" : "SPLIT";
     return CZ_ACTIONS[c & 3u].label;             /* (CZ TOOLS) */
@@ -1146,7 +1146,7 @@ static int act_ready(void)
     if (!c--)
         return 0;
     if (cur_page()->graph == GR_SONG)
-        return c == 3u ? jam.n && !chain_busy() : song.playing || chain_busy() || chain_config.count;
+        return song.playing || chain_busy() || chain_config.count;
 #if MELODEE_SLICE
     if (cur_page()->graph == GR_SLICES)
         return slice_act_ready(c);

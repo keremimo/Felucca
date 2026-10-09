@@ -719,18 +719,20 @@ static void edit_param(uint32_t slot, int32_t steps)
         patgrid_edit(slot, steps);
         return;
     }
-    if (pg->graph == GR_SONG && slot == 3u) {         /* KNOB 4: TAKE JAM picked (right) or dropped */
-        ui.act = steps > 0 && jam.n ? 4u : 0u;
-        return;
-    }
-    if (pg->graph == GR_SONG) {
+    if (pg->graph == GR_SONG) {                       /* KNOB 1 the section, 2 the track, 3 its pattern there, 4 the
+                                                       * section's repeats (TAKE JAM: REC held) */
         if (slot == 0u) {
             ui.song_row = (uint8_t)clamp((int32_t)ui.song_row + steps, 0,
                 chain_config.count < CHAIN_ROWS ? chain_config.count : CHAIN_ROWS - 1u);
             return;
         }
+        if (slot == 1u) {
+            track_select((uint32_t)clamp((int32_t)song.sel + (steps > 0 ? 1 : -1), 0, NTRK - 1));
+            return;
+        }
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (slot == 3u) return;               /* PLAY is a button; no duplicate row-count knob */
+        if (slot == 3u && ui.song_row >= chain_config.count)
+            return;                                 /* (repeats of the column to add: none yet; KNOB 3 adds it) */
         if (ui.song_row >= chain_config.count) {
             chain_row_t *r = &chain_config.row[ui.song_row];
             r->slot = 0;
@@ -738,12 +740,12 @@ static void edit_param(uint32_t slot, int32_t steps)
             else for (uint32_t k = 0; k < NTRK; k++) chain_patterns[ui.song_row][k] = trk[k].pattern;
             r->repeat = 1;
             chain_config.count = ui.song_row + 1u;
-            if (slot == 1u) return;
+            if (slot == 2u) return;
         }
-        if (slot == 1u)
+        if (slot == 2u)
             chain_patterns[ui.song_row][song.sel] = (uint8_t)clamp((int32_t)chain_patterns[ui.song_row][song.sel] + steps, 0, NPAT - 1u);
         chain_config.row[ui.song_row].slot = chain_patterns[ui.song_row][0];
-        if (slot == 2u)
+        if (slot == 3u)
             chain_config.row[ui.song_row].repeat = (uint8_t)clamp((int32_t)chain_config.row[ui.song_row].repeat + steps, 1, 16);
         return;
     }
@@ -906,12 +908,6 @@ static void act_do(void)
         }
         ui.act = 0;
         ui.force = 1;
-        return;
-    }
-    if (cur_page()->graph == GR_SONG && c == 3u) {      /* TAKE JAM: over a song with rows, the dialog first */
-        if (chain_busy()) ui_message("STOP TO EDIT");
-        else if (chain_config.count) confirm_open(CF_TAKE_JAM, 0);
-        else jam_take();
         return;
     }
     if (cur_page()->graph == GR_SONG) {
@@ -1580,7 +1576,10 @@ static void ui_input(void)
     } else if (rec == BT_TAP) {
         rec_tap();
     } else if (rec == BT_HOLD) {
-        capture_take();
+        if (!ui.home && cur_page()->graph == GR_SONG)    /* SONG: TAKE JAM (the jam's rows as the song) */
+            ps_jam();
+        else
+            capture_take();
     }
     if (ui.menu) {
         momentary_restore();                                      /* HOME / SAVE / REC taps do nothing here */
@@ -1836,6 +1835,13 @@ static void ui_input(void)
         if (str_eq(cur_page()->title, "SCALES") && p < NPAGES) {
             ui.page = (uint8_t)p;
             page_entered();
+        } else if (str_eq(cur_page()->title, "PATTERNS") && patterns_queued()) {   /* PATTERNS: the queue first */
+            uint32_t k, f = motion_guard();
+            for (k = 0; k < NTRK; k++)
+                trk[k].pattern_next = 0xFFu;
+            motion_unguard(f);
+            ui_message("QUEUE CLEARED");
+            ui.force = 1;
         } else {
             go_home();
         }

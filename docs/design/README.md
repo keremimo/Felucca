@@ -22,6 +22,15 @@ The redesign is built from the proposal's mockups, screen by screen, and checked
 | mixer | `r5_pages` | (new) | 80 | R5: 95.1 |
 | notes | `r5_pages` | (new) | 80 | R5: 66.1 (the view centres the notes a row apart) |
 | settings, dialog | `r5_pages` | (new) | 80 | R5: 94.5, 88.1 |
+| scl_list, arp, pattern, slicer | `r6_pages` | (new) | 80 | R6: 89.2, 88.3, 83.1, 70.3 (the patterns' data) |
+| fmeg, grid, scales | `r6_pages` | (new) | 75 | R6: 77.0, 81.7, 70.5 (the families' names) |
+| mod, motion | `r6_pages` | (new) | 75 | R6: 71.9, 54.4 (no chips: R6 popups) |
+| sheet_sound, sheet_song, sheet_project | `r6_popups` | (new) | 75 | R6: 76.9, 84.4, 92.9 |
+| sheet_note, sheet_hit, sheet_motion | `r6_popups` | (new) | 75 | R6: 79.0, 70.6, 74.9 |
+| picker_wave, picker_mod | `r6_popups` | (new) | 65 | R6: 68.7, 58.9 |
+| sections_p5, map_p5, map_fm6 | `r7_sound_nav` | (new) | 60 | R7: 73.0, 62.0, 64.9 |
+
+NAME, NEW SONG, About and the GLO layer follow `r6_pages` by eye (no ref scene: their texts are the device's).
 
 Texts differ on purpose (the device's own sound names): the targets leave room for them.
 

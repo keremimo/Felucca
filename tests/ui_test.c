@@ -1716,6 +1716,24 @@ static int test_step_sheets(void)
     return bad;
 }
 
+/* PATTERNS: OCT- clears what is queued first, then goes to Stage */
+static int test_patterns_queue(void)
+{
+    int bad = 0;
+    ui_power_on();
+    song.playing = 1;
+    go_title("PATTERNS"); frame();
+    turn(EN_K1, 1);
+    bad += check("PATTERNS playing: KNOB 1 queues track 1's next pattern", trk[0].pattern_next == 1u);
+    press(B_OCTDN);
+    bad += check("..OCT-: the queue cleared, PATTERNS stays", trk[0].pattern_next == 0xFFu && !ui.home &&
+                 msg_is("QUEUE CLEARED"));
+    press(B_OCTDN);
+    bad += check("..OCT- again: Stage", ui.home);
+    stop_transport();
+    return bad;
+}
+
 /* MOD as rows: KNOB 2 the route, KNOB 1 its source (its picker), KNOB 3 its destination, KNOB 4 its amount */
 static int test_mod_rows(void)
 {
@@ -1956,11 +1974,14 @@ static int test_chain(void)
     for (k = 0; k < NPAGES && cur_page()->graph != GR_SONG; k++) open_family(FAM_SEQ);
     press(B_PLAY);
     bad += check("SONG page empty PLAY explains how to start", msg_is("ADD A SONG ROW") && !transport_req);
-    turn(EN_K2, 1);
-    bad += check("SONG SLOT knob adds the first row with one repeat", chain_config.count == 1 && !chain_config.row[0].slot && chain_config.row[0].repeat == 1);
-    turn(EN_K1, 1); turn(EN_K2, 1); turn(EN_K2, 1); turn(EN_K3, 2);
-    bad += check("SONG row, slot and repeat knobs build a chain", chain_config.count == 2 && ui.song_row == 1 &&
+    turn(EN_K3, 1);
+    bad += check("SONG KNOB 3 (pattern) adds the first row with one repeat", chain_config.count == 1 && !chain_config.row[0].slot && chain_config.row[0].repeat == 1);
+    turn(EN_K1, 1); turn(EN_K3, 1); turn(EN_K3, 1); turn(EN_K4, 2);
+    bad += check("SONG KNOB 1 row, 3 pattern, 4 repeats build a chain", chain_config.count == 2 && ui.song_row == 1 &&
         chain_config.row[1].slot == 1 && chain_config.row[1].repeat == 3);
+    turn(EN_K2, 1);
+    bad += check("SONG KNOB 2 picks the track (2), the song unchanged", song.sel == 1u && chain_config.count == 2);
+    turn(EN_K2, -1);
     turn(EN_K4, 30);
     project_save(0);
     chain_config.count = 1;
@@ -1977,8 +1998,8 @@ static int test_chain(void)
     bad += check("SONG PLAY cancels a pending start", !chain.running && !chain.armed && !song.playing);
     uint32_t old_count = chain_config.count;
     turn(EN_K4, 30);
-    bad += check("SONG unused K4 cannot accidentally add or clear rows", chain_config.count == old_count);
-    for (k = chain_config.count; k < CHAIN_ROWS; k++) { turn(EN_K1, 1); turn(EN_K2, 1); }
+    bad += check("SONG KNOB 4 (repeats) cannot add or clear rows", chain_config.count == old_count);
+    for (k = chain_config.count; k < CHAIN_ROWS; k++) { turn(EN_K1, 1); turn(EN_K3, 1); }
     bad += check("SONG append row stays bounded at 16", chain_config.count == CHAIN_ROWS && chain_valid(&chain_config));
     go_title("SONG"); hold(B_OCTUP); sheet_do("Clear song");
     bad += check("Clear song (the song's sheet) requires explicit confirmation", ui.confirm == CF_CLEAR_SONG &&
@@ -4498,12 +4519,10 @@ static int test_capture(void)
         bad += check("jam log: a row per change, repeats counted (1, 2 x2, 1)", jam.n == 3u && jam.pat[0][0] == 0u &&
                      jam.pat[1][0] == 1u && jam.rep[1] == 2u && jam.pat[2][0] == 0u);
         go_page(GR_SONG);
-        turn(EN_K4, 1);
-        press(B_OCTUP);
-        bad += check("SONG: KNOB 4 picks TAKE JAM, OCT+ makes it the song (empty song: no dialog)", chain_config.count == 3u &&
+        hold(B_REC);
+        bad += check("SONG: REC held takes the jam as the song (empty song: no dialog)", chain_config.count == 3u &&
                      chain_patterns[1][0] == 1u && chain_config.row[1].repeat == 2u && !ui.confirm);
-        turn(EN_K4, 1);
-        press(B_OCTUP);
+        hold(B_REC);
         bad += check("  over a song with rows: the dialog first", ui.confirm == CF_TAKE_JAM);
         press(B_OCTDN);
         go_home();
@@ -4683,6 +4702,7 @@ int main(void)
     bad += test_native_env_lfo();
     bad += test_step_sheets();
     bad += test_mod_rows();
+    bad += test_patterns_queue();
     bad += test_bughunt_ui();
     bad += test_bughunt_ui2();
     bad += test_piano_roll();
