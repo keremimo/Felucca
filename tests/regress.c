@@ -121,6 +121,7 @@ static void run_to(uint32_t f) { while (fpos < f) blk(); }
 #define FREE_LONG_S 90
 static const char *const LONG_TAIL[] = {"preset/CZ-1/47_BELLS", "preset/CZ-1/51_SITAR", "preset/CZ-1/62_JET_ROAR"};
 static uint32_t free_cap_s = FREE_CAP_S;         /* this job's (run_job_body) */
+static uint32_t tail_s = TAIL_S;                 /* .. its FX tail (a delay send's: job_sends) */
 static uint32_t release_cap(void) { return free_cap_s; }
 
 /* after the last note-off (rel_at): until the voices are free, then the FX tail */
@@ -131,10 +132,10 @@ static void finish(void)
     while (!parts_free() && fpos < cap)
         blk();
     R.free_s = parts_free() ? (double)(fpos - rel_at) / FS : -1;
-    tail_from = fpos + TAIL_S * FS - FS / 4u;
+    tail_from = fpos + tail_s * FS - FS / 4u;
     R.tmin = 0x7FFFFFFF;
     R.tmax = -0x7FFFFFFF;
-    run_to(fpos + TAIL_S * FS);
+    run_to(fpos + tail_s * FS);
     R.tail_peak = (R.tmax - R.tmin + 1) / 2;
     R.tail_dc = (R.tmax + R.tmin) / 2;
     R.frames = fpos;
@@ -212,6 +213,8 @@ static void job_sends(const job_t *j)           /* arg: 0 dry, 1 chorus, 2 delay
     t->p[P_AMODE] = 0;
     for (i = 0; i < 4u; i++)
         t->p[P_DIST + i] = S[j->arg][i];
+    if (S[j->arg][2])                          /* the delay's repeats (x0x's defaults: TAPE, FDBK 50) ring ~5 s */
+        tail_s = 7;
     phrase(t, 60);
 }
 
@@ -378,6 +381,7 @@ static int run_job_body(job_t *j)
 {
     memset(&R, 0, sizeof R);
     free_cap_s = FREE_CAP_S;
+    tail_s = TAIL_S;
     for (uint32_t i = 0; i < sizeof LONG_TAIL / sizeof LONG_TAIL[0]; i++)
         if (!strcmp(j->name, LONG_TAIL[i]))
             free_cap_s = FREE_LONG_S;

@@ -78,13 +78,14 @@ static void graph_dxenv(const uint8_t *r, const uint8_t *l, int pitch, uint16_t 
 
 static void graph_lfo(const track_t *t, uint16_t c)
 {
-    int32_t x, py = 50;
+    int32_t x, uni = t->p[P_LPOL] != 0, z = uni ? 88 : 50, py = z;   /* the zero line: POL UNI (LFO 2) draws 0..+1 over it */
     uint32_t ph = (uint32_t)t->p[P_LPHASE] << 25;
-    cv_rect(PANEL_X0, 50, PANEL_W, 1, T_RAISE);
+    cv_rect(PANEL_X0, z, PANEL_W, 1, T_RAISE);
     for (x = 0; x < PANEL_W; x++) {                  /* two cycles (lfo_wave only reads the track) */
-        int32_t y = 50 - lfo_wave((track_t *)t, ph + (uint32_t)x * (0xFFFFFFFFu / (PANEL_W / 2u))) * 38 / 32768;
+        int32_t w = lfo_wave((track_t *)t, ph + (uint32_t)x * (0xFFFFFFFFu / (PANEL_W / 2u))), y;
         if (t->p[P_LWAVE] == 4)
-            y = 50 - ((int32_t)((x / 20 * 2654435761u) >> 16) - 32768) * 38 / 32768;
+            w = (int32_t)((x / 20 * 2654435761u) >> 16) - 32768;
+        y = uni ? z - (w + 32768) * 38 / 32768 : 50 - w * 38 / 32768;
         if (x)
             cv_line_t(PANEL_X0 + x - 1, py, PANEL_X0 + x, y, c, 2);
         py = y;

@@ -323,8 +323,9 @@ grid lives in the steps themselves, so every engine has it:
   NENGINES, no presets (`UP_LOAD` / `UP_STORE` rc 1), its level the global `G_DRLVL`. Drums are now the
   SAMPLE engine's PERC set and the DRUM engine on any part: the first C key is the kick (C2 = 36), notes are GM numbers.
 - The globals `G_DRCH`, `G_DRLVL`, `G_DRREV` (ids 24..26: the old drum track's MIDI channel, level and
-  reverb send) keep their ids, and `G_COUNT` stays 27. `G_DRLVL` and `G_DRREV` are inert: `DESC` gives
-  label "-", range 0..0, and no page shows them. Id 24 (`G_DRCH`, never read since 1.0) is `G_RTYPE`
+  reverb send) keep their ids, and `G_COUNT` stays 27. Ids 25 and 26 are the delay's TYPE and WEAR now
+  (`G_DTYPE`, `G_DWEAR`, on the DLY 2 page); between 1.0 and the delay's return they were inert (`DESC`
+  label "-", range 0..0). Id 24 (`G_DRCH`, never read since 1.0) is `G_RTYPE`
   since 1.0: the reverb's model, `DESC` label "TYPE", enum ROOM (0) / SPRING (1), on the REVERB
   page (FX); projects of formats before FUN7 load it as ROOM. MIDI channel 10 is no longer special (channels 1..4 play
   tracks 1..4, every other channel the selected track; with ROUT SEL every channel the selected track).
@@ -772,10 +773,13 @@ group to manual step playback. Replies mask the internal recorded flag. Full run
 retain original timing and every bank. User-preset patterns carry the overview only. Capacity is 1024
 notes across the project; overflow reports RECORDING FULL without overwriting existing entries.
 
-The shared FX delay is retired. Track parameter 35 and global parameters 4..7 retain their
-original IDs and ranges but advertise `-` and have no effect. The device hides the old delay
-page; web editors hide it when the device advertises those retired descriptors. Modulation
-destination 8 and old delay-send automation remain inert. THROW feeds reverb only.
+0.12 retired the shared FX delay: track parameter 35 and global parameters 4..7 kept their IDs
+and ranges but advertised `-`. The delay is back (firmware/src/delay.c, fm1-x0x's tape delay): 35
+is DLY again, 4..7 are TIME (enum: the ten divisions, then `1/16.` `1/8.` `1/4.` `4T`), FDBK, TONE,
+MIX, and 25, 26 are TYPE (DIGI, TAPE, DG-PP, TP-PP) and WEAR; modulation destination 8 is DLY again
+and THROW feeds the delay and the reverb. Web editors hide the DLY / DLY 2 pages when a device
+advertises `-` there (firmware without the delay). Projects (formats before FUN16), templates and
+user presets saved before it load with their delay sends 0 (and their delay-send automation 0).
 
 ## Legacy owned FM6 presets and expanded user storage
 

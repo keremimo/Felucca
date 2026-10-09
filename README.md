@@ -148,10 +148,12 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Arpeggiator** with REPEAT and a beat LED, 16 scales with a white-key mode, glide,
   MONO / LEGATO / UNISON
 - **Modulation matrix:** 4 slots per track, MIDI controllers as sources
-- **Effects:** distortion and the SLICER per track; chorus and reverb sends (the reverb as
-  ROOM or SPRING); master limiter
-- **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze and a harmonizer
-  (OCT UP / OCT DN with shimmer), and mutes on the black keys
+- **Effects:** distortion and the SLICER per track; chorus, delay and reverb sends (the delay as
+  DIGI or TAPE, either ping-pong: fm1-x0x's tape delay; the reverb as ROOM, SPRING or HALL); master limiter
+- **FX layer:** hold FX for repeat, reverse, filter sweeps, tape stop, freeze, a harmonizer
+  (OCT UP / OCT DN with shimmer), flanger and phaser, and mutes on the black keys; any effect on any
+  white key (hold the key, turn PRESETS; EDIT restores it), MENU > FX LATCH toggles instead of holding;
+  double-tap a layer button to keep its layer open
 - **Quick layers:** hold FX, GLO, SCL or EDIT for shortcuts on the keys and knobs; one-step undo
   (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
 - **Presets:** factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
@@ -268,9 +270,12 @@ replaces that event. **RECORDING FULL** leaves existing recordings intact; clear
 recorded steps makes space for new takes. PHASE remains available. Notes held longer than 128
 nominal steps are capped at that duration.
 
-The shared FX delay is retired to free 128 KiB for recording and future capacity. Its old
-parameter IDs remain reserved, so existing projects, presets and automation can still load.
-THROW now feeds reverb. All synth engines, chorus, reverbs, SLICER and other live FX remain.
+0.12 retired the shared FX delay to free 128 KiB for recording. It is back as a port of
+[fm1-x0x](https://github.com/charlesvestal/fm1-x0x)'s tape delay (from
+[schwung-space-delay](https://github.com/charlesvestal/schwung-space-delay)) (FX > DLY: TIME, FDBK, TONE, MIX;
+DLY 2: TYPE DIGI / TAPE / DG-PP / TP-PP, WEAR), a 1.49 s line at 22.05 kHz borrowed only while it
+sounds. Projects, templates and presets saved before it load with their delay sends at 0, so nothing
+echoes until a track's DLY send is turned up. THROW feeds the delay and the reverb.
 Older 152-note recordings keep their original timing when loaded and saved in the expanded format.
 
 With **CLK TRS** or **CLK USB**, musical timing follows MIDI clock pulses directly, so tempo
@@ -451,6 +456,7 @@ You can leave a tip with [ko-fi](https://ko-fi.com/keremimo).
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
 - Native CZ engine: uPD933 model by Devin Acker in [MAME](https://github.com/mamedev/mame/blob/master/src/devices/sound/upd933.cpp) ([BSD-3-Clause](LICENSES/BSD-3-Clause-uPD933.txt))
 - PHYS engine: models ported from [DaisySP](https://github.com/electro-smith/DaisySP) by Electrosmith and Emilie Gillet ([MIT](LICENSES/MIT-DaisySP.txt)) and from Emilie Gillet's [eurorack](https://github.com/pichenettes/eurorack) code ([MIT](LICENSES/MIT-Rings.txt))
+- Delay: the tape delay of [schwung-space-delay](https://github.com/charlesvestal/schwung-space-delay) by Charles Vestal ([MIT](LICENSES/MIT-schwung-space-delay.txt)), by way of [fm1-x0x](https://github.com/charlesvestal/fm1-x0x) by Charles Vestal (GPL-3.0; its DIGI mode after [9W9](https://github.com/athousanddetails/schwung-9W9) by athousanddetails, GPL-3.0), in fixed point
 - FM6 engine: msfa from [Dexed](https://github.com/asb2m10/dexed) by Google Inc. and Pascal Gauthier ([Apache-2.0](LICENSES/Apache-2.0-msfa.txt))
 - Package format and boot files: [JieLi AC79 SDK](https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK) ([Apache-2.0](LICENSES/Apache-2.0.txt); three of its files are in every package, none in this tree)
 - Contributions: [keremimo](https://github.com/keremimo) (white-key scales, #2), [ChanceTheMaker](https://github.com/ChanceTheMaker)

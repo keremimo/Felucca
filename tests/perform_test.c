@@ -9,7 +9,7 @@
  * 3. a REPEAT too long for the loop (1/8 and REVERSE below 81 BPM) does nothing at all.
  * 4. the SLICER: its recordings are not used meanwhile and are dropped afterwards.
  * 5. the keys: a layer key plays nothing and sends no MIDI; a key held before FX stays a note; the white
- *    keys past the first 10 are the layer's too but do nothing.
+ *    keys past the first 12 (D5 .. G5, none in the default map) are the layer's too but do nothing.
  * 6. idle: nothing held, nothing ramping, the mix is bit-identical (and the goldens of regress.c too).
  * 7. no clicks, no overflow; the filters, the CRUSH and THROW macros and the mutes do what they say.
  * 8. cost: instructions per sample of the song, idle and with every effect at once (proc_pid_rusage).
@@ -23,6 +23,14 @@
  *    away after the input stops; KNOB 4 at 0 is plain (the delay holds only the input); the cost: over the
  *    idle song, and the harmonizer's own over REPEAT 1/16 alone (the layer's stage, which every effect of it
  *    pays): about 2 % at most (device estimate: 1.7 % per 100 instructions per sample).
+ * 10. FLANGER, PHASER (1.2): silence stays silence, a silent side silent; no DC (a zero-mean noise keeps its mean, DC
+ *    passes at unity) and about the input's level; bounded on 4x full-scale squares with LPF, HPF, REPEAT and CRUSH;
+ *    the sweep follows the tempo (a 441 Hz saw comes out the same a bar / half a bar later at 120 and 90 BPM, not
+ *    after 120's bar at 90); no click in or out, the live signal back bit for bit; stacked with REPEAT + LPF, let go:
+ *    those as alone, bit for bit; L and R apart; KNOB 4 at 0 %: live; the cost.
+ * 11. the key map (perform.c perf_map_of / perf_map_put, seq.c): 0 = the default; any effect or NONE on any key, the
+ *    others kept; the keys of a remapped layer; a key remapped while held takes its new effect; two keys with one
+ *    effect; FX LATCH follows a remap; the default map on the keys.
  * Demos (WAV) into DEMO_DIR; with a second directory, the harmonizer's (a melody with OCT UP, OCT DN, and
  * OCT UP with the shimmer) into it. */
 #define main hostsim_main
@@ -57,7 +65,9 @@ static void perf_reset(void)
     pf.lc = PF_TOP;
     pf.mg[0] = pf.mg[1] = pf.mg[2] = pf.mg[3] = 32768;
     perf_held = perf_act = 0;
+    perf_latched = 0;
     perf_kill = 0;
+    memcpy((void *)perf_map, PF_DEF, sizeof PF_DEF);
     memset((void *)perf_k, 0, sizeof perf_k);
     sl_lent = 0;
     memset(sl, 0, sizeof sl);
@@ -282,6 +292,10 @@ static void song_setup(void)
     memset(trk, 0, sizeof trk);
     host_tracks_init();
     perf_reset();
+    if (dly_buf)                                   /* the delay at rest (a THROW before rings on in it) */
+        resource_release(RES_DELAY);
+    dly_buf = 0;
+    memset(&dl, 0, sizeof dl);
     song.g[G_BPM] = 120;
     host_preset(t1, 0, 4);
     host_preset(t2, 1, 5);
@@ -388,7 +402,7 @@ static int test_keys(void)
     fm1_in.notes = 0;
     fm1_in.buttons = 0;
     keyboard_block();
-    {   /* the white keys past the first 10 (B4 on), and black keys past the mutes: the layer's, nothing */
+    {   /* the white keys past the first 12 (D5 on), and black keys past the mutes: the layer's, nothing */
         uint32_t q, ok = 1, assigned = 0;
         for (q = 0; q < 27u; q++)
             if (perf_key(q) < PF_N)
@@ -407,8 +421,8 @@ static int test_keys(void)
             ok &= !kb_layer && !perf_held && mo_w == mo0;
         }
         fm1_in.buttons = 0;
-        bad += check("the keys without an effect (6 white from B4, 7 black from D#4): silent, nothing held",
-                     ok && assigned == 0x15BFFu);   /* F3 .. A4 but D#4 F#4 G#4 */
+        bad += check("the keys without an effect (4 white from D5, 7 black from D#4): silent, nothing held",
+                     ok && assigned == 0xD5BFFu);   /* F3 .. C5 but D#4 F#4 G#4 A#4 */
         kb_mask = perf_mask = 0;
     }
     usb.config = 0;
@@ -529,8 +543,8 @@ static int test_misc(void)
         snprintf(what, sizeof what, "KNOB 1 FILTER all the way left: a 5 kHz sine down to %d", peak(out_l, 10000, 20000));
         bad += check(what, peak(out_l, 10000, 20000) < 3000);
     }
-    {   /* THROW (KNOB 3): the dry mix into the reverb send; mutes: a track ramps out */
-        static int32_t ml[CTL], mr[CTL], sr[CTL];
+    {   /* THROW (KNOB 3): the dry mix into the delay and reverb sends; mutes: a track ramps out */
+        static int32_t ml[CTL], mr[CTL], sd[CTL], sr[CTL];
         uint32_t i;
         host_tracks_init();
         perf_reset();
@@ -538,12 +552,12 @@ static int test_misc(void)
         perf_k[2] = 100;
         for (t = 0; t < 1024u; t += CTL) {
             for (i = 0; i < CTL; i++)
-                ml[i] = mr[i] = 8000, sr[i] = 0;
+                ml[i] = mr[i] = 8000, sd[i] = sr[i] = 0;
             if (perf_begin(CTL))
-                perf_pre(ml, mr, sr, CTL);
+                perf_pre(ml, mr, sd, sr, CTL);
         }
-        bad += check("KNOB 3 THROW at 100: the dry mix into reverb, full, the dry mix untouched",
-                     sr[CTL - 1] > 7900 && ml[CTL - 1] == 8000 && mr[CTL - 1] == 8000);
+        bad += check("KNOB 3 THROW at 100: the dry mix into both sends, full, the dry mix untouched",
+                     sd[CTL - 1] > 7900 && sr[CTL - 1] > 7900 && ml[CTL - 1] == 8000 && mr[CTL - 1] == 8000);
         perf_k[2] = 0;
     }
     {
@@ -700,6 +714,315 @@ static int test_harm(void)
     return bad;
 }
 
+/* ------------------------------------------------- 10. FLANGER, PHASER --- */
+static double mean_of(const int32_t *x, uint32_t a, uint32_t b)
+{
+    double m = 0;
+    uint32_t t;
+    for (t = a; t < b; t++)
+        m += x[t];
+    return m / (b - a);
+}
+static double rms_of(const int32_t *x, uint32_t a, uint32_t b)
+{
+    double m = 0;
+    uint32_t t;
+    for (t = a; t < b; t++)
+        m += (double)x[t] * x[t];
+    return sqrt(m / (b - a));
+}
+/* the largest |out[t] - out[t + d]| over [a, b), both sides: the output repeats after d samples */
+static int32_t period_err(uint32_t a, uint32_t b, uint32_t d)
+{
+    uint32_t t;
+    int32_t e = 0;
+    for (t = a; t < b; t++) {
+        int32_t x = abs(out_l[t] - out_l[t + d]), y = abs(out_r[t] - out_r[t + d]);
+        e = x > e ? x : e;
+        e = y > e ? y : e;
+    }
+    return e;
+}
+static int test_mod(void)
+{
+    static const struct { const char *name; int e; uint32_t s16; double dc; } M[] = {{"FLANGER", PF_FLG, 16, 1.275},
+                                                                                     {"PHASER", PF_PHS, 8, 1.2}};
+    static int32_t ref_l[NT], ref_r[NT];
+    int bad = 0;
+    char what[200];
+    uint32_t m, t;
+    int32_t own;
+    for (m = 0; m < 2u; m++) {
+        int e = M[m].e;
+        {   /* silence in: silence out; a silent side stays silent */
+            ev_t ev[] = {{992, e + 1}, {60000, -(e + 1)}};
+            test_signal(440, 0, 0, 0);
+            run(120, 1, ev, 2, 70000);
+            snprintf(what, sizeof what, "%s: silence in, silence out (exact)", M[m].name);
+            bad += check(what,
+                         !peak(out_l, 0, 70000) && !peak(out_r, 0, 70000) && busy_seen);
+            test_signal(440, 12000, 0, 0);
+            run(120, 1, ev, 2, 70000);
+            snprintf(what, sizeof what, "  a silent right side stays silent (L %d, R %d)", peak(out_l, 20000, 60000),
+                     peak(out_r, 0, 70000));
+            bad += check(what, !peak(out_r, 0, 70000) && peak(out_l, 20000, 60000) > 6000 && !same(2000, 60000));
+        }
+        {   /* no DC: a zero-mean mix stays zero-mean; its level about the input's (noise: the comb / notches average out) */
+            ev_t ev[] = {{0, e + 1}};
+            double dm, lv;
+            uint32_t r = 12345;
+            for (t = 0; t < NT; t++) {
+                r = r * 1103515245u + 12345u;
+                in_l[t] = (int32_t)((r >> 16) & 0x3FFF) - 8192;
+                r = r * 1103515245u + 12345u;
+                in_r[t] = (int32_t)((r >> 16) & 0x3FFF) - 8192;
+            }
+            {   /* (less its own mean over the part measured: |mean| < 0.5) */
+                int32_t ml = (int32_t)lrint(mean_of(in_l, FS, 4u * FS)), mr = (int32_t)lrint(mean_of(in_r, FS, 4u * FS));
+                for (t = 0; t < 4u * FS; t++) {
+                    in_l[t] -= ml;
+                    in_r[t] -= mr;
+                }
+            }
+            run(120, 1, ev, 1, 4u * FS);
+            dm = fmax(fabs(mean_of(out_l, FS, 4u * FS)), fabs(mean_of(out_r, FS, 4u * FS)));
+            lv = 20 * log10(rms_of(out_l, FS, 4u * FS) / rms_of(in_l, FS, 4u * FS));
+            snprintf(what, sizeof what, "  no DC: zero-mean noise (%.0f rms) in, the mean out %.2f; its level %+.1f dB",
+                     rms_of(in_l, FS, 4u * FS), dm, lv);
+            bad += check(what, dm < 4.0 && lv > -6 && lv < 1.5);
+            for (t = 0; t < NT; t++)
+                in_l[t] = in_r[t] = 8000;
+            run(120, 1, ev, 1, 2u * FS);
+            {
+                int32_t ml = (int32_t)lrint(mean_of(out_l, FS, 2u * FS)), mr = (int32_t)lrint(mean_of(out_r, FS, 2u * FS));
+                snprintf(what, sizeof what, "  DC through, steady, at the peaks' gain (%.3f): 8000 in, L %d R %d out", M[m].dc,
+                         ml, mr);
+                bad += check(what, fabs(ml - 8000 * M[m].dc) <= 80 && fabs(mr - 8000 * M[m].dc) <= 80 &&
+                                   peak(out_l, FS, 2u * FS) - abs(ml) <= 8);
+            }
+        }
+        {   /* bounded: 4x full-scale squares through it with LPF, HPF, REPEAT and CRUSH */
+            ev_t ev[] = {{0, PF_LPF + 1}, {0, PF_HPF + 1}, {0, PF_R16 + 1}, {0, e + 1}};
+            int32_t pk;
+            for (t = 0; t < NT; t++) {
+                in_l[t] = (t / 37u) & 1u ? 120000 : -120000;
+                in_r[t] = (t / 53u) & 1u ? 120000 : -120000;
+            }
+            run_crush = 100;
+            run(120, 1, ev, 4, 100000);
+            run_crush = 0;
+            pk = peak(out_l, 0, 100000) > peak(out_r, 0, 100000) ? peak(out_l, 0, 100000) : peak(out_r, 0, 100000);
+            snprintf(what, sizeof what, "  4x full scale with LPF + HPF + REPEAT + CRUSH: peak %d (no wrap)", pk);
+            bad += check(what, pk < 300000);
+        }
+        {   /* the sweep in time: a 16-sample pattern (a period that fits the sweep at both tempi) comes out the same a sweep
+             * later, at 120 and at 90 BPM; at 90 BPM not after 120's sweep, at 120 not after half of it */
+            static const uint32_t BPM[2] = {120, 90};
+            static const int16_t PAT[16] = {9000, -3000, 4000, 12000, -8000, 2000, -11000, 6000, 0, 7000, -5000, -12000,
+                                            3000, 10000, -6000, -8000};
+            uint32_t b;
+            ev_t ev[] = {{0, e + 1}};
+            for (t = 0; t < NT; t++)
+                in_l[t] = in_r[t] = PAT[t % 16u];
+            for (b = 0; b < 2u; b++) {
+                uint32_t per = M[m].s16 * (FS * 60u / BPM[b] / 4u), wrong = M[m].s16 * (FS * 60u / 120u / 4u);
+                int32_t ok_e, bad_e;
+                run(BPM[b], 1, ev, 1, 8192u + 2u * per);   /* (a sweep from 8192 on, against the next: within NT) */
+                ok_e = period_err(8192u, 8192u + per, per);
+                bad_e = period_err(8192u, 8192u + per, b ? wrong : per / 2u);
+                snprintf(what, sizeof what, "  %u BPM: the output repeats after %s (%u samples): error %d; after %s %d",
+                         BPM[b], m ? "1/2 bar" : "a bar", per, ok_e, b ? "120 BPM's" : "half of it", bad_e);
+                bad += check(what, ok_e <= 160 && bad_e > 1000);   /* (PHASER: its coefficients a block at a time) */
+            }
+        }
+        {   /* no click in or out (a 110 Hz sine); live again after the ramp, bit for bit */
+            ev_t ev[] = {{992, e + 1}, {40000, -(e + 1)}};
+            int32_t mx = 0;
+            test_signal(110, 16000, 110, 16000);
+            for (own = 0, t = 1; t < NT; t++)
+                own = abs(in_l[t] - in_l[t - 1]) > own ? abs(in_l[t] - in_l[t - 1]) : own;
+            run(133, 1, ev, 2, 49000);
+            for (t = 1; t < 49000u; t++) {
+                int32_t d = abs(out_l[t] - out_l[t - 1]);
+                d = abs(out_r[t] - out_r[t - 1]) > d ? abs(out_r[t] - out_r[t - 1]) : d;
+                mx = d > mx ? d : mx;
+            }
+            snprintf(what, sizeof what, "  no clicks on a 110 Hz sine, in and out: largest step %d (sine %d)", mx, own);
+            bad += check(what, mx <= 4 * own);
+            bad += check("  let go: the live signal again after the ramp, bit for bit; the stage off",
+                         same(40000 + 640, 49000) && !pf.busy && !pf.fw && !pf.pw && !pf.fn);
+        }
+        {   /* stacking: with REPEAT 1/16 and LPF held, let go of it: the rest as without it, bit for bit (after the ramp) */
+            ev_t ev[] = {{0, PF_R16 + 1}, {0, PF_LPF + 1}, {992, e + 1}, {30000, -(e + 1)}};
+            uint32_t diff = 0, during = 0;
+            test_signal(330, 12000, 220, 12000);
+            run(120, 1, ev, 2, 50000);                 /* REPEAT and LPF alone */
+            memcpy(ref_l, out_l, 50000u * 4u);
+            memcpy(ref_r, out_r, 50000u * 4u);
+            run(120, 1, ev, 4, 50000);
+            for (t = 0; t < 50000u; t++) {
+                if (t >= 30000u + 640u)
+                    diff += out_l[t] != ref_l[t] || out_r[t] != ref_r[t];
+                if (t >= 12000u && t < 30000u)
+                    during += out_l[t] != ref_l[t];
+            }
+            snprintf(what, sizeof what, "  with REPEAT 1/16 + LPF: it changes them (%u samples), let go they are as alone",
+                     during);
+            bad += check(what, during > 10000u && !diff && (perf_act & PF_BIT(PF_R16)));
+        }
+    }
+    {   /* both at once with HPF: bounded and both running; the right side a quarter sweep behind (L != R) */
+        ev_t ev[] = {{0, PF_FLG + 1}, {0, PF_PHS + 1}, {0, PF_HPF + 1}};
+        uint32_t lr = 0;
+        test_signal(330, 12000, 330, 12000);
+        for (t = 0; t < NT; t++)
+            in_r[t] = in_l[t];
+        run(120, 1, ev, 3, 80000);
+        for (t = 20000; t < 80000u; t++)
+            lr += out_l[t] != out_r[t];
+        snprintf(what, sizeof what, "FLANGER + PHASER + HPF: the same input both sides, L and R apart (%u samples), peak %d", lr,
+                 peak(out_l, 0, 80000));
+        bad += check(what, lr > 50000u && peak(out_l, 0, 80000) < 40000 && pf.fw == 32768 && pf.pw == 32768);
+    }
+    {   /* KNOB 4 DEPTH: their level (0 % = the live signal) */
+        ev_t ev[] = {{0, PF_FLG + 1}, {0, PF_PHS + 1}};
+        test_signal(330, 12000, 220, 12000);
+        run_k4 = 100;
+        run(120, 1, ev, 2, 20000);
+        run_k4 = 0;
+        {
+            int32_t d = 0;
+            for (t = 0; t < 20000u; t++)
+                d = abs(out_l[t] - in_l[t]) > d ? abs(out_l[t] - in_l[t]) : d;
+            snprintf(what, sizeof what, "KNOB 4 DEPTH 0 %%: FLANGER and PHASER held, the live signal (within %d of 12000)", d);
+            bad += check(what, d <= 120);                /* (as the buffer effects: 0 % is 68 / 32768 of the effect) */
+        }
+    }
+    return bad;
+}
+
+/* ------------------------------------------------- 11. the key map --- */
+static int test_map(void)
+{
+    int bad = 0, ok = 1;
+    uint8_t b[16];
+    uint32_t p, e, q;
+    char what[160];
+    memset(b, 0, sizeof b);
+    for (p = 0; p < PF_KEYS; p++)                       /* all 0 (every setting before 1.2): the default */
+        ok &= perf_map_of(b, p) == PF_DEF[p];
+    bad += check("map: settings of 0 (before 1.2) read as the default (1.1.5's ten, FLANGER, PHASER, 4 none)",
+                 ok && PF_DEF[10] == PF_FLG && PF_DEF[11] == PF_PHS && PF_DEF[12] == PF_N && PF_DEF[0] == PF_R8);
+    ok = 1;
+    for (p = 0; p < PF_KEYS; p++)                       /* any effect (or none) on any key, the others untouched */
+        for (e = 0; e <= PF_NFX; e++) {
+            uint32_t ee = e < PF_NFX ? e : PF_N;
+            memset(b, 0, sizeof b);
+            for (q = 0; q < PF_KEYS; q++)
+                perf_map_put(b, q, (q * 5u + 3u) % (PF_NFX + 1u) < PF_NFX ? (q * 5u + 3u) % (PF_NFX + 1u) : PF_N);
+            perf_map_put(b, p, ee);
+            ok &= perf_map_of(b, p) == ee && !b[10] && !b[11];
+            for (q = 0; q < PF_KEYS; q++)
+                if (q != p)
+                    ok &= perf_map_of(b, q) == ((q * 5u + 3u) % (PF_NFX + 1u) < PF_NFX ? (q * 5u + 3u) % (PF_NFX + 1u) : PF_N);
+        }
+    memset(b, 0, sizeof b);
+    for (p = 0; p < PF_KEYS; p++) {                     /* each key's default back: 0 again */
+        perf_map_put(b, p, PF_FLG);
+        perf_map_put(b, p, PF_DEF[p]);
+    }
+    for (p = 0; p < 10u; p++)
+        ok &= !b[p];
+    b[0] = 31;                                          /* an unknown code (a later firmware's effect): the default */
+    ok &= perf_map_of(b, 0) == PF_DEF[0];
+    bad += check("map: any effect or NONE on any of the 16 keys, the others kept, 10 bytes; the default stores 0", ok);
+    {   /* the keys: a rotated map, each white key holds its effect; NONE holds nothing */
+        uint32_t fx = 1u << 3, k, white = 0;
+        song_setup();
+        kb_mask = perf_mask = fx;
+        ok = 1;
+        for (p = 0; p < PF_KEYS; p++)
+            perf_map[p] = (uint8_t)(p < PF_NFX ? PF_NFX - 1u - p : PF_N);
+        for (k = 0; k < 27u; k++) {
+            if (key_black(k))
+                continue;
+            p = key_place(k);
+            fm1_in.buttons = fx;
+            fm1_in.notes = 1u << k;
+            keyboard_block();
+            ok &= p < PF_NFX ? perf_held == PF_BIT(PF_NFX - 1u - p) : !perf_held;
+            fm1_in.notes = 0;
+            keyboard_block();
+            ok &= !perf_held && !kb_layer;
+            white++;
+        }
+        bad += check("keys: a remapped layer (white key p holds effect 11 - p, the last 4 none), all 16 white keys", ok && white == 16u);
+        /* remapped while held: the key takes the new effect at once, the old one let go */
+        fm1_in.notes = 1u << 0;                         /* F3 */
+        keyboard_block();
+        ok = perf_held == PF_BIT(perf_map[0]);
+        perf_map[0] = PF_PHS;
+        perf_remap = 1;
+        keyboard_block();
+        ok &= perf_held == PF_BIT(PF_PHS) && !perf_remap;
+        perf_map[0] = PF_N;                             /* .. to NONE: nothing held, the key still the layer's */
+        perf_remap = 1;
+        keyboard_block();
+        ok &= !perf_held && (kb_layer & 1u);
+        fm1_in.notes = 0;
+        keyboard_block();
+        ok &= !perf_held && !kb_layer;
+        bad += check("  a key remapped while held: its new effect at once (PHASER), then NONE: nothing; let go: clean", ok);
+        /* two keys the same effect: it ends with the last let go */
+        perf_map[0] = perf_map[1] = PF_LPF;
+        fm1_in.notes = 1u << 0 | 1u << 2;               /* F3, G3 */
+        keyboard_block();
+        ok = perf_held == PF_BIT(PF_LPF);
+        fm1_in.notes = 1u << 2;
+        keyboard_block();
+        ok &= perf_held == PF_BIT(PF_LPF);
+        fm1_in.notes = 0;
+        keyboard_block();
+        ok &= !perf_held;
+        bad += check("  two keys with LPF: it holds until the last of them is let go", ok);
+        /* FX LATCH: a latched effect follows its key's new mapping */
+        perf_latch_on = 1;
+        perf_map[0] = PF_LPF;
+        fm1_in.notes = 1u << 0;
+        keyboard_block();
+        ok = perf_latched == PF_BIT(PF_LPF);
+        perf_map[0] = PF_FLG;
+        perf_remap = 1;
+        keyboard_block();
+        ok &= perf_latched == PF_BIT(PF_FLG) && !perf_held;
+        fm1_in.notes = 0;
+        keyboard_block();
+        ok &= perf_latched == PF_BIT(PF_FLG);
+        fm1_in.notes = 1u << 0;
+        keyboard_block();
+        ok &= !perf_latched;
+        fm1_in.notes = 0;
+        keyboard_block();
+        perf_latch_on = 0;
+        bad += check("  FX LATCH: the key's latched LPF becomes FLANGER as it is remapped; pressed again: off", ok);
+        for (p = 0; p < PF_KEYS; p++)
+            perf_map[p] = PF_DEF[p];
+        fm1_in.buttons = 0;
+        kb_mask = perf_mask = 0;
+    }
+    snprintf(what, sizeof what, "map: the default map on the keys: F3 .. A4 as 1.1.5, B4 FLANGER, C5 PHASER");
+    {
+        uint32_t k;
+        ok = 1;
+        for (k = 0; k < 27u; k++)
+            if (!key_black(k))
+                ok &= perf_key(k) == (key_place(k) < PF_KEYS ? PF_DEF[key_place(k)] : PF_N);
+        ok &= perf_key(18) == PF_FLG && perf_key(19) == PF_PHS && perf_key(16) == PF_ODN;
+    }
+    bad += check(what, ok);
+    return bad;
+}
+
 /* -------------------------------------------------------------- 8. cost --- */
 static uint64_t instr_now(void)
 {
@@ -850,6 +1173,8 @@ int main(int argc, char **argv)
     bad += test_idle();
     bad += test_misc();
     bad += test_harm();
+    bad += test_mod();
+    bad += test_map();
     bad += test_cost();
     if (argc > 1)
         demos(argv[1]);

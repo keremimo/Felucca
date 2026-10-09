@@ -780,8 +780,9 @@ static void draw_columns(void)
         } else {
             param_format(d, *vp, val, &unit);
         }
-        draw_column(c, d->label, val, unit, cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
-                    !cz_ed_active(cz_patch[song.sel % NTRK].raw, cur_page()->id[c]) ? T_DIM : VAL(c),
+        draw_column(c, d->label, val, unit, (cur_page()->scope == SC_CZ1 &&   /* CZ-1: no effect on the tone as it is */
+                    !cz_ed_active(cz_patch[song.sel % NTRK].raw, cur_page()->id[c])) ||
+                    (vp == &TSEL->p[P_LRATE] && TSEL->p[P_LSYNC]) ? T_DIM : VAL(c),   /* LFO 2 SYNC on: RATE does nothing */
                     d->fmt == F_ENUM && d->max < 2 ? -1 : RATIO(d, *vp), param_icon(d, *vp));
     }
 }
@@ -808,6 +809,7 @@ static void draw_uboot(void)
         lcd_sync();
     }
     ui.force = 0;
+    scr_shown();
 }
 
 /* the OCT- / OCT+ dialog: what it does (ui.confirm, ui.confirm_trk) on two lines, on a surface */
@@ -898,6 +900,7 @@ static void draw_confirm(void)
 
 static void ui_draw(void)
 {
+    if (!scr_frame()) return;
     ui.frame++;
     if(seq_counting()) { char text[24]="COUNT IN ";fmt_int(text+9,(int32_t)cin_left);
         ui_message(text); }
@@ -968,4 +971,5 @@ static void ui_draw(void)
     melodee_dbg.stage = 6;
     draw_foot();
     ui.force = 0;
+    scr_shown();
 }

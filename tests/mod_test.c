@@ -83,6 +83,8 @@ static void fresh(uint32_t e, uint32_t pi)        /* the boot state (no FX tails
     reverb_prepare(); memset(rev_comb, 0, REV_COMB_LEN * sizeof(int16_t));
     memset(rev_ap, 0, sizeof rev_ap);
     memset(&fx, 0, sizeof fx);
+    if (dly_buf) resource_release(RES_DELAY);
+    dly_buf = 0; memset(&dl, 0, sizeof dl);   /* (the delay at rest) */
     lim_env = LIM_T;
     memset(trk, 0, sizeof trk);
     memset(&mod, 0, sizeof mod);
@@ -347,7 +349,7 @@ static void test_math(void)
     slot(t, 0, MS_KEY, MD_DLY, 63);
     t->p[P_DLY] = 64;
     mod_begin(t);
-    check("retired DLY destination stays inert when loading old modulation", !mod.on && t->p[P_DLY] == 64);
+    check("KEY -> DLY: the latest note (E4: +4 semitones)", t->p[P_DLY] == 64 + ((((4 * 512) * 63) >> 6) * 127 >> 15));
     mod_end(t);
     slot(t, 0, MS_ENV, MD_PAN, 63);
     blocks(FS / 10u / CTL);

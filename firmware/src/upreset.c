@@ -102,7 +102,7 @@ static int up_cz_raw(const up_rec_t *r,uint8_t *raw)
 static int up_bank_shape(uint32_t len,uint32_t rsize){return (len==sizeof(up_bank_t) && rsize==sizeof(up_rec_t)) || (len==UP_BANK_LEGACY_SIZE && rsize==192u);}
 static int up_valid(const up_rec_t *r)
 {
-    if (r->used == UP_USED && (up_native_cz(r) || up_legacy_cz(r))) { uint8_t raw[CZ_BYTES];return (up_legacy_cz(r)?r->np==92u:(r->np==92u || r->np==P_COUNT)) && r->name[0] && up_cz_raw(r,raw); }
+    if (r->used == UP_USED && (up_native_cz(r) || up_legacy_cz(r))) { uint8_t raw[CZ_BYTES];return (up_legacy_cz(r)?r->np==92u:(r->np==92u || r->np==100u || r->np==P_COUNT)) && r->name[0] && up_cz_raw(r,raw); }
     if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < USER_GENERAL &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
     /* Pre-1.0 Melodee reused UPB1/version 1, but its MPC/chord ids and engine 9 mean different things.
@@ -302,6 +302,8 @@ static void up_values(const up_rec_t *r, int16_t *v)   /* mapped and clamped for
     for (i = 0; i < P_COUNT; i++)
         def[i] = param_desc_of(up_native_cz(r)||up_legacy_cz(r)?ENGI_CZ:r->engine, i)->def;
     up_params(r, v, def);
+    if (r->np < P_COUNT)                          /* (before the delay came back: its send inert, so none) */
+        v[P_DLY] = 0;
     if (r->ver == 1u && r->engine == ENGI_PHYS)   /* (before 1.0: MODEL 2 was DUST) */
         phys_legacy(&v[P_E0]);
     for (i = 0; i < P_COUNT; i++)

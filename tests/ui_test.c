@@ -172,6 +172,7 @@ static void frame(void)
 }
 static void press(uint32_t label)                 /* a tap: down, a frame, up, a frame */
 {
+    fm1_ms += 320u; /* Separate navigation taps; dedicated tests exercise double-taps. */
     fm1_in.buttons |= 1u << panel.btn[label];
     host_pressed |= 1u << panel.btn[label];
     frame();
@@ -181,6 +182,7 @@ static void press(uint32_t label)                 /* a tap: down, a frame, up, a
 static void hold(uint32_t label)                  /* held 0.8 s, then let go */
 {
     uint32_t k;
+    fm1_ms += 320u; /* Separate navigation taps; dedicated tests exercise double-taps. */
     fm1_in.buttons |= 1u << panel.btn[label];
     host_pressed |= 1u << panel.btn[label];
     for (k = 0; k < 52u; k++)
@@ -1876,9 +1878,9 @@ static int test_layer(void)
     key_up(white(8)); key_down(white(9)); frame();
     ok &= perf_held == PF_BIT(PF_ODN) && !gates() && mo_w == mo;
     key_up(white(9)); key_down(white(10)); frame();
-    ok &= !perf_held && (kb_layer >> white(10)) & 1u && !gates();
+    ok &= perf_held == PF_BIT(PF_FLG) && (kb_layer >> white(10)) & 1u && !gates();
     key_up(white(10)); btn_up(B_FX); frame();
-    bad += check("FX + G4 / A4: OCT UP / OCT DN held, silent, no MIDI; KNOB 4 turns; B4 nothing; FX let go: K4 back to 0",
+    bad += check("FX + G4 / A4: OCT UP / OCT DN held, silent, no MIDI; KNOB 4 turns; B4 FLANGER; FX let go: K4 back to 0",
                  ok && !perf_held && !ui.layer && !perf_k[3] && mo_w == mo);
     /* REVERB > TYPE (FX family, global): ROOM / SPRING on KNOB 1, kept by a project */
     ui_power_on();
@@ -1888,7 +1890,8 @@ static int test_layer(void)
     turn(EN_K1, 1);
     ok &= song.g[G_RTYPE] == 1 && str_eq(GP[G_RTYPE].names[song.g[G_RTYPE]], "SPRING");
     turn(EN_K1, 5);
-    ok &= song.g[G_RTYPE] == 1;
+    ok &= song.g[G_RTYPE] == 2;
+    turn(EN_K1, -1);
     song.playing = 0;
     project_save(2);
     turn(EN_K1, -1);
@@ -1998,9 +2001,9 @@ static int test_layer(void)
         fm1_ms = 250; b2 = layer_leds();
         k = white(1);
         ok = ((a >> k) & 1u) && ((b2 >> k) & 1u);                    /* held: lit */
-        for (i = 0; i < 10u; i++)                                     /* the other effects (F3 .. A4): blink */
+        for (i = 0; i < PF_NFX; i++)                                     /* the other effects (F3 .. A4): blink */
             ok &= i == 1u || ((a ^ b2) >> white(i)) & 1u;
-        for (i = 10; i < 16u; i++)                                    /* B4 .. G5: no effect, dark */
+        for (i = PF_NFX; i < PF_KEYS; i++)                                    /* B4 .. G5: no effect, dark */
             ok &= !((a | b2) >> white(i) & 1u);
         ok &= ((a ^ b2) >> key_at(1, 0)) & 1u && !((a | b2) >> key_at(1, 4) & 1u);   /* a mute blinks, a spare black dark */
         song.g[G_BPM] = 72;
@@ -2011,7 +2014,7 @@ static int test_layer(void)
         song.g[G_BPM] = 120;
     }
     key_up(white(1)); btn_up(B_FX); frame();
-    bad += check("map LEDs: held lit, the 10 effects blink, B4 .. G5 and a too-long REPEAT dark", ok);
+    bad += check("map LEDs: held lit, the 12 effects blink, D5 .. G5 and a too-long REPEAT dark", ok);
     usb.config = 0;
     return bad;
 }
@@ -2249,7 +2252,7 @@ static int test_cz1_pages(void)
         "C2 PIT R1-4", "C2 PIT R5-8", "C2 PIT L1-4", "C2 PIT L5-8", "C2 PIT POINT",
         "C2 WAV R1-4", "C2 WAV R5-8", "C2 WAV L1-4", "C2 WAV L5-8", "C2 WAV POINT",
         "C2 AMP R1-4", "C2 AMP R5-8", "C2 AMP L1-4", "C2 AMP L5-8", "C2 AMP POINT",
-        "VOICE", "VOICE 2", "CZ TOOLS"};
+        "VOICE", "VOICE 2", "VOICE 3", "CZ TOOLS"};
     uint8_t p[LCZ_PACKED], q[LCZ_PACKED], raw[CZ_BYTES], before[CZ_BYTES];
     uint32_t tr, id, v, i, ok = 1, sane = 1, kept = 1;
     int bad = 0;
@@ -2395,12 +2398,12 @@ static int test_cz1_factory(void)
 
 static int test_edit_cycle(void)
 {
-    static const char *const CYC_A[] = {"EDIT 1", "EDIT 2", "VOICE", "VOICE 2", "EDIT 1"};
+    static const char *const CYC_A[] = {"EDIT 1", "EDIT 2", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
     static const char *const CYC_F[] = {"EDIT 1", "EDIT 2", "STORE", "ALGO", "FREQ", "OUT", "EG RATE", "EG LVL", "SCALE",
                                         "CURVE", "PITCH EG", "PITCH LV", "FM LFO", "FM LFO 2", "FM BEND", "FM PORTA",
-                                        "FM WH/FT", "FM BR/AT", "VOICE", "VOICE 2", "EDIT 1"};
+                                        "FM WH/FT", "FM BR/AT", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
     static const char *const CYC_D[] = {"EDIT 1", "EDIT 2", "OP1 ENV", "OP2 ENV", "OP3 ENV", "OP4 ENV",
-                                        "OP LEVEL", "VOICE", "VOICE 2", "EDIT 1"};
+                                        "OP LEVEL", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
     int bad = 0, ok;
     uint32_t i;
     ui_power_on();
@@ -2418,7 +2421,7 @@ static int test_edit_cycle(void)
     bad += check("PHASE LINK keeps the compact EDIT cycle", engine_cycle(CYC_A, NELEM(CYC_A)));
     TSEL->p[P_E7] = 1;
     static const char *const CYC_CZ[] = {"EDIT 1", "EDIT 2", "DCW1 ENV", "DCW2 ENV", "DCA2 ENV", "DCO ENV",
-        "CZ LEVEL", "VOICE", "VOICE 2", "EDIT 1"};
+        "CZ LEVEL", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
     bad += check("PHASE SPLIT exposes native envelope pages", engine_cycle(CYC_CZ, NELEM(CYC_CZ)));
     go_title("DCW1 ENV"); TSEL->p[P_FM1_ATK] = 0; turn(EN_K1, 1);
     bad += check("PHASE DCW1 knob edits its saved parameter", TSEL->p[P_FM1_ATK] > 0);
@@ -2833,7 +2836,7 @@ static void host_slot_make(uint32_t k)                /* USR k + 1: 2 s at 22.05
 }
 static int test_slices(void)
 {
-    static const char *const CYC_S[] = {"EDIT 1", "EDIT 2", "SLICES", "VOICE", "VOICE 2", "EDIT 1"};
+    static const char *const CYC_S[] = {"EDIT 1", "EDIT 2", "SLICES", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
     int bad = 0, ok;
     uint32_t n, j, p0, k, note;
     ui_power_on();

@@ -92,6 +92,7 @@ enum {                          /* per-track parameters */
     P_CHRD, P_VOIC,                            /* chord keys (chord.c): one key plays a chord; its voicing */
     P_MPCDEG,                                  /* QNT MPC: the scale degree MPC pad H02 plays, 1 = the root */
     P_LN0, P_LN1, P_LN2, P_LN3, P_LN4, P_LN5, P_LN6, P_LN7, /* DRUM lane levels, 127 = original gain */
+    P_LSYNC, P_LTRIG, P_LPOL, P_SPRD, /* Felucca 1.4 common LFO controls and stereo spread */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -108,14 +109,18 @@ enum {                          /* global parameters */
     G_ENGSEL, G_A4,            /* the editor switches the engine with a SET of G_ENGSEL; G_A4 reuses the unused
                                  * G_ENGGO id, reads tuning_a4 instead of song.g (ids/count stay fixed) */
     G_CLRSEQ, G_INITSND,
-    G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING (fx.c). Was G_DRCH, the GM drum part's MIDI
+    G_RTYPE,                    /* REVERB TYPE: 0 ROOM, 1 SPRING, 2 HALL (fx.c). Was G_DRCH, the GM drum part's MIDI
                                  * channel (inert since 1.0, never read); projects of formats before FUN7 load it
                                  * as ROOM (project.c proj_rtype_room) */
-    G_DRLVL, G_DRREV,           /* inert (label "-", on no page): the GM drum part they set is gone; kept
-                                 * because the ids and G_COUNT are fixed by the formats and the protocol (only
-                                 * the import of an old project reads them: proj_drums_to_part) */
+    G_DTYPE, G_DWEAR,           /* DELAY TYPE (DIGI, TAPE, DG-PP, TP-PP) and WEAR (delay.c, x0x's tape delay).
+                                 * Were G_DRLVL / G_DRREV, the GM drum part's level and reverb send (inert since
+                                 * 1.0): ids and G_COUNT are fixed by the formats and the protocol; a project from
+                                 * before 1.0 still gives them to its drum part (project.c proj_drums_to_part), any
+                                 * project from before the delay came back their defaults (proj_delay_off) */
     G_COUNT
 };
+#define G_DRLVL G_DTYPE         /* (their meaning in a project from before 1.0: proj_drums_to_part) */
+#define G_DRREV G_DWEAR
 
 /* stored parameters of an older layout -> today's P_* order. A store keeps np = the P_COUNT it was
  * written with; common parameters are only ever added just before P_E0, so the first np - 8 are
@@ -150,6 +155,7 @@ static int drum_from_phys(uint32_t engine, int16_t *e)
 enum { V_POLY, V_MONO, V_LEGATO, V_UNISON };   /* P_VOICE */
 enum { Q_OFF, Q_SNAP, Q_WHITE, Q_ALL, Q_MPC };  /* P_QUANT (seq.c kb_map, midi_map); 1 = SNAP, the former ON */
 typedef struct {
+    uint8_t side; /* stereo spread side, retained while sounding */
     uint8_t note, vel, gate, active;
     uint8_t stage;               /* env: 0 off, 1 attack, 2 decay/sustain, 3 release */
     int32_t env;                 /* Q24 */
@@ -296,6 +302,8 @@ typedef struct track {
     int32_t lfo_val;             /* Q15 */
     int32_t lfo_fade;            /* Q15 ramp after note-on */
     uint32_t lfo_rnd;
+    int16_t lfo_prev;
+    uint8_t sp_alt;
     /* keyboard / arp input: held notes in press order */
     uint8_t held[16];
     uint8_t nheld;

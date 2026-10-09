@@ -61,6 +61,7 @@ static void setup_case(uint32_t alg, uint32_t eng, uint32_t voices)
     memset(&fx, 0, sizeof fx);
     memset(resource, 0, sizeof resource);
     cho_buf = rev_comb = 0; rev_memory = 0;
+    dly_buf = 0; memset(&dl, 0, sizeof dl);           /* (the delay: no line, every state at rest) */
     cho_idle = rev_scan = 0; rev_hold_dc = 0;
     memset(rev_hold_comb, 0, sizeof rev_hold_comb);
     memset(rev_hold_ap, 0, sizeof rev_hold_ap);
