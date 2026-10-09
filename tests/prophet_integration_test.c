@@ -34,7 +34,7 @@ int main(int argc,char **argv)
     static project_t saved,readback;static project_store_t wire;project_capture(&saved);
     bad+=check("project embeds the complete native record without a user-slot dependency",proj_pack(&wire,&saved)&&proj_import(&readback,&wire,sizeof wire)&&!memcmp(&readback.p5[0],&p,sizeof p));
     bad+=check("project restore returns native bytes after changing the current patch",(p5_patch[0].raw[97]=0,!project_restore_runtime(&readback)&&!memcmp(p5_patch_of(t),&p,sizeof p)));
-    undo.keep=0;load_begin(t,UNDO_SOUND);q=p;q.raw[97]^=255;p5_patch[0]=q;load_end(t);undo_swap();bad+=check("sound undo restores opaque Prophet bytes",!memcmp(p5_patch_of(t),&p,sizeof p));undo_swap();bad+=check("sound redo restores the second complete Prophet program",!memcmp(p5_patch_of(t),&q,sizeof q));
+    undo.keep=0;load_begin(t,UNDO_SOUND);q=p;q.raw[97]^=255;p5_patch[0]=q;load_end(t);undo_swap();bad+=check("sound undo restores opaque Prophet bytes",!memcmp(p5_patch_of(t),&p,sizeof p));undo_step(1);bad+=check("sound redo restores the second complete Prophet program",!memcmp(p5_patch_of(t),&q,sizeof q));
     bad+=check("erasing P128 clears its star and track origin",!native_put(ENGI_PROPHET,127,0)&&!favorite_has(USER_NATIVE_P5,127)&&!t->user);
     host_preset(t,ENGI_PROPHET,0);p5_patch_t *live=p5_patch_of(t);live->raw[P5_UNISON]=1;live->raw[P5_UNISON_COUNT]=5;p5_track_accept(t);trk_note_on(t,60,100);
     bad+=check("native unison allocates five voices within the shared budget",p5_active(t)==5&&voices_busy()<=VBUDGET);panic_req|=1u;events_block(CTL);

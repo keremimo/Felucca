@@ -398,7 +398,7 @@ static void eng(uint32_t e) { set_engine_of(TSEL, e); }
  * OP LEVEL pages and the algorithm charts, exist only there: fm4_screen) */
 #define E_FM (MELODEE_FM4 ? ENGI_DIGITAL : ENGI_FM6)
 
-enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_USER, S_PHRASES, S_PROJECT, S_PROJECT_BOOT, S_TEMPO, S_TOOLS,
+enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_PRESETS_CAT, S_PRESETS_PENDING, S_PRESETS_RECENT, S_USER, S_PHRASES, S_PROJECT, S_PROJECT_BOOT, S_TEMPO, S_TOOLS,
        S_SONG_EMPTY, S_SONG, S_STEP, S_PATTERN, S_CHANCE, S_MOTION, S_DRUM, S_MIXER, S_MIXER_PAN,
        S_ENV, S_ENVDEST, S_LFO, S_MOD, S_FX, S_SLICER, S_DLY, S_SCL, S_CHORD, S_CHORD_WIDE, S_CHORD_OFF, S_CHORD_KIT, S_ARP, S_VOICE, S_GLOBAL, S_SYSTEM,
        S_EDIT_ANALOG, S_EDIT_DIGITAL, S_OP_ENV, S_EDIT_WHEEL, S_EDIT_PHYS,
@@ -416,8 +416,9 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
 #endif
        S_ROLL_EMPTY, S_ROLL_ACID, S_ROLL_CHORDS, S_ROLL_TIES, S_ROLL_LEN32, S_ROLL_HIGH, S_ROLL_LOW, S_ROLL_WIDE, S_ROLL_PLAYING,
        S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_NATIVE_FM_USER, S_NATIVE_CZ_USER,
-       S_NOTES_SLIDE, S_NOTES_MIXED, S_NOTES_CHORD, S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_NOTES_REC, S_NOTES_ERASE, S_NOTES_DRUM_REC, S_NOTES_DRUM_ERASE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_MENU_CLICK, S_MENU_CLICK_LEVEL, S_MENU_COUNTIN, S_MENU_PREVIEW, S_MENU_ADD, S_DRUM_SOUND_808, S_DRUM_SOUND_909, S_DRUM_MIX_909, S_DRUM_HIT_909, S_DRUM_HIT_FREE, S_DRUM_HIT_LONG, S_COUNT };
-static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "user",
+       S_NOTES_SLIDE, S_NOTES_MIXED, S_NOTES_CHORD, S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_NOTES_REC, S_NOTES_ERASE, S_NOTES_DRUM_REC, S_NOTES_DRUM_ERASE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_MENU_CLICK, S_MENU_CLICK_LEVEL, S_MENU_COUNTIN, S_MENU_PREVIEW, S_MENU_ADD, S_DRUM_SOUND_808, S_DRUM_SOUND_909, S_DRUM_MIX_909, S_DRUM_HIT_909, S_DRUM_HIT_FREE, S_DRUM_HIT_LONG,
+       S_STAGE_DRUM, S_STAGE_CZ, S_STAGE_P5, S_STAGE_QUEUED, S_STAGE_BROWSE, S_STAGE_STOPPED, S_STAGE_FILTER, S_STAGE_ENV, S_PATGRID, S_PATGRID_STOPPED, S_PROJECT_NEW, S_NEW_KEY, S_NEW_ROLES, S_COUNT };
+static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "phrases", "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
     "voice", "global", "system", "edit_analog", MELODEE_FM4 ? "edit_digital" : "edit_fm6", "op_env", "edit_wheel",
@@ -434,7 +435,8 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
 #endif
     "roll_empty", "roll_acid", "roll_chords", "roll_ties", "roll_len32_p2", "roll_high", "roll_low", "roll_wide", "roll_playing",
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
-    "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long"};
+    "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long",
+    "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "stage_env", "patterns", "patterns_stopped", "project_new", "new_key", "new_roles"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -610,6 +612,13 @@ static void setup(int s)
     case S_MESSAGE_KEY: ui_message("[SAVE] HOLD TO UNDO"); break;            /* a message with a keycap */
     case S_PRESETS: favorite_set(0, 4, 1); favorite_set(0, 5, 1); go_page(GR_BROWSE); break;
     case S_PRESETS_NOFAV: favorites.filter = 1; go_page(GR_BROWSE); break;
+    case S_PRESETS_CAT: list_set(LM_CAT + 5u); eng(ENGI_PROPHET); go_page(GR_BROWSE); break;   /* STRING */
+    case S_PRESETS_PENDING: {                                               /* a fast turn, still moving */
+        uint32_t total;
+        eng(ENGI_CZ); go_page(GR_BROWSE); brw.on = 1; brw.trk = song.sel; brw.mode = (uint8_t)list_mode();
+        brw.n = (uint16_t)(list_cur(&total) + 9u); brw.t = fm1_ms; break;
+    }
+    case S_PRESETS_RECENT: list_set(LM_RECENT); go_page(GR_BROWSE); break;
     case S_USER: song.playing = 0; up_store(3, "MY LONG BASS NAME"); up_store(4, "PAD"); ui.uslot = 3; go_page(GR_USER); break;
     case S_PHRASES: go_page(GR_PATS); break;
     case S_PROJECT: song.playing = 0; project_save(1); song.g[G_SLOT] = 2; go_page(GR_SLOTS); ui.act = 4; break;
@@ -678,6 +687,63 @@ static void setup(int s)
         break;
     }
     case S_STEP: song.rec = 1; go_page(GR_ROLL); ui.cursor = 6; break;
+    /* Stage: the drum track selected, three lanes just hit; CZ-1's and PROPHET's own knobs (CZ-1's KNOB 3 just
+     * turned); track 2 waiting for pattern 3 (blinking: drawn lit), track 3 muted, track 2 armed; browsing (a sound
+     * shown, not loaded); stopped with notes let go */
+    /* NEW SONG: PROJECT with NEW picked (KNOB 3: OCT+); the KEY screen (KNOB 3 TEMPO just turned); ROLES */
+    case S_PROJECT_NEW: song.playing = 0; go_page(GR_SLOTS); song.g[G_SLOT] = PROJ_TMPL; ui.proj_new = 1; ui.act = 3; break;
+    case S_NEW_KEY:
+    case S_NEW_ROLES:
+        song.playing = 0; new_open(); nw.root = 9; nw.scale = 2; nw.bpm = 96;
+        if (s == S_NEW_ROLES) { nw.on = 2; nw.role[0] = NR_DRUMS; nw.role[1] = NR_BASS; nw.role[2] = NR_CHORDS; }
+        else { ui.hot_col = 2; ui.hot_t = 30; }
+        break;
+    case S_STAGE_DRUM:
+        drum(0); go_home(); trk[3].seq_idx = 9; drum_flash[3] = 1u | 8u | 32u; break;
+    case S_STAGE_CZ:
+        eng(ENGI_CZ); apply_preset(3); go_home(); ui.hot_col = 2; ui.hot_t = 30;
+        input_on(TSEL, 48, 100); input_on(TSEL, 55, 100); input_on(TSEL, 64, 100); break;
+    case S_STAGE_P5:
+        eng(ENGI_PROPHET); go_home(); input_on(TSEL, 62, 100); input_on(TSEL, 65, 100); input_on(TSEL, 69, 100);
+        input_on(TSEL, 72, 100); ui.hot_col = 0; ui.hot_t = 30; break;   /* (CUTOFF turning: the filter's curve) */
+    case S_STAGE_FILTER:                                 /* ANALOG's RES turning, a chord held: the curve behind it */
+        go_home(); TSEL->p[P_E5] = 100; ui.hot_col = 1; ui.hot_t = 30;
+        input_on(TSEL, 57, 100); input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); break;
+    case S_STAGE_ENV:                                    /* ANALOG's REL turning: the envelope */
+        go_home(); TSEL->p[P_ATK] = 20; TSEL->p[P_DEC] = 50; TSEL->p[P_SUS] = 80; TSEL->p[P_REL] = 90;
+        ui.hot_col = 3; ui.hot_t = 30; break;
+    case S_STAGE_QUEUED:
+        go_home(); trk[1].pattern_next = 2; trk[2].p[P_MUTE] = 1; song.rec = 2u; fm1_ms = 0; break;
+    case S_STAGE_BROWSE:
+        go_home(); brw.on = 1; brw.trk = song.sel; brw.mode = (uint8_t)list_mode(); brw.n = 9; brw.t = fm1_ms; break;
+    case S_STAGE_STOPPED:
+        song.playing = 0; go_home(); input_on(TSEL, 60, 100); input_on(TSEL, 63, 100); input_on(TSEL, 67, 100);
+        input_on(TSEL, 70, 100); input_off(TSEL, 60); input_off(TSEL, 63); input_off(TSEL, 67); input_off(TSEL, 70); break;
+    /* SEQ > PATTERNS: patterns on every track (track 1: 1..3, track 2: 1 and 5, track 4: 1), track 2 waiting for 5,
+     * track 3 muted; stopped: KNOB 2 just turned */
+    case S_PATGRID:
+    case S_PATGRID_STOPPED: {
+        uint32_t b;
+        song.playing = 0;
+        for (b = 1; b < 3u; b++) { pattern_switch(&trk[0], b); my_steps(&trk[0]); }
+        pattern_switch(&trk[0], 0);
+        pattern_switch(&trk[1], 4); my_steps(&trk[1]); pattern_switch(&trk[1], 0);
+        song.playing = s == S_PATGRID;
+        if (s == S_PATGRID) trk[1].pattern_next = 4;
+        else { ui.hot_col = 1; ui.hot_t = 30; }
+        trk[2].p[P_MUTE] = 1; fm1_ms = 0;
+        if (s == S_PATGRID) {                            /* a song of four rows, row 2 playing */
+            chain_config.count = 4;
+            chain_config.row[0] = (chain_row_t){0, 2}; chain_config.row[1] = (chain_row_t){1, 4};
+            chain_config.row[2] = (chain_row_t){0, 1}; chain_config.row[3] = (chain_row_t){2, 16};
+            memset(chain_patterns[1], 1, NTRK); chain_patterns[1][3] = 0; memset(chain_patterns[3], 2, NTRK);
+            chain.running = 1; chain.row = 1;
+        } else {                                         /* no song: the jam's rows */
+            jam.n = 2; jam.pat[0][0] = 0; jam.rep[0] = 4; jam.pat[1][0] = 1; jam.pat[1][1] = 4; jam.rep[1] = 2;
+        }
+        go_page(GR_PATGRID);
+        break;
+    }
     case S_PATTERN: go_title("PATTERN"); ui.cursor = 3; break;
     case S_CHANCE: go_page(GR_CHANCE); step_set_chance(&TSEL->step[0], 65); break;
     case S_MOTION: go_page(GR_MOTION); break;
@@ -926,7 +992,7 @@ static void sweep_columns(void)
             continue;                                    /* (DIGITAL without MELODEE_FM4: no track has it) */
         for (i = 0; i < NPAGES; i++) {
             state();
-            pal(UI_MONO_INDEX);
+            pal(UI_GRAY_INDEX);
             eng(e);
             ui.home = 0; ui.page = (uint8_t)i; page_entered();
             if (!page_visible(i)) continue;
@@ -960,7 +1026,7 @@ static void sweep_columns(void)
             draw(-1);                                    /* the whole page */
             lint();
         }
-        state(); pal(UI_MONO_INDEX); eng(e); go_home();   /* HOME's four knobs of this engine */
+        state(); pal(UI_GRAY_INDEX); eng(e); go_home();   /* HOME's four knobs of this engine */
         snprintf(name, sizeof name, "%s/HOME", ENGINES[e]->name);
         cur_name = name;
         draw(-1);
@@ -968,7 +1034,7 @@ static void sweep_columns(void)
     }
     for (e = 0; e < 4u; e++) {                           /* the MOD page: every source and destination */
         int32_t v;
-        state(); pal(UI_MONO_INDEX); go_title("MOD");
+        state(); pal(UI_GRAY_INDEX); go_title("MOD");
         cur_name = "MOD sweep";
         for (v = 0; v < MD_N; v++) {
             TSEL->p[P_M1SRC] = (int16_t)(v % MS_N); TSEL->p[P_M1DST] = (int16_t)v; TSEL->p[P_M1AMT] = (int16_t)(e * 40 - 64);
@@ -1026,7 +1092,7 @@ static void roll_frames(const char *dir)
     const uint32_t biw = (FS_N * (HW + FS_GAP) + FS_GAP) * FS_Z, bih = (2u * (HH + FS_GAP) + FS_GAP) * FS_Z;
     const uint32_t ciw = (FS_N * (COL_W + FS_GAP) + FS_GAP) * FS_Z, cih = (2u * (COL_H + FS_GAP) + FS_GAP) * FS_Z;
     uint32_t p, row, k;
-    for (p = 0; p < NPALETTES; p++) {
+    for (p = 0; p < UI_PAL_ENTRIES; p++) {
         char name[64];
         memset(bimg, 90, sizeof bimg);
         memset(cimg, 90, sizeof cimg);
@@ -1045,7 +1111,7 @@ static void roll_frames(const char *dir)
                 if (k == 1u) roll_turns(row ? -1 : 1);
                 else ui_draw();
                 lint();
-                if (p == UI_MONO_INDEX) mono_check();
+                if (p == UI_GRAY_INDEX) mono_check();
                 roll_film_put(bimg, biw, row, k, HX, 0, HW, HH);
                 roll_film_put(cimg, ciw, row, k, CARD_X(3), Y_LABEL, COL_W, COL_H);
             }
@@ -1056,7 +1122,7 @@ static void roll_frames(const char *dir)
             }
             for (k = 0; k < 8u; k++) ui_draw();
         }
-        if (dir && (!strcmp(UI_PALETTES[p].name, "MONO") || !strcmp(UI_PALETTES[p].name, "GREEN"))) {
+        if (dir && (!strcmp(UI_PALETTES[p].name, "NIGHT") || !strcmp(UI_PALETTES[p].name, "GRAY"))) {
             roll_film_save(dir, UI_PALETTES[p].name, "bpm_roll", bimg, biw, bih);
             roll_film_save(dir, UI_PALETTES[p].name, "card_roll", cimg, ciw, cih);
         }
@@ -1102,7 +1168,7 @@ int main(int argc, char **argv)
     const char *out = argc > 1 ? argv[1] : "build/ui_new";
     char path[600];
     uint32_t p, s;
-    static const char *const SHOW[] = {"MONO", "GREEN", "PAPER"};
+    static const char *const SHOW[] = {"NIGHT", "DAY", "CONTRAST", "GRAY"};
     snprintf(path, sizeof path, "%s/report.txt", out);
     rep = fopen(path, "w");
     if (!rep) { fprintf(stderr, "cannot write %s\n", path); return 1; }
@@ -1128,7 +1194,7 @@ int main(int argc, char **argv)
         fprintf(rep, "(self-test: %u findings above are expected)\n\n", nfind);
         nfind = 0;
     }
-    for (p = 0; p < NPALETTES; p++)
+    for (p = 0; p < UI_PAL_ENTRIES; p++)
         for (s = 0; s < S_COUNT; s++) {
             char name[64];
             uint32_t k;
@@ -1138,10 +1204,10 @@ int main(int argc, char **argv)
             cur_name = name;
             setup((int)s);
             pal(p);
-            if (p == UI_MONO_INDEX) aud = audf;
+            if (p == UI_GRAY_INDEX) aud = audf;
             draw((int)s);
             lint();
-            if (p == UI_MONO_INDEX) { audit_scene(S_NAME[s]); aud = 0; mono_check(); }
+            if (p == UI_GRAY_INDEX) { audit_scene(S_NAME[s]); aud = 0; mono_check(); }
             for (k = 0; k < 3u; k++)
                 if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], S_NAME[s]);
         }
@@ -1152,7 +1218,7 @@ int main(int argc, char **argv)
             char name[32];
             snprintf(name, sizeof name, "FM6 engine %u ALG %u", e, a);
             cur_name = name;
-            state(); pal(UI_MONO_INDEX); eng(ENGI_FM6); TSEL->p[P_E0] = (int16_t)a; go_title("EDIT 1");
+            state(); pal(UI_GRAY_INDEX); eng(ENGI_FM6); TSEL->p[P_E0] = (int16_t)a; go_title("EDIT 1");
             fm6_fn_set(song.sel, FN_ENGINE, (int32_t)e);
             draw(-1);
             lint();

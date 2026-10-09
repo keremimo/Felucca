@@ -3,8 +3,8 @@
 /* Small-canvas renderer (no full framebuffer). Draw text/lines into
  * an off-screen strip, then blit it in one DMA transfer. Pixels are stored
  * byte-swapped (the panel takes RGB565 big-endian).
- * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Inter Tight;
- * tools/gen_aa_icons.py: Fukiai). A glyph is trimmed to its ink box, advances are in 1/16 px, and
+ * Text and icons are 4-bit alpha bitmaps made at build time (tools/gen_aa_font.py: Rubik;
+ * tools/gen_icons.py: Melodee's own drawings). A glyph is trimmed to its ink box, advances are in 1/16 px, and
  * each glyph is rasterised at 1 << psh horizontal phases (S M 4, L 2: drawn at a pen of +0, +1/4 .. px);
  * cv_text takes the phase that puts it within a phase step of its true place. Blending uses a 16-entry
  * ramp per (ink, background) pair, cached, so a pixel costs a nibble read and a store. Colours come from the theme tokens. */
@@ -20,7 +20,7 @@ typedef struct {
     uint8_t psh;                        /* log2 of the phases per glyph: g[i << psh] .. g[(i << psh) + phases - 1] */
     const uint8_t *hc;                  /* data's Huffman code (cv_alpha_hc), 0 = 2 px per byte (cv_alpha) */
 } aafont_t;
-typedef struct { const char *name; uint16_t bg, surf, text, theme, accent; } ui_pal_t;
+typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4]; } ui_pal_t;
 typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 #include "ui_fonts.h"                   /* AF_S 12 px / 400, AF_M 15 px / 500, AF_L 28 px / 600 */
 #include "ui_palettes.h"
@@ -61,12 +61,13 @@ static struct {
     uint16_t bg, surf, text, theme, accent;
     uint16_t mid, dim, line, sel, tint, ink, rec, raise, key, lane, grid;
     uint8_t light, mono;
+    uint8_t pal, trk;            /* the palette, the track whose colour is THEME (palette_track) */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
 } ux;
 #define T_BG ux.bg               /* background */
 #define T_SURF ux.surf           /* dialogs, menu rows, mixer strips */
 #define T_TEXT ux.text           /* primary text */
-#define T_THEME ux.theme         /* values, curves, the gauge's end line */
+#define T_THEME ux.theme         /* the selected track's colour: values, curves, the gauge's end line */
 #define T_ACCENT ux.accent       /* the one active thing: hot knob, cursor, playhead */
 #define T_MID ux.mid             /* labels, units, secondary text */
 #define T_DIM ux.dim             /* inactive, empty */
@@ -80,6 +81,12 @@ static struct {
 #define T_LANE ux.lane           /* the piano roll: an in-scale row (SURF -> THEME 10 %) */
 #define T_GRID ux.grid           /* the piano roll: a step line (SURF -> TEXT 6 %; beats and C rows: RAISE) */
 #define NPALETTES UI_NPALETTES
+#ifdef UI_TEST_PALETTE
+#define UI_PAL_ENTRIES (UI_NPALETTES + 1u)   /* + GRAY (host tests: every screen must stay gray in it) */
+#else
+#define UI_PAL_ENTRIES UI_NPALETTES
+#endif
+#define T_TRK(k) UI_PALETTES[ux.pal].trk[(k) & 3u]   /* track k's colour (the mixer, lanes, track chips) */
 
 static inline uint16_t ux_gray(uint32_t x5) { return (uint16_t)((x5 << 11) | (x5 << 6) | x5); }
 /* a + (b - a) * pct / 100 per channel, rounded; MONO on the red channel, so it stays gray */
@@ -102,34 +109,58 @@ static uint32_t ux_luma(uint16_t c)        /* 0..255 */
     return ((c >> 11) * 255u / 31u * 54u + ((c >> 5) & 63u) * 255u / 63u * 183u + (c & 31u) * 255u / 31u * 19u) >> 8;
 }
 
+static void palette_theme(void)                    /* THEME and what is mixed from it: the track's colour */
+{
+    const ui_pal_t *p = &UI_PALETTES[ux.pal];
+    ux.theme = p->trk[ux.trk & 3u];
+    ux.sel = ux_mix(p->bg, ux.theme, UI_SEL_PCT);
+    ux.tint = ux_mix(p->bg, ux.theme, UI_TINT_PCT);
+    ux.lane = ux_mix(p->surf, ux.theme, 10);
+    ux.gen++;                                    /* the text ramps follow */
+}
 static void palette_set(uint32_t i)
 {
-    const ui_pal_t *p = &UI_PALETTES[i % NPALETTES];
-    ux.mono = i % NPALETTES == UI_MONO_INDEX;
-    ux.bg = p->bg; ux.surf = p->surf; ux.text = p->text; ux.theme = p->theme; ux.accent = p->accent;
+    const ui_pal_t *p = &UI_PALETTES[ux.pal = (uint8_t)(i < UI_PAL_ENTRIES ? i : UI_DEFAULT_INDEX)];
+#ifdef UI_TEST_PALETTE
+    ux.mono = ux.pal == UI_GRAY_INDEX;
+#else
+    ux.mono = 0;
+#endif
+    ux.bg = p->bg; ux.surf = p->surf; ux.text = p->text; ux.accent = p->accent;
     ux.mid = ux_mix(p->bg, p->text, UI_MID_PCT);
     ux.dim = ux_mix(p->bg, p->text, UI_DIM_PCT);
     ux.line = ux_mix(p->bg, p->text, UI_LINE_PCT);
-    ux.sel = ux_mix(p->bg, p->theme, UI_SEL_PCT);
-    ux.tint = ux_mix(p->bg, p->theme, UI_TINT_PCT);
     ux.ink = p->bg;
     ux.raise = ux_mix(p->surf, p->text, UI_RAISE_PCT);
     ux.key = ux_mix(p->bg, p->text, UI_KEY_PCT);
-    ux.lane = ux_mix(p->surf, p->theme, 10);
     ux.grid = ux_mix(p->surf, p->text, 6);
     ux.light = ux_luma(p->bg) > 128u;
     ux.rec = ux.mono ? p->accent : ux.light ? UI_REC_LIGHT : UI_REC_DARK;
-    ux.gen++;                                    /* the text ramps change with the coverage curve */
+    palette_theme();
+}
+/* the selected track (ui_draw, every frame): THEME takes its colour; 1 = it changed (redraw everything) */
+static int palette_track(uint32_t t)
+{
+    if (ux.trk == (t & 3u))
+        return 0;
+    ux.trk = (uint8_t)(t & 3u);
+    palette_theme();
+    return 1;
 }
 
-/* settings store a tagged id; ids below 20 are the palettes of earlier firmware */
+/* settings store a tagged id (UI_PAL_TAG + index); 64..71 are Melodee 0.13's eight palettes, ids below 20
+ * Felucca's twenty: both map to the nearest of today's */
 static uint32_t palette_from_stored(uint32_t v)
 {
     if (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES) return v - UI_PAL_TAG;
-    return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_MONO_INDEX;
+    if (v >= 64u && v < 72u) return UI_PALETTE_MIGRATE64[v - 64u];
+    return v < 20u ? UI_PALETTE_MIGRATE[v] : UI_DEFAULT_INDEX;
 }
 static uint32_t palette_to_stored(uint32_t i) { return UI_PAL_TAG + i % NPALETTES; }
-static int palette_stored_ok(uint32_t v) { return v < 20u || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES); }
+static int palette_stored_ok(uint32_t v)
+{
+    return v < 20u || (v >= 64u && v < 72u) || (v >= UI_PAL_TAG && v - UI_PAL_TAG < NPALETTES);
+}
 
 static inline uint16_t swap16(uint32_t c) { return (uint16_t)(((c >> 8) & 0xFFu) | ((c & 0xFFu) << 8)); }
 
@@ -321,6 +352,29 @@ static const uint16_t *ramp(uint16_t fg, uint16_t bg)
     return v;
 }
 
+/* text over a picture (the Stage's notes over the waveform): with cv_over set, a glyph's pixel blends cv_over_fg into
+ * the pixel already on the canvas, with the ramps' coverage curve, instead of taking a ramp's colour over a flat bg */
+static uint8_t cv_over;
+static uint16_t cv_over_fg;
+/* fg over bg, a of 32 (0..32): the three channels at once, spread apart in a word (no division); MONO on the red
+ * channel, so it stays gray */
+static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a)
+{
+    uint32_t b, f;
+    if (ux.mono) {
+        int32_t x = bg >> 11;
+        return ux_gray((uint32_t)(x + ((((fg >> 11) - x) * (int32_t)a) >> 5)));
+    }
+    b = (bg | (uint32_t)bg << 16) & 0x07E0F81Fu;
+    f = (fg | (uint32_t)fg << 16) & 0x07E0F81Fu;
+    b = (b + (((f - b) * a) >> 5)) & 0x07E0F81Fu;
+    return (uint16_t)(b | b >> 16);
+}
+static uint16_t cv_over_px(uint16_t under, uint32_t v)       /* under: the canvas pixel (byte-swapped), v: 1..15 */
+{
+    return swap16(mix565(swap16(under), cv_over_fg, ((ux.light ? CURVE_LIGHT : CURVE_DARK)[v & 15u] + 4u) >> 3));
+}
+
 /* w x h nibbles, rows back to back, at canvas (x, y) */
 static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t *d, const uint16_t *rv)
 {
@@ -338,7 +392,7 @@ static void cv_alpha(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint8_t
             uint32_t v = (d[k >> 1] >> ((k & 1u) ? 0 : 4)) & 15u;
             int32_t px = x + (int32_t)gx;
             if (v && (uint32_t)px < cv_w)
-                row[px] = rv[v];
+                row[px] = cv_over ? cv_over_px(row[px], v) : rv[v];
         }
     }
     GFX_HOOK_PIXELS(w * h);
@@ -414,7 +468,7 @@ static void cv_alpha_hc(int32_t x, int32_t y, uint32_t w, uint32_t h, const uint
                 uint32_t k;
                 for (k = 0; k < n; k++, px++)
                     if ((uint32_t)px < cv_w)
-                        row[px] = rv[v];
+                        row[px] = cv_over ? cv_over_px(row[px], v) : rv[v];
             }
             gx += n;
             run -= n;
@@ -495,6 +549,7 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
     int32_t pen = 0, err = 0, x0 = 0x7FFF, y0 = 0x7FFF, x1 = -0x7FFF, y1 = -0x7FFF;
     const int32_t step = 16 >> f->psh;
     uint32_t prev = 0;
+    cv_over_fg = fg;                                 /* (cv_over: blended over the canvas, bg unused) */
     for (; *s; s++) {
         uint32_t c = fold(f, (uint8_t)*s);
         const aag_t *g;
@@ -548,6 +603,23 @@ static int32_t cv_text_on(int32_t x, int32_t y, const aafont_t *f, const char *s
 static int32_t cv_text(int32_t x, int32_t y, const aafont_t *f, const char *s, uint16_t fg)
 {
     return cv_text_flags(x, y, f, s, fg, cv_bg, 0);
+}
+/* a scrim: the canvas inside (x, y, w, h) a of 32 of the way to c, the last f px towards each edge less (feathered): a
+ * picture calmed behind text (cv_over) and still seen through it. Per pixel a blend of the row's or the column's
+ * alpha (mix565), nothing else */
+static void cv_scrim(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c, uint32_t a, int32_t f)
+{
+    int32_t i, j, x0 = x < 0 ? 0 : x, x1 = x + w < (int32_t)cv_w ? x + w : (int32_t)cv_w;
+    y += cv_oy;
+    for (j = y < 0 ? 0 : y; j < y + h && j < (int32_t)cv_h; j++) {
+        int32_t dy = j - y < y + h - 1 - j ? j - y : y + h - 1 - j;
+        uint16_t *row = &cv_px[(uint32_t)j * cv_w];
+        for (i = x0; i < x1; i++) {
+            int32_t d = i - x < x + w - 1 - i ? i - x : x + w - 1 - i;
+            if (dy < d) d = dy;
+            row[i] = swap16(mix565(swap16(row[i]), c, d >= f ? a : a * (uint32_t)(d + 1) / (uint32_t)(f + 1)));
+        }
+    }
 }
 /* right-aligned: the advance ends at xr */
 static int32_t cv_text_r(int32_t xr, int32_t y, const aafont_t *f, const char *s, uint16_t fg, uint16_t bg)

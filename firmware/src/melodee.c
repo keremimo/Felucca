@@ -9,7 +9,7 @@
  * MELODEE_OTA_RAMONLY (ota.c). */
 #include "build_options.h"      /* defaults shared with crt0.S */
 #ifndef MELODEE_CACHE_RAM
-#define MELODEE_CACHE_RAM 0     /* seven data-cache ways as RAM; opt in after device validation */
+#define MELODEE_CACHE_RAM 1     /* seven data-cache ways as RAM after a boot self-test (MELODEE_CACHE_RAM=0: off) */
 #endif
 #ifndef MELODEE_FLASH
 #define MELODEE_FLASH 1          /* flash driver + storage.c: settings, projects, user presets */

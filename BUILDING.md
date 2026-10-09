@@ -144,10 +144,12 @@ starts, recovery needs [FM-1-transporter](https://github.com/kurogedelic/FM-1-tr
 
 ## Experimental cache RAM
 
-`MELODEE_CACHE_RAM=1 ./build.sh` reclaims seven 4 KiB data-cache ways
-at `0x01F28000..0x01F2F000`, following the AC79 SDK's flash-execution
-configuration. All instruction-cache ways remain available. The default is 0
-pending device validation. Keep USB audio enabled during validation.
+Builds reclaim seven 4 KiB data-cache ways at `0x01F28000..0x01F2F000`
+(`MELODEE_CACHE_RAM=1`, the default while it is being validated on the device; `MELODEE_CACHE_RAM=0 ./build.sh`
+turns it off), following the AC79 SDK's flash-execution configuration. All instruction-cache ways remain available.
+The first 14 KiB are the UI's (eight undo levels); the rest join the audio allocator, whose worst case still fits
+the SRAM banks alone. Without a passed self-test the UI keeps one undo level. Keep USB audio enabled during
+validation.
 
 The boot routine runs wholly in SRAM with interrupts off and CPU1 held. It
 refuses external-memory configurations, verifies the cache registers, tests the

@@ -306,10 +306,10 @@ static void layer_knob(uint32_t k, int32_t s)
     if (l == LAYER_FX) {                                /* perform.c perf_k, not recorded */
         /* DEPTH displays 100 - cut: clockwise raises the level. SHIMR displays its gain directly. */
         if (k == 3u && !perf_harm_on()) s = -s;
-        perf_k[k] = (int8_t)clamp(perf_k[k] + s, k ? 0 : -100, 100);
+        perf_k[k] = (int8_t)clamp(perf_k[k] + accel(EN_K1 + k, s, k ? 100 : 200), k ? 0 : -100, 100);
     } else if (l == LAYER_GLO) {                        /* T1..T4 LEVEL, recorded as on MIXER */
         int16_t *vp = &trk[k].p[P_LEVEL];
-        *vp = (int16_t)clamp(*vp + s, TP[P_LEVEL].min, TP[P_LEVEL].max);
+        *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, TP[P_LEVEL].max - TP[P_LEVEL].min), TP[P_LEVEL].min, TP[P_LEVEL].max);
         motion_capture(&trk[k], P_LEVEL, *vp);
     } else if (l == LAYER_EDIT) {                       /* ENG, No., FAV */
         if (k == 0u)
@@ -467,7 +467,7 @@ static uint32_t layer_leds(void)
 
 /* ------------------------------------------------------ the overlay --- */
 /* One template: the header names the button and the kind ("[GLO] SET"); the cards are KNOB 1..4; the panel the
- * map of the keys as cells (the key's note name, a Fukiai icon, a name; FX's effects: the 16 white keys 4 a row,
+ * map of the keys as cells (the key's note name, an icon, a name; FX's effects: the 16 white keys 4 a row,
  * the effect's short name); the footer the keycaps. A cell: RAISE
  * (can be pressed), the selection's fill (the value now, SET), the accent (held, HOLD), DIM (cannot now: pressing
  * it says why), KEY (a muted track, as the MUTE badge); HOLD cells in a SET layer: a corner triangle */

@@ -1,14 +1,15 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee UI drawing: the header, the four knob cards, the footer (steps + engine / preset / page)
- * and the frame; the panel between the cards and the footer is ui_graph.c. The layout:
- * flat SURF cards and panels on BG,
- * rounded corners, no rules, colours from the theme tokens only (gfx.c T_*). Type: S (12 px) labels,
- * M (15 px) values and the header, L (28 px) big numerals. A card value too wide for M is set in S;
- * free text (names, messages) is ellipsised at its size. */
+ * and the frame; the panel between the cards and the footer is ui_graph.c. The layout: SURF cards and panels on
+ * BG, rounded corners, no rules, colours from the theme tokens only (gfx.c T_*); THEME is the selected track's
+ * colour (labels, gauges, curves), values in TEXT. Type: Rubik, S (11 px) labels, M (14 px) values and the header,
+ * L (26 px) big numerals. A card value too wide for M is set in S; free text (names, messages) is ellipsised. */
 static void draw_menu(void);
 static int name_on(void);                              /* NAME (ui_name.c) */
 static void name_draw(void);
+static int new_on(void);                               /* NEW SONG (ui_new.c) */
+static void new_draw(void);
 
 /* --------------------------------------------------------- drawing --- */
 #define COL_W CARD_W                                  /* a card: 57 x 44 at x 3 + 59 c, y 28 */
@@ -34,7 +35,7 @@ static void draw_rec_mark(int32_t x, uint16_t bg)
         cv_icon_mid(x, H_HEAD / 2, 16, (song.rec >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, bg);
 }
 
-/* the battery: a 16 px Fukiai icon. The stock thresholds give 0..3 bars of 3; the font has 0..4 bars of 4:
+/* the battery: a 24 px icon (tools/gen_icons.py). The stock thresholds give 0..3 bars of 3; the font has 0..4 bars of 4:
  * each level takes the nearest share, 0 -> battery_0 (empty), 1 (1/3) -> battery_1 (1/4), 2 (2/3) ->
  * battery_3 (3/4), 3 (full) -> battery_4 (battery_2 is not used); USB power: battery_charging.
  * Colours as the drawn battery had them: one bar left the accent, empty MID (its outline), else THEME */
@@ -183,7 +184,7 @@ static void draw_head(void)
     roll_text(ROLL_BPM, BPM_X, 3, b, ui.bpm_t ? T_ACCENT : T_THEME);
     if (seq_erase_active(TSEL)) {
         cv_text_on(106, 6, &AF_S, "ERASING", T_REC, T_BG);
-        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_ACCENT, T_BG);
+        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_THEME, T_BG);
         draw_battery(214);
     } else if (ui.msg_t || ui.layer) {                     /* a message, or the layer's name */
         cv_free_hint(106, 6, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - 106);   /* (may start with a keycap) */
@@ -201,30 +202,35 @@ static void draw_head(void)
             }
             cv_text(x + 4, 3, &AF_M, b, T_THEME);
         }
-        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_ACCENT, T_BG);
+        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_THEME, T_BG);
         if (usb.config && !usb.suspended)
             cv_icon_mid(189, H_HEAD / 2, 24, ICON_X_USB, T_MID, T_BG);
         draw_battery(214);
     }
     cv_blit(0, Y_HEAD);
 }
-/* full redraw: the strips (header, cards, panel, footer) cover the rest; only the BG between them is filled */
-static void draw_frame(void)
+/* full redraw: the strips (header, cards, panel, footer; Stage: its panel and lanes) cover the rest; only the BG
+ * between them is filled */
+static void stage_frame(void);
+static void draw_frame(int stage)
 {
     uint32_t i;
     lcd_fill(0, H_HEAD, 240, Y_LABEL - H_HEAD, T_BG);
     lcd_fill(0, Y_SEP_END, 240, Y_GRAPH - Y_SEP_END, T_BG);
-    lcd_fill(0, Y_GRAPH + H_GRAPH, 240, Y_FOOT - Y_GRAPH - H_GRAPH, T_BG);
+    if (stage)
+        stage_frame();
+    else
+        lcd_fill(0, Y_GRAPH + H_GRAPH, 240, Y_FOOT - Y_GRAPH - H_GRAPH, T_BG);
     lcd_fill(0, Y_LABEL, (uint32_t)CARD_X(0), CARD_H, T_BG);
     for (i = 0; i < 4u; i++)                            /* right of each card */
         lcd_fill((uint32_t)(CARD_X(i) + CARD_W), Y_LABEL, i < 3u ? (uint32_t)(CARD_X(i + 1u) - CARD_X(i) - CARD_W) :
                  240u - (uint32_t)(CARD_X(i) + CARD_W), CARD_H, T_BG);
 }
 
-/* one card = one knob: [icon] LABEL / value unit / gauge on a SURF card, redrawn only when it changed.
+/* one card = one knob: LABEL (THEME) / value unit / gauge on a SURF card, redrawn only when it changed.
  * The value is M, or S when M is too wide (engine names, long ENUMs); the unit S after it. The gauge is
- * a 3 px rounded bar: BG track, THEME fill. The knob just turned (hot): icon, label, value and gauge in
- * the accent. ratio: 0..1000 for the gauge, -1 = no gauge. icon: ICON_* (icons.c), ICON_AUTO = by label;
+ * a 3 px rounded bar: LINE track, THEME fill. The knob just turned (hot): the card outlined in THEME, the label
+ * and value in the accent. ratio: 0..1000 for the gauge, -1 = no gauge. icon: ICON_* (icons.c), ICON_AUTO = by label;
  * a label too long to share the card with its icon goes without it.
  * vc: the value's colour (T_THEME, T_DIM inactive, T_ACCENT the knob just turned) */
 static void draw_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc,
@@ -233,7 +239,7 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     char key[48];
     int hot = c == ui.hot_col && ui.hot_t, named = fmt_named, strip, snap;
     uint8_t sig;
-    uint16_t lc = hot ? T_ACCENT : T_MID;
+    uint16_t lc = hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME;
     int32_t x, lx = 5, uw, room = COL_W - 8;
     const aafont_t *vf = &AF_M;
     uint32_t n, kn;
@@ -261,6 +267,8 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     uw = unit[0] ? text_w(&AF_S, unit) + 3 : 0;
     if (text_w(vf, val) + uw > room)
         vf = &AF_S;
+    if (uw && text_w(vf, val) + uw > room)              /* ("369 /439"): the value keeps its digits, the unit goes */
+        unit = "", uw = 0;
     sig = (uint8_t)str_hash(str_hash(song.sel + TSEL->eng_req * 4u + ux.gen * 64u, label), unit);
     snap = ui.force || sig != ui.roll[c].sig;           /* what the value is of: label, unit, track, engine, palette */
     strip = !snap && str_eq(key, ui.col[c]);
@@ -268,6 +276,10 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         return;
     if (strip) {                                        /* rolling: the value strip only */
         cv_begin(COL_W, ROLL_H, T_SURF);
+        if (hot) {                                      /* (the hot card's outline crosses the strip) */
+            cv_rect(0, 0, 1, ROLL_H, T_THEME);
+            cv_rect(COL_W - 1, 0, 1, ROLL_H, T_THEME);
+        }
         cv_oy = -ROLL_Y;
     } else {
         char ov[16];                                    /* the value drawn before (in the cache key) */
@@ -285,7 +297,12 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
             ui.roll[c].from[0] = 0;
         str_cpy(ui.col[c], key, sizeof ui.col[c]);
         cv_begin(COL_W, COL_H, T_BG);
-        cv_rrect(0, 0, COL_W, COL_H, 4, T_SURF, T_BG);
+        if (hot) {                                      /* the knob just turned: outlined */
+            cv_rrect(0, 0, COL_W, COL_H, 6, T_THEME, T_BG);
+            cv_rrect(1, 1, COL_W - 2, COL_H - 2, 5, T_SURF, T_THEME);
+        } else {
+            cv_rrect(0, 0, COL_W, COL_H, 6, T_SURF, T_BG);
+        }
     }
     if (label[0] || val[0]) {
         if (!strip && MELODEE_ICONS && icon != ICON_NONE && label[0] && text_w(&AF_S, label) <= COL_W - 2 - 19)
@@ -302,8 +319,8 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
             cv_text_on(x + 3, 20, &AF_S, unit, T_MID, T_SURF);     /* on the value's baseline (S) */
         if (!strip && ratio >= 0) {
             int32_t gw = COL_W - 10, fx = ratio * gw / 1000;
-            cv_rrect(5, 38, gw, 3, 1, T_BG, T_SURF);
-            cv_rrect(5, 38, fx < 3 ? 3 : fx, 3, 1, hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME, T_BG);
+            cv_rrect(5, 38, gw, 3, 1, T_LINE, T_SURF);
+            cv_rrect(5, 38, fx < 3 ? 3 : fx, 3, 1, vc == T_DIM ? T_DIM : T_THEME, T_LINE);
         }
     }
     cv_oy = 0;
@@ -384,6 +401,13 @@ static void draw_foot(void)
     const char *ename = e->name;
     int32_t x;
     sound_name(t, pn);
+    if (browse_pending()) {                            /* browsing: the sound the list shows, not yet loaded */
+        uint32_t k, src = browse_shown(&k);
+        char tag[6];
+        entry_label(src, k, tag, pn);
+        e = ENGINES[src_engine(src, k)];
+        ename = e->name;
+    }
     if (ui.home) {
         str_cpy(ti, "HOME", sizeof ti);
     } else {                                           /* page title + number in its family: "ENV DEST 2/2" */
@@ -476,20 +500,22 @@ static void draw_foot(void)
             cv_key_hint(232 - kh_w(KC_KEYS, "STEPS"), 2, KC_KEYS, "STEPS", 1, T_BG);   /* the keys are the steps */
     } else {
         uint32_t i;
-        for (i = 0; i < 16u; i++) {                   /* row 1: the cursor's bank, 16 bars in 4 groups */
+        for (i = 0; i < 16u; i++) {                   /* row 1: the cursor's bank, 16 dots in 4 groups */
             uint32_t si = ui.bank * 16u + i;
             int32_t sx = 10 + (int32_t)i * 13 + (int32_t)(i / 4u) * 4;
             const step_t *st = &seq_steps(t)[si];
             if (si >= (uint32_t)t->p[P_SLEN])
                 continue;
-            if (step_on(st))                          /* a note: a bar (accented: the accent) */
-                cv_rrect(sx, 1, 9, 11, 2, (st->flags & SF_ACCENT) ? T_ACCENT : T_THEME, T_BG);
-            else                                      /* empty: a stub (a tie: brighter) */
-                cv_rrect(sx, 9, 9, 3, 1, st->time == ST_TIE ? T_MID : T_RAISE, T_BG);
+            if (step_on(st))                          /* a note: a dot (accented: the accent) */
+                cv_rrect(sx + 1, 2, 7, 7, 3, (st->flags & SF_ACCENT) ? T_ACCENT : T_THEME, T_BG);
+            else if (st->time == ST_TIE)              /* a tie: a dash from the note before */
+                cv_rrect(sx - 2, 4, 11, 3, 1, T_MID, T_BG);
+            else                                      /* empty: a small dot */
+                cv_rrect(sx + 3, 4, 3, 3, 1, T_RAISE, T_BG);
             if (song.seq_mode && si == ui.cursor)
-                cv_rect(sx, 14, 9, 2, T_ACCENT);        /* the step edited */
+                cv_rrect(sx + 2, 12, 5, 3, 1, T_ACCENT, T_BG);   /* the step edited */
             else if (song.playing && si == t->seq_idx)
-                cv_rect(sx, 14, 9, 2, T_TEXT);          /* the step sounding */
+                cv_rrect(sx + 2, 12, 5, 3, 1, T_TEXT, T_BG);     /* the step sounding */
         }
     }
     if (!ui.home && pg->graph == GR_ROLL && live_rec_sel()) {
@@ -532,6 +558,7 @@ static void engine_columns(void)
     draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
 }
+#include "ui_stage.c"                                   /* Stage (HOME) and SEQ > PATTERNS */
 static void draw_columns(void)
 {
     if(cur_page()->scope==SC_DRUM){
@@ -555,13 +582,12 @@ static void draw_columns(void)
     uint32_t c;
     char val[12];
     const char *unit;
-    if (ui.home) {
-        for (c = 0; c < 4u; c++) {
-            int16_t *vp;
-            const param_desc_t *d = home_param(c, &vp);
-            param_format(d, *vp, val, &unit);
-            draw_column(c, d->label, val, unit, VAL(c), RATIO(d, *vp), param_icon(d, *vp));
-        }
+    if (ui.home) {                                      /* Stage: the selected track's engine's four */
+        stage_columns();
+        return;
+    }
+    if (cur_page()->graph == GR_PATGRID) {              /* PATTERNS: a track's each */
+        patgrid_columns();
         return;
     }
     if (cur_page()->graph == GR_SONG) {
@@ -575,7 +601,13 @@ static void draw_columns(void)
         if (used) fmt_int(val, chain_config.row[row].repeat);
         else str_cpy(val, "--", sizeof val);
         draw_column(2, "REPS", val, "", used ? VAL(2u) : T_DIM, -1, ICON_AUTO);
-        draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
+        if (act_col() == 4u)                            /* TAKE JAM picked: OCT+ */
+            draw_act_column(3, "JAM", T_THEME, ICON_X_SONG);
+        else {                                          /* the rows played since PLAY */
+            if (jam.n) fmt_int(val, jam.n);
+            else str_cpy(val, "--", sizeof val);
+            draw_column(3, "JAM", val, jam.n ? (jam.n > 1u ? "ROWS" : "ROW") : "", jam.n ? VAL(3u) : T_DIM, -1, ICON_X_SONG);
+        }
         return;
     }
     if (cur_page()->graph == GR_CHANCE) {
@@ -623,17 +655,17 @@ static void draw_columns(void)
         draw_column(3, "QNT", val, unit, VAL(3u), -1, ICON_AUTO);
         return;
     }
-    if (cur_page()->graph == GR_BROWSE) {
-        uint32_t total, cur = preset_pos(&total);
+    if (cur_page()->graph == GR_BROWSE) {              /* the sound shown: the pending one while browsing */
+        uint32_t total, cur = preset_pos(&total), k, src = browse_shown(&k), eng = src_engine(src, k);
         char u[8];
         if (cur < total) fmt_int(val, (int32_t)cur + 1);
         else str_cpy(val, "--", 8);
         str_cpy(u, "/", 8);
         fmt_int(u + 1, (int32_t)total);
         draw_column(0, "No.", val, u, VAL(0u), -1, ICON_NONE);
-        draw_column(1, "ENG", TSEL->eng_req==ENGI_PROPHET?"P5":ENGINES[TSEL->eng_req]->name, "", VAL(1u), -1, engine_icon(ENGINES[TSEL->eng_req]->name));
-        draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
-        draw_column(3, "LIST", favorites.filter ? "FAV" : "ALL", "", VAL(3u), -1, ICON_X_FOLDER);
+        draw_column(1, "ENG", eng == ENGI_PROPHET ? "P5" : ENGINES[eng]->name, "", VAL(1u), -1, engine_icon(ENGINES[eng]->name));
+        draw_column(2, "FAV", favorite_has(src, k) ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
+        draw_column(3, "LIST", list_name(list_mode()), "", VAL(3u), -1, ICON_X_FOLDER);
         return;
     }
     if (cur_page()->graph == GR_PATS) {                  /* PAT, then LOAD (a GO button) */
@@ -795,6 +827,11 @@ static void draw_columns(void)
             draw_act_column(c, d->label, T_THEME, ICON_AUTO);
             continue;
         }
+        if (cur_page()->scope == SC_GLOBAL && ui.proj_new && (cur_page()->id[c] == G_SLOT || cur_page()->id[c] == G_SAVE)) {
+            draw_column(c, d->label, cur_page()->id[c] == G_SLOT ? "NEW" : "--", "",   /* SLOT past TMPL: NEW (no SAVE) */
+                        cur_page()->id[c] == G_SLOT ? VAL(c) : T_DIM, -1, ICON_AUTO);
+            continue;
+        }
         if (cur_page()->id[c] == G_INFO && cur_page()->scope == SC_GLOBAL) {
             fmt_int(val, (int32_t)(song.cpu_q8 * 100u / 256u));
             unit = "%";
@@ -858,6 +895,15 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_CLEAR_SONG:
         str_cpy(a, "CLEAR SONG ORDER?", 24);
+        break;
+    case CF_NEW_SONG:                                   /* what is lost */
+        str_cpy(a, "START A NEW SONG?", 24);
+        str_cpy(b, "UNSAVED CHANGES", 24);
+        break;
+    case CF_TAKE_JAM:                                   /* the rows it replaces */
+        str_cpy(a, "SONG FROM JAM?", 24);
+        fmt_int(b, (int32_t)chain_config.count);
+        str_cpy(b + str_len(b), " ROWS REPLACED", 16);
         break;
     case CF_INIT_SOUND:
         str_cpy(a, "INITIALIZE SOUND?", 24);
@@ -923,6 +969,8 @@ static void ui_draw(void)
 {
     if (!scr_frame()) return;
     ui.frame++;
+    if (palette_track(song.sel))                       /* THEME is the selected track's colour */
+        ui.force = 1;
     if(seq_counting()) { char text[24]="COUNT IN ";fmt_int(text+9,(int32_t)cin_left);
         ui_message(text); }
     else if(!memcmp(ui.msg,"COUNT IN ",9))ui.msg_t=0;
@@ -949,9 +997,13 @@ static void ui_draw(void)
         name_draw();
         return;
     }
+    if (new_on()) {                                     /* NEW SONG (ui_new.c) */
+        new_draw();
+        return;
+    }
     if (ui.layer) {                                     /* a layer's map over the page (ui_layer.c) */
         if (ui.force)
-            draw_frame();
+            draw_frame(0);
         draw_head();
         draw_layer();
         if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {
@@ -973,13 +1025,16 @@ static void ui_draw(void)
     }
     cursor_fix();
     if (ui.force)
-        draw_frame();
+        draw_frame(ui.home);
     melodee_dbg.stage = 3;
     draw_head();
     melodee_dbg.stage = 4;
     draw_columns();
     melodee_dbg.stage = 5;
-    draw_graph();
+    if (ui.home)                                        /* Stage: its panel and the lanes (ui_stage.c), no footer */
+        stage_draw();
+    else
+        draw_graph();
     if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {     /* the second message (ui_notices) */
         str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
         ui.msg2[0] = 0;
@@ -990,7 +1045,8 @@ static void ui_draw(void)
     if (ui.hot_t)
         ui.hot_t--;
     melodee_dbg.stage = 6;
-    draw_foot();
+    if (!ui.home)
+        draw_foot();
     ui.force = 0;
     scr_shown();
 }

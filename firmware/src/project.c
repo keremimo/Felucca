@@ -816,6 +816,8 @@ static void proj_bound(project_t *q)
 
 #include "pattern_store.c"
 
+/* FNV of each slot's stored bytes, as last written or read (0: unknown): autosave writes only what differs */
+static uint32_t proj_saved_hash[4];
 static int proj_read_slot(uint32_t slot)
 {
     int n = -1;
@@ -843,6 +845,7 @@ static int proj_read_slot(uint32_t slot)
     proj_meta[slot].used = (uint8_t)valid;
     if (valid) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
     else proj_meta[slot].name[0] = 0;
+    proj_saved_hash[slot] = valid && n == BANK_STORE_SIZE ? proj_hash(proj_wire_u.raw, BANK_STORE_SIZE) : 0u;
     return valid ? n : 0;
 }
 static void proj_fetch(uint32_t slot) { (void)proj_read_slot(slot); }
@@ -858,6 +861,7 @@ static int proj_write_slot(uint32_t slot, const uint8_t *raw, uint32_t len)
     if (len) { memcpy(proj_bank_slot[slot], raw, len); memcpy(&proj_slot[slot], raw + 8u, sizeof proj_slot[slot]); }
 #endif
     proj_meta[slot].used = len != 0;
+    proj_saved_hash[slot] = len ? proj_hash(raw, len) : 0u;
     if (len) proj_name_get(proj_meta[slot].name, (const uint8_t *)proj_scratch.name);
     else proj_meta[slot].name[0] = 0;
     return 0;
@@ -947,6 +951,22 @@ static void project_quick_save(void)
     ui.act = 4;                                         /* (SAVE: OCT+ names and writes it) */
     ui.force = 1;
     ui_message("NEW PROJECT: PICK SLOT");
+}
+/* autosave (ui_input.c autosave_poll: stopped, untouched a while): the music back to the slot it was loaded from or last
+ * saved to when it differs from what that slot holds ("SAVED B"); a new project (no slot yet) waits for a save */
+static void project_autosave(void)
+{
+    project_t *p = &proj_scratch;
+    uint32_t slot = proj_cur;
+    if (slot >= 4u || transport_busy())
+        return;
+    project_capture(p);
+    proj_wire_gen++;                                    /* (the staging RAM: a backup's copy there is gone) */
+    if (!bank_pack(proj_wire_u.raw, p, 1))
+        return;
+    if (proj_hash(proj_wire_u.raw, BANK_STORE_SIZE) == proj_saved_hash[slot])
+        return;                                         /* as saved: nothing to write */
+    project_quick_save();
 }
 static void project_cur_name(char *b) { str_cpy(b, proj_name, PROJ_NAME_LEN + 1u); }   /* b: 13 bytes */
 
@@ -1048,7 +1068,7 @@ static int project_restore_runtime(const project_t *input)
     fm1_irq_on();
     proj_name_get(proj_name, (const uint8_t *)p->name);
     proj_cur = PROJ_NO_SLOT;                            /* (project_load: its slot) */
-    undo.trk = 0;                                       /* (ui.c) the undo copy belongs to the old project */
+    undo_clear();                                       /* (ui.c) the undo levels belong to the old project */
     undo_depth++;                                       /* and these loads take none */
     for (k = 0; k < NTRK; k++) {                        /* the power-on sounds: format 1 (tracks 2..4), old drums */
         track_t *t = &trk[k];
@@ -1315,6 +1335,65 @@ static void template_load(void)
     proj_cur = PROJ_NO_SLOT;
     song.g[G_SLOT] = (int16_t)(project_free_slot() + 1u);
     ui_message("TEMPLATE LOADED");
+}
+
+/* NEW SONG (ui_new.c): the template's key and tempo (track 1's ROOT, the song's SCALE, BPM), when there is one */
+static void template_key(uint32_t *root, uint32_t *scale, int32_t *bpm)
+{
+    if (!template_used())
+        return;
+    *root = (uint32_t)tmpl.t[0].p[P_ROOT];
+    *scale = (uint32_t)tmpl.t[0].p[P_SCALE];
+    *bpm = tmpl.g[G_BPM];
+}
+/* .. no template: the power-on sounds (melodee_init's), every pattern, the song and the motion empty, the globals at
+ * their defaults but CLK TUNE MIDI ROUT (the device's); a new project: no slot, no name, SLOT on a free one */
+static void project_new_blank(void)
+{
+    uint32_t i, k;
+    int16_t kept[4];
+    momentary_restore();
+    for (k = 0; k < 4u; k++)
+        kept[k] = song.g[GLO_KEPT[k]];
+    fm1_irq_off();
+    chain_defaults(&chain_config);
+    pattern_init();
+    fm1_irq_on();
+    for (i = 0; i < G_COUNT; i++)
+        song.g[i] = GP[i].def;
+    for (k = 0; k < 4u; k++)
+        song.g[GLO_KEPT[k]] = kept[k];
+    undo_depth++;
+    for (k = 0; k < NTRK; k++) {
+        track_t *t = &trk[k];
+        track_defaults(t);
+        set_engine_of(t, TRK_DEF[k][0]);
+        apply_preset_to(t, TRK_DEF[k][1]);
+        track_defaults_steps(t);
+        pat_last[k] = 0;
+        pat_sig[k] = steps_sig(t);
+    }
+    undo_depth--;
+    undo_clear();
+    proj_cur = PROJ_NO_SLOT;
+    proj_name[0] = 0;
+    song.sel = 0;
+    song.g[G_SLOT] = (int16_t)(project_free_slot() + 1u);
+}
+/* the music differs from its slot (none: it holds notes): a new song asks first. Packs the project (proj_wire_u) */
+static int project_dirty(void)
+{
+    uint32_t k;
+    if (proj_cur < 4u) {
+        project_capture(&proj_scratch);
+        proj_wire_gen++;
+        return !bank_pack(proj_wire_u.raw, &proj_scratch, 1) ||
+               proj_hash(proj_wire_u.raw, BANK_STORE_SIZE) != proj_saved_hash[proj_cur];
+    }
+    for (k = 0; k < NTRK; k++)
+        if (!seq_is_empty(&trk[k]) || notes_have_recording(&trk[k]))
+            return 1;
+    return 0;
 }
 
 /* power-on, after melodee_init: the BOOT project (SAVE > PROJECT KNOB 2) in place of the default sounds, SLOT on it

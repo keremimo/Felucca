@@ -182,7 +182,7 @@ static int loads_and_song(void)
     apply_preset_to(t, 1);
     bad += check("sound load clears incompatible motion and keeps pattern", !motion_count(t) && t->step[0].note[0] == 60);
     undo_swap(); bad += check("sound undo restores the original motion pool and base", motion_count(t) == 1u && t->p[P_REV] == 21);
-    undo_swap(); bad += check("sound redo restores the loaded motion state", !motion_count(t));
+    undo_step(1); bad += check("sound redo restores the loaded motion state", !motion_count(t));
     undo_swap(); pattern_commit(t); pattern_request(t, 1);
     t->p[P_REV] = 43; t->step[0].note[0] = 72; chain_config.count = 1; chain_config.row[0] = (chain_row_t){0, 1};
     bad += check("song preparation imports saved motion alongside steps", chain_prepare() == 0 && motion_count(t) == 0u);

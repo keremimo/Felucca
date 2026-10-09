@@ -7,6 +7,8 @@
  * graph_signature() changes. The look:
  * curves THEME (2 px), guides and empty marks RAISE, captions MID / DIM, the active thing ACCENT,
  * bars rounded; a list's selected row is a THEME bar with INK text. */
+static uint32_t patgrid_sig(void);                   /* SEQ > PATTERNS (ui_stage.c) */
+static void graph_patgrid(void);
 #define PANEL_X0 10                                  /* the graphs' inner area: x 10..230 */
 #define PANEL_W 220
 #define GOY 11                                       /* graphs drawn on a 100 px scale sit at y 11..111 */
@@ -14,11 +16,10 @@
 /* Matches voice.c: attack is linear, decay and release are exponential
  * (env += (target - env) * k each tick, ~99 % after the set time). Time
  * axis is the parameter value (the times themselves are exponential). */
-static void graph_adsr(const track_t *t, uint16_t c)
+/* an ADSR of four values 0..127 between rows top and bot (Stage: the amp envelope while one of its knobs turns) */
+static void graph_adsr_v(int32_t va, int32_t vd, int32_t vs, int32_t vr, int32_t top, int32_t bot, uint16_t c)
 {
-    const page_t *pg = cur_page();
-    int32_t a = 4 + t->p[pg->id[0]] * 50 / 127, d = 6 + t->p[pg->id[1]] * 50 / 127, r = 6 + t->p[pg->id[3]] * 60 / 127;
-    int32_t top = 6, bot = 88, sus = t->p[pg->id[2]] * 1000 / 127;          /* 0..1000 */
+    int32_t a = 4 + va * 50 / 127, d = 6 + vd * 50 / 127, r = 6 + vr * 60 / 127, sus = vs * 1000 / 127;   /* 0..1000 */
     int32_t x0 = 12, x1 = x0 + a, x3 = 226 - r, i, px, py;
     int32_t e = 32768;                                                  /* exp(-4.6 u), Q15 */
 #define EGY(lvl) (bot - (lvl) * (bot - top) / 1000)
@@ -45,6 +46,11 @@ static void graph_adsr(const track_t *t, uint16_t c)
         py = EGY(sus * e >> 15);
     }
 #undef EGY
+}
+static void graph_adsr(const track_t *t, uint16_t c)
+{
+    const page_t *pg = cur_page();
+    graph_adsr_v(t->p[pg->id[0]], t->p[pg->id[1]], t->p[pg->id[2]], t->p[pg->id[3]], 6, 88, c);
 }
 
 /* FM6: a DX7 envelope, four rates (a segment's width: slower is wider) and four levels, held at L3 while the key is
@@ -975,8 +981,12 @@ static uint32_t graph_signature(void)
         for (i = 0; i < 4u; i++) h ^= (uint32_t)graph_project_used(i) << (24u + i);
         h += graph_pname_sig;
     }
+    if (pg->graph == GR_BROWSE)                      /* LIST, the place pending, the favourites */
+        h ^= list_mode() * 131071u + (browse_pending() ? brw.n + 1u : 0u) * 524287u + (uint32_t)favorites.filter * 8191u;
     if (pg->graph == GR_MOD)
         h ^= (mod_ui_slot + 1u) * 40503u;
+    if (pg->graph == GR_PATGRID)                     /* every track's patterns, the one waiting blinking */
+        h ^= patgrid_sig();
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* FM6's pages: the patch, switches, functions, bank */
         h ^= fm6_pgen[song.sel % NTRK] * 2654435761u + fm6_on[song.sel % NTRK] * 40503u + fm6_opsel * 131u +
              fm6_bslot * 7919u + up_gen * 104729u;
@@ -1098,12 +1108,35 @@ static void graph_scale_picker(void)
     }
 }
 
+/* a list entry's tag and name, as the browser shows them: "P5" "It's a Proph", "F012" (native), "U07" (user preset) */
+static void entry_label(uint32_t e, uint32_t k, char *tag, char *nm)
+{
+    if (e == USER_NATIVE_P5 || e == USER_NATIVE_FM || e == USER_NATIVE_CZ) {
+        uint32_t eng = src_engine(e, k);
+        tag[0] = eng == ENGI_PROPHET ? 'P' : eng == ENGI_FM6 ? 'F' : 'Z';
+        tag[1] = (char)('0' + (k + 1u) / 100u);
+        tag[2] = (char)('0' + (k + 1u) / 10u % 10u);
+        tag[3] = (char)('0' + (k + 1u) % 10u);
+        tag[4] = 0;
+        native_name(eng, k, nm);
+    } else if (e == USER_GENERAL) {
+        up_slot_label(tag, k);
+        up_name(k, nm);
+    } else {
+        str_cpy(tag, eng_abbr(ENGINES[e % NENGINES]->name), 6);
+        str_cpy(nm, ENGINES[e % NENGINES]->presets[k].name, 13);
+    }
+}
 static void graph_browse(void)
 {
-    uint32_t total, cur = preset_pos(&total), e, k;
+    uint32_t total, cur = preset_pos(&total), e, k, m = list_mode();
+    int pending = browse_pending();
     int32_t row;
     if (!total) {
-        panel_note("NO FAVORITES", "LIST ALL TO ADD SOUNDS", 0);
+        if (m == LM_FAV)
+            panel_note("NO FAVORITES", "LIST ALL TO ADD SOUNDS", 0);
+        else
+            panel_note(m == LM_RECENT ? "NO RECENT SOUNDS" : "NO SOUNDS IN LIST", 0, 0);
         return;
     }
     for (row = -3; row <= 3; row++) {
@@ -1111,20 +1144,10 @@ static void graph_browse(void)
         char tag[6], nm[13], pt[4], pn[13];
         uint32_t index = preset_visible(cur, total, (uint32_t)(row + 3));
         int sel = index == cur;
-        int32_t hint = sel ? preset_pat_hint() : -1;    /* the suggested pattern */
+        int32_t hint = sel && !pending ? preset_pat_hint() : -1;    /* the suggested pattern (of a loaded sound) */
         if (index >= total) continue;
         e = preset_at(index, &k);
-        if(e==USER_NATIVE_P5 || e==USER_NATIVE_FM || e==USER_NATIVE_CZ){
-            uint32_t eng=e==USER_NATIVE_P5?ENGI_PROPHET:e==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ;
-            tag[0]=eng==ENGI_PROPHET?'P':eng==ENGI_FM6?'F':'Z';tag[1]=(char)('0'+(k+1u)/100u);tag[2]=(char)('0'+(k+1u)/10u%10u);tag[3]=(char)('0'+(k+1u)%10u);tag[4]=0;
-            native_name(eng,k,nm);
-        } else if (e == USER_GENERAL) {                             /* user preset: "U07" and its name */
-            up_slot_label(tag, k);
-            up_name(k, nm);
-        } else {
-            str_cpy(tag, eng_abbr(ENGINES[e]->name), sizeof tag);
-            str_cpy(nm, ENGINES[e]->presets[k].name, sizeof nm);
-        }
+        entry_label(e, k, tag, nm);
         if (hint >= 0) {
             pat_label((uint32_t)hint, pt, pn);
             x1 = 206 - text_w(&AF_S, pt) - 6;
@@ -1208,9 +1231,9 @@ static void graph_slots(void)
     uint32_t i, boot = settings_boot && graph_project_used(settings_boot - 1u) ? settings_boot
                      : template_used() ? (uint32_t)PROJ_TMPL : 0u;
     for (i = 0; i < (uint32_t)PROJ_TMPL; i++) {
-        int32_t y = 6 + (int32_t)i * 23;
+        int32_t y = 4 + (int32_t)i * 19;
         char b[4];
-        int sel = (int32_t)i + 1 == song.g[G_SLOT], tm = i + 1u == (uint32_t)PROJ_TMPL;
+        int sel = (int32_t)i + 1 == song.g[G_SLOT] && !ui.proj_new, tm = i + 1u == (uint32_t)PROJ_TMPL;
         int used = tm ? template_used() : graph_project_used(i);
         const char *n = tm ? "TEMPLATE" : graph_project_name(i);
         b[0] = (char)(tm ? 'T' : 'A' + i);
@@ -1219,6 +1242,7 @@ static void graph_slots(void)
         if (boot == i + 1u)
             cv_text_r(226, y + 1, &AF_S, "BOOT", sel ? T_INK : T_ACCENT, sel ? T_THEME : T_SURF);
     }
+    list_row(4 + PROJ_TMPL * 19, ui.proj_new, "+", T_MID, "NEW SONG", T_TEXT, 232);   /* KNOB 1 past TMPL */
 }
 /* MIXER page: four SURF columns, one under each card: the circled numeral (filled and in the accent:
  * the selected track) with a REC / ARM / MUTE badge (P_MUTE, KNOB 1), the sound's short name (a MUTE badge
@@ -1318,7 +1342,7 @@ static void draw_tracks(void)
         uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* the knob just turned (hot_col + 1): 1 LEVEL, 2 PAN,
                                                                 * 3 REV, 4 MUTE (its badge) */
         int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), rv = clamp(t->p[P_REV], 0, 127);
-        uint16_t vc = mute ? T_DIM : T_THEME;
+        uint16_t vc = mute ? T_DIM : T_TRK(c);          /* each strip in its track's colour */
         char b[16];
         t->peak = 0;
         trk_short_name(c, b);
@@ -1333,7 +1357,7 @@ static void draw_tracks(void)
         ts.col[c] = sig;
         cv_begin(CARD_W, H_GRAPH, T_BG);
         cv_rrect(0, 0, CARD_W, H_GRAPH, 5, T_SURF, T_BG);
-        cv_icon_on(4, 5, 16, trk_icon(c, sel), sel ? T_ACCENT : T_MID, T_SURF);
+        cv_icon_on(4, 5, 16, trk_icon(c, sel), T_TRK(c), T_SURF);
         if (st == 1u || st == 2u)                    /* REC (recording) / ARM (armed, stopped) */
             cv_keycap(53 - kc_w(st == 1u ? KC_REC : KC_ARM), 6, st == 1u ? KC_REC : KC_ARM, st == 1u ? T_REC : T_ACCENT,
                       T_INK, T_SURF);
@@ -1438,52 +1462,6 @@ static uint32_t notes_fit(char *b, const uint8_t *note, uint32_t n, const aafont
     return 1;
 }
 
-static int graph_notes(void)
-{
-    uint32_t bits[4], i, n = 0, pcs = 0, root = 0, bass, held = 0;
-    uint8_t note[8];
-    char b[48];
-    const char *q;
-    const aafont_t *f;
-    uint16_t c;
-    /* One coherent ISR snapshot; no drawing or chord recognition with IRQs masked. */
-    fm1_irq_off();
-    for (i = 0; i < 4u; i++) {
-        uint32_t p;
-        bits[i] = live_last[i];
-        for (p = 0; p < NTRK; p++) held |= live_held[p][i];
-    }
-    fm1_irq_on();
-    for (i = 0; i < 128u; i++)
-        if ((bits[i >> 5] >> (i & 31u)) & 1u) {
-            pcs |= 1u << (i % 12u);
-            if (n < sizeof note) note[n] = (uint8_t)i;
-            n++;
-        }
-    if (!n) return 0;
-    c = held ? T_TEXT : T_THEME;
-    bass = note[0] % 12u;
-    q = micro_active(TSEL) ? 0 : chord_of(pcs, bass, &root);
-    if (q) {
-        int32_t x = cv_text(12, 7, &AF_L, N_NOTE[root], c);
-        x = cv_text(x + 2, 19, &AF_M, q, c);
-        if (root != bass) {
-            x = cv_text(x + 3, 7, &AF_L, "/", c);
-            cv_text(x, 7, &AF_L, N_NOTE[bass], c);
-        }
-        notes_fit(b, note, n, &AF_S, 208);
-        cv_text(12, 38, &AF_S, b, held ? T_THEME : T_MID);
-    } else {
-        f = &AF_L;
-        if (notes_fit(b, note, n, f, 208) != n) {
-            f = &AF_S;
-            notes_fit(b, note, n, f, 208);
-        }
-        cv_text(12, 7, f, b, c);
-    }
-    return 1;
-}
-
 /* oscilloscope of the output, triggered on a rising zero crossing: a RAISE centre line, the trace 2 px */
 static void graph_scope(uint16_t c, int32_t top, int32_t h)
 {
@@ -1551,10 +1529,9 @@ static void draw_graph(void)
     cv_rrect(3, 0, 234, H_GRAPH, 5, T_SURF, T_BG);   /* the panel */
     cv_bg = T_SURF;                                  /* (text drawn with cv_text lands on it) */
     cv_oy = GOY;                                     /* graphs on a 100 px scale */
-    if (ui.home) {
+    if (ui.home) {                                   /* (Stage draws its own panel: ui_stage.c) */
         cv_oy = 0;
-        int32_t top = graph_notes() ? 54 : 0;
-        graph_scope(c, top, H_GRAPH - top);
+        graph_scope(c, 0, H_GRAPH);
     } else {
         switch (pg->graph) {
         case GR_ADSR:
@@ -1624,6 +1601,10 @@ static void draw_graph(void)
         case GR_PATS:
             cv_oy = 0;
             graph_pats();
+            break;
+        case GR_PATGRID:
+            cv_oy = 0;
+            graph_patgrid();
             break;
         case GR_TOOLS:
             cv_oy = 0;

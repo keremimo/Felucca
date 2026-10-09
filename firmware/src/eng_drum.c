@@ -251,8 +251,11 @@ static voice_t *drum_reuse(track_t *t, uint32_t note)
     return v->active && (uint32_t)v->s[0] == lane ? v : 0;
 }
 
+/* lanes hit since the UI last looked, a bit per lane (drum_lane) and track: Stage flashes their names (ui_stage.c) */
+static volatile uint8_t drum_flash[NTRK];
 static void drum_note_on(track_t *t, voice_t *v)
 {
+    drum_flash[(uint32_t)(t - trk) % NTRK] |= (uint8_t)(1u << drum_lane(v->note));
     v->s[3]=(int32_t)drum_event_length; v->s[4]=drum_event_pitch; v->s[5]=drum_event_length!=0;
     if(drum_is909(t)) {
         drum909_part_t *k=drum909_of(t); if(!k)return;

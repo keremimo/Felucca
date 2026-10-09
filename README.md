@@ -151,8 +151,9 @@ On top of Felucca 1.0 it adds:
 - **Startup:** a BOOT project loaded at power-on and a template for new projects; CLK, TUNE, MIDI and
   ROUT kept between starts
 - **Panel:** HOME names the notes and chords you play; key lights for the scale and the sounding
-  notes (the menu's LIGHTS); REC + PLAY records at once and REC held opens the MIXER; SAVE + REC
-  saves the project to its slot; BPM and swing on SEQ > TEMPO, saved with the project
+  notes (the menu's LIGHTS); REC + PLAY records at once and REC held captures what you just played; SAVE + REC
+  saves the project to its slot, and it saves itself when stopped and left alone; BPM and swing on SEQ > TEMPO, saved
+  with the project
 - **MIDI:** a DRUM channel (10 by default) for the first DRUM track; QNT ALL and MPC pad layouts that
   incoming MIDI follows too; a more reliable TRS input; GLO > SYSTEM shows the input's activity
 
@@ -190,13 +191,19 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   GLO, SCL and EDIT also support double-press locking
 - **Quick layers:** hold FX, GLO, SCL or EDIT for shortcuts on the keys and knobs; one-step undo
   (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
-- **Presets:** factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
+- **Presets:** browse by category (BASS, LEAD, PAD, KEYS, ORGAN, STRING, BRASS, WIND, PLUCK, BELL, DRUM, FX), favourites or
+  RECENT, with knob acceleration; factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
-- **Screen:** flat UI with Inter Tight and Fukiai icons, 8 palettes including grayscale and high contrast;
-  HOME shows the played notes and recognized chords above the live waveform, retaining the last voicing after release
-- **Lights:** the keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up while
-  its note sounds, MIDI in too, and the idle buttons glow; the HOME-held menu's LIGHTS sets the level (OFF: only
-  what is pressed or engaged)
+- **Screen:** Melodee's own look: Rubik type, icons drawn for Melodee, every track in its own colour (the screen takes the
+  selected track's), three palettes: NIGHT, DAY and CONTRAST
+- **Stage (HOME):** the selected track's own four knobs (its engine's: the Prophet's cutoff, resonance, filter envelope
+  and release, the CZ-1's wave, DCW, detune and vibrato), the notes and chord it plays in front of the live waveform
+  (the last voicing stays after release; a DRUM track lights its lanes as they hit), and a lane per track: its sound,
+  its pattern (and the next one while it waits for the bar), the bar playing and its level
+- **Lights:** one grammar for keys and buttons: dark nothing there, dim something there, bright happening now,
+  breathing waiting. The keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up
+  while its note sounds, MIDI in too, and the idle buttons glow; REC breathes while armed and stopped, PLAY while
+  counting in; the HOME-held menu's LIGHTS sets the level (OFF: only what is pressed, engaged or selectable)
 - **USB:** class-compliant MIDI in and out; **Melodee Out** plays the computer through the FM-1,
   **Melodee In** records four mono tracks (one channel per track, after level and before pan, sends
   and master effects). Both support 16/24-bit audio at 44.1 kHz; each can be disabled in the
@@ -219,26 +226,59 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   BOOT project's, the template's or 120); GLO > GLOBAL keeps CLK and TUNE, the device's
 - FX, SCL, ENV, LFO, EDIT, GLO, SAVE, ARP and SEQ open their pages; press again for the next page.
   HOME returns home
-- **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the song,
-  REC the MIXER.
+- **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the PATTERNS grid with
+  the song under it, REC captures (below).
+- **Undo:** hold SAVE to undo the last sound or pattern load or Capture; hold it again to go further back (up to 8
+  levels with cache RAM, else one); while SAVE is held, OCT- undoes and OCT+ redoes. On the step pages SAVE's undo
+  covers the step edits first
   When editing synth steps, SCL and EDIT use the editing controls below instead; FX keeps its layer
 - PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
   transport; **REC + PLAY** arms it and starts recording in one gesture
 - OCT− / OCT+ shift the octave (both: reset). On action pages, in dialogs and the menu, OCT+ does it
   and OCT− goes back. During synth step editing, OCT− / OCT+ move the step cursor
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
+- **New song:** SAVE > PROJECT, turn KNOB 1 past TMPL to **NEW**, KNOB 3 to pick it and OCT+ (unsaved changes ask
+  first). Set the key (KNOB 1 ROOT, 2 SCALE) and tempo (KNOB 3), OCT+; give each track a role with KNOB 1–4 (KEEP,
+  DRUMS, BASS, CHORDS, LEAD, PAD), OCT+ creates it: your template's sounds (none saved: the power-on ones), a role's
+  first sound where the template's does not fit it, every pattern empty
 - **SAVE + REC** saves the project back to the slot it was loaded from or last saved to (`SAVED B`), stopping
-  the transport first; a new project opens SAVE > PROJECT on a free slot
+  the transport first; a new project opens SAVE > PROJECT on a free slot. **Autosave:** stopped and untouched for
+  5 seconds (no key, button, knob or MIDI), a project that has a slot saves itself there when it changed
+- **Capture:** while the transport runs, Melodee keeps what you play on every track that is not recording. Hold
+  **REC** to write the selected track's last bars into its pattern, with their timing, velocities and lengths: an
+  empty pattern takes 1, 2 or 4 bars (as many as your notes span) and its LEN follows; a pattern with notes takes its
+  last LEN steps over what it holds. Hold SAVE to undo
+
+### Browsing sounds
+
+Turn **PRESETS** (on HOME, or KNOB 1 on SAVE > PRESETS) to browse every sound: each engine's factory presets in
+engine order, its native user slots, then the general user presets. **KNOB 4 LIST** narrows the list to **FAV**,
+**RECENT** (the sounds you browsed since power-on, newest first) or one category: **BASS LEAD PAD KEYS ORGAN STRING
+BRASS WIND PLUCK BELL DRUM FX OTHER**. Every factory sound, the Prophet, CZ-1 and FM6 libraries included, has a
+category; native and user slots take the category of a factory sound with the same name, otherwise the words in
+their name (BASS, PIANO, STRINGS, ...). The chosen category is kept with the device settings.
+
+Knobs accelerate: a slow turn moves one step a detent, a fast one up to 8 steps on wide values and up to 16 entries
+in long lists, so the end of a 400-sound list is a flick away. Lists of names (waveforms, modes) never accelerate.
+MENU > **KNOB ACCEL** OFF keeps every detent one step. While the list moves fast, the screen follows at once and the
+sound loads when the knob rests, so a flick does not load every sound it passes; playing a key or changing the track
+loads it at once. Hold **SAVE** to return to the sound you had before browsing.
 
 ### Patterns and songs
 
-Hold **SEQ** and press one of the first eight white keys to pick pattern 1–8. Hold a pattern key
-and press a second one to copy its notes, ties, timing, chance, drum hits and automation. **SEQ + SELECT**
-also chooses a pattern. While playing, each track changes at its own loop end; the queued key blinks.
-Selecting the active pattern cancels a queued change. STOP applies pending choices.
+Hold **SEQ** and press one of the first eight white keys to pick pattern 1–8: the pattern playing is lit, the others
+holding notes glow, the one waiting for the loop end breathes. Hold a pattern key and press a second one to copy its
+notes, ties, timing, chance, drum hits and automation. **SEQ + SELECT** also chooses a pattern. While playing, each
+track changes at its own loop end. Selecting the active pattern cancels a queued change. STOP applies pending choices.
+
+**SEQ > PATTERNS** (or hold SEQ) shows the four tracks' eight patterns at once: the one playing in the track's colour
+(with how far it has played), the one waiting outlined, the others holding notes raised; under it, the song's rows
+around the one playing (no song yet: the jam's). **KNOB 1–4** pick tracks 1–4's patterns; SELECT goes on to SONG.
 
 On **SEQ > SONG**, KNOB 1 chooses the row, **ALGORITHM** chooses the track, KNOB 2 chooses that
-track's pattern, and KNOB 3 sets repeats. PLAY runs the arrangement; rows change all four tracks
+track's pattern, and KNOB 3 sets repeats. **Jam to song:** from PLAY on, every loop of track 1 logs the four tracks'
+patterns as a row (the same patterns again: a repeat), so switching patterns while you jam writes a song; KNOB 4
+**JAM** shows the rows logged, turn it right and press OCT+ to make them the song (over a song with rows: confirm). PLAY runs the arrangement; rows change all four tracks
 at track 1's loop boundary and the last row stops. STOP returns to the patterns selected before
 SONG. Project saves and complete backups include all 32 banks and the arrangement.
 
@@ -496,8 +536,9 @@ You can leave a tip with [ko-fi](https://ko-fi.com/keremimo).
 - **[Hügelton Instruments](https://hugelton.com)** (Leo Kuroshita, [@kurogedelic](https://github.com/kurogedelic)):
   Felucca itself; the PHASE engine's waveforms (a C port of the oscillator of
   [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the synthesized 808; the [Fukiai](https://github.com/hugelton/Fukiai) icon
-  font ([MIT](LICENSES/MIT-Fukiai.txt))
-- Font: [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors, [SIL OFL 1.1](LICENSES/OFL-InterTight.txt)
+  font of the web editor ([MIT](LICENSES/MIT-Fukiai.txt))
+- Font: [Rubik](https://github.com/googlefonts/rubik) by The Rubik Project Authors, [SIL OFL 1.1](LICENSES/OFL-Rubik.txt);
+  the panel diagram: [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors, [SIL OFL 1.1](LICENSES/OFL-InterTight.txt)
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
 - Native CZ engine: uPD933 model by Devin Acker in [MAME](https://github.com/mamedev/mame/blob/master/src/devices/sound/upd933.cpp) ([BSD-3-Clause](LICENSES/BSD-3-Clause-uPD933.txt))
 - PHYS engine: models ported from [DaisySP](https://github.com/electro-smith/DaisySP) by Electrosmith and Emilie Gillet ([MIT](LICENSES/MIT-DaisySP.txt)) and from Emilie Gillet's [eurorack](https://github.com/pichenettes/eurorack) code ([MIT](LICENSES/MIT-Rings.txt))

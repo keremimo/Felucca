@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
-/* The palettes and the real canvas/text renderer (src/gfx.c): MONO stays gray in every token and blend,
- * every palette's text contrast, the alpha blend, the ramp cache, the fonts' metrics and the ellipsis.
+/* The palettes and the real canvas/text renderer (src/gfx.c): NIGHT DAY CONTRAST with each track's colour as THEME,
+ * the test-only GRAY stays gray in every token and blend, every palette's text contrast, the alpha blend, the ramp
+ * cache (palette and track), the fonts' metrics (Rubik) and the ellipsis.
  * Optional: a palette sheet (PPM). */
 #include <stdint.h>
 #include <stdio.h>
@@ -11,6 +12,7 @@
 static void lcd_sync(void) {}
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
+#define UI_TEST_PALETTE 1
 #include "../firmware/src/gfx.c"
 
 #define SHEET_W 960u
@@ -41,11 +43,16 @@ int main(int argc, char **argv)
     static const uint8_t pd[] = {0x08, 0xf0};
     const aafont_t probe = {1, 1, 'A', 'A', 0, 0, pg, pd, 0, 0, 0};
     double worst = 100;
-    assert(NPALETTES == 8u && !strcmp(UI_PALETTES[0].name, "MONO") && !strcmp(UI_PALETTES[7].name, "HI-CON"));
-    for (unsigned p = 0; p < NPALETTES; p++) {
+    assert(NPALETTES == 3u && !strcmp(UI_PALETTES[0].name, "NIGHT") && !strcmp(UI_PALETTES[1].name, "DAY") &&
+           !strcmp(UI_PALETTES[2].name, "CONTRAST") && !strcmp(UI_PALETTES[UI_GRAY_INDEX].name, "GRAY"));
+    for (unsigned pt = 0; pt < UI_PAL_ENTRIES * 4u; pt++) {
+        unsigned p = pt / 4u, t = pt % 4u;
         uint16_t *tok = &ux.bg;
         palette_set(p);
-        if (p == UI_MONO_INDEX)
+        ux.trk = 0xFF;
+        palette_track(t);                                      /* THEME: track t's colour */
+        assert(T_THEME == UI_PALETTES[p].trk[t] && T_TRK(t) == T_THEME);
+        if (p == UI_GRAY_INDEX)
             for (unsigned i = 0; i < 14; i++) assert(gray(tok[i]));      /* every token, derived ones too (RAISE, KEY the last) */
         /* text and the things read on the screen; the generator checks the same (tools/gen_ui_palettes.py) */
         struct { uint16_t fg, bg; double min; } c[] = {
@@ -56,15 +63,15 @@ int main(int argc, char **argv)
         double min = 100;
         for (unsigned i = 0; i < sizeof c / sizeof c[0]; i++) {
             double r = contrast(c[i].fg, c[i].bg);
-            if (r < c[i].min) printf("%s: pairing %u contrast %.2f < %.2f\n", UI_PALETTES[p].name, i, r, c[i].min);
+            if (r < c[i].min) printf("%s T%u: pairing %u contrast %.2f < %.2f\n", UI_PALETTES[p].name, t + 1, i, r, c[i].min);
             assert(r >= c[i].min);
             if (r / c[i].min < min) min = r / c[i].min;
         }
         if (min < worst) worst = min;
-        printf("%-7s text %.1f:1, labels %.1f:1, values %.1f:1, selection %.1f:1\n", UI_PALETTES[p].name,
+        printf("%-8s T%u text %.1f:1, labels %.1f:1, track %.1f:1, selection %.1f:1\n", UI_PALETTES[p].name, t + 1,
                contrast(T_TEXT, T_BG), contrast(T_MID, T_BG), contrast(T_THEME, T_BG), contrast(T_INK, T_SEL));
-        assert((p == 6u) == ux.light);                         /* PAPER is the light one */
-        assert(T_REC == (p == UI_MONO_INDEX ? T_ACCENT : ux.light ? UI_REC_LIGHT : UI_REC_DARK));
+        assert((p == 1u) == ux.light);                         /* DAY is the light one */
+        assert(T_REC == (p == UI_GRAY_INDEX ? T_ACCENT : ux.light ? UI_REC_LIGHT : UI_REC_DARK));
         /* the blend: transparent, solid and an edge between the two, on two backgrounds */
         for (unsigned b = 0; b < 2; b++) {
             uint16_t under = b ? T_SEL : T_BG, ink = b ? T_INK : T_THEME;
@@ -75,7 +82,7 @@ int main(int argc, char **argv)
                 unsigned a = channel(under, k), z = channel(ink, k), m = channel(swap16(cv_px[1]), k);
                 assert(m >= (a < z ? a : z) && m <= (a > z ? a : z));   /* no halo */
             }
-            if (p == UI_MONO_INDEX) assert(gray(swap16(cv_px[1])));
+            if (p == UI_GRAY_INDEX) assert(gray(swap16(cv_px[1])));
         }
         assert(text_w(&AF_S, UI_PALETTES[p].name) <= 60);     /* the COLOR row's value */
         cv_begin(240, 124, T_BG);
@@ -99,19 +106,23 @@ int main(int argc, char **argv)
         for (unsigned y = 0; y < 124; y++)
             for (unsigned x = 0; x < 240; x++) {
                 uint16_t v = swap16(cv_px[y * 240 + x]);
-                if (p == UI_MONO_INDEX) assert(gray(v));          /* every blended pixel of MONO */
-                sheet[(p / 4 * 124 + y) * 960 + p % 4 * 240 + x] = v;
+                if (p == UI_GRAY_INDEX) assert(gray(v));          /* every blended pixel of GRAY */
+                if (!t) sheet[(p / 4 * 124 + y) * 960 + p % 4 * 240 + x] = v;
             }
     }
     /* the ramp cache follows the palette (a stale ramp would blend toward the old background) */
+    palette_set(0);
+    cv_begin(3, 1, T_BG); cv_text(0, 0, &probe, "A", T_THEME);
+    uint16_t night = swap16(cv_px[1]);
     palette_set(1);
     cv_begin(3, 1, T_BG); cv_text(0, 0, &probe, "A", T_THEME);
-    uint16_t green = swap16(cv_px[1]);
-    palette_set(6);
+    assert(swap16(cv_px[1]) != night);
+    palette_set(0);
+    assert(palette_track(1) && !palette_track(1));             /* (and so does the track: once) */
     cv_begin(3, 1, T_BG); cv_text(0, 0, &probe, "A", T_THEME);
-    assert(swap16(cv_px[1]) != green);
-    /* fonts: Inter Tight S 12 px, M 15 px, L 28 px; tabular digits; the ellipsis; L has capitals only */
-    assert(AF_S.h == 15 && AF_S.asc == 12 && AF_M.h == 19 && AF_M.asc == 15 && AF_L.h == 35 && AF_L.asc == 28);
+    assert(swap16(cv_px[1]) != night);
+    /* fonts: Rubik S 11 px, M 14 px, L 26 px; tabular digits; the ellipsis; L has capitals only */
+    assert(AF_S.h == 14 && AF_S.asc == 11 && AF_M.h == 18 && AF_M.asc == 14 && AF_L.h == 32 && AF_L.asc == 25);
     assert(text_w(&AF_M, "0000") == text_w(&AF_M, "1111") && text_w(&AF_S, "1.25") == text_w(&AF_S, "8.75"));
     assert(glyph(&AF_S, (uint8_t)ELLIPSIS) != glyph(&AF_S, '?') && glyph(&AF_M, (uint8_t)ELLIPSIS) != glyph(&AF_M, '?'));
     assert(text_w(&AF_L, "abc") == text_w(&AF_L, "ABC"));
