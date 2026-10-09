@@ -26,6 +26,9 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
 #include "../firmware/src/panel.c"
 static void settings_save(void) {}
 static uint8_t settings_boot, settings_drumch = 10;  /* (params.c) */
+#define PF_KEYS 16u                                       /* (perform.c: the FX key map's keys and effects) */
+#define PF_NFX 12u
+static int native_used(uint32_t e, uint32_t k) { (void)e; (void)k; return 0; }
 #if __has_include("../firmware/src/favorites.c")
 #include "../firmware/src/favorites.c"
 #endif

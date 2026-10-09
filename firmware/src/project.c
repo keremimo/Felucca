@@ -1380,6 +1380,9 @@ static void persist_boot(void)                    /* before settings_init / pane
                 proj_fetch(i);
     }
     up_boot();                                     /* user presets */
+#ifdef MELODEE_FAVORITES
+    fx_keys_settle();                              /* (an old record: map or CZ stars, the native banks known) */
+#endif
 #endif
 }
 

@@ -42,26 +42,63 @@ static int scale_favorite_set(uint32_t scale, int on)
     return 1;
 }
 /* The FX layer's white-key map (perform.c perf_map_of, ui_layer.c fx_keys) in the upper half of retired engine 8's
- * row, tagged. Untagged records kept it in CZ's row, bytes 14..23: over native CZ slots 47..126's stars, which
- * starred slots changed and a key assigned starred. settings_import moves it here once (the map keeps those bits,
- * no longer stars); settings_export tags every record. No settings/template layout change. */
+ * row, tagged. Untagged records kept it in CZ's row, bytes 14..23: the bits of native CZ slots 47..126's stars, which
+ * starring a slot changed and a key assigned starred. Their bytes are a map (a build of 2026-10-09) or stars (0.12
+ * on): fx_keys_take keeps them as both, fx_keys_settle (once the native banks are known: persist_boot after up_boot,
+ * settings_export) decides: a 5-bit code no map writes (above PF_NFX + 1): stars; else a bit on an empty native slot
+ * (no star can be there): the map; else stars (a map only on slots the user filled reads as stars). The loser's bits
+ * clear. settings_export tags every record. No settings/template layout change. */
 #define FX_KEYS_ROW 8u
 #define FX_KEYS_AT 16u
 #define FX_KEYS_LEN 10u
 #define FX_KEYS_OLD 14u                 /* .. its bytes in row ENGI_CZ before */
+#define FX_KEYS_SLOT 47u                /* .. the native CZ slot of their bit 0 */
+static uint8_t fx_keys_old[FX_KEYS_LEN], fx_keys_open;   /* an untagged record's bytes, until settled */
+static int native_used(uint32_t e, uint32_t k);
 static void fx_keys_tag(uint8_t *row)
 {
     row[28] = 'F'; row[29] = 'X'; row[30] = 'K'; row[31] = 1;
 }
-static void fx_keys_move(uint8_t (*f)[32])
+static void fx_keys_take(void)          /* settings_import: the record's favorites just loaded */
 {
-    uint8_t *row = f[FX_KEYS_ROW];
+    uint8_t *row = favorites.factory[FX_KEYS_ROW];
+    uint32_t i, any = 0;
+    fx_keys_open = 0;
     if (row[28] == 'F' && row[29] == 'X' && row[30] == 'K' && row[31] == 1)
         return;
-    memcpy(row + FX_KEYS_AT, f[ENGI_CZ] + FX_KEYS_OLD, FX_KEYS_LEN);
+    memcpy(fx_keys_old, favorites.factory[ENGI_CZ] + FX_KEYS_OLD, FX_KEYS_LEN);
+    memcpy(row + FX_KEYS_AT, fx_keys_old, FX_KEYS_LEN);
     memset(row + FX_KEYS_AT + FX_KEYS_LEN, 0, 28u - FX_KEYS_AT - FX_KEYS_LEN);
-    memset(f[ENGI_CZ] + FX_KEYS_OLD, 0, FX_KEYS_LEN);
     fx_keys_tag(row);
+    for (i = 0; i < FX_KEYS_LEN; i++)
+        any |= fx_keys_old[i];
+    fx_keys_open = any != 0u;
+}
+static int fx_keys_old_map(void)
+{
+    uint32_t i, b, v;
+    for (i = 0; i < PF_KEYS; i++) {
+        b = 5u * i;
+        v = fx_keys_old[b / 8u] | (b / 8u + 1u < FX_KEYS_LEN ? (uint32_t)fx_keys_old[b / 8u + 1u] << 8 : 0u);
+        if (((v >> (b % 8u)) & 31u) > PF_NFX + 1u)
+            return 0;
+    }
+    for (i = 0; i < FX_KEYS_LEN * 8u; i++)
+        if (((fx_keys_old[i / 8u] >> (i % 8u)) & 1u) && !native_used(ENGI_CZ, FX_KEYS_SLOT + i))
+            return 1;
+    return 0;
+}
+static void fx_keys_settle(void)
+{
+    uint32_t i;
+    if (!fx_keys_open)
+        return;
+    fx_keys_open = 0;
+    if (fx_keys_old_map())
+        for (i = 0; i < FX_KEYS_LEN; i++)               /* (stars set since, native_boot's: kept) */
+            favorites.factory[ENGI_CZ][FX_KEYS_OLD + i] &= (uint8_t)~fx_keys_old[i];
+    else
+        memset(favorites.factory[FX_KEYS_ROW] + FX_KEYS_AT, 0, FX_KEYS_LEN);
 }
 static int p5_favorite_has(uint32_t slot,int factory);
 static int p5_favorite_set(uint32_t slot,int on,int factory);

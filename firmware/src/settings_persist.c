@@ -81,8 +81,8 @@ static int settings_import(persist_t *p, int n)
     settings_chord_add = (uint8_t)((rp >> 7) & 1u);
     settings_hold = (uint8_t)hold_from_stored(p->bold);
 #ifdef MELODEE_FAVORITES
-    fx_keys_move(p->favorites.factory);                 /* (out of CZ's row, once: favorites.c) */
     memcpy(&favorites, &p->favorites, sizeof favorites);
+    fx_keys_take();                                     /* (an old record: settled after up_boot, favorites.c) */
     favorites_user_hi = p->ext.spare[0];
     favorites.filter = favorites.filter == 1u;
 #if defined(FM4_NPRESETS) && !MELODEE_FM4
@@ -112,6 +112,7 @@ static void settings_export(persist_t *p)
     p->panel = panel;
     p->bold = hold_to_stored(p->bold, settings_hold);
 #ifdef MELODEE_FAVORITES
+    fx_keys_settle();
     memcpy(&p->favorites, &favorites, sizeof favorites);
     fx_keys_tag(p->favorites.factory[FX_KEYS_ROW]);     /* (a device with no record before: its map is there too) */
     p->ext.spare[0] = favorites_user_hi;

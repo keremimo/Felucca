@@ -86,7 +86,8 @@ static void test_lfo(void)
     puts("layers/screen: all synced LFO divisions, NOTE/FREE, UNI and transport reset passed");
 }
 /* the FX key map and the native CZ-1 favorites share no bits (the map sat in CZ's row, factory[15][14..23], over
- * native slots 47..126's stars), and a settings record from before the move keeps its map */
+ * native slots 47..126's stars), and a settings record from before the move keeps its map, or its stars when its
+ * bytes cannot be a map (a code no map writes) or sit only on filled slots */
 static uint32_t cz_stars(void)
 {
     uint32_t k, n = 0;
@@ -106,7 +107,8 @@ static void test_fx_map_storage(void)
     static const uint8_t MAP[PF_KEYS] = {PF_PHS, PF_N, PF_FLG, PF_TAPE, PF_R32, PF_N, PF_REV, PF_LPF,
                                          PF_ODN, PF_OUP, PF_FRZ, PF_HPF, PF_R8, PF_R16, PF_PHS, PF_N};
     static const uint8_t STARS[] = {0, 46, 47, 60, 126, 127};
-    uint8_t def[PF_KEYS];
+    static const uint8_t OLD_STARS[] = {47, 50, 55, 63};       /* (codes 9, 8 and 2: a map could have written them) */
+    uint8_t def[PF_KEYS], cz[CZ_BYTES];
     persist_t p;
     uint32_t k, q;
     reset_controls(); memset(&favorites, 0, sizeof favorites); fx_map_sync();
@@ -140,8 +142,12 @@ static void test_fx_map_storage(void)
     p.favorites.factory[15][27] = 2u; p.favorites.factory[15][30] = 1u; p.favorites.factory[15][31] = 0x1Cu;
     p.favorites.factory[8][0] = 0x0Cu;                           /* Felucca 1.0's GRAIN stars: left as they are */
     memset(&favorites, 0, sizeof favorites);
-    assert(settings_import(&p, sizeof p) == 1); fx_map_sync();
-    assert(map_is(MAP));
+    assert(settings_import(&p, sizeof p) == 1);
+    for (k = 47; k < 127u && ((p.favorites.factory[15][14u + (k - 47u) / 8u] >> ((k - 47u) % 8u)) & 1u); k++)
+        ;
+    assert(k < 127u && favorite_set(USER_NATIVE_CZ, k, 1));      /* (up_boot's native_boot: a star moved in) */
+    fx_keys_settle(); fx_map_sync();                             /* (persist_boot: once the native banks are known) */
+    assert(map_is(MAP) && favorite_has(USER_NATIVE_CZ, k)); favorite_set(USER_NATIVE_CZ, k, 0);
     assert(cz_stars() == 3u && favorite_has(USER_NATIVE_CZ, 0) && favorite_has(USER_NATIVE_CZ, 46) &&
            favorite_has(USER_NATIVE_CZ, 127));
     assert(favorite_has(ENGI_CZ, 0) && favorite_has(ENGI_CZ, 7) && favorites.factory[8][0] == 0x0Cu);
@@ -150,7 +156,30 @@ static void test_fx_map_storage(void)
     settings_export(&p); memset(&favorites, 0, sizeof favorites);
     assert(settings_import(&p, sizeof p) == 1); fx_map_sync();
     assert(map_is(MAP) && cz_stars() == 4u && favorite_has(USER_NATIVE_CZ, 60));
+
+    cz_patch_init(cz); cz[128] = 'Z';
+    for (k = 47; k < 64; k++)                                    /* 0.13.1's stars on filled slots: kept */
+        assert(native_put(ENGI_CZ, k, cz) == 3 && native_used(ENGI_CZ, k));   /* (3: in RAM, no flash here) */
+    memset(&p, 0, sizeof p); p.magic = PERSIST_MAGIC;
+    for (k = 0; k < sizeof OLD_STARS; k++)
+        p.favorites.factory[15][(65u + OLD_STARS[k]) / 8u] |= (uint8_t)(1u << ((65u + OLD_STARS[k]) % 8u));
+    memset(&favorites, 0, sizeof favorites);
+    assert(settings_import(&p, sizeof p) == 1); fx_keys_settle(); fx_map_sync();
+    assert(map_is(def) && cz_stars() == sizeof OLD_STARS);
+    for (k = 0; k < sizeof OLD_STARS; k++)
+        assert(favorite_has(USER_NATIVE_CZ, OLD_STARS[k]));
+    settings_export(&p); memset(&favorites, 0, sizeof favorites);
+    assert(settings_import(&p, sizeof p) == 1); fx_keys_settle(); fx_map_sync();
+    assert(map_is(def) && cz_stars() == sizeof OLD_STARS);
+    memset(&p, 0, sizeof p); p.magic = PERSIST_MAGIC;            /* a code above PF_NFX + 1 (slot 51: key F3's 16) */
+    p.favorites.factory[15][(65u + 51u) / 8u] |= 1u << ((65u + 51u) % 8u);
+    p.favorites.factory[15][(65u + 100u) / 8u] |= 1u << ((65u + 100u) % 8u);   /* .. though 100 is empty */
+    memset(&favorites, 0, sizeof favorites);
+    assert(settings_import(&p, sizeof p) == 1);
+    settings_export(&p);                                         /* (an export settles first) */
+    fx_map_sync();
+    assert(map_is(def) && cz_stars() == 2u && favorite_has(USER_NATIVE_CZ, 51) && favorite_has(USER_NATIVE_CZ, 100));
     memset(&favorites, 0, sizeof favorites); reset_controls();
-    puts("layers/screen: FX key map apart from the native CZ-1 favorites, an old record's map moved once passed");
+    puts("layers/screen: FX key map apart from the native CZ-1 favorites, an old record's map or stars kept passed");
 }
 int main(void) { test_layers(); test_screen_sleep(); test_lfo(); test_fx_map_storage(); return 0; }
