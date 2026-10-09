@@ -3792,6 +3792,15 @@ static int test_piano_roll(void)
 }
 
 /* bug fixes, second round (UI) */
+static uint32_t text_in(int32_t x0, int32_t y0, int32_t x1, int32_t y1)   /* pixels in T_TEXT in the box */
+{
+    uint32_t n = 0;
+    int32_t x, y;
+    for (y = y0; y < y1; y++)
+        for (x = x0; x < x1; x++)
+            n += host_screen[y * 240 + x] == swap16(T_TEXT);
+    return n;
+}
 static uint32_t accent_in(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
     uint32_t n = 0;
@@ -3849,26 +3858,28 @@ static int test_bughunt_ui2(void)
             }
         bad += check("STEP entry with CHRD: POLY the chord, MONO its root, as live recording writes", ok);
     }
-    {   /* 3. MIXER: the knob just turned is the one drawn in the accent (K1 LEVEL, K2 PAN, K3 REV, K4 the MUTE badge) */
+    {   /* 3. MIXER: the knob just turned is the control drawn in text (K1 the LEVEL ring, K2 PAN's value, K3 REV's,
+         * K4 the MUTE chip) in the selected track's strip (ui_pages.c pv_strip) */
         uint32_t k, a[4][4], ok = 1;
         for (k = 0; k < 4u; k++) {
-            int32_t X = CARD_X(0), Y = Y_GRAPH;
+            int32_t X = CARD_X(song.sel), Y = PV_STRIP_TOP;
             ui_power_on();
             settings.palette = 1; palette_set(1);
             go_page(GR_TRK); frame(); frame();
-            turn(EN_K1 + k, 1);                                       /* (K4 right: MUTE on, its badge shown) */
+            X = CARD_X(song.sel);
+            turn(EN_K1 + k, 1);                                       /* (K4 right: MUTE on) */
             ui.force = 1; frame();
-            a[k][0] = accent_in(X + 4, Y + 37, X + 38, Y + 71);       /* LEVEL */
-            a[k][1] = accent_in(X + 3, Y + 84, X + 28, Y + 115);      /* PAN */
-            a[k][2] = accent_in(X + 30, Y + 84, X + 55, Y + 115);     /* REV */
-            a[k][3] = accent_in(X + 22, Y + 4, X + 56, Y + 20);       /* the MUTE badge */
+            a[k][0] = text_in(X + 7, Y + 50, X + 15, Y + 90);         /* the LEVEL ring's left (its arc) */
+            a[k][1] = text_in(X + 5, Y + 145, X + 26, Y + 157);       /* PAN's value */
+            a[k][2] = text_in(X + 29, Y + 145, X + 50, Y + 157);      /* REV's */
+            a[k][3] = text_in(X + 6, Y + 168, X + 48, Y + 184);       /* the MUTE chip */
         }
         for (k = 0; k < 4u; k++) {
             uint32_t j;
             for (j = 0; j < 4u; j++)
                 ok &= j == k ? a[k][j] > 0u : a[k][j] == 0u;
         }
-        bad += check("MIXER: K1..K4 light LEVEL / PAN / REV / the MUTE badge, nothing else", ok);
+        bad += check("MIXER: K1..K4 light the LEVEL ring / PAN / REV / the MUTE chip, nothing else", ok);
     }
     {   /* 4. renaming the slot the music came from renames the music: the next SAVE prefills the new name */
         char pn[16];
