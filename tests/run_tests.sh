@@ -249,6 +249,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "matrix S&H / SLEW / DEPTH, SPREAD: off = bit-identical, sides, sends mono, SLICER and mutes" "$OUT/mod_spread_test"
     $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/layer_screen_test" tests/layer_screen_test.c -lm
     run "double-tap layers, FX LATCH, FX key map, SCREEN OFF, LFO 2 SYNC / TRIG / POL" "$OUT/layer_screen_test"
+    $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/punch_fx_test" tests/punch_fx_test.c -lm
+    run "punch FX: exclusive knob routing, release detents, DEPTH direction and double-press lock" "$OUT/punch_fx_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/phase_test" tests/phase_test.c -lm
     run "CZ: oscillator boundaries, native rate/target envelopes and independent lines" "$OUT/phase_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/cz1_knob_test" tests/cz1_knob_test.c -lm

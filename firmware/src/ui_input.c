@@ -1259,7 +1259,7 @@ static void ui_input(void)
     uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm);
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
     uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || layer_set_open() || step_oct_context());
-    uint32_t lay, combo = 0, lytap, lkeys;
+    uint32_t lay, knob_layer, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
     seq_erase_update(pressed);
     if (step_modifier_context()) {
@@ -1278,6 +1278,12 @@ static void ui_input(void)
     layer_arm(pressed, now);
     layer_masks();                                      /* seq.c: keys pressed with a layer's button are its own */
     lay = layer_held();
+    /* The armed layer owns the release frame too. Read each knob once: the scan ISR can publish another
+     * detent after a take, which must wait for the next frame rather than edit the underlying page. */
+    knob_layer = ui.ly && layer_allowed();
+    if (knob_layer)
+        for (k = 0; k < 4u; k++)
+            ks[k] = panel_enc(EN_K1 + k);
     if (!layer_allowed())
         perf_kill = 1;                                  /* (effects off until their keys are let go) */
     else if (!kb_layer)
@@ -1291,6 +1297,9 @@ static void ui_input(void)
     if (lay)
         lkeys |= notes & ~fm1_in.notes;                 /* (tapped and let go already) */
     notes &= ~kb_layer;
+    if (knob_layer)
+        for (k = 0; k < 4u; k++)
+            if (ks[k]) combo = 1;
     if (lay) {                                          /* a layer's button held: keys, knobs and buttons are combos */
         combo |= (pressed & ~ly_bit(ui.ly)) != 0u;
         notes = 0;                                      /* (the keys are the layer's, not the grid's or a step's) */
@@ -1300,9 +1309,6 @@ static void ui_input(void)
             ui.home_t0 |= 2u;
         if (pressed & (1u << panel.btn[B_SEQ]))
             ui.seq_t0 |= 2u;
-        for (k = 0; k < 4u; k++)                        /* KNOB 1..4: the layer's (ui_layer.c layer_knob) */
-            if ((ks[k] = panel_enc(EN_K1 + k)) != 0)
-                combo = 1;
         s=panel_enc(EN_PRESET);
         if (ui.ly==LAYER_FX && s) fx_assign(s);
         if (ui.ly==LAYER_FX && fx_key_held() && (pressed & (1u<<panel.btn[B_EDIT]))) fx_default();
@@ -1313,7 +1319,7 @@ static void ui_input(void)
     layer_show();
     layer_keys(lkeys);
     for (k = 0; k < 4u; k++)
-        if (ks[k]) {
+        if (lay && ks[k]) {
             layer_knob(k, ks[k]);
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
@@ -1586,7 +1592,7 @@ static void ui_input(void)
             page_scroll(s);
         }
     }
-    for (k = 0; k < 4u; k++) {
+    for (k = 0; !knob_layer && k < 4u; k++) {
         const page_t *pg = cur_page();
         int16_t *hv;
         if ((s = panel_enc(EN_K1 + k)) == 0)
