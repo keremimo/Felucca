@@ -1719,6 +1719,24 @@ static int test_step_sheets(void)
     return bad;
 }
 
+/* MOD as rows: KNOB 2 the route, KNOB 1 its source (its picker), KNOB 3 its destination, KNOB 4 its amount */
+static int test_mod_rows(void)
+{
+    int bad = 0;
+    ui_power_on();
+    go_title("MOD"); frame();
+    turn(EN_K2, 1);
+    bad += check("MOD: KNOB 2 the route (2)", mod_ui_slot == 1u);
+    turn(EN_K1, 1);
+    bad += check("..KNOB 1 its source (LFO), its picker under KNOB 1", TSEL->p[P_M2SRC] == MS_LFO && pop.on == POP_PICK &&
+                 pop.col == 0u && !TSEL->p[P_M1SRC]);
+    turn(EN_K3, 2);
+    bad += check("..KNOB 3 its destination", TSEL->p[P_M2DST] == 2 && !TSEL->p[P_M1DST]);
+    turn(EN_K4, 5);
+    bad += check("..KNOB 4 its amount", TSEL->p[P_M2AMT] > 0 && !TSEL->p[P_M1AMT]);
+    return bad;
+}
+
 /* ENV / LFO on the engines with envelopes and LFOs of their own (ui.c native_titles): their pages, the track's ADSR
  * and ENV DEST hidden; LFO goes on to the track LFO. OCT- on a sound page: Stage; on SCALES: SCL */
 static int test_native_env_lfo(void)
@@ -2045,10 +2063,20 @@ static int test_product_ux(void)
     bad += check("stopping returns the original sound after a recorded knob gesture", TSEL->p[P_E0] == baseline);
     go_page(GR_MOTION); turn(EN_K1, -1);
     bad += check("MOTION playback OFF preserves its stored events", !motion_enabled(TSEL) && motion_count(TSEL) == 1);
-    turn(EN_K4, 1); press(B_OCTUP);
-    bad += check("MOTION clear always asks confirmation", ui.confirm == CF_CLEAR_MOTION && motion_count(TSEL) == 1);
-    press(B_OCTDN); turn(EN_K4, 1); press(B_OCTUP); press(B_OCTUP);
+    sheet_do("Clear all motion");
+    bad += check("MOTION: the lane's sheet, Clear all motion always asks confirmation", ui.confirm == CF_CLEAR_MOTION &&
+                 motion_count(TSEL) == 1);
+    press(B_OCTDN); sheet_do("Clear all motion"); press(B_OCTUP);
     bad += check("confirmed MOTION clear removes events and SAVE hold restores them", motion_count(TSEL) == 0);
+    hold(B_SAVE);
+    bad += check("motion-clear UNDO restores the recorded events", motion_count(TSEL) == 1);
+    press(B_OCTUP);
+    bad += check("MOTION: OCT+ on the lane: its sheet (Play, Clear <lane>, Clear all motion)", pop.on == POP_SHEET &&
+                 pop.rows == SHEET_MOTION && !memcmp(SHEET_MOTION[1].label, "Clear ", 6));
+    press(B_OCTUP);
+    bad += check("..Play: on again", motion_enabled(TSEL) && !pop.on);
+    sheet_do(mo_clear_label);
+    bad += check("..Clear <lane>: its events gone, undoable", motion_count(TSEL) == 0 && msg_is("LANE CLEARED"));
     hold(B_SAVE);
     bad += check("motion-clear UNDO restores the recorded events", motion_count(TSEL) == 1);
     ui_power_on(); ui_leds();
@@ -4657,6 +4685,7 @@ int main(void)
     bad += test_popups();
     bad += test_native_env_lfo();
     bad += test_step_sheets();
+    bad += test_mod_rows();
     bad += test_bughunt_ui();
     bad += test_bughunt_ui2();
     bad += test_piano_roll();

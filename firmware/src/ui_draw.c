@@ -150,6 +150,7 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
  * chip in the track's colour naming where you are (Stage: the engine; a page: its title), or a message in its place
  * (a layer: its name); a battery glyph only while it runs low */
 static uint32_t page_sheet(void);                       /* ui_popup.c */
+static void list_words(char *d, const char *label, uint32_t n);   /* ui_list.c */
 static int sec_on(void);                                /* ui_sections.c */
 static uint32_t sec_of(uint32_t i);
 static void sec_chip(uint32_t i, char *b, uint32_t n);
@@ -671,14 +672,6 @@ static void draw_columns(void)
         draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
         return;
     }
-    if (cur_page()->graph == GR_MOTION) {
-        draw_column(0, "PLAY", motion_enabled(TSEL) ? "ON" : "OFF", "", VAL(0u), -1, motion_icon());
-        fmt_int(val, (int32_t)motion_count(TSEL));
-        draw_column(1, "EVENT", val, "", T_MID, -1, ICON_NONE);
-        draw_column(2, "", "", "", T_THEME, -1, ICON_NONE);
-        draw_act_column(3, "CLEAR", T_MID, ICON_X_MOTION_DEL);
-        return;
-    }
     if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV MUTE of the selected track */
         const track_t *t = TSEL;
         uint32_t lvl = trk_level(song.sel);
@@ -701,19 +694,6 @@ static void draw_columns(void)
         draw_column(3, "QNT", val, unit, VAL(3u), -1, ICON_AUTO);
         return;
     }
-    if (cur_page()->graph == GR_BROWSE) {              /* the sound shown: the pending one while browsing */
-        uint32_t total, cur = preset_pos(&total), k, src = browse_shown(&k), eng = src_engine(src, k);
-        char u[8];
-        if (cur < total) fmt_int(val, (int32_t)cur + 1);
-        else str_cpy(val, "--", 8);
-        str_cpy(u, "/", 8);
-        fmt_int(u + 1, (int32_t)total);
-        draw_column(0, "No.", val, u, VAL(0u), -1, ICON_NONE);
-        draw_column(1, "ENG", eng == ENGI_PROPHET ? "P5" : ENGINES[eng]->name, "", VAL(1u), -1, engine_icon(ENGINES[eng]->name));
-        draw_column(2, "FAV", favorite_has(src, k) ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
-        draw_column(3, "LIST", list_name(list_mode()), "", VAL(3u), -1, ICON_X_FOLDER);
-        return;
-    }
 #if MELODEE_SLICE
     if (cur_page()->graph == GR_SLICES) {                /* SLICE POS, then SPLIT JOIN (ui_slice.c) */
         uint32_t n = slice_count(), j = slice_sel(), src, div, ok = slice_src(&src, &div) && src;
@@ -734,16 +714,18 @@ static void draw_columns(void)
         return;
     }
 #endif
-    if (cur_page()->graph == GR_MOD) {                   /* SLOT, then that slot's SRC DST AMT */
+    if (cur_page()->graph == GR_MOD) {                   /* the route's SRC, the route, its DST AMT */
         const track_t *t = TSEL;
         uint32_t id = P_M1SRC + 3u * mod_ui_slot;
         int32_t s = t->p[id], d = t->p[id + 1u], a = t->p[id + 2u];
+        list_words(val, N_MSRC[clamp(s, 0, MS_N - 1)], sizeof val);   /* (the chips: words, no labels) */
+        draw_column(0, "", val, "", s ? VAL(0u) : T_DIM, -1, mod_src_icon(s));
         fmt_int(val, (int32_t)mod_ui_slot + 1);
-        draw_column(0, "SLOT", val, "/4", VAL(0u), (int32_t)mod_ui_slot * 1000 / 3, mod_src_icon(MS_OFF));   /* (the mod icon) */
-        draw_column(1, "SRC", N_MSRC[clamp(s, 0, MS_N - 1)], "", s ? VAL(1u) : T_DIM, -1, mod_src_icon(s));
-        draw_column(2, "DST", mod_dst_name(t, d), "", d ? VAL(2u) : T_DIM, -1, mod_dst_icon(t, d));
+        draw_column(1, "SLOT", val, "/4", VAL(1u), (int32_t)mod_ui_slot * 1000 / 3, mod_src_icon(MS_OFF));   /* (the mod icon) */
+        list_words(val, mod_dst_name(t, d), sizeof val);
+        draw_column(2, "", val, "", d ? VAL(2u) : T_DIM, -1, mod_dst_icon(t, d));
         param_format(&TP[id + 2u], a, val, &unit);
-        draw_column(3, "AMT", val, unit, a ? VAL(3u) : T_DIM, RATIO(&TP[id + 2u], a), mod_src_icon(MS_OFF));
+        draw_column(3, "", val, unit[0] ? " %" : "", a ? VAL(3u) : T_DIM, RATIO(&TP[id + 2u], a), mod_src_icon(MS_OFF));
         return;
     }
     if (cur_page()->graph == GR_ROLL && !grid_on()) {
@@ -1007,6 +989,7 @@ static void draw_confirm(void)
 #include "ui_list.c"                                    /* list pages */
 #include "ui_popup.c"                                   /* action sheets, pickers */
 #include "ui_slots.c"                                   /* PROJECT, USER, the STOREs: their slots */
+#include "ui_motion.c"                                  /* MOTION: its lanes */
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
@@ -1023,6 +1006,8 @@ static void draw_page(void)
     cursor_fix();
     if (!own_screen() && slot_kind()) {                 /* a slot page (ui_slots.c) */
         slot_draw();
+    } else if (!own_screen() && motion_page()) {        /* MOTION's lanes (ui_motion.c) */
+        motion_draw();
     } else if (!own_screen() && list_on()) {            /* a list page (ui_list.c) */
         list_draw();
     } else if (!own_screen() && pv_kind()) {            /* the redesign's other pages (ui_pages.c) */
@@ -1050,7 +1035,7 @@ static void draw_page(void)
             draw_graph();
     }
     melodee_dbg.stage = 6;
-    if (!ui.home && !own_screen() && !pv_kind() && !list_on() && !slot_kind())
+    if (!ui.home && !own_screen() && !pv_kind() && !list_on() && !slot_kind() && !motion_page())
         draw_foot();
 }
 static void ui_draw(void)

@@ -50,7 +50,7 @@ static int oct_nav(void)
 }
 static int oct_enter_ok(void)                           /* OCT+ would do something here */
 {
-    return list_on() || slot_kind() || page_sheet() || pop.on || smap.on || (!ui.home && cur_page()->graph == GR_BROWSE);
+    return list_on() || slot_kind() || motion_page() || page_sheet() || pop.on || smap.on || (!ui.home && cur_page()->graph == GR_BROWSE);
 }
 
 /* the OCT LEDs, bit 0 OCT-, bit 1 OCT+. In the dialogs, the menu and on action pages OCT- (back) is
@@ -710,12 +710,6 @@ static void edit_param(uint32_t slot, int32_t steps)
         }
         return;
     }
-    if (pg->graph == GR_MOTION) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (slot == 0u) motion_set_enabled(TSEL, steps > 0);
-        else if (slot == 3u) ui.act = steps > 0 ? 4u : 0u;
-        return;
-    }
     if (pg->graph == GR_SLOTS && slot == 0u && (ui.proj_new || (steps > 0 && song.g[G_SLOT] == PROJ_TMPL))) {
         ui.proj_new = steps > 0;                        /* past TMPL: NEW (SLOT itself stays) */
         if (!ui.proj_new && ui.act == 4u) ui.act = 0;
@@ -812,7 +806,7 @@ static void edit_param(uint32_t slot, int32_t steps)
             ui.uslot = (uint8_t)clamp((int32_t)ui.uslot + list_accel(EN_K1, steps, user_limit(), 0), 0, user_limit() - 1);
         return;
     }
-    if (pg->graph == GR_MOD && slot == 0u) {             /* MOD: KNOB 1 the slot, 2..4 its SRC DST AMT */
+    if (pg->graph == GR_MOD && slot == 1u) {             /* MOD: KNOB 2 the route; 1 its SRC, 3 DST, 4 AMT */
         mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
         return;
     }
@@ -912,11 +906,6 @@ static void act_do(void)
         }
         ui.act = 0;
         ui.force = 1;
-        return;
-    }
-    if (cur_page()->graph == GR_MOTION) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        confirm_open(CF_CLEAR_MOTION, song.sel);
         return;
     }
     if (cur_page()->graph == GR_SONG && c == 3u) {      /* TAKE JAM: over a song with rows, the dialog first */
@@ -1834,6 +1823,8 @@ static void ui_input(void)
     } else if (oct_nav() && !ui.layer && (oct & 2u)) {  /* any other page: OCT+ Enter (a slot's sheet, the page's), */
         if (slot_kind())
             slot_enter();
+        else if (motion_page())
+            motion_enter();
         else if (step_enter())
             ;
         else if (page_sheet())
@@ -1922,7 +1913,7 @@ static void ui_input(void)
         if (k == 0u && pg->graph == GR_ROLL && step_gesture(s))   /* KNOB 1 too, as SELECT (ENV / SCL / a key held) */
             continue;
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || ((pg->scope==SC_DRUM || pg->scope==SC_DRUMHIT) && pg->id[k]!=255) || page_desc(pg, k, &hv) ||
-            ((pg->graph == GR_USER || pg->graph == GR_MOD) && k == 0u)
+            (pg->graph == GR_USER && k == 0u) || (pg->graph == GR_MOD && k == 1u)
             || pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
             || (pg->graph == GR_SLICES && k < 2u)) {   /* (not an empty column) */
             ui.hot_col = (uint8_t)k;
@@ -1935,6 +1926,10 @@ static void ui_input(void)
         if (slot_kind()) {                              /* a slot page: KNOB 1 / 2 the slot (ui_slots.c) */
             if (k < 2u)
                 edit_param(0, s);
+            continue;
+        }
+        if (motion_page()) {                            /* MOTION: KNOB 2 the lane, KNOB 1 Play (ui_motion.c) */
+            motion_knob(k, s);
             continue;
         }
         momentary_take(k);

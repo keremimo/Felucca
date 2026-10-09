@@ -1106,7 +1106,7 @@ static int slice_page_ok(void) { return 0; }
 static int slice_page_on(void) { return 0; }
 
 /* ---------------------------------------------------- action pages --- */
-/* Pages whose purpose is an action (MOTION, SONG, EDIT > SLICES, CZ TOOLS): the knobs pick, OCT+ does it, OCT- cancels
+/* Pages whose purpose is an action (SONG, EDIT > SLICES, CZ TOOLS): the knobs pick, OCT+ does it, OCT- cancels
  * the picked action or goes HOME (ui_input.c). The slot pages (PROJECT, USER, the STOREs: ui_slots.c) do their
  * actions from a slot's sheet, through act_do too */
 static uint32_t act_cols(void)                   /* the columns that are actions, a bit each; 0 = not such a page */
@@ -1114,7 +1114,6 @@ static uint32_t act_cols(void)                   /* the columns that are actions
     const page_t *pg = cur_page();
     if (ui.home)
         return 0;
-    if (pg->graph == GR_MOTION) return 8u;
     if (pg->graph == GR_SONG)
         return 1u | (jam.n ? 8u : 0u);           /* PLAY / STOP (also the PLAY button); TAKE JAM */
     if (pg->graph == GR_SLICES)
@@ -1133,7 +1132,6 @@ static uint32_t act_col(void)
 
 static const char *act_name(uint32_t c)          /* column c's action (the footer hint) */
 {
-    if (cur_page()->graph == GR_MOTION) return "CLEAR";
     if (cur_page()->graph == GR_SONG)
         return c == 3u ? "TAKE" : song.playing || chain_busy() ? "STOP" : "PLAY";
     if (cur_page()->graph == GR_SLICES)
@@ -1147,7 +1145,6 @@ static int act_ready(void)
     uint32_t c = act_col();
     if (!c--)
         return 0;
-    if (cur_page()->graph == GR_MOTION) return !chain_busy() && motion_count(TSEL);
     if (cur_page()->graph == GR_SONG)
         return c == 3u ? jam.n && !chain_busy() : song.playing || chain_busy() || chain_config.count;
 #if MELODEE_SLICE

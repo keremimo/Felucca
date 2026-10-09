@@ -75,7 +75,10 @@ static const struct { const char *k, *w; } LIST_WORDS[] = {
     {"CHRD", "Chord"}, {"VOIC", "Voicing"}, {"SWG", "Swing"}, {"PROB", "Probability"}, {"ORD", "Order"},
     {"POL", "Polarity"}, {"TRIG", "Trigger"}, {"PIT", "Pitch"}, {"FLT", "Filter"}, {"SHP", "Shape"}, {"AMP", "Level"},
     {"DEG", "Degree"}, {"PAN", "Pan"}, {"MUTE", "Mute"}, {"WEAR", "Wear"}, {"TYPE", "Type"}, {"SYNC", "Sync"},
-    {"HOLD", "Hold"}, {"ROOT", "Root"}, {"SCL", "Scale"}};
+    {"HOLD", "Hold"}, {"ROOT", "Root"}, {"SCL", "Scale"}, {"CUT", "Cutoff"}, {"RES", "Resonance"}, {"DRV", "Drive"},
+    {"MODW", "Mod wheel"}, {"VEL", "Velocity"}, {"AT", "Aftertouch"}, {"EXPR", "Expression"}, {"RAND", "Random"},
+    {"ENV", "Envelope"}, {"KEY", "Key"}, {"SLEW", "Slew"}, {"SHP", "Shape"}, {"CHO", "Chorus"}, {"DLY", "Delay"},
+    {"REV", "Reverb"}, {"DIST", "Distortion"}, {"RATE", "Rate"}};
 static void list_words(char *d, const char *label, uint32_t n)
 {
     uint32_t i;

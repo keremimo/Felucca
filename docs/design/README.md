@@ -76,7 +76,8 @@ One way to move on every screen with something to move through (Kerem, 2026-10-1
 | Settings | value | row | - | open / step | close |
 | PROJECT, USER, STORE | slot | slot | - | the slot's sheet | Stage |
 | SONG | section | track | pattern / repeats | play / stop | Stage |
-| MOD | source | route | destination / amount | - | Stage |
+| MOD | source (its picker) | route | destination / amount | - | Stage |
+| MOTION | Play on / off | lane | - | the lane's sheet | Stage |
 | NOTES | step | pitch | length / velocity | place a note | Stage |
 | Drum STEP | step | lane | hit / accent | set the hit | Stage |
 | SCALES | family | scale | - | pick | Stage |
@@ -92,7 +93,9 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   question first. TOOLS is gone, its actions in these (Clear pattern: NOTES / PATTERN; Init sound: the sound pages;
   Delete section, Clear song: SONG); PROJECT / USER / FM6 STORE / P5 STORE are slot lists (no chips), a slot's sheet:
   Load, Save here, Rename, Boot, Erase (PROJECT; Erase asks); the STOREs: Save here, Send, Init sound. SAVE opens
-  USER with its slot's sheet on Save here (SAVE, OCT+, OCT+ as before). MOTION loses its chips too.
+  USER with its slot's sheet on Save here (SAVE, OCT+, OCT+ as before). MOTION: no chips, its lanes (a parameter each,
+  scaled to what it moves through, the playhead across); a lane's sheet: Play, Clear <lane>, Clear all motion. MOD:
+  the four routes as rows (source -> destination, the amount's bar from the middle), the knobs' chips at the bottom.
 - **Picker**: a knob whose value is a list (wave, MOD source / destination, chord, delay division) shows the list
   around its value while it turns, gone ST_KNOB_MS after the last turn. SCALES keeps its own list page (Kerem: the
   list is intuitive), no picker.

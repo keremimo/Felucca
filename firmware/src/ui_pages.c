@@ -16,7 +16,8 @@
  * the selected track's lifted, the knob just turned (its control) in text.
  * Each part remembers what it drew. draw_column draws the knobs in the style col_style asks (pv_column). Included by
  * ui_draw.c */
-enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER, PV_NOTES };
+enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER, PV_NOTES, PV_MOD };
+static void list_words(char *d, const char *label, uint32_t n);   /* ui_list.c */
 #define PV_PANEL_X 4
 #define PV_PANEL_W 232
 #define PV_SLICE 128                                    /* rows of a panel slice (232 x 128 fits CV_MAX) */
@@ -33,6 +34,7 @@ enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER, PV_NOTES };
 #define PV_FADER_H 190
 #define PV_CHIP_Y 200                                   /* NOTES: a knob a chip, 54 x 18 at CARD_X(c) */
 #define PV_CHIP_H 18
+static int32_t pv_chip_y = PV_CHIP_Y;                   /* (MOD: its chips at the bottom, no sound line) */
 
 static struct { uint32_t panel, sound; int32_t slice0; } pv;
 static int32_t pv_tab_h;                                /* an engine in sections: its tabs under the header (rows 18 ..
@@ -56,7 +58,66 @@ static uint32_t pv_kind(void)
         return PV_MIXER;
     if ((pg->graph == GR_ROLL || pg->graph == GR_CHANCE) && !drum_track(TSEL))
         return PV_NOTES;
+    if (pg->graph == GR_MOD)
+        return PV_MOD;
     return PV_NONE;
+}
+
+/* MOD (docs/design: mock/r6_pages MOD): the matrix's four routes as rows, "1  LFO -> Cutoff  +62 %" over the amount's
+ * bar (from the middle); the route KNOB 2 is on: a card in the track's colour; unused routes dim. The knobs' chips
+ * under them (KNOB 1 its source, 2 the route, 3 its destination, 4 its amount, ui_draw.c) */
+#define PV_MOD_Y 22                                     /* the rows: 48 px each from y 22, the chips at 220 */
+#define PV_MOD_H 48
+static void pv_mod_pill(int32_t x, int32_t y, int32_t w, const char *s, int on, uint16_t bg)
+{
+    char b[16];
+    list_words(b, s, sizeof b);
+    cv_rrect(x, y, w, 18, 5, on ? ux_mix(bg, T_THEME, 30) : ux_mix(bg, T_LINE, 50), bg);
+    cv_free_text(x + 4 + (w - 8 - (text_w(&AF_X, b) < w - 8 ? text_w(&AF_X, b) : w - 8)) / 2, y + 4, &AF_X, b,
+                 on ? T_TEXT : T_DIM, on ? ux_mix(bg, T_THEME, 30) : ux_mix(bg, T_LINE, 50), w - 8);
+}
+static void pv_mod_rows(void)
+{
+    static uint32_t sig;
+    uint32_t k, sg = mod_ui_slot * 7u + ux.gen * 977u + ux.pal * 31u + song.sel * 13u + TSEL->eng_req * 613u;
+    for (k = 0; k < NMSLOT * 3u; k++)
+        sg = (sg ^ (uint16_t)TSEL->p[P_M1SRC + k]) * 16777619u;
+    if (!ui.force && sg == sig)
+        return;
+    sig = sg;
+    for (k = 0; k < NMSLOT; k++) {
+        const int16_t *p = &TSEL->p[P_M1SRC + 3u * k];
+        int sel = k == mod_ui_slot, on = p[0] && p[1] && p[2];
+        uint16_t bg = sel ? T_LIFT : T_BG;
+        int32_t a = clamp(p[2], TP[P_M1AMT].min, TP[P_M1AMT].max), m = 128, x;
+        char b[16];
+        const char *unit;
+        cv_begin(240, PV_MOD_H, T_BG);
+        if (sel) {                                      /* (the route picked: a card) */
+            cv_rrect(4, 1, 232, PV_MOD_H - 4, 7, T_THEME, T_BG);
+            cv_rrect(5, 2, 230, PV_MOD_H - 6, 6, bg, T_THEME);
+        }
+        b[0] = (char)('1' + k);
+        b[1] = 0;
+        cv_text_on(13, 7, &AF_S, b, sel ? T_THEME : T_MID, bg);
+        pv_mod_pill(28, 6, 70, p[0] ? N_MSRC[clamp(p[0], 0, MS_N - 1)] : "--", p[0] != 0, bg);
+        cv_rect(104, 14, 10, 2, on ? T_MID : T_DIM);    /* an arrow */
+        cv_line(110, 11, 113, 14, on ? T_MID : T_DIM);
+        cv_line(110, 17, 113, 14, on ? T_MID : T_DIM);
+        pv_mod_pill(120, 6, 70, p[1] ? mod_dst_name(TSEL, p[1]) : "--", p[1] != 0, bg);
+        param_format(&TP[P_M1AMT], a, b, &unit);        /* "+62 %" */
+        if (unit[0] && str_len(b) + str_len(unit) + 2u < sizeof b) {
+            str_cpy(b + str_len(b), " ", 2);
+            str_cpy(b + str_len(b), unit, 8);
+        }
+        cv_text_r(228, 9, &AF_X, b, on ? (sel ? T_THEME : T_SEC) : T_DIM, bg);
+        cv_rect(28, 30, 200, 3, T_LINE);                /* the amount, from the middle */
+        x = 28 + (a - TP[P_M1AMT].min) * 200 / (TP[P_M1AMT].max - TP[P_M1AMT].min);
+        if (a)
+            cv_rect(x < m ? x : m, 30, x < m ? m - x : x - m, 3, on ? (sel ? T_THEME : ux_mix(bg, T_THEME, 60)) : T_DIM);
+        cv_rect(m, 28, 1, 7, T_MID);
+        cv_blit(0, (uint32_t)(PV_MOD_Y + (int32_t)k * PV_MOD_H));
+    }
 }
 
 /* ---------------------------------------------------------- knobs --- */
@@ -162,7 +223,7 @@ static void pv_chip(uint32_t c, const char *label, const char *val, const char *
         cv_free_text(3 + (CARD_W - 6 - w) / 2, 3, &AF_X, b, fg,
                      bg, CARD_W - 6);
     }
-    cv_blit((uint32_t)CARD_X(c), PV_CHIP_Y);
+    cv_blit((uint32_t)CARD_X(c), (uint32_t)pv_chip_y);
 }
 /* CS_STRIP: a 54 x 30 cell, its label (8 px, the track's colour) over its value (11 px) and unit; the knob just turned:
  * tinted, outlined */
@@ -645,6 +706,18 @@ static void pv_draw(void)
                 cv_blit(0, (uint32_t)(PR_TOP + top));
             }
         }
+        return;
+    }
+    if (kind == PV_MOD) {
+        if (ui.force)
+            lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
+        draw_head();
+        pv_mod_rows();
+        col_style = CS_CHIP;
+        pv_chip_y = 220;
+        draw_columns();
+        pv_chip_y = PV_CHIP_Y;
+        col_style = CS_CARD;
         return;
     }
     if (kind == PV_MIXER) {

@@ -45,11 +45,6 @@ static void graph_adsr_v(int32_t va, int32_t vd, int32_t vs, int32_t vr, int32_t
     }
 #undef EGY
 }
-static void graph_adsr(const track_t *t, uint16_t c)
-{
-    const page_t *pg = cur_page();
-    graph_adsr_v(t->p[pg->id[0]], t->p[pg->id[1]], t->p[pg->id[2]], t->p[pg->id[3]], 6, 88, c);
-}
 
 /* FM6: a DX7 envelope, four rates (a segment's width: slower is wider) and four levels, held at L3 while the key is
  * down, then R4 to L4; it starts at L4 (as the DX7's). r, l: 0..99 each. pitch: a pitch envelope (50 = the note's
@@ -539,17 +534,6 @@ static void graph_chord(const track_t *t, uint16_t c)
     }
 }
 /* the four sends as faders under their cards: a RAISE slot, the THEME fill from the bottom, a cap */
-static void graph_fx(const track_t *t, uint16_t c)
-{
-    uint32_t i;
-    for (i = 0; i < 4u; i++) {
-        int32_t h = t->p[P_DIST + i] * 76 / 127, x = CARD_X(i) + 26;
-        cv_rrect(x, 6, 4, 82, 2, T_RAISE, T_SURF);
-        if (h > 3)
-            cv_rrect(x, 88 - h, 4, h, 2, c, T_RAISE);
-        cv_rrect(x - 4, 85 - h, 12, 6, 3, c, T_SURF);
-    }
-}
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
  * open (DEPTH), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
 static void graph_slicer(const track_t *t, uint16_t c)
@@ -571,31 +555,6 @@ static void graph_slicer(const track_t *t, uint16_t c)
         }
         if (mode != SL_OFF && i == cur)
             cv_rect(x, 84, 9, 2, T_ACCENT);
-    }
-}
-/* MOD page: the four slots as rows "1 LFO > CUT +50%", the one KNOB 2..4 edit selected, slots that do
- * nothing (SRC, DST or AMT at 0) dim */
-static void graph_mod(const track_t *t, uint16_t c)
-{
-    uint32_t k;
-    for (k = 0; k < NMSLOT; k++) {
-        const int16_t *p = &t->p[P_M1SRC + 3u * k];
-        int32_t y = 14 + (int32_t)k * 24, on = p[0] && p[1] && p[2], sel = k == mod_ui_slot;
-        uint16_t bg = sel ? T_THEME : T_SURF, col = sel ? T_INK : on ? c : T_DIM;
-        char b[8];
-        const char *unit;
-        if (sel)
-            cv_rrect(6, y, 228, 17, 4, T_THEME, T_SURF);
-        b[0] = (char)('1' + k);
-        b[1] = 0;
-        cv_text_on(14, y + 1, &AF_S, b, sel ? T_INK : T_MID, bg);
-        cv_text_on(34, y + 1, &AF_S, N_MSRC[clamp(p[0], 0, MS_N - 1)], col, bg);
-        cv_line(78, y + 8, 92, y + 8, col);              /* an arrow */
-        cv_line(88, y + 4, 92, y + 8, col);
-        cv_line(88, y + 12, 92, y + 8, col);
-        cv_text_on(102, y + 1, &AF_S, mod_dst_name(t, p[1]), col, bg);
-        param_format(&TP[P_M1AMT], p[2], b, &unit);
-        cv_text_on(cv_text_on(170, y + 1, &AF_S, b, col, bg) + 2, y + 1, &AF_S, unit, sel ? T_INK : T_DIM, bg);
     }
 }
 
@@ -951,7 +910,7 @@ static uint32_t graph_signature(void)
     if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_MOTION) h ^= ui.frame / 2u;
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
-    h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u;
+    h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u;
     if (pg->graph == GR_SCALE_PICKER) {
         h ^= ui.scale_family * 40503u;
         for (i = 16u; i < 32u; i++) h = (h ^ favorites.factory[14][i]) * 16777619u;
@@ -973,24 +932,14 @@ static uint32_t graph_signature(void)
             h = (h ^ chord_last[song.sel].note[i]) * 16777619u;
         h ^= (uint32_t)t->engine * 389u;             /* (MONO and kits follow the sounding engine) */
     }
-    if (pg->graph == GR_BROWSE)                      /* LIST, the place pending, the favourites */
-        h ^= list_mode() * 131071u + (browse_pending() ? brw.n + 1u : 0u) * 524287u + (uint32_t)favorites.filter * 8191u;
-    if (pg->graph == GR_MOD)
-        h ^= (mod_ui_slot + 1u) * 40503u;
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* FM6's pages: the patch, switches, functions, bank */
         h ^= fm6_pgen[song.sel % NTRK] * 2654435761u + fm6_on[song.sel % NTRK] * 40503u + fm6_opsel * 131u +
-             fm6_bslot * 7919u + up_gen * 104729u;
+             up_gen * 104729u;
         for (i = 0; i < FM6_NFN; i++)
             h = (h ^ fm6_fn[song.sel % NTRK][i]) * 16777619u;
     }
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
-    if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot), BOOT, the template */
-        for (i = 0; i < 4u; i++)
-            h ^= (uint32_t)graph_project_used(i) << (20u + i);
-        h += graph_pname_sig + settings_boot * 977u + (uint32_t)template_used() * 40503u;
-    }
-    if (pg->graph == GR_MOTION) h ^= motion_count(t) * 131u + motion_enabled(t);
 #if MELODEE_SLICE
     if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
 #endif
@@ -1340,9 +1289,6 @@ static void draw_graph(void)
         graph_scope(c, 0, H_GRAPH);
     } else {
         switch (pg->graph) {
-        case GR_ADSR:
-            graph_adsr(t, c);
-            break;
         case GR_LFO:
             graph_lfo(t, c);
             break;
@@ -1378,15 +1324,8 @@ static void draw_graph(void)
             cv_oy = 0;
             graph_chord(t, c);
             break;
-        case GR_FX:
-            graph_fx(t, c);
-            break;
         case GR_SLCR:
             graph_slicer(t, c);
-            break;
-        case GR_MOD:
-            cv_oy = 0;
-            graph_mod(t, c);
             break;
 #if MELODEE_SLICE
         case GR_SLICES:

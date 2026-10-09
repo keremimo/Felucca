@@ -493,7 +493,7 @@ static void pick_draw(void)
     for (i = 0; i < rows; i++) {
         int32_t n = first + i, y = 8 + i * 20, far = n - v > 1 || v - n > 1;
         char b[16];
-        menu_words(b, d->names[n - d->min], sizeof b);
+        list_words(b, d->names[n - d->min], sizeof b);
         if (n == v) {
             cv_rrect(4, y - 1, POP_PICK_W - 8, 20, 5, T_THEME, T_SURF);
             cv_rrect(5, y, POP_PICK_W - 10, 18, 4, T_LIFT, T_THEME);
