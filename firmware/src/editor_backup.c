@@ -201,6 +201,9 @@ static uint32_t ed_bk_commit_inner(void)
         memset(&ed_bk_set, 0, sizeof ed_bk_set);
         memcpy(&ed_bk_set.p, raw, ns);
         settings_import(&ed_bk_set.p, (int)ns);         /* (a PER4 one becomes PER5) */
+#ifdef MELODEE_FAVORITES
+        fx_keys_settle();                               /* (the banks came first: fm1backup.js restoreBackup) */
+#endif
         tmpl_take(raw + ns, ed_bk_len - ns);            /* (none in the backup: none now; TPL5: converted) */
         ed_bk_set.t = tmpl;
         tmpl_dirty = 0;

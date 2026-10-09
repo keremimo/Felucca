@@ -23,6 +23,7 @@ typedef struct {
 #define PERSIST_MAGIC4 0x50455234u                  /* Felucca 1.0: no ext */
 #define PERSIST_LEN4 (sizeof(persist_t) - sizeof(((persist_t *)0)->ext))
 _Static_assert(sizeof(((persist_t *)0)->ext) == 32u, "ext: 8 words, new fields take spare ones");
+_Static_assert(sizeof(persist_t) == 604u, "the record's layout: new settings take spare bytes (favorites.c)");
 
 static int16_t settings_glo[4];                     /* ext.glo: project.c GLO_KEPT (glo_restore, glo_poll) */
 #define RECORD_PREF_TAG 0x52500000u /* RP, high half of the old zoom word */
@@ -81,6 +82,7 @@ static int settings_import(persist_t *p, int n)
     settings_hold = (uint8_t)hold_from_stored(p->bold);
 #ifdef MELODEE_FAVORITES
     memcpy(&favorites, &p->favorites, sizeof favorites);
+    fx_keys_take();                                     /* (an old record: settled after up_boot, favorites.c) */
     favorites_user_hi = p->ext.spare[0];
     favorites.filter = favorites.filter == 1u;
 #if defined(FM4_NPRESETS) && !MELODEE_FM4
@@ -110,7 +112,9 @@ static void settings_export(persist_t *p)
     p->panel = panel;
     p->bold = hold_to_stored(p->bold, settings_hold);
 #ifdef MELODEE_FAVORITES
+    fx_keys_settle();
     memcpy(&p->favorites, &favorites, sizeof favorites);
+    fx_keys_tag(p->favorites.factory[FX_KEYS_ROW]);     /* (a device with no record before: its map is there too) */
     p->ext.spare[0] = favorites_user_hi;
 #endif
 #if MELODEE_USB_AUDIO

@@ -57,7 +57,8 @@ static struct {
 } lys;
 
 static const uint32_t LY_DTAP_MS=300u;
-#define fx_keys (&favorites.factory[15][14])
+#define fx_keys (&favorites.factory[FX_KEYS_ROW][FX_KEYS_AT])   /* the white keys' effects (favorites.c) */
+typedef char fx_keys_fit[PF_KEYS * 5u <= FX_KEYS_LEN * 8u ? 1 : -1];
 static void fx_map_sync(void);
 static int layer_allowed(void) { return !ui.menu && !ui.confirm && !ui.uboot && !name_on(); }
 static uint32_t ly_bit(uint32_t l) { return 1u << panel.btn[LAYERS[l].btn]; }
