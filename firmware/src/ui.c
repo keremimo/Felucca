@@ -58,6 +58,7 @@ static uint32_t user_of(const track_t *t)    /* user preset slot its sound came 
     return t->user && (t->user_native ? native_used(t->eng_req,t->user-1u) : up_used(t->user-1u)) ? t->user-1u : USER_NONE;
 }
 static uint32_t up_gen;                      /* bumped on every user bank change (redraws) */
+static uint8_t browse_loads, browse_mark;    /* sound loads so far; at the browser's opening (ui_browser.c: back) */
 #include "favorites.c"
 /* MENU's two-valued settings in a byte no engine uses (favorites.factory[15][30], saved with the settings): bit 0 FX
  * LATCH (settings_persist.c settings_latch), bit 1 KNOB ACCEL OFF (ui_input.c accel_by; clear in older settings = ON) */
@@ -253,6 +254,7 @@ static void seq_midi_reset(void)                    /* a new page/track ends MID
     step_midi_held = 0;
     memset(step_midi_keys, 0, sizeof step_midi_keys);
 }
+static void undo_seal(void);
 static void page_entered(void)
 {
     const page_t *pg = cur_page();
@@ -268,6 +270,10 @@ static void page_entered(void)
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
     ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */
     ui.proj_new = 0;
+    if (pg->graph == GR_BROWSE) {                /* (OCT- goes back to the sound from before: its loads, a level */
+        browse_mark = browse_loads;              /* of their own) */
+        undo_seal();
+    }
     ui.force = 1;
 }
 
@@ -593,6 +599,7 @@ static void load_begin(track_t *t, uint32_t what)
     uint32_t i = trk_index(t);
     if (undo_depth++)
         return;
+    browse_loads++;
     motion_restore(t);
     undo_levels();
     u = undo_last();
@@ -736,6 +743,7 @@ static void undo_step(int redo)
     ui.force = 1;
 }
 static void undo_swap(void) { undo_step(0); }
+static void undo_seal(void) { if (undo_top) undo_lv[undo_top - 1u].keep = 0; }   /* the next load: a level of its own */
 
 /* a 16-step pattern (PATTERNS[] format, user presets too) into steps 1..16, the rest empty, LEN 16 */
 static void load_pat16(track_t *t, const uint8_t *note, const uint8_t *flags)

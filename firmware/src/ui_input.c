@@ -757,17 +757,18 @@ static void edit_param(uint32_t slot, int32_t steps)
         scale_picker_mark(steps > 0);
         return;
     }
-    if (pg->graph == GR_BROWSE) {   /* KNOB 1 browses (as PRESETS), 2 the next / previous engine, 3 FAV, 4 LIST */
-        if (slot == 0u) {
-            browse_turn(EN_K1, steps);
+    if (pg->graph == GR_BROWSE) {   /* the browser's two columns: KNOB 1 LIST (ALL FAV RECENT, the categories), 2 the
+                                     * sounds in it (as PRESETS); 3 FAV, 4 the next / previous engine */
+        if (slot == 1u) {
+            browse_turn(EN_K2, steps);
             return;
         }
         browse_commit();                                  /* (the others act on the sound shown: load it first) */
-        if (slot == 1u) {
+        if (slot == 3u) {
             select_engine(eng_step(TSEL->eng_req, steps));
         } else if (slot == 2u) {
             preset_mark(steps > 0);
-        } else if (slot == 3u) {                          /* ALL FAV RECENT, the categories (no wrap) */
+        } else if (slot == 0u) {                          /* ALL FAV RECENT, the categories (no wrap) */
             uint32_t m = (uint32_t)clamp((int32_t)list_mode() + (steps > 0 ? 1 : -1), 0, (int32_t)LM_N - 1);
             if (m != list_mode()) {
                 list_set(m);
@@ -1741,6 +1742,10 @@ static void ui_input(void)
                     ui_message("STOP TO UNDO");
                 else
                     undo_step(b == B_OCTUP);
+                break;
+            }
+            if (!ui.home && cur_page()->graph == GR_BROWSE) {   /* the browser: OCT- back, OCT+ keep (ui_browser.c) */
+                browser_key(b == B_OCTUP);
                 break;
             }
             if (step_oct_context())                    /* STEP OCT taps: the cursor; EDIT consumes them below */

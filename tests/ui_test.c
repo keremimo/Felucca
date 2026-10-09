@@ -476,7 +476,7 @@ static int test_patterns(void)
     /* the hint: PRESETS page K3 PAT, and a load moves the pick there */
     set_engine_of(t,ENGI_FM6);apply_preset_to(t,0);
     go_page(GR_BROWSE);
-    turn(EN_K1, 1);
+    turn(EN_K2, 1);
     bad += check("PRESETS: a factory preset's suggested pattern becomes the pick", preset_pat_hint() >= 0 &&
                  ui.ppick == (uint8_t)preset_pat_hint());
     return bad;
@@ -1192,19 +1192,19 @@ static int test_browser(void)
     go_page(GR_BROWSE);
     list_set(LM_ALL);
     for (i = 0; i < LM_N + 2u; i++)
-        turn(EN_K4, 1);
-    bad += check("LIST (KNOB 4): ALL FAV RECENT, the categories, stopping at OTHER", list_mode() == LM_N - 1u &&
+        turn(EN_K1, 1);
+    bad += check("LIST (KNOB 1): ALL FAV RECENT, the categories, stopping at OTHER", list_mode() == LM_N - 1u &&
                  str_eq(list_name(list_mode()), "OTHER"));
     for (i = 0; i < LM_N; i++)
-        turn(EN_K4, -1);
-    turn(EN_K4, 1);
-    turn(EN_K4, 1);
-    turn(EN_K4, 1);
+        turn(EN_K1, -1);
+    turn(EN_K1, 1);
+    turn(EN_K1, 1);
+    turn(EN_K1, 1);
     bad += check("LIST: a category is kept with the settings in its byte, FAV stays favorites.filter",
                  list_mode() == LM_CAT && list_lcat == CAT_BASS && !favorites.filter && !list_recent);
-    turn(EN_K1, 1);
+    turn(EN_K2, 1);
     cur_entry(&src, &k);
-    bad += check("LIST BASS: KNOB 1 loads the next bass", entry_cat(src, k) == CAT_BASS);
+    bad += check("LIST BASS: KNOB 2 loads the next bass", entry_cat(src, k) == CAT_BASS);
 
     PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
     memset(ui.enc_t, 0, sizeof ui.enc_t);
@@ -1224,6 +1224,29 @@ static int test_browser(void)
     fm1_ms += 6u; ok &= accel_by(EN_K1, -1, 8u, &f1) == -1 && !f1;
     PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
     bad += check("ACCEL: narrow values and lists of names keep a step a detent; MENU KNOB ACCEL OFF: always", ok);
+
+    ui_power_on();                                       /* the browser's keys: OCT- back, OCT+ keep, both to Stage */
+    PREF_BITS |= PREF_ACCEL_OFF;
+    list_set(LM_ALL);
+    set_engine_of(TSEL, ENGI_PROPHET);
+    apply_preset_to(TSEL, 3);
+    fm1_ms += 1000u;
+    go_page(GR_BROWSE);
+    first = list_cur(&total);
+    press(B_OCTDN);
+    bad += check("BROWSER: OCT- without a load goes to Stage, the sound as it was", ui.home && list_cur(&total) == first);
+    go_page(GR_BROWSE);
+    turn(EN_K2, 1);
+    turn(EN_K2, 1);
+    ok = list_cur(&total) == first + 2u;
+    press(B_OCTDN);
+    bad += check("BROWSER: KNOB 2 browses; OCT- goes back to the sound from before it, to Stage",
+                 ok && ui.home && list_cur(&total) == first);
+    go_page(GR_BROWSE);
+    turn(EN_K2, 1);
+    press(B_OCTUP);
+    bad += check("BROWSER: OCT+ keeps the sound, to Stage", ui.home && list_cur(&total) == first + 1u);
+    PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
 
     ui_power_on();
     PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
@@ -1286,7 +1309,7 @@ static int test_favorites(void)
     go_page(GR_BROWSE);
     before = *TSEL;
     turn(EN_K3, 1);
-    turn(EN_K4, 1);
+    turn(EN_K1, 1);
     pos = preset_pos(&total);
     bad += check("FAV and LIST mark/filter the current sound without loading or touching its steps",
                  preset_favorite() && favorites.filter && total == 1 && pos == 0 &&
@@ -1313,7 +1336,7 @@ static int test_favorites(void)
     turn(EN_PRESET, 1);
     bad += check("empty favorites explains LIST ALL and retains the current sound and steps",
                  msg_is("NO FAVORITES") && !memcmp(TSEL, &before, sizeof before));
-    turn(EN_K4, -1);
+    turn(EN_K1, -1);
     preset_pos(&total);
     bad += check("LIST ALL restores the full browser without an implicit load", !favorites.filter && total > 1 &&
                  !memcmp(TSEL, &before, sizeof before));
@@ -4026,10 +4049,10 @@ static int test_fm4_retired(void)
     go_page(GR_BROWSE);
     set_engine_of(TSEL, 0);
     for (i = 0, seen = 0; i < NENG_SHOWN; i++) {
-        turn(EN_K2, 1);
+        turn(EN_K4, 1);
         seen |= 1u << TSEL->eng_req;
     }
-    bad += check("PRESETS KNOB 2: the engines in order, DIGITAL skipped, back to the first",
+    bad += check("PRESETS KNOB 4: the engines in order, DIGITAL skipped, back to the first",
                  seen == all && TSEL->eng_req == ENGI_PROPHET && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == 2u &&
                  eng_step(ENGI_FM6, -1) == ENGI_PROPHET && eng_step(0, -1) == ENGI_DRUM);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
