@@ -11,12 +11,12 @@ The redesign is built from the proposal's mockups, screen by screen, and checked
   `tests/run_tests.sh` writes the report to `build/ui_mock/report.txt`. A phase is done when its screens reach the
   target below and the side-by-side images are approved.
 
-| Screens | Mockup | Baseline (0.13 + phases 1-5) | Target |
-|---|---|---|---|
-| stage_held, stage_released, stage_cutoff, stage_drum | `stage_note_overlay` | 57-62 | 85 (R2: 86-92) |
-| browser | `concept_screens` (2) | 48 | 80 |
-| patterns | `concept_screens` (3) | 48 | 85 |
-| song | `concept_screens` (4) | 38 | 80 |
+| Screens | Mockup | Baseline (0.13 + phases 1-5) | Target | Built |
+|---|---|---|---|---|
+| stage_held, stage_cutoff, stage_drum | `stage_columns` | 57-62 | 85 | R2: 90-93 |
+| browser | `concept_screens` (2) | 48 | 80 | R3: 93.5 |
+| patterns | `concept_screens` (3) | 48 | 85 | R4: 96.7 |
+| song | `concept_screens` (4) | 38 | 80 | R4: 94.7 |
 
 Texts differ on purpose (the device's own sound names): the targets leave room for them.
 

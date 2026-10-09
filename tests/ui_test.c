@@ -1733,6 +1733,26 @@ static void chain_screens(const char *dir)
     seq_stop();
 }
 
+/* PATTERNS and SONG (ui_patterns.c): a row's letter is its set of patterns; a pattern's bars follow LEN and DIV */
+static int test_song_view(void)
+{
+    static const uint8_t ROWS[6][NTRK] = {{0, 0, 0, 0}, {0, 0, 0, 0}, {1, 1, 1, 1}, {1, 1, 1, 1}, {2, 0, 0, 0}, {0, 0, 0, 0}};
+    char got[7];
+    uint32_t i;
+    int bad = 0;
+    ui_power_on();
+    for (i = 0; i < 6u; i++)
+        got[i] = row_letter(ROWS, i);
+    got[6] = 0;
+    bad += check("SONG: rows with the same four patterns share a letter (A A B B C A)", str_eq(got, "AABBCA"));
+    TSEL->p[P_SLEN] = 32;
+    TSEL->p[P_SDIV] = 2;                              /* 1/16 */
+    i = pat_bars(song.sel, TSEL->pattern);
+    TSEL->p[P_SDIV] = 0;                              /* 1/4: 32 steps, 8 bars */
+    bad += check("SONG: a pattern's bars from its LEN and DIV (32 x 1/16: 2, 32 x 1/4: 8)",
+                 i == 2u && pat_bars(song.sel, TSEL->pattern) == 8u);
+    return bad;
+}
 static int test_chain(void)
 {
     uint32_t i, k, period, last, n = 32u;
@@ -4530,6 +4550,7 @@ int main(void)
 #endif
     bad += test_quick_layers();
     bad += test_chord_page();
+    bad += test_song_view();
     bad += test_bughunt_ui();
     bad += test_bughunt_ui2();
     bad += test_piano_roll();
