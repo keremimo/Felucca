@@ -17,7 +17,9 @@ wheel_block 102
 phys_render 61
 drum_render 72
 noise_render 247
-fm6_render 3082
+# Native fp32 serial FM6, decoded r3/fprev1 and counted with natural loops.
+# Includes extracted operator/output helpers; dual-core profile measures 3439.
+fm6_render 3385
 px_modal_block 111
 px_modal_run 192
 px_memb_block 106
