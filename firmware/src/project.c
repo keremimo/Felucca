@@ -98,6 +98,16 @@ typedef struct {
     char name[PROJ_NAME_LEN];                  /* the project's name: upper-case ASCII 32..126, 0-padded; "" = none */
     uint32_t sum;
 } project_t;
+/* The four formerly reserved runtime bytes keep Prophet user-slot origins.
+ * Zero means factory/unknown; otherwise the value is slot + 1. */
+static uint8_t *proj_p5_origin(project_t *p,uint32_t track)
+{
+    return track ? &p->rsv2[track-1u] : &p->rsv;
+}
+static uint8_t proj_p5_origin_value(const project_t *p,uint32_t track)
+{
+    return track ? p->rsv2[track-1u] : p->rsv;
+}
 /* Historical FUN5/6 types are frozen, independent of today's P_COUNT/step_t. */
 typedef struct { uint8_t note[4], n, time, flags, vel, hit, acc; } step10_t;
 typedef struct { int16_t p[69]; uint8_t engine, preset; step10_t step[NSTEP]; uint8_t lane[NLANE][5]; } proj_trk_v5_t;
@@ -140,6 +150,9 @@ _Static_assert(sizeof(project_v5_t) == 3352u && sizeof(project_v6_t) == 3388u, "
 #define PROJ_CZ_OFF (PROJ_REC_OFF - PROJ_CZ_BYTES)
 #define PROJ_P5_OFF (PROJ_REC_OFF + RECORD_MAX * 8u)
 #define PROJ_FM6_OFF (PROJ_CZ_OFF - NTRK * FM6_PACKED)
+#define PROJ_P5_ORIGIN_TAG0 0x50u
+#define PROJ_P5_ORIGIN_TAG1 0x35u
+#define PROJ_P5_ORIGIN_MAX 128u /* native Prophet user collection */
 typedef union { uint32_t align; uint8_t raw[PROJ_STORE_SIZE]; } project_store_t;
 _Static_assert(G_COUNT == 27u, "FUN7 globals retain original IDs");
 _Static_assert(sizeof(project_store_t) == 13212u && PROJ_STORE_V7 == sizeof(project_v6_t), "FUN15 / FUN7 sizes");
@@ -636,9 +649,12 @@ static int proj_pack(project_store_t *out, const project_t *q)
             b[pos++] = s->probability;
         }
     }
-    if (pos + sizeof q->chain + sizeof q->motion > PROJ_FM6_OFF) return 0;
+    if (pos + sizeof q->chain + sizeof q->motion + 2u + NTRK > PROJ_FM6_OFF) return 0;
     memcpy(b + pos, &q->chain, sizeof q->chain); pos += sizeof q->chain;
     memcpy(b + pos, &q->motion, sizeof q->motion);
+    pos += sizeof q->motion;
+    b[pos++] = PROJ_P5_ORIGIN_TAG0; b[pos++] = PROJ_P5_ORIGIN_TAG1;
+    for (t = 0; t < NTRK; t++) b[pos++] = proj_p5_origin_value(q,t);
     memcpy(b + PROJ_FM6_OFF, q->fm6, sizeof q->fm6);
     for (t = 0; t < NTRK; t++) {
         if (!cz_patch_valid(q->cz[t].raw)) return 0;
@@ -709,6 +725,10 @@ static int proj_unpack(project_t *q, const uint8_t *b, uint32_t st)
     }
     memcpy(&q->chain, b + pos, sizeof q->chain); pos += sizeof q->chain;
     memcpy(&q->motion, b + pos, sizeof q->motion);
+    pos += sizeof q->motion;
+    if (v17 && pos + 2u + NTRK <= PROJ_FM6_OFF &&
+        b[pos] == PROJ_P5_ORIGIN_TAG0 && b[pos+1u] == PROJ_P5_ORIGIN_TAG1)
+        for (t = 0; t < NTRK; t++) *proj_p5_origin(q,t) = b[pos+2u+t] <= PROJ_P5_ORIGIN_MAX ? b[pos+2u+t] : 0u;
     proj_motion_ids(&q->motion, np);
     if (!chain_valid(&q->chain) || !motion_valid(&q->motion)) return 0;
     for (t = 0; t < NTRK; t++) {
@@ -884,6 +904,8 @@ static void project_capture(project_t *p)
         for (uint32_t j = 0; j < P_COUNT; j++) p->t[i].p[j] = motion_base_value(&trk[i], j);
         p->t[i].engine = trk[i].eng_req;
         p->t[i].preset = trk[i].preset;
+        if (trk[i].eng_req == ENGI_PROPHET && trk[i].user_native && user_of(&trk[i]) < P5_USER_SLOTS)
+            *proj_p5_origin(p,i) = (uint8_t)(user_of(&trk[i])+1u);
         p->pattern[i] = trk[i].pattern;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
         p->cz[i] = cz_patch[i];
@@ -1058,6 +1080,23 @@ static int project_restore_runtime(const project_t *input)
             uint8_t v[FP_SIZE + 1u];
             fm6_unpack(p->fm6[k], v);
             p5_patch[k]=p->p5[k];p5_ready[k]=1;
+            if(e==ENGI_PROPHET){
+                uint32_t origin=*proj_p5_origin(p,k),slot;
+                if(origin && native_used(e,origin-1u)){
+                    t->user=(uint8_t)origin;t->user_native=1;
+                }else if(!t->preset){
+                    /* Older projects have no origin. Locate an unchanged
+                     * factory or saved user sound by its complete patch. */
+                    for(slot=0;slot<P5_FACTORY_N;slot++)
+                        if(!memcmp(&p->p5[k],&P5_FACTORY[slot],sizeof(p5_patch_t))){t->preset=(uint8_t)(slot+1u);break;}
+                    if(slot==P5_FACTORY_N)for(slot=0;slot<P5_USER_SLOTS;slot++){
+                        p5_patch_t saved;
+                        if(!p5_user_get(slot,&saved) && !memcmp(&p->p5[k],&saved,sizeof saved)){
+                            t->user=(uint8_t)(slot+1u);t->user_native=1;break;
+                        }
+                    }
+                }
+            }
             cz_patch[k] = p->cz[k];
             cz_track_accept(t);
             fm6_set_patch(k, v);

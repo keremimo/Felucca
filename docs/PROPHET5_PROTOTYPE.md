@@ -114,14 +114,12 @@ INIT. Store requires the normal stopped-transport/overwrite workflow.
 
 All 200 Sequential v1.03 programs are PROPHET's factory presets (1–200, after
 INIT at 0), always present whatever the user collection holds; they are dry, as
-the Prophet. Only INIT can be a factory favorite (the favorites store has no room
-for 200 more); copies in user slots can be starred. The default native P001–P128
-collection also contains the first 128. `assets/prophet5-factory/README.md` records
+the Prophet. All 201 factory entries can be favorites. Native user slots P001–P128
+start empty and hold only saved programs. `assets/prophet5-factory/README.md` records
 the original download and SHA-256; `tools/gen_prophet_factory.py` verifies that
-source before generating firmware and mock-editor data. Missing/invalid banks
-use those ROM defaults without writing flash. Valid saved banks take precedence,
-including deliberately empty slots. Selecting Prophet starts on user P001 when it
-is used, otherwise on factory preset 1 (It's a Prophet 5).
+source before generating firmware and mock-editor data. Missing/invalid user banks
+start empty without writing flash; valid saved banks retain their contents.
+Selecting Prophet starts on factory preset 1 (It's a Prophet 5).
 
 The editor protocol carries preset numbers past 127 as trailing high bits on
 `DUMP`, `PRESET`, `RELOAD`, `TRACK` and `TRACK_DUMP`, and pages `NAMES`

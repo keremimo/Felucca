@@ -4430,7 +4430,9 @@ static int test_new_song(void)
 static int test_prophet_pages(void)
 {
     ui_power_on();set_engine_of(TSEL,ENGI_PROPHET);int bad=0,visible=0;
-    bad+=check("selecting Prophet starts on native P001 with its original factory bytes",TSEL->user_native&&TSEL->user==1u&&!memcmp(p5_patch_of(TSEL),&P5_FACTORY[0],sizeof(p5_patch_t)));
+    bad+=check("selecting Prophet starts on its first factory program",!TSEL->user&&TSEL->preset==1u&&!memcmp(p5_patch_of(TSEL),&P5_FACTORY[0],sizeof(p5_patch_t)));
+    uint32_t count,slot,source=preset_all_at(200u,&slot);
+    bad+=check("all 201 Prophet factory entries precede empty user slots in both browsers",eng_list_pos(&count)==1u&&count==201u&&source==ENGI_PROPHET&&slot==200u);
     int factory=ENGINES[ENGI_PROPHET]->npresets==P5_FACTORY_N+1u;
     for(uint32_t k=1;k<=P5_FACTORY_N;k++){
         apply_preset_to(TSEL,k);char name[21];p5_patch_name(name,&P5_FACTORY[k-1u]);
@@ -4445,8 +4447,7 @@ static int test_prophet_pages(void)
     bad+=check("native oscillator knob changes its field and preserves opaque bytes",!memcmp(&before,p5_patch_of(TSEL),sizeof before));
     go_title("P5 STORE");p5_store_slot=128;turn(EN_K2,1);
     bad+=check("native STORE waits for OCT+ before opening NAME",!name_on()&&act_col()==2);
-    press(B_OCTUP);bad+=check("default P128 asks before overwriting its factory patch",ui.confirm==CF_OVR_USER&&!name_on());
-    press(B_OCTUP);bad+=check("confirmed STORE opens native slot 128 naming",name_on()&&nm.slot==127&&name_limit()==20);
+    press(B_OCTUP);bad+=check("empty P128 opens native slot naming without overwrite",name_on()&&nm.slot==127&&name_limit()==20);
     nm.len=nm.cur=0;nm.s[0]=0;for(uint32_t k=0;k<20;k++){nm_insert((char)('A'+k));nm.cur++;}
     bad+=check("native NAME holds twenty characters and refuses a twenty-first",nm.len==20&&!nm_insert('Z')&&nm.s[20]==0);
     name_close();go_title("P5 STORE");p5_patch_of(TSEL)->raw[97]=255;turn(EN_K4,1);press(B_OCTUP);

@@ -916,9 +916,11 @@ Melodee parameters. Native slot indices remain unsigned bytes 0–127.
 **Backups:** inventory IDs 0–22 remain fixed; 23–27 are Prophet banks. Each bank
 is 3600 bytes: LE u32 magic `0x31553550` (P5U1), used mask, favorite mask,
 then 26 complete 138-byte records. Banks 0–3 use mask bits 0–25; bank 4 uses
-0–23. Bank 0's favorite bit 31 represents factory INIT. Other high bits are
-invalid. Used records require valid wire metadata. An empty restore produces
-a valid empty bank. Older archives that omit these objects leave them intact.
+0–23. Bank 0's favorite bit 31 holds the legacy factory INIT star; current
+factory Prophet stars, including all 200 programs, live in the settings record.
+Other high bits are invalid. Used records require valid wire metadata. Fresh
+user banks and an empty restore are empty; factory programs remain available
+in the regular browser. Older archives that omit these objects leave them intact.
 The editor validates nonempty Prophet objects and target capability before
 starting restore writes.
 
@@ -930,6 +932,9 @@ the larger record. TPLC magic `0x434C5054` includes the same four full native
 records. Older FUN13/FBKG/TPLB and earlier data migrate with INIT Prophet
 records for tracks without native data. Projects, runtime backups, templates
 and sound undo/redo retain opaque bytes independent of user collection slots.
+Current projects also keep each Prophet track's user-slot origin in reserved
+bytes so browsing resumes at that slot. Older projects locate an unchanged
+embedded factory or user patch by its complete record.
 
 The app boundary is 0x89000. Five native A/B pairs occupy 0x89000–0x92FFF.
 Normal OTA/loader paths reject mismatched older app extents before writing.

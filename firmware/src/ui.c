@@ -971,17 +971,14 @@ static void set_engine_of(track_t *t, uint32_t ei)
         return;
     }
 #endif
-    /* PROPHET starts on a sound, not INIT: user P001, else the first factory program */
-    int p5_user = ei % NENGINES == ENGI_PROPHET && native_used(ENGI_PROPHET, 0);
+    /* PROPHET starts on Sequential's first factory program, not INIT. */
     load_begin(t, UNDO_SOUND);
     fm1_irq_off();
     t->eng_req = (uint8_t)(ei % NENGINES);
     for (i = 0; i < 8u; i++)
         t->p[P_E0 + i] = e->edit[i].def;
-    apply_preset_to(t, t->eng_req == ENGI_PROPHET && !p5_user ? 1u : 0u);
+    apply_preset_to(t, t->eng_req == ENGI_PROPHET ? 1u : 0u);
     fm1_irq_on();
-    if (p5_user)
-        native_load(ENGI_PROPHET, 0, trk_index(t));
     load_end(t);
 }
 

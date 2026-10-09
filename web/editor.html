@@ -2063,7 +2063,7 @@ function makeMockDevice(opt = {}) {
     step: Array.from({ length: NSTEP }, () => ({ chance: 100, n: 0, notes: [0, 0, 0, 0], time: 2, flags: 0, vel: 0, hit: 0, acc: 0 })) });
   const st = {
     tracks: [0, 1, 2, 3].map(newTrack), sel: 0, rec: 0,
-    native:{12:Array(64).fill(null),15:Array(128).fill(null),19:P5_FACTORY.slice(0,128).map(p=>p.slice())},
+    native:{12:Array(64).fill(null),15:Array(128).fill(null),19:Array(128).fill(null)},
     czbanks:Array.from({length:8},(_,i)=>czBankEncode({name:`BANK ${String.fromCharCode(65+i)}`,tones:[]})),
     g: GP.map((d) => d.def),
     slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
@@ -2124,8 +2124,7 @@ function makeMockDevice(opt = {}) {
     if (ei % ENG.length === 1) { fm4Load(0); return; }   /* DIGITAL (retired): its first preset, as FM6 (ui.c set_engine_of) */
     st.engine = ei % ENG.length;
     for (let i = 0; i < 8; i++) st.p[P_E0 + i] = ENG[st.engine].edit[i].def;
-    applyPreset(st.engine===19&&!st.native[19][0]?1:0);   /* PROPHET: user P001, else the first factory program */
-    if(st.engine===19&&st.native[19][0]){st.tracks[st.sel].p5=st.native[19][0].slice();st.tracks[st.sel].user=1;}
+    applyPreset(st.engine===19?1:0);   /* PROPHET: the first factory program */
   }
   /* the selected track's sound = p, DIGITAL's values, converted (ui.c fm4_apply) */
   function fm4Apply(p) {

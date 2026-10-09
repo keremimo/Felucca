@@ -8,6 +8,8 @@
  *   row 15 (CZ-1: factory tones bits 0..64, native slots 65..192) 27 SCREEN OFF, 29 the PRESETS LIST (browse.c),
  *          30 bit 0 FX LATCH, bit 1 KNOB ACCEL OFF (ui.c PREF_BITS), 31 the quick layers seen (ui_layer.c);
  *          free: 24 bits 1..7, 25, 26, 28, 30 bits 2..7
+ *   row 0 bytes 2..27 hold all 201 Prophet factory stars, tagged in bytes 28..31;
+ *         ANALOG's own first 12 stars stay in bytes 0..1.
  * Rows 1 (DIGITAL: converted to FM6 stars on import), 4 (SAMPLE) and 13 (SLICE, built with MELODEE_SLICE) may hold
  * Felucca 1.0's stars; 6, 7, 9 are LEGACY_EXTRAS' engines. Native FM6 slots: row 12 bits 24..87. */
 typedef struct {

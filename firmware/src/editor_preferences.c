@@ -140,7 +140,7 @@ static int ed_ui_handle(uint32_t cmd, const uint8_t *a, uint32_t n)
                 int changed=favorite_set(a[0], (uint32_t)preset, a[3]);
                 if(p5 && !changed && before!=a[3]){ed_b(transport_busy()?4u:3u);ed_b(a[0]);ed_v(preset);ed_b(before);return 1;}
                 ui.force = 1;
-                ed_b(p5?0u:ed_ui_save()); ed_b(a[0]); ed_v(preset); ed_b(a[3]);
+                ed_b(p5 && a[0]==USER_NATIVE_P5 ? 0u : ed_ui_save()); ed_b(a[0]); ed_v(preset); ed_b(a[3]);
                 return 1;
             }
         }
