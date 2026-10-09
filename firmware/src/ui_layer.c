@@ -466,7 +466,7 @@ static uint32_t layer_leds(void)
 
 /* ------------------------------------------------------ the overlay --- */
 /* One template: the header names the button and the kind ("[GLO] SET"); the cards are KNOB 1..4; the panel the
- * map of the keys as cells (the key's note name, a Fukiai icon, a name; FX's effects: the 16 white keys 4 a row,
+ * map of the keys as cells (the key's note name, an icon, a name; FX's effects: the 16 white keys 4 a row,
  * the effect's short name); the footer the keycaps. A cell: RAISE
  * (can be pressed), the selection's fill (the value now, SET), the accent (held, HOLD), DIM (cannot now: pressing
  * it says why), KEY (a muted track, as the MUTE badge); HOLD cells in a SET layer: a corner triangle */

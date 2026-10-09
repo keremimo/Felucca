@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* MELODEE user interface.
- * Flat: SURF cards and panels on the palette's background, no rules, one type family (Inter Tight, three sizes), tracks
+ * Flat: SURF cards and panels on the palette's background, no rules, one type family (Rubik, three sizes), tracks
  * named by circled numerals. Four columns <-> KNOB 1..4. Rendering is lazy:
  * every element remembers what it last drew and is redrawn only on change. */
 static int live_rec_sel(void);
@@ -67,7 +67,7 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 static uint8_t sync_reload;                  /* engine / preset / project / user preset loaded: editor RELOAD push */
 
 #define ACC T_THEME                /* values, curves */
-#define VAL(c) ((c) == ui.hot_col && ui.hot_t ? T_ACCENT : T_THEME)   /* the knob just turned: accent */
+#define VAL(c) ((c) == ui.hot_col && ui.hot_t ? T_ACCENT : T_TEXT)    /* the knob just turned: accent */
 #define RATIO(d, v) ((d)->max > (d)->min ? ((int32_t)(v) - (d)->min) * 1000 / ((d)->max - (d)->min) : -1)
 /* layout: header 0..24, four cards 28..72 (57 px at x 3 + 59 c),
  * the panel 76..198 (a SURF area; the graphs live in it), footer 202..240; BG between them */

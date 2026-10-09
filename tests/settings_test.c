@@ -34,24 +34,27 @@ int main(void)
 {
     persist_t original = {0}, p;
     original.magic = PERSIST_MAGIC;
-    original.palette = 4; original.bold = original.lowcut = original.zoom = 1;   /* old id 4: MONO */
+    original.palette = 4; original.bold = original.lowcut = original.zoom = 1;   /* Felucca's id 4: MONO -> NIGHT */
     original.panel = PANEL_DEFAULT; original.panel.enc[0] = 3;
     original.favorites.factory[8][0] = 1;
     original.favorites.user = 1u << 31; original.favorites.filter = 1;
     p = original;
     assert(settings_import(&p, sizeof p) == 1); settings_init();
-    assert(settings.palette == UI_MONO_INDEX && fx_lowcut && settings.zoom && panel.enc[0] == 3);
-    assert(p.palette == palette_to_stored(UI_MONO_INDEX));        /* migrated in place */
-    {   /* every old id maps to a palette; tagged ids round trip; anything else is MONO */
+    assert(settings.palette == UI_DEFAULT_INDEX && fx_lowcut && settings.zoom && panel.enc[0] == 3);
+    assert(p.palette == palette_to_stored(UI_DEFAULT_INDEX));     /* migrated in place */
+    {   /* every old id (Felucca's 0..19, Melodee 0.13's 64..71) maps to a palette; tagged ids round trip; anything
+         * else is NIGHT */
         persist_t q = original;
         for (uint32_t i = 0; i < 20u; i++) assert(palette_from_stored(i) < NPALETTES);
-        assert(palette_from_stored(13) == 6u && palette_from_stored(11) == 7u && palette_from_stored(19) == 7u);
+        for (uint32_t i = 64; i < 72u; i++) assert(palette_from_stored(i) < NPALETTES && palette_stored_ok(i));
+        assert(palette_from_stored(13) == 1u && palette_from_stored(11) == 2u && palette_from_stored(19) == 2u);
+        assert(palette_from_stored(64u + 6u) == 1u && palette_from_stored(64u + 7u) == 2u && palette_from_stored(64u) == 0u);
         for (uint32_t i = 0; i < NPALETTES; i++) assert(palette_from_stored(palette_to_stored(i)) == i);
-        assert(palette_from_stored(40) == UI_MONO_INDEX && !palette_stored_ok(40) && palette_stored_ok(3));
-        q.palette = palette_to_stored(5);
-        assert(settings_import(&q, sizeof q) == 1 && settings.palette == 5u);
+        assert(palette_from_stored(40) == UI_DEFAULT_INDEX && !palette_stored_ok(40) && palette_stored_ok(3));
+        q.palette = palette_to_stored(2);
+        assert(settings_import(&q, sizeof q) == 1 && settings.palette == 2u);
         settings.magic = SETTINGS_MAGIC_OLD; settings.palette = 13; settings_init();   /* retained SET3 */
-        assert(settings.magic == SETTINGS_MAGIC && settings.palette == 6u);
+        assert(settings.magic == SETTINGS_MAGIC && settings.palette == 1u);
         p = original; assert(settings_import(&p, sizeof p) == 1); settings_init();
     }
 #ifdef MELODEE_FAVORITES

@@ -1333,7 +1333,7 @@ static void draw_tracks(void)
         uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* the knob just turned (hot_col + 1): 1 LEVEL, 2 PAN,
                                                                 * 3 REV, 4 MUTE (its badge) */
         int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), rv = clamp(t->p[P_REV], 0, 127);
-        uint16_t vc = mute ? T_DIM : T_THEME;
+        uint16_t vc = mute ? T_DIM : T_TRK(c);          /* each strip in its track's colour */
         char b[16];
         t->peak = 0;
         trk_short_name(c, b);
@@ -1348,7 +1348,7 @@ static void draw_tracks(void)
         ts.col[c] = sig;
         cv_begin(CARD_W, H_GRAPH, T_BG);
         cv_rrect(0, 0, CARD_W, H_GRAPH, 5, T_SURF, T_BG);
-        cv_icon_on(4, 5, 16, trk_icon(c, sel), sel ? T_ACCENT : T_MID, T_SURF);
+        cv_icon_on(4, 5, 16, trk_icon(c, sel), T_TRK(c), T_SURF);
         if (st == 1u || st == 2u)                    /* REC (recording) / ARM (armed, stopped) */
             cv_keycap(53 - kc_w(st == 1u ? KC_REC : KC_ARM), 6, st == 1u ? KC_REC : KC_ARM, st == 1u ? T_REC : T_ACCENT,
                       T_INK, T_SURF);

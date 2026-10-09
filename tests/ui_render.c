@@ -933,7 +933,7 @@ static void sweep_columns(void)
             continue;                                    /* (DIGITAL without MELODEE_FM4: no track has it) */
         for (i = 0; i < NPAGES; i++) {
             state();
-            pal(UI_MONO_INDEX);
+            pal(UI_GRAY_INDEX);
             eng(e);
             ui.home = 0; ui.page = (uint8_t)i; page_entered();
             if (!page_visible(i)) continue;
@@ -967,7 +967,7 @@ static void sweep_columns(void)
             draw(-1);                                    /* the whole page */
             lint();
         }
-        state(); pal(UI_MONO_INDEX); eng(e); go_home();   /* HOME's four knobs of this engine */
+        state(); pal(UI_GRAY_INDEX); eng(e); go_home();   /* HOME's four knobs of this engine */
         snprintf(name, sizeof name, "%s/HOME", ENGINES[e]->name);
         cur_name = name;
         draw(-1);
@@ -975,7 +975,7 @@ static void sweep_columns(void)
     }
     for (e = 0; e < 4u; e++) {                           /* the MOD page: every source and destination */
         int32_t v;
-        state(); pal(UI_MONO_INDEX); go_title("MOD");
+        state(); pal(UI_GRAY_INDEX); go_title("MOD");
         cur_name = "MOD sweep";
         for (v = 0; v < MD_N; v++) {
             TSEL->p[P_M1SRC] = (int16_t)(v % MS_N); TSEL->p[P_M1DST] = (int16_t)v; TSEL->p[P_M1AMT] = (int16_t)(e * 40 - 64);
@@ -1033,7 +1033,7 @@ static void roll_frames(const char *dir)
     const uint32_t biw = (FS_N * (HW + FS_GAP) + FS_GAP) * FS_Z, bih = (2u * (HH + FS_GAP) + FS_GAP) * FS_Z;
     const uint32_t ciw = (FS_N * (COL_W + FS_GAP) + FS_GAP) * FS_Z, cih = (2u * (COL_H + FS_GAP) + FS_GAP) * FS_Z;
     uint32_t p, row, k;
-    for (p = 0; p < NPALETTES; p++) {
+    for (p = 0; p < UI_PAL_ENTRIES; p++) {
         char name[64];
         memset(bimg, 90, sizeof bimg);
         memset(cimg, 90, sizeof cimg);
@@ -1052,7 +1052,7 @@ static void roll_frames(const char *dir)
                 if (k == 1u) roll_turns(row ? -1 : 1);
                 else ui_draw();
                 lint();
-                if (p == UI_MONO_INDEX) mono_check();
+                if (p == UI_GRAY_INDEX) mono_check();
                 roll_film_put(bimg, biw, row, k, HX, 0, HW, HH);
                 roll_film_put(cimg, ciw, row, k, CARD_X(3), Y_LABEL, COL_W, COL_H);
             }
@@ -1063,7 +1063,7 @@ static void roll_frames(const char *dir)
             }
             for (k = 0; k < 8u; k++) ui_draw();
         }
-        if (dir && (!strcmp(UI_PALETTES[p].name, "MONO") || !strcmp(UI_PALETTES[p].name, "GREEN"))) {
+        if (dir && (!strcmp(UI_PALETTES[p].name, "NIGHT") || !strcmp(UI_PALETTES[p].name, "GRAY"))) {
             roll_film_save(dir, UI_PALETTES[p].name, "bpm_roll", bimg, biw, bih);
             roll_film_save(dir, UI_PALETTES[p].name, "card_roll", cimg, ciw, cih);
         }
@@ -1109,7 +1109,7 @@ int main(int argc, char **argv)
     const char *out = argc > 1 ? argv[1] : "build/ui_new";
     char path[600];
     uint32_t p, s;
-    static const char *const SHOW[] = {"MONO", "GREEN", "PAPER"};
+    static const char *const SHOW[] = {"NIGHT", "DAY", "CONTRAST", "GRAY"};
     snprintf(path, sizeof path, "%s/report.txt", out);
     rep = fopen(path, "w");
     if (!rep) { fprintf(stderr, "cannot write %s\n", path); return 1; }
@@ -1135,7 +1135,7 @@ int main(int argc, char **argv)
         fprintf(rep, "(self-test: %u findings above are expected)\n\n", nfind);
         nfind = 0;
     }
-    for (p = 0; p < NPALETTES; p++)
+    for (p = 0; p < UI_PAL_ENTRIES; p++)
         for (s = 0; s < S_COUNT; s++) {
             char name[64];
             uint32_t k;
@@ -1145,10 +1145,10 @@ int main(int argc, char **argv)
             cur_name = name;
             setup((int)s);
             pal(p);
-            if (p == UI_MONO_INDEX) aud = audf;
+            if (p == UI_GRAY_INDEX) aud = audf;
             draw((int)s);
             lint();
-            if (p == UI_MONO_INDEX) { audit_scene(S_NAME[s]); aud = 0; mono_check(); }
+            if (p == UI_GRAY_INDEX) { audit_scene(S_NAME[s]); aud = 0; mono_check(); }
             for (k = 0; k < 3u; k++)
                 if (!strcmp(UI_PALETTES[p].name, SHOW[k])) write_ppm(out, SHOW[k], S_NAME[s]);
         }
@@ -1159,7 +1159,7 @@ int main(int argc, char **argv)
             char name[32];
             snprintf(name, sizeof name, "FM6 engine %u ALG %u", e, a);
             cur_name = name;
-            state(); pal(UI_MONO_INDEX); eng(ENGI_FM6); TSEL->p[P_E0] = (int16_t)a; go_title("EDIT 1");
+            state(); pal(UI_GRAY_INDEX); eng(ENGI_FM6); TSEL->p[P_E0] = (int16_t)a; go_title("EDIT 1");
             fm6_fn_set(song.sel, FN_ENGINE, (int32_t)e);
             draw(-1);
             lint();

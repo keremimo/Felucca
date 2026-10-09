@@ -83,6 +83,7 @@ static struct { uint32_t stage; } melodee_dbg;
 #ifndef MELODEE_VERSION
 #define MELODEE_VERSION "TEST"
 #endif
+#define UI_TEST_PALETTE 1                         /* + GRAY: every screen drawn in it must stay gray */
 #include "../firmware/src/gfx.c"
 #include "../firmware/src/panel.c"
 #include "../firmware/src/ui.c"
@@ -145,8 +146,8 @@ static void ui_power_on(void)
     ui.home = 1;
     ui.force = 1;
     panel = PANEL_DEFAULT;
-    settings.palette = UI_MONO_INDEX;
-    palette_set(UI_MONO_INDEX);
+    settings.palette = UI_GRAY_INDEX;
+    palette_set(UI_GRAY_INDEX);
     transport_req = 0;
     panic_req = 0;
     mi_r = mi_w = midi_in_overflow = 0;
@@ -1330,21 +1331,21 @@ static int test_display_preferences(void)
     ui.menu_sel = MI_COLOR;
     ui.force = 1; ui_draw();
     memcpy(before, host_screen, sizeof before);
-    settings.palette = 5; palette_set(5);
+    settings.palette = 0; palette_set(0);
     press(B_OCTUP);
-    bad += check("COLOR OCT+ previews the next palette (PAPER, light) without closing the menu",
-                 settings.palette == 6 && T_BG == UI_PALETTES[6].bg && ux.light && ui.menu == 1 && !song.octave &&
+    bad += check("COLOR OCT+ previews the next palette (DAY, light) without closing the menu",
+                 settings.palette == 1 && T_BG == UI_PALETTES[1].bg && ux.light && ui.menu == 1 && !song.octave &&
                  memcmp(before, host_screen, sizeof before) && !memcmp(sounds, trk, sizeof sounds));
     turn(EN_K1, 1);
-    bad += check("COLOR KNOB 1 steps on to HI-CON, then wraps to MONO",
-                 settings.palette == 7 && (turn(EN_K1, 1), settings.palette == UI_MONO_INDEX));
+    bad += check("COLOR KNOB 1 steps on to CONTRAST, then wraps to NIGHT",
+                 settings.palette == 2 && (turn(EN_K1, 1), settings.palette == UI_DEFAULT_INDEX));
     settings.lowcut = 2;
     ui.menu_sel = MI_LOWCUT;
     press(B_OCTUP);
     bad += check("the expanded menu retains all three SPEAKER modes", settings.lowcut == 0 && !fx_lowcut);
     press(B_OCTDN);
     bad += check("OCT- leaves display preferences without changing musical state",
-                 !ui.menu && settings.palette == UI_MONO_INDEX && !memcmp(sounds, trk, sizeof sounds));
+                 !ui.menu && settings.palette == UI_DEFAULT_INDEX && !memcmp(sounds, trk, sizeof sounds));
     return bad;
 }
 
@@ -1458,9 +1459,9 @@ static int test_mono_screens(void)
     for (e = 0; e < NPALETTES; e++) {               /* the other palettes are not gray: the check sees colour */
         ui_power_on(); palette_set(e); ui.force = 1; ui_draw();
         ok = screen_gray();
-        if (e == UI_MONO_INDEX ? !ok : ok) bad += check("palette colour shows on HOME", 0);
+        if (e == UI_GRAY_INDEX ? !ok : ok) bad += check("palette colour shows on HOME", 0);
     }
-    palette_set(UI_MONO_INDEX);
+    palette_set(UI_GRAY_INDEX);
     return bad;
 }
 
@@ -1646,7 +1647,7 @@ static int test_roll(void)
     ui.force = 1; frame();
     ok &= !ui.roll[ROLL_BPM].from[0];
     bad += check("roll: a page, track, palette or engine change and ui.force snap", ok);
-    palette_set(UI_MONO_INDEX);
+    palette_set(UI_GRAY_INDEX);
 
     /* MONO: every roll frame is gray */
     ui_power_on(); roll_settle();
@@ -1905,7 +1906,7 @@ static int test_product_ux(void)
         int changed = 0;
         for (uint32_t y = 0; y < Y_SEP_END - Y_LABEL; y++) for (uint32_t x = 0; x < 240; x++) {
             uint16_t old = columns[y * 240 + x], now = host_screen[(Y_LABEL + y) * 240 + x];
-            if (x >= 64 && x < 119) changed |= old != now;
+            if (x >= (uint32_t)CARD_X(1) && x < (uint32_t)(CARD_X(1) + CARD_W)) changed |= old != now;   /* (outlined) */
             else ok &= old == now;
         }
         ok &= changed;

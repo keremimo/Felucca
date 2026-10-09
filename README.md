@@ -193,7 +193,8 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Presets:** browse by category (BASS, LEAD, PAD, KEYS, ORGAN, STRING, BRASS, WIND, PLUCK, BELL, DRUM, FX), favourites or
   RECENT, with knob acceleration; factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
-- **Screen:** flat UI with Inter Tight and Fukiai icons, 8 palettes including grayscale and high contrast;
+- **Screen:** Melodee's own look: Rubik type, icons drawn for Melodee, every track in its own colour (the screen takes the
+  selected track's), three palettes: NIGHT, DAY and CONTRAST;
   HOME shows the played notes and recognized chords above the live waveform, retaining the last voicing after release
 - **Lights:** the keys that play glow (the scale's notes with QNT OFF, every key of a kit), a key lights up while
   its note sounds, MIDI in too, and the idle buttons glow; the HOME-held menu's LIGHTS sets the level (OFF: only
@@ -512,8 +513,9 @@ You can leave a tip with [ko-fi](https://ko-fi.com/keremimo).
 - **[Hügelton Instruments](https://hugelton.com)** (Leo Kuroshita, [@kurogedelic](https://github.com/kurogedelic)):
   Felucca itself; the PHASE engine's waveforms (a C port of the oscillator of
   [CrispyZebra](https://github.com/hugelton/CrispyZebra), GPL-3.0); the synthesized 808; the [Fukiai](https://github.com/hugelton/Fukiai) icon
-  font ([MIT](LICENSES/MIT-Fukiai.txt))
-- Font: [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors, [SIL OFL 1.1](LICENSES/OFL-InterTight.txt)
+  font of the web editor ([MIT](LICENSES/MIT-Fukiai.txt))
+- Font: [Rubik](https://github.com/googlefonts/rubik) by The Rubik Project Authors, [SIL OFL 1.1](LICENSES/OFL-Rubik.txt);
+  the panel diagram: [Inter Tight](https://github.com/rsms/inter-tight) by The Inter Project Authors, [SIL OFL 1.1](LICENSES/OFL-InterTight.txt)
 - VOICE engine: after [klattsch](https://github.com/tgies/klattsch) by Tony Gies (MIT); formant data from Klatt (1980) and Hillenbrand et al. (1995)
 - Native CZ engine: uPD933 model by Devin Acker in [MAME](https://github.com/mamedev/mame/blob/master/src/devices/sound/upd933.cpp) ([BSD-3-Clause](LICENSES/BSD-3-Clause-uPD933.txt))
 - PHYS engine: models ported from [DaisySP](https://github.com/electro-smith/DaisySP) by Electrosmith and Emilie Gillet ([MIT](LICENSES/MIT-DaisySP.txt)) and from Emilie Gillet's [eurorack](https://github.com/pichenettes/eurorack) code ([MIT](LICENSES/MIT-Rings.txt))

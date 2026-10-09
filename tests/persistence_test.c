@@ -144,7 +144,7 @@ int main(void)
         bad += check("the retired font weight is refused without a write", ed_ui_set(bold, sizeof bold) == 2);
     }
     reset();
-    settings.palette = 3;
+    settings.palette = 1;
     settings.lowcut = 2;
     settings.zoom = 1;
     persist_saved.bold = 1;                       /* (an earlier firmware's font weight: kept as saved) */
@@ -153,7 +153,7 @@ int main(void)
     song.playing = 1;
     settings_save();
     bad += check("playing: settings queued, no erase, runtime kept", persist_pending && !erases &&
-                  settings.palette == 3u && settings.lowcut == 2u && settings.zoom == 1u);
+                  settings.palette == 1u && settings.lowcut == 2u && settings.zoom == 1u);
     song.playing = 0;
     transport_req = 1;
     settings_poll();
@@ -333,7 +333,7 @@ int main(void)
     bad += check("PLAY consumed before the preset snapshot still blocks a bank write",
                   up_put(3, &r) == 2 && irq_races == 2u && song.playing && !transport_req && erases == before);
     song.playing = 0; transport_req = 1; irq_start_race = 1;
-    settings.palette = 4;
+    settings.palette = 1;
     settings_save();
     bad += check("PLAY consumed before the settings snapshot defers the write",
                   irq_races == 3u && song.playing && !transport_req && persist_pending && erases == before);

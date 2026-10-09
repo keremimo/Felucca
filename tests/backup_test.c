@@ -283,13 +283,16 @@ int main(void)
     memset(&ps, 0, sizeof ps);
     settings_export(&ps);
     ps.lowcut = 2;                                       /* SPEAKER BASS+ */
-    ps.palette = palette_to_stored(6);
+    ps.palette = palette_to_stored(2);
     bad += check("settings with SPEAKER BASS+ restore", put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 &&
-                 settings.lowcut == 2u && fx_lowcut == 2u && settings.palette == 6u);
-    ps.palette = 13;                                     /* an older backup: its PAPER (old id 13) */
+                 settings.lowcut == 2u && fx_lowcut == 2u && settings.palette == 2u);
+    ps.palette = 13;                                     /* an older backup: its PAPER (Felucca's id 13): DAY */
     bad += check("settings of an older backup restore with the palette migrated",
-                 put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 && settings.palette == 6u);
-    ps.palette = palette_to_stored(6);
+                 put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 && settings.palette == 1u);
+    ps.palette = 64u + 7u;                               /* Melodee 0.13's HI-CON: CONTRAST */
+    bad += check("settings of a Melodee 0.13 backup restore with the palette migrated",
+                 put_all(1, &ps, sizeof ps, st_crc32(&ps, sizeof ps)) == 0 && settings.palette == 2u);
+    ps.palette = palette_to_stored(2);
     before = erases;
     ps.lowcut = 3;
     bad += check("settings with an unknown SPEAKER value are refused, nothing written",

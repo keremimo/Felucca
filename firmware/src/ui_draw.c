@@ -1,11 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee UI drawing: the header, the four knob cards, the footer (steps + engine / preset / page)
- * and the frame; the panel between the cards and the footer is ui_graph.c. The layout:
- * flat SURF cards and panels on BG,
- * rounded corners, no rules, colours from the theme tokens only (gfx.c T_*). Type: S (12 px) labels,
- * M (15 px) values and the header, L (28 px) big numerals. A card value too wide for M is set in S;
- * free text (names, messages) is ellipsised at its size. */
+ * and the frame; the panel between the cards and the footer is ui_graph.c. The layout: SURF cards and panels on
+ * BG, rounded corners, no rules, colours from the theme tokens only (gfx.c T_*); THEME is the selected track's
+ * colour (labels, gauges, curves), values in TEXT. Type: Rubik, S (11 px) labels, M (14 px) values and the header,
+ * L (26 px) big numerals. A card value too wide for M is set in S; free text (names, messages) is ellipsised. */
 static void draw_menu(void);
 static int name_on(void);                              /* NAME (ui_name.c) */
 static void name_draw(void);
@@ -34,7 +33,7 @@ static void draw_rec_mark(int32_t x, uint16_t bg)
         cv_icon_mid(x, H_HEAD / 2, 16, (song.rec >> song.sel) & 1u ? ICON_X_REC : ICON_X_REC_O, T_REC, bg);
 }
 
-/* the battery: a 16 px Fukiai icon. The stock thresholds give 0..3 bars of 3; the font has 0..4 bars of 4:
+/* the battery: a 24 px icon (tools/gen_icons.py). The stock thresholds give 0..3 bars of 3; the font has 0..4 bars of 4:
  * each level takes the nearest share, 0 -> battery_0 (empty), 1 (1/3) -> battery_1 (1/4), 2 (2/3) ->
  * battery_3 (3/4), 3 (full) -> battery_4 (battery_2 is not used); USB power: battery_charging.
  * Colours as the drawn battery had them: one bar left the accent, empty MID (its outline), else THEME */
@@ -183,7 +182,7 @@ static void draw_head(void)
     roll_text(ROLL_BPM, BPM_X, 3, b, ui.bpm_t ? T_ACCENT : T_THEME);
     if (seq_erase_active(TSEL)) {
         cv_text_on(106, 6, &AF_S, "ERASING", T_REC, T_BG);
-        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_ACCENT, T_BG);
+        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_THEME, T_BG);
         draw_battery(214);
     } else if (ui.msg_t || ui.layer) {                     /* a message, or the layer's name */
         cv_free_hint(106, 6, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - 106);   /* (may start with a keycap) */
@@ -201,7 +200,7 @@ static void draw_head(void)
             }
             cv_text(x + 4, 3, &AF_M, b, T_THEME);
         }
-        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_ACCENT, T_BG);
+        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_THEME, T_BG);
         if (usb.config && !usb.suspended)
             cv_icon_mid(189, H_HEAD / 2, 24, ICON_X_USB, T_MID, T_BG);
         draw_battery(214);
@@ -221,10 +220,10 @@ static void draw_frame(void)
                  240u - (uint32_t)(CARD_X(i) + CARD_W), CARD_H, T_BG);
 }
 
-/* one card = one knob: [icon] LABEL / value unit / gauge on a SURF card, redrawn only when it changed.
+/* one card = one knob: LABEL (THEME) / value unit / gauge on a SURF card, redrawn only when it changed.
  * The value is M, or S when M is too wide (engine names, long ENUMs); the unit S after it. The gauge is
- * a 3 px rounded bar: BG track, THEME fill. The knob just turned (hot): icon, label, value and gauge in
- * the accent. ratio: 0..1000 for the gauge, -1 = no gauge. icon: ICON_* (icons.c), ICON_AUTO = by label;
+ * a 3 px rounded bar: LINE track, THEME fill. The knob just turned (hot): the card outlined in THEME, the label
+ * and value in the accent. ratio: 0..1000 for the gauge, -1 = no gauge. icon: ICON_* (icons.c), ICON_AUTO = by label;
  * a label too long to share the card with its icon goes without it.
  * vc: the value's colour (T_THEME, T_DIM inactive, T_ACCENT the knob just turned) */
 static void draw_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc,
@@ -233,7 +232,7 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     char key[48];
     int hot = c == ui.hot_col && ui.hot_t, named = fmt_named, strip, snap;
     uint8_t sig;
-    uint16_t lc = hot ? T_ACCENT : T_MID;
+    uint16_t lc = hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME;
     int32_t x, lx = 5, uw, room = COL_W - 8;
     const aafont_t *vf = &AF_M;
     uint32_t n, kn;
@@ -261,6 +260,8 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     uw = unit[0] ? text_w(&AF_S, unit) + 3 : 0;
     if (text_w(vf, val) + uw > room)
         vf = &AF_S;
+    if (uw && text_w(vf, val) + uw > room)              /* ("369 /439"): the value keeps its digits, the unit goes */
+        unit = "", uw = 0;
     sig = (uint8_t)str_hash(str_hash(song.sel + TSEL->eng_req * 4u + ux.gen * 64u, label), unit);
     snap = ui.force || sig != ui.roll[c].sig;           /* what the value is of: label, unit, track, engine, palette */
     strip = !snap && str_eq(key, ui.col[c]);
@@ -268,6 +269,10 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         return;
     if (strip) {                                        /* rolling: the value strip only */
         cv_begin(COL_W, ROLL_H, T_SURF);
+        if (hot) {                                      /* (the hot card's outline crosses the strip) */
+            cv_rect(0, 0, 1, ROLL_H, T_THEME);
+            cv_rect(COL_W - 1, 0, 1, ROLL_H, T_THEME);
+        }
         cv_oy = -ROLL_Y;
     } else {
         char ov[16];                                    /* the value drawn before (in the cache key) */
@@ -285,7 +290,12 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
             ui.roll[c].from[0] = 0;
         str_cpy(ui.col[c], key, sizeof ui.col[c]);
         cv_begin(COL_W, COL_H, T_BG);
-        cv_rrect(0, 0, COL_W, COL_H, 4, T_SURF, T_BG);
+        if (hot) {                                      /* the knob just turned: outlined */
+            cv_rrect(0, 0, COL_W, COL_H, 6, T_THEME, T_BG);
+            cv_rrect(1, 1, COL_W - 2, COL_H - 2, 5, T_SURF, T_THEME);
+        } else {
+            cv_rrect(0, 0, COL_W, COL_H, 6, T_SURF, T_BG);
+        }
     }
     if (label[0] || val[0]) {
         if (!strip && MELODEE_ICONS && icon != ICON_NONE && label[0] && text_w(&AF_S, label) <= COL_W - 2 - 19)
@@ -302,8 +312,8 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
             cv_text_on(x + 3, 20, &AF_S, unit, T_MID, T_SURF);     /* on the value's baseline (S) */
         if (!strip && ratio >= 0) {
             int32_t gw = COL_W - 10, fx = ratio * gw / 1000;
-            cv_rrect(5, 38, gw, 3, 1, T_BG, T_SURF);
-            cv_rrect(5, 38, fx < 3 ? 3 : fx, 3, 1, hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME, T_BG);
+            cv_rrect(5, 38, gw, 3, 1, T_LINE, T_SURF);
+            cv_rrect(5, 38, fx < 3 ? 3 : fx, 3, 1, vc == T_DIM ? T_DIM : T_THEME, T_LINE);
         }
     }
     cv_oy = 0;
@@ -483,20 +493,22 @@ static void draw_foot(void)
             cv_key_hint(232 - kh_w(KC_KEYS, "STEPS"), 2, KC_KEYS, "STEPS", 1, T_BG);   /* the keys are the steps */
     } else {
         uint32_t i;
-        for (i = 0; i < 16u; i++) {                   /* row 1: the cursor's bank, 16 bars in 4 groups */
+        for (i = 0; i < 16u; i++) {                   /* row 1: the cursor's bank, 16 dots in 4 groups */
             uint32_t si = ui.bank * 16u + i;
             int32_t sx = 10 + (int32_t)i * 13 + (int32_t)(i / 4u) * 4;
             const step_t *st = &seq_steps(t)[si];
             if (si >= (uint32_t)t->p[P_SLEN])
                 continue;
-            if (step_on(st))                          /* a note: a bar (accented: the accent) */
-                cv_rrect(sx, 1, 9, 11, 2, (st->flags & SF_ACCENT) ? T_ACCENT : T_THEME, T_BG);
-            else                                      /* empty: a stub (a tie: brighter) */
-                cv_rrect(sx, 9, 9, 3, 1, st->time == ST_TIE ? T_MID : T_RAISE, T_BG);
+            if (step_on(st))                          /* a note: a dot (accented: the accent) */
+                cv_rrect(sx + 1, 2, 7, 7, 3, (st->flags & SF_ACCENT) ? T_ACCENT : T_THEME, T_BG);
+            else if (st->time == ST_TIE)              /* a tie: a dash from the note before */
+                cv_rrect(sx - 2, 4, 11, 3, 1, T_MID, T_BG);
+            else                                      /* empty: a small dot */
+                cv_rrect(sx + 3, 4, 3, 3, 1, T_RAISE, T_BG);
             if (song.seq_mode && si == ui.cursor)
-                cv_rect(sx, 14, 9, 2, T_ACCENT);        /* the step edited */
+                cv_rrect(sx + 2, 12, 5, 3, 1, T_ACCENT, T_BG);   /* the step edited */
             else if (song.playing && si == t->seq_idx)
-                cv_rect(sx, 14, 9, 2, T_TEXT);          /* the step sounding */
+                cv_rrect(sx + 2, 12, 5, 3, 1, T_TEXT, T_BG);     /* the step sounding */
         }
     }
     if (!ui.home && pg->graph == GR_ROLL && live_rec_sel()) {
@@ -930,6 +942,8 @@ static void ui_draw(void)
 {
     if (!scr_frame()) return;
     ui.frame++;
+    if (palette_track(song.sel))                       /* THEME is the selected track's colour */
+        ui.force = 1;
     if(seq_counting()) { char text[24]="COUNT IN ";fmt_int(text+9,(int32_t)cin_left);
         ui_message(text); }
     else if(!memcmp(ui.msg,"COUNT IN ",9))ui.msg_t=0;
