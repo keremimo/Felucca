@@ -911,10 +911,6 @@ static uint32_t graph_signature(void)
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u;
-    if (pg->graph == GR_SCALE_PICKER) {
-        h ^= ui.scale_family * 40503u;
-        for (i = 16u; i < 32u; i++) h = (h ^ favorites.factory[14][i]) * 16777619u;
-    }
     if (pg->graph == GR_ROLL && !grid_on()) {
         uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), a, b, chosen = notes_selected(t);
         notes_window(t, period, &a, &b);
@@ -1014,38 +1010,6 @@ static void panel_note(const char *a, const char *b, const char *c)
 
 /* preset browser: the global list (every engine), the current one selected; tag DIM, name TEXT,
  * favourites starred (the accent), the selected row's suggested pattern at its right */
-static void graph_scale_picker(void)
-{
-    uint32_t scale = (uint32_t)clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u);
-    uint32_t total = scale_picker_count(), rank = scale_picker_rank();
-    char detail[32];
-    cv_text_fit(12, 3, &AF_S, SCALE_TITLE[scale], T_TEXT, T_SURF, scale_favorite(scale) ? 192 : 216);
-    if (scale_favorite(scale)) cv_icon_on(214, 5, 12, ICON_X_STAR, T_ACCENT, T_SURF);
-    fmt_int(detail, SCALE_DEGREES[scale]); str_cpy(detail + str_len(detail), " NOTES", 7);
-    cv_text_on(12, 20, &AF_S, detail, T_MID, T_SURF);
-    if (!total) {
-        note_line(57, "NO FAVORITES", T_TEXT);
-        note_line(80, "NEXT SCL PAGE: FAV ON", T_DIM);
-        return;
-    }
-    detail[0] = 0;
-    if (rank < total) { fmt_int(detail, (int32_t)rank + 1); str_cpy(detail + str_len(detail), "/", 2); }
-    fmt_int(detail + str_len(detail), (int32_t)total);
-    cv_text_r(226, 20, &AF_S, detail, T_MID, T_SURF);
-    uint32_t first = rank < total && rank > 2u ? rank - 2u : 0u;
-    if (total > 5u && first > total - 5u) first = total - 5u;
-    for (uint32_t row = 0; row < 5u && first + row < total; row++) {
-        uint32_t id = scale_picker_at(first + row);
-        int selected = id == scale;
-        int32_t y = 35 + (int32_t)row * 17;
-        uint16_t bg = selected ? T_THEME : T_SURF, fg = selected ? T_INK : T_TEXT;
-        if (selected) cv_rrect(6, y, 228, 16, 4, T_THEME, T_SURF);
-        cv_free_text(12, y + 1, &AF_S, SCALE_TITLE[id], fg, bg, 183);
-        fmt_int(detail, SCALE_DEGREES[id]);
-        cv_text_r(226, y + 1, &AF_S, detail, selected ? T_INK : T_DIM, bg);
-        if (scale_favorite(id)) cv_icon_on(196, y + 2, 12, ICON_X_STAR, selected ? T_INK : T_ACCENT, bg);
-    }
-}
 
 /* a list entry's tag and name, as the browser shows them: "P5" "It's a Proph", "F012" (native), "U07" (user preset) */
 static void entry_label(uint32_t e, uint32_t k, char *tag, char *nm)
@@ -1307,10 +1271,6 @@ static void draw_graph(void)
                 graph_grid(t, c);
             else
                 graph_roll(t, c);
-            break;
-        case GR_SCALE_PICKER:
-            cv_oy = 0;
-            graph_scale_picker();
             break;
         case GR_SCALE:
             if (scale_settings_page(pg)) {

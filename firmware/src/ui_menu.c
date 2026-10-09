@@ -46,7 +46,7 @@ static void draw_about_qr(int32_t x, int32_t y)
 /* All notices are in flash. Wrap at the font's actual width, without dropping URL
  * characters; the same layout computes the scroll limit and draws clipped bands.
  * Mixed case here (long text); S throughout, the title in L. */
-#define MENU_DOC_H 196                                /* the document: screen rows 24..220 */
+#define MENU_DOC_H 216                                /* the document: screen rows 24..240 */
 enum { MC_TEXT, MC_TITLE, MC_URL };
 typedef struct { const char *text; uint8_t kind; } menu_credit_t;
 static const menu_credit_t MENU_CREDITS[] = {
@@ -138,19 +138,19 @@ static int32_t menu_document(int32_t y, int draw)
 {
     uint32_t i;
     if (draw) {
-        cv_text(6, y + 2, &AF_L, "MELODEE", T_THEME);
-        cv_text(6, y + 38, &AF_S, "Multi-engine synthesizer", T_TEXT);
-        cv_text(6, y + 58, &AF_M, MELODEE_VERSION, T_THEME);
-        cv_text_r(232, y + 61, &AF_S, __DATE__, T_MID, T_BG);
-        cv_text(6, y + 82, &AF_S, "(C) 2026 Kerem Kilic, Ellic Studio", T_TEXT);
-        cv_text(6, y + 100, &AF_S, "Based on Felucca by Leo Kuroshita,", T_TEXT);
-        cv_text(6, y + 118, &AF_S, "H\xFCgelton Instruments", T_TEXT);
-        cv_text(6, y + 138, &AF_S, "GPL-3.0-only", T_TEXT);
-        cv_text(6, y + 156, &AF_S, "keremimo.github.io", T_MID);
-        cv_text(6, y + 174, &AF_S, "/melodee", T_MID);
-        draw_about_qr(158, y + 122);
+        int32_t x;                                    /* (docs/design: mock/r6_pages About) */
+        cv_text(6, y + 4, &AF_L, "Melodee", T_THEME);
+        cv_text(6, y + 40, &AF_S, "Multi-engine synthesizer", T_SEC);
+        x = cv_text(6, y + 62, &AF_M, MELODEE_VERSION, T_TEXT);
+        cv_text(x + 8, y + 67, &AF_X, __DATE__, T_MID);
+        draw_about_qr(158, y + 4);
+        cv_text(6, y + 94, &AF_S, "\xA9 2026 Kerem Kilic, Ellic Studio", T_TEXT);
+        cv_text(6, y + 112, &AF_S, "Based on Felucca by Leo Kuroshita,", T_TEXT);
+        cv_text(6, y + 130, &AF_S, "H\xFCgelton Instruments", T_SEC);
+        cv_text(6, y + 148, &AF_S, "GPL-3.0-only", T_TEXT);
+        cv_text(6, y + 166, &AF_S, "keremimo.github.io/melodee", T_MID);
     }
-    y = menu_text("CREDITS", y + 216, T_THEME, draw) + 8;
+    y = menu_text("CREDITS", y + 192, T_THEME, draw) + 8;
     for (i = 0; i < NELEM(MENU_CREDITS); i++) {
         const menu_credit_t *c = &MENU_CREDITS[i];
         const char *text = c->text;
@@ -180,10 +180,8 @@ static void menu_head(void)
     cv_begin(240, MENU_HEAD, T_BG);
     cv_text(8, 2, &AF_M, ui.menu == 2 ? "About" : "Settings", T_TEXT);
     if (ui.menu >= 2) {                               /* the way back at the right, the REC mark before it (then */
-        const char *w = song.rec ? 0 : "BACK";        /* the keycap goes without its word: no room for both) */
-        int32_t x = 232 - kh_w(KC_OCTDN, w);
-        cv_key_hint(x, 6, KC_OCTDN, w, 1, T_BG);
-        draw_rec_mark(x - 20, T_BG);
+        cv_icon_mid(226, MENU_HEAD / 2, 12, ICON_X_UNDO, T_MID, T_BG);   /* (OCT-) */
+        draw_rec_mark(204, T_BG);
     } else {
         draw_rec_mark(178, T_BG);
     }
@@ -245,13 +243,10 @@ static void draw_menu(void)
             menu_document(-scroll, 1);
             cv_scroll = 0;
             cv_rrect(235, 2, 3, MENU_DOC_H - 4, 1, T_LINE, T_BG);           /* the scroll bar */
-            cv_rrect(235, 2 + (max ? scroll * (MENU_DOC_H - 4 - thumb) / max : 0), 3, thumb, 1, T_MID, T_LINE);
+            cv_rrect(235, 2 + (max ? scroll * (MENU_DOC_H - 4 - thumb) / max : 0), 3, thumb, 1, T_THEME, T_LINE);
             cv_oy = 0;
             cv_blit(0, MENU_HEAD + pass * 124u);
         }
-        cv_begin(240, 240 - (MENU_HEAD + MENU_DOC_H), T_BG);
-        cv_key_hint(8, 4, KC_PRESETS, "SCROLL", 1, T_BG);
-        cv_blit(0, MENU_HEAD + MENU_DOC_H);
         return;
     }
     for (pass = 0; pass < 2u; pass++) {

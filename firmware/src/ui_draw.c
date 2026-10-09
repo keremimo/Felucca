@@ -160,7 +160,9 @@ static void head_chip_text(char *b)
 {
     const page_t *pg = cur_page();
     uint32_t e = TSEL->eng_req % NENGINES;
-    if (ui.home) {                                      /* Stage: the engine (a kit: its name, "909 KIT") */
+    if (new_on()) {                                     /* NEW SONG */
+        str_cpy(b, "NEW SONG", 16);
+    } else if (ui.home) {                               /* Stage: the engine (a kit: its name, "909 KIT") */
         if (browse_pending()) { uint32_t kk, s = browse_shown(&kk); e = src_engine(s, kk); }
         if (ENGINES[eng_idx(e)] == &ENG_DRUM && !browse_pending()) sound_name(TSEL, b);
         else str_cpy(b, ENGINES[eng_idx(e)]->name, 16);
@@ -541,7 +543,6 @@ static void draw_foot(void)
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
     if (pg->graph == GR_ROLL) sig += (uint32_t)seq_erase_active(t) * 8191u + (uint32_t)live_rec_sel() * 113u + recording_generation * 7919u + ui.note_pick * 40503u + ui.note_zoom * 937u + ui.step_mods * 613u;
-    if (pg->graph == GR_SCALE_PICKER) sig += ui.scale_family * 40503u;
     if (!ui.force && sig == ui.foot_sig)
         return;
     ui.foot_sig = sig;
@@ -553,9 +554,6 @@ static void draw_foot(void)
         kh[0] = (khint_t){KC_OCTUP, ha + 5};
         kh[1] = (khint_t){KC_OCTDN, hb + 5};
         cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
-    } else if (pg->graph == GR_SCALE_PICKER && !ui.home) {
-        cv_text_on(8, 2, &AF_S, SCALE_FAMILY_TITLE[ui.scale_family], T_THEME, T_BG);
-        cv_key_hint(232 - kh_w(KC_KEYS, "PLAY"), 2, KC_KEYS, "PLAY", 1, T_BG);
     } else if (pg->graph == GR_ROLL && !ui.home && !grid_on()) {
         char detail[24];
         str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : "SEL NOTE  PRE ZOOM", sizeof detail);
@@ -995,10 +993,11 @@ static void draw_confirm(void)
 #include "ui_popup.c"                                   /* action sheets, pickers */
 #include "ui_slots.c"                                   /* PROJECT, USER, the STOREs: their slots */
 #include "ui_motion.c"                                  /* MOTION: its lanes */
+#include "ui_scales.c"                                  /* SCALES: a screen of its own */
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
-    return !ui.home && (g == GR_BROWSE || g == GR_PATGRID || g == GR_SONG);
+    return !ui.home && (g == GR_BROWSE || g == GR_PATGRID || g == GR_SONG || g == GR_SCALE_PICKER);
 }
 /* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
 static void draw_page(void)
@@ -1020,6 +1019,8 @@ static void draw_page(void)
     } else if (own_screen()) {                          /* the browser, PATTERNS, SONG: screens of their own */
         if (cur_page()->graph == GR_BROWSE)
             browser_draw();
+        else if (cur_page()->graph == GR_SCALE_PICKER)
+            scales_draw();
         else if (cur_page()->graph == GR_SONG)
             song_draw();
         else {

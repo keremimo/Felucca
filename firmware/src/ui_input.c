@@ -50,7 +50,7 @@ static int oct_nav(void)
 }
 static int oct_enter_ok(void)                           /* OCT+ would do something here */
 {
-    return list_on() || slot_kind() || motion_page() || page_sheet() || pop.on || smap.on || (!ui.home && cur_page()->graph == GR_BROWSE);
+    return list_on() || slot_kind() || motion_page() || (!ui.home && cur_page()->graph == GR_SCALE_PICKER) || page_sheet() || pop.on || smap.on || (!ui.home && cur_page()->graph == GR_BROWSE);
 }
 
 /* the OCT LEDs, bit 0 OCT-, bit 1 OCT+. In the dialogs, the menu and on action pages OCT- (back) is
@@ -1825,6 +1825,8 @@ static void ui_input(void)
             slot_enter();
         else if (motion_page())
             motion_enter();
+        else if (cur_page()->graph == GR_SCALE_PICKER)  /* SCALES: done, SCL's list */
+            scales_back();
         else if (step_enter())
             ;
         else if (page_sheet())

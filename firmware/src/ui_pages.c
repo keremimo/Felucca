@@ -38,6 +38,8 @@ static void menu_words(char *d, const char *s, uint32_t n);         /* ui_menu.c
 #define PV_CHIP_Y 200                                   /* NOTES: a knob a chip, 54 x 18 at CARD_X(c) */
 #define PV_CHIP_H 18
 static int32_t pv_chip_y = PV_CHIP_Y;                   /* (MOD: its chips at the bottom, no sound line) */
+static int32_t pv_strip_y = PV_STRIP_Y;                 /* (the GLO layer: its levels at the top) */
+static uint16_t pv_strip_tc[4];                         /* a strip's label colour (0: the track's) */
 
 static struct { uint32_t panel, sound; int32_t slice0; } pv;
 static int32_t pv_tab_h;                                /* an engine in sections: its tabs under the header (rows 18 ..
@@ -268,7 +270,7 @@ static void pv_chip(uint32_t c, const char *label, const char *val, const char *
 static void pv_column(uint32_t c, const char *label0, const char *val0, const char *unit0, uint16_t vc, int32_t ratio,
                       int hot)
 {
-    uint16_t bg = hot ? ux_mix(T_SURF, T_THEME, 22) : T_SURF, lc = vc == T_DIM ? T_DIM : T_THEME;
+    uint16_t bg = hot ? ux_mix(T_SURF, T_THEME, 22) : T_SURF, lc = vc == T_DIM ? T_DIM : pv_strip_tc[c & 3u] ? pv_strip_tc[c & 3u] : T_THEME;
     int32_t x;
     char label[12], val[16], unit[8];
     const char *l0 = label0, *v0 = val0, *u0 = unit0;
@@ -300,7 +302,7 @@ static void pv_column(uint32_t c, const char *label0, const char *val0, const ch
         if (unit[0] && x + uw <= CARD_W - 2)
             cv_text_on(x + 2, 15, &AF_X, unit, T_MID, bg);
     }
-    cv_blit((uint32_t)CARD_X(c), PV_STRIP_Y);
+    cv_blit((uint32_t)CARD_X(c), (uint32_t)pv_strip_y);
 }
 
 /* ---------------------------------------------------------- parts --- */

@@ -635,6 +635,37 @@ static void layer_edit(void)
     engine_sound_row(104);
 }
 
+/* GLO held (docs/design: mock/r6_pages GLO): the keys as a keyboard: the black keys MUTE 1..4 (muted: red), the white
+ * keys SOLO 1..4 (held: the track's colour), C unmutes all, the high F taps the tempo (an outside clock: dim) */
+static void layer_glo_keys(int32_t h)
+{
+    static const char *const WL[8][2] = {{"Solo", "1"}, {"Solo", "2"}, {"Solo", "3"}, {"Solo", "4"}, {"Mute", "all"},
+                                         {"", ""}, {"", ""}, {"Tap", "tempo"}};
+    static const uint8_t BX[NTRK] = {0, 1, 2, 4};       /* black key t: between white BX and BX + 1 (F# G# A# C#) */
+    const int32_t kw = 28, x0 = 1, wy = 68, by = 24, bh = 38;
+    uint32_t i;
+    cv_text_on(8, 6, &AF_X, "Keys", T_MID, T_PANEL);
+    for (i = 0; i < 8u; i++) {
+        int32_t x = x0 + (int32_t)i * (kw + 1);
+        int on = i < NTRK && ((perf_solo >> i) & 1u), none = !WL[i][0][0], dim = i == 7u && song.g[G_CLOCK];
+        uint16_t f = on ? T_TRK(i) : none ? ux_mix(T_PANEL, T_SURF, 50) : T_SURF, ink = on ? T_INK : dim ? T_DIM : T_TEXT;
+        cv_rrect(x, wy, kw, h - wy - 6, 4, f, T_PANEL);
+        if (!none) {
+            cv_text_c(x + kw / 2, h - 36, &AF_X, WL[i][0], ink, f);
+            cv_text_c(x + kw / 2, h - 23, &AF_X, WL[i][1], ink, f);
+        }
+    }
+    for (i = 0; i < NTRK; i++) {
+        int32_t x = x0 + (int32_t)(BX[i] + 1u) * (kw + 1) - 14;
+        int m = trk[i].p[P_MUTE] != 0;
+        uint16_t f = m ? T_REC : T_LIFT;
+        char n[2] = {(char)('1' + i), 0};
+        cv_rrect(x, by, 26, bh, 4, f, T_PANEL);
+        cv_text_c(x + 13, by + bh - 28, &AF_X, "Mute", m ? T_TEXT : T_SEC, f);
+        cv_text_c(x + 13, by + bh - 15, &AF_X, n, m ? T_TEXT : T_SEC, f);
+    }
+}
+
 static void layer_cards(uint32_t l)
 {
     char val[12];
@@ -681,8 +712,22 @@ static void layer_cards(uint32_t l)
 
 static void draw_layer(void)
 {
-    uint32_t l = ui.layer % LAYER_N, sig = l * 7919u + ux.gen * 977u;
-    layer_cards(l);
+    uint32_t l = ui.layer % LAYER_N, sig = l * 7919u + ux.gen * 977u, c;
+    if (l == LAYER_GLO) {                               /* the four levels as strips at the top, each track's colour */
+        uint8_t cs = col_style;
+        if (ui.force)
+            lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
+        col_style = CS_STRIP;
+        pv_strip_y = 24;
+        for (c = 0; c < NTRK; c++)
+            pv_strip_tc[c] = T_TRK(c);
+        layer_cards(l);
+        memset(pv_strip_tc, 0, sizeof pv_strip_tc);
+        pv_strip_y = PV_STRIP_Y;
+        col_style = cs;
+    } else {
+        layer_cards(l);
+    }
     if (l == LAYER_FX)
         sig += (perf_kill ? 0u : perf_held | perf_latched) * 31u + perf_act * 131u + perf_avail() * 7u + (uint32_t)perf_harm_on() * 3u;
     else if (l == LAYER_GLO)
@@ -696,6 +741,13 @@ static void draw_layer(void)
         for (uint32_t p = 0; p < PF_KEYS; p++)
             sig = sig * 33u + perf_map[p];
         sig += fx_key_held() * 7919u;
+    }
+    if (l == LAYER_GLO) {                               /* (R6: levels at the top, the keys as a keyboard under them) */
+        if (ui.force || sig != ui.layer_sig) {
+            ui.layer_sig = sig;
+            pv_panel(62, 174, layer_glo_keys);
+        }
+        return;
     }
     if (ui.force || sig != ui.layer_sig) {
         ui.layer_sig = sig;

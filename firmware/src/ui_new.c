@@ -117,73 +117,134 @@ static void new_input(uint32_t oct, int home_tap)
     }
 }
 
+/* the scale in a word or two: "Natural minor" -> "Minor" (big: "minor", after the root) */
+static void new_scale_word(char *b, uint32_t n, int small)
+{
+    const char *t = SCALE_TITLE[nw.scale % SCALE_TOTAL];
+    if (!memcmp(t, "Natural ", 8))
+        t += 8;
+    str_cpy(b, t, n);
+    if (small && b[0] >= 'A' && b[0] <= 'Z') b[0] = (char)(b[0] + 32);
+    if (!small && b[0] >= 'a' && b[0] <= 'z') b[0] = (char)(b[0] - 32);
+}
+/* a sound's name as words: "FUNK BASS II" -> "Funk Bass II" (two letters or fewer kept: II, EP) */
+static void new_words(char *d, const char *s, uint32_t n)
+{
+    uint32_t i, w = 0;
+    str_cpy(d, s, n);
+    for (i = 0; d[i]; i++) {
+        uint32_t e = i;
+        while (d[e] && d[e] != ' ') e++;
+        if (e - i > 2u)
+            for (w = i + 1u; w < e; w++)
+                if (d[w] >= 'A' && d[w] <= 'Z') d[w] = (char)(d[w] + 32);
+        i = d[e] ? e : e - 1u;
+    }
+}
+/* the keys under NEW SONG (mock/r6_pages NEW SONG): OCT- back on the left, OCT+ on the right in the track's colour */
+static void new_keys(int create)
+{
+    const char *go = create ? "Create" : "Roles";
+    int32_t gw = text_w(&AF_S, go) + 30;
+    cv_begin(240, 24, T_BG);
+    cv_rrect(6, 2, 40, 20, 5, T_SURF, T_BG);
+    cv_icon_mid(20, 12, 12, ICON_X_UNDO, T_MID, T_SURF);
+    cv_rrect(234 - gw, 2, gw, 20, 5, T_THEME, T_BG);
+    cv_icon_mid(234 - gw + 8, 12, 12, create ? ICON_X_CHECK : ICON_X_RIGHT, T_INK, T_THEME);
+    cv_text_on(234 - gw + 22, 4, &AF_S, go, T_INK, T_THEME);
+    cv_blit(0, 212);
+}
+/* a role's column: the track's colour bar, "Track 1", the role in its colour, the sound it gets (two lines), its
+ * engine; KEEP: the template's sound, dim; the knob turning: outlined */
+static void new_role_col(uint32_t k)
+{
+    uint32_t kk, src = nw.role[k] ? new_role_sound(nw.role[k], &kk) : USER_NONE, e, n, cut;
+    int hot = ui.hot_t && ui.hot_col == k, on = nw.role[k] != 0u;
+    uint16_t bg = hot ? T_LIFT : T_PANEL;
+    char nm[16], tag[6], l[8] = "Track 1", w[16];
+    int32_t x = 4;
+    cv_begin(CARD_W, 184, T_BG);
+    cv_rrect(0, 0, CARD_W, 184, 6, hot ? T_THEME : T_PANEL, T_BG);
+    cv_rrect(1, 1, CARD_W - 2, 182, 5, bg, hot ? T_THEME : T_PANEL);
+    cv_rect(6, 3, CARD_W - 12, 3, on ? T_TRK(k) : T_LINE);
+    l[6] = (char)('1' + k);
+    cv_text_on(x, 12, &AF_X, l, T_MID, bg);
+    {
+        const aafont_t *rf = text_w(&AF_M, NR_NAME[nw.role[k]]) <= CARD_W - 6 ? &AF_M : &AF_S;
+        cv_text_on(rf == &AF_M ? 3 : x, rf == &AF_M ? 30 : 33, rf, NR_NAME[nw.role[k]], on ? T_TRK(k) : T_DIM, bg);
+    }
+    if (src == USER_NONE) {
+        str_cpy(nm, nw.role[k] || !template_used() ? "--" : "Template", sizeof nm);
+        e = 0xFFu;
+    } else {
+        entry_label(src, kk, tag, nm);
+        e = src_engine(src, kk);
+    }
+    new_words(w, nm, sizeof w);                         /* "Funk Bass II", in two lines: at the last space that fits */
+    n = str_len(w);
+    cut = n;
+    if (text_w(&AF_S, w) > CARD_W - 8)
+        for (cut = n; cut-- > 0u;)
+            if (w[cut] == ' ') {
+                w[cut] = 0;
+                if (text_w(&AF_S, w) <= CARD_W - 8 || !cut) break;
+                w[cut] = ' ';
+            }
+    if (!cut) cut = n;
+    cv_free_text(x, 62, &AF_S, w, on ? T_TEXT : T_DIM, bg, CARD_W - 8);
+    if (cut > 0u && cut < n)
+        cv_free_text(x, 77, &AF_S, w + cut + 1u, on ? T_TEXT : T_DIM, bg, CARD_W - 8);
+    if (e != 0xFFu)
+        cv_free_text(x, 96, &AF_X, ENGINES[eng_idx(e)]->name, T_MID, bg, CARD_W - 8);
+    cv_blit((uint32_t)CARD_X(k), 24);
+}
 static void new_draw(void)
 {
     static uint32_t sig;
     uint32_t k, s = nw.on * 7u + nw.root * 131u + nw.scale * 1031u + (uint32_t)nw.bpm * 40503u + ux.gen * 977u +
-                    (ui.hot_t ? ui.hot_col + 1u : 0u) * 7u;
+                    (ui.hot_t ? ui.hot_col + 1u : 0u) * 7u + ux.pal * 31u;
     char v[12];
     const char *unit;
     for (k = 0; k < NTRK; k++)
         s = s * 33u + nw.role[k];
     if (ui.force)
-        draw_frame(0);
+        lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
     draw_head();
     if (!ui.force && s == sig) {
         if (ui.hot_t) ui.hot_t--;
         return;
     }
     sig = s;
-    if (nw.on == 1) {                               /* KEY: the cards, the key and tempo large */
+    if (nw.on == 1) {                               /* KEY: ROOT SCALE TEMPO as rings, the key large under them */
+        char key[32];
+        const aafont_t *f = &AF_L;
+        uint8_t cs = col_style;
+        col_style = CS_RING;
         param_format(&TP[P_ROOT], nw.root, v, &unit);
-        draw_column(0, "ROOT", v, unit, VAL(0u), -1, ICON_AUTO);
-        draw_column(1, "SCALE", N_SCALE[nw.scale % SCALE_TOTAL], "", VAL(1u), -1, ICON_NONE);
+        draw_column(0, "ROOT", v, unit, VAL(0u), nw.root * 1000 / 11, ICON_AUTO);
+        new_scale_word(key, 12, 0);
+        draw_column(1, "SCALE", key, "", VAL(1u), -1, ICON_NONE);
         fmt_int(v, nw.bpm);
         draw_column(2, "TEMPO", v, "BPM", VAL(2u), RATIO(&GP[G_BPM], nw.bpm), ICON_AUTO);
         draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
-    } else {                                        /* ROLES: a track each */
-        for (k = 0; k < NTRK; k++) {
-            char l[8] = "TRACK 1";
-            l[6] = (char)('1' + k);
-            draw_column(k, l, NR_NAME[nw.role[k]], "", nw.role[k] ? VAL(k) : T_DIM, -1, ICON_NONE);
-        }
-    }
-    cv_begin(240, H_GRAPH, T_BG);
-    cv_rrect(3, 0, 234, H_GRAPH, 5, T_SURF, T_BG);
-    cv_bg = T_SURF;
-    cv_text_c(120, 6, &AF_S, nw.on == 1 ? "NEW SONG  1/2" : "NEW SONG  2/2", T_MID, T_SURF);
-    if (nw.on == 1) {
-        char key[24];
-        param_format(&TP[P_ROOT], nw.root, v, &unit);
-        str_cpy(key, v, sizeof key);
-        cv_text_c(120, 30, &AF_L, key, T_THEME, T_SURF);
-        cv_text_c(120, 66, &AF_M, N_SCALE[nw.scale % SCALE_TOTAL], T_TEXT, T_SURF);
+        col_style = cs;
+        param_format(&TP[P_ROOT], nw.root, key, &unit);
+        str_cpy(key + str_len(key), " ", 2);
+        new_scale_word(key + str_len(key), sizeof key - str_len(key), 1);   /* "A minor" */
+        if (text_w(f, key) > 216) f = &AF_M;
+        cv_begin(240, 100, T_BG);
+        cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, 100, 6, T_PANEL, T_BG);
+        cv_text_c(120, f == &AF_L ? 22 : 32, f, key, T_TEXT, T_PANEL);
         fmt_int(key, nw.bpm);
-        str_cpy(key + str_len(key), " BPM", 8);
-        cv_text_c(120, 92, &AF_M, key, T_MID, T_SURF);
-    } else {
-        for (k = 0; k < NTRK; k++) {                /* the track, its role, the sound it gets */
-            int32_t y = 26 + (int32_t)k * 23;
-            uint32_t kk, src;
-            char nm[16], tag[6];
-            char n[2] = {(char)('1' + k), 0};
-            cv_rrect(10, y, 14, 14, 4, T_TRK(k), T_SURF);
-            cv_text_c(17, y, &AF_S, n, T_INK, T_TRK(k));
-            cv_text_on(32, y, &AF_S, NR_NAME[nw.role[k]], nw.role[k] ? T_TEXT : T_DIM, T_SURF);
-            if (!nw.role[k] || (src = new_role_sound(nw.role[k], &kk)) == USER_NONE)
-                str_cpy(nm, template_used() ? "TEMPLATE" : "--", sizeof nm);
-            else
-                entry_label(src, kk, tag, nm);
-            cv_free_text(96, y, &AF_S, nm, nw.role[k] ? T_THEME : T_DIM, T_SURF, 130);
-        }
+        str_cpy(key + str_len(key), " bpm \xB7 4/4", 14);
+        cv_text_c(120, 66, &AF_S, key, T_MID, T_PANEL);
+        cv_blit(0, 108);
+        new_keys(0);
+    } else {                                        /* ROLES: a column each */
+        for (k = 0; k < NTRK; k++)
+            new_role_col(k);
+        new_keys(1);
     }
-    cv_blit(0, Y_GRAPH);
-    cv_begin(240, H_FOOT, T_BG);
-    {
-        khint_t kh[2] = {{KC_OCTDN, nw.on == 1 ? "CANCEL" : "BACK"}, {KC_OCTUP, nw.on == 1 ? "NEXT" : "CREATE"}};
-        cv_key_row(8, 232, 9, kh, 2, 3u, T_BG);
-    }
-    cv_blit(0, Y_FOOT);
     ui.force = 0;
     if (ui.hot_t) ui.hot_t--;
 }

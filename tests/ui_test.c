@@ -1309,7 +1309,7 @@ static int test_display_preferences(void)
 
 static int test_information(void)
 {
-    uint16_t header[240 * H_HEAD], footer[240 * 19], battery[240 * H_HEAD];
+    uint16_t header[240 * H_HEAD], battery[240 * H_HEAD];
     track_t sounds[NTRK];
     int bad = 0, quiet = 1;
     uint32_t x, y;
@@ -1320,23 +1320,20 @@ static int test_information(void)
     press(B_OCTUP);
     ui_draw();
     bad += check("ABOUT opens one document with scrollable license text and credits", ui.menu == 2 && !ui.menu_scroll && menu_scroll_max() > MENU_DOC_H);
-    for (y = 146; y < 220; y++)
+    for (y = 28; y < 102; y++)                          /* (the QR at the top right, by the name) */
         for (x = 158; x < 232; x++)
-            if (x < 166 || x >= 224 || y < 154 || y >= 212)
+            if (x < 166 || x >= 224 || y < 36 || y >= 94)
                 quiet &= host_screen[y * 240 + x] == swap16(UI_QR_LIGHT);
-    bad += check("ABOUT QR keeps its complete white quiet zone above the fixed footer", quiet);
+    bad += check("ABOUT QR keeps its complete white quiet zone", quiet);
     memcpy(header, host_screen, sizeof header);
-    memcpy(footer, host_screen + 221 * 240, sizeof footer);
     turn(EN_PRESET, 3);
     ui_draw();
-    bad += check("PRESETS scrolls ABOUT with its header and controls fixed",
-                 ui.menu == 2 && ui.menu_scroll > 0 && !memcmp(header, host_screen, sizeof header) &&
-                 !memcmp(footer, host_screen + 221 * 240, sizeof footer));
+    bad += check("PRESETS scrolls ABOUT with its header fixed",
+                 ui.menu == 2 && ui.menu_scroll > 0 && !memcmp(header, host_screen, sizeof header));
     turn(EN_PRESET, 12);
     ui_draw();
     bad += check("PRESETS continues from ABOUT into CREDITS without changing pages",
-                 ui.menu == 2 && ui.menu_scroll > 216 && !memcmp(header, host_screen, sizeof header) &&
-                 !memcmp(footer, host_screen + 221 * 240, sizeof footer));
+                 ui.menu == 2 && ui.menu_scroll > 192 && !memcmp(header, host_screen, sizeof header));
     uint16_t position = ui.menu_scroll;
     press(B_OCTUP);
     bad += check("OCT+ does not switch pages or alter the octave in the document",

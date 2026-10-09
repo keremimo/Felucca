@@ -423,7 +423,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6,
        S_REF_SCL_LIST, S_REF_SHEET_PROJECT, S_REF_SHEET_NOTE, S_REF_SHEET_HIT, S_REF_MOTION,
        S_REF_SHEET_MOTION, S_REF_MOD, S_REF_PICKER_MOD, S_REF_ARP, S_REF_PATTERN,
-       S_REF_SLICER, S_REF_FMEG, S_REF_GRID, S_COUNT };
+       S_REF_SLICER, S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -443,7 +443,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
     "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long",
     "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "stage_env", "patterns", "patterns_stopped", "project_new", "new_key", "new_roles",
-    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_fx", "ref_dly", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_slicer", "ref_fmeg", "ref_grid"};
+    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_fx", "ref_dly", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit", "ref_motion", "ref_sheet_motion", "ref_mod", "ref_picker_mod", "ref_arp", "ref_pattern", "ref_slicer", "ref_fmeg", "ref_grid", "ref_scales"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -818,6 +818,10 @@ static void ref_scene(int s)
         go_title("EG RATE"); ui.hot_col = 2; ui.hot_t = 30;
         break;
     }
+    case S_REF_SCALES:                               /* (R6) SCALES: EDO, 53-tone equal (a favourite) */
+        song.playing = 0; song.sel = 1; go_page(GR_SCALE_PICKER); trk[1].p[P_SCALE] = 39; ui.scale_family = 2;
+        scale_favorite_set(39, 1);
+        break;
     case S_REF_SHEET_SONG:                           /* (R6) the song's sheet over SONG */
         ref_scene(S_REF_SONG); page_sheet_open();
         break;
@@ -853,7 +857,7 @@ static void setup(int s)
         return;
     }
     state();
-    if (s >= S_REF_STAGE_HELD && s <= S_REF_GRID) {
+    if (s >= S_REF_STAGE_HELD && s <= S_REF_SCALES) {
         ref_scene(s);
         return;
     }
