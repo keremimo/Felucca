@@ -95,10 +95,10 @@ static void browser_list(uint32_t cur, uint32_t total)
     static const uint8_t ROW_Y[6] = {15, 35, 0, 113, 133, 153};   /* rows -2 -1 (the card) +1 +2 +3 */
     uint32_t m = list_mode(), out = cur >= total, at = out ? 0u : cur, k, src, sig;
     int pending = browse_pending(), badge = pending && brw.x > 1u;
-    int32_t hint = !pending && !out ? preset_pat_hint() : -1, r;
+    int32_t r;
     char tag[6], nm[16];
     sig = at * 7u + total * 131u + m * 1031u + (uint32_t)pending * 3u + (badge ? brw.x : 0u) * 40503u + out * 17u +
-          (uint32_t)(hint + 1) * 613u + song.sel * 11u + up_gen * 7919u + ux.gen * 977u + ux.pal * 31u;
+          song.sel * 11u + up_gen * 7919u + ux.gen * 977u + ux.pal * 31u;
     if (!ui.force && sig == brv.list)
         return;
     brv.list = sig;
@@ -130,20 +130,12 @@ static void browser_list(uint32_t cur, uint32_t total)
         e = src_engine(src, k);
         cv_rrect(4, 58, 150, 46, 6, ol, T_BG);
         cv_rrect(5, 59, 148, 44, 5, T_LIFT, ol);
-        cv_free_text(12, 63, &AF_M, nm[0] ? nm : tag, out ? T_MID : T_TEXT, T_LIFT, hint >= 0 ? 104 : 136);
+        cv_free_text(12, 63, &AF_M, nm[0] ? nm : tag, out ? T_MID : T_TEXT, T_LIFT, 136);
         cv_text_on(12, 86, &AF_X, ENGINES[eng_idx(e)]->name, out ? T_MID : T_THEME, T_LIFT);
         fmt_int(pl, (int32_t)at + 1);
         str_cpy(pl + str_len(pl), " / ", 4);
         fmt_int(pl + str_len(pl), (int32_t)total);
         cv_text_r(148, 86, &AF_X, pl, T_MID, T_LIFT);
-        if (hint >= 0) {                                /* the pattern a factory sound suggests */
-            char pt[4], pn[13];
-            int32_t w;
-            pat_label((uint32_t)hint, pt, pn);
-            w = text_w(&AF_X, pt) + 10;
-            cv_rrect(148 - w, 64, w, 14, 4, T_THEME, T_LIFT);
-            cv_text_c(148 - w / 2, 65, &AF_X, pt, T_INK, T_THEME);
-        }
     }
     cv_rect(161, 4, 2, BR_BODY_H - 4, T_LINE);         /* the scrollbar: the place */
     {

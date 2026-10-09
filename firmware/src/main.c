@@ -132,10 +132,8 @@ static void melodee_init(void)
         apply_preset_to(t, TRK_DEF[i][1]);    /* with its sends */
         t->engine = t->eng_req;
         track_defaults_steps(t);              /* (a sound load never touches them) */
-        if (TRK_DEF[i][2])
-            load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
-        pat_sig[i] = steps_sig(t);            /* a default pattern, not the user's */
-        pat_last[i] = TRK_DEF[i][2];
+        pat_sig[i] = steps_sig(t);            /* (empty: not the user's) */
+        pat_last[i] = 0;
     }
     undo_depth--;
     song.sel = 0;

@@ -96,6 +96,7 @@ static struct { uint32_t stage; } melodee_dbg;
 #include "../firmware/src/upreset.c"
 #include "../firmware/src/project.c"
 #include "../firmware/src/fm6_store.c"
+#include "demo_steps.h"
 
 static int check(const char *what, int ok)
 {
@@ -140,10 +141,8 @@ static void ui_power_on(void)
         apply_preset_to(t, TRK_DEF[i][1]);
         t->engine = t->eng_req;
         track_defaults_steps(t);
-        if (TRK_DEF[i][2])
-            load_pat16(t, PATTERNS[TRK_DEF[i][2] - 1u].note, PATTERNS[TRK_DEF[i][2] - 1u].flags);
         pat_sig[i] = steps_sig(t);
-        pat_last[i] = TRK_DEF[i][2];
+        pat_last[i] = 0;
     }
     undo_depth--;
     song.sel = 0;
@@ -257,16 +256,6 @@ static void go_page(uint32_t graph)               /* the page that draws graph *
     ui.page = (uint8_t)i;
     page_entered();
 }
-static int steps_are(const track_t *t, uint32_t n)  /* steps 1..16 = PATTERNS[n], 17..64 empty, LEN 16 */
-{
-    uint32_t i;
-    for (i = 0; i < NSTEP; i++) {
-        uint8_t want = i < 16u ? PATTERNS[n].note[i] : 0u;
-        if (t->step[i].note[0] != want || t->step[i].n != (want ? 1u : 0u))
-            return 0;
-    }
-    return t->p[P_SLEN] == 16;
-}
 /* the sound of a track: engine, preset and the parameters that are not the track's own (param_kept) */
 static int same_sound(const track_t *a, const track_t *b)
 {
@@ -312,8 +301,7 @@ static int test_sound_loads(void)
     t->p[P_AMODE] = 0;
     t->preset = (uint8_t)(i - 1u);
     turn(EN_PRESET, 1);
-    bad += check("ARP 8BIT (an ARP preset) leaves the arp off; it suggests pattern 13 ARP", t->preset == i && t->p[P_AMODE] == 0 &&
-                 preset_pat_hint() == 12 && ui.ppick == 12 && str_eq(PATTERNS[12].name, "ARP"));
+    bad += check("ARP 8BIT (an ARP preset) leaves the arp off", t->preset == i && t->p[P_AMODE] == 0);
     t->p[P_AMODE] = 2;
     before = *t;
     for (i = 0; i < 6u; i++)                      /* several loads, into the next engine */
@@ -350,7 +338,7 @@ static int test_sound_loads(void)
     my_steps(&trk[0]);
     trk[0].p[P_SDIV] = 2;
     up_store(3, "MINE");
-    bad += check("a user preset keeps its pattern in the record (format unchanged)", up_has_pat(3) && up_rec(3)->note[0] == 40);
+    bad += check("a user preset keeps its pattern in the record (format unchanged)", up_used(3) && up_rec(3)->note[0] == 40);
     trk[0].p[P_SDIV] = 0;
     track_defaults_steps(&trk[0]);
     trk[0].step[5].note[0] = 33;
@@ -414,74 +402,26 @@ static int test_sound_loads(void)
     return bad;
 }
 
-/* SEQ > PATTERNS: K1 PAT, OCT+ LOAD; the dialog over the user's steps; undo */
-static int test_patterns(void)
+/* the phrases (SEQ > PHRASES, the factory patterns) are gone: no page, a sound load leaves the steps as they are */
+static int test_no_phrases(void)
 {
     int bad = 0;
-    track_t *t = &trk[0], before;
+    uint32_t i, found = 0;
+    track_t *t = &trk[0];
+    step_t keep[NSTEP];
     ui_power_on();
-    go_page(GR_PATS);
-    bad += check("SEQ > PHRASES is a SEQ page", cur_page()->fam == FAM_SEQ && str_eq(cur_page()->title, "PHRASES") &&
-                 song.seq_mode);
-    before = *t;
-    turn(EN_K2, 1);
-    bad += check("KNOB 2 loads nothing (the knobs only pick)", seq_is_empty(t) && ui.confirm == CF_NONE);
-    press(B_OCTUP);                               /* LOAD 01 ACID into the empty sequencer */
-    bad += check("LOAD into an empty sequencer: at once, LOADED 01 ACID", ui.confirm == CF_NONE && steps_are(t, 0) &&
-                 msg_is("LOADED 01 ACID"));
-    bad += check("..the sound and the track's settings untouched", same_sound(t, &before) && t->p[P_SDIV] == before.p[P_SDIV] &&
-                 t->p[P_AMODE] == before.p[P_AMODE]);
-    turn(EN_K1, 2);
-    press(B_OCTUP);
-    bad += check("a loaded pattern, untouched: the next one without asking (03 MELODY)", ui.confirm == CF_NONE && steps_are(t, 2) &&
-                 msg_is("LOADED 03 MELODY"));
-    hold(B_SAVE);
-    bad += check("SAVE held: back past both loads (empty again), the sound untouched", seq_is_empty(t) && same_sound(t, &before) &&
-                 t->p[P_SLEN] == before.p[P_SLEN]);
-    hold(B_SAVE);                                 /* redo */
-    t->step[3].note[0] = 70;                      /* an edit: the user's steps now */
-    t->step[3].n = 1;
-    t->step[3].time = ST_NOTE;
-    press(B_OCTUP);
-    bad += check("edited steps: the REPLACE T1 SEQUENCE? dialog", ui.confirm == CF_LOAD_PAT && ui.confirm_trk == 0u &&
-                 t->step[3].note[0] == 70);
-    press(B_OCTDN);
-    bad += check("OCT- keeps them", ui.confirm == CF_NONE && t->step[3].note[0] == 70);
-    my_steps(t);
-    before = *t;
-    turn(EN_K1, 9);                               /* 12 BEAT */
-    press(B_OCTUP);
-    press(B_OCTUP);
-    bad += check("OCT+ loads (12 BEAT), then HOLD SAVE: UNDO", ui.confirm == CF_NONE && steps_are(t, 11) &&
-                 msg_is("LOADED 12 BEAT") && str_eq(ui.msg2, "[SAVE] HOLD TO UNDO"));
-    hold(B_SAVE);
-    bad += check("SAVE held: the user's steps and LEN back", !memcmp(t->step, before.step, sizeof t->step) && t->p[P_SLEN] == 32);
-    /* a user preset's pattern: listed after the factory ones as U06, with its LEN DIV SWING GATE */
-    t->p[P_SDIV] = 2;
-    t->p[P_SSWING] = 40;
-    up_store(5, "UPAT");
-    t->p[P_SDIV] = 0;
-    t->p[P_SSWING] = 0;
-    up_store(6, "NOPAT");
-    memset(up_rec(6)->note, 0, sizeof up_rec(6)->note);   /* .. a record with no pattern: not listed */
-    bad += check("user presets with a pattern are listed after the factory ones", pat_count() == NPATTERNS + 1u);
-    track_defaults_steps(t);
-    turn(EN_K1, 20);                              /* (to the end of the list) */
-    press(B_OCTUP);
-    bad += check("LOAD U06: its 16 steps, LEN 16 (at most), DIV and SWING", msg_is("LOADED U06 UPAT") && t->step[0].note[0] == 40 &&
-                 t->step[3].note[0] == 43 && !t->step[30].n && t->p[P_SLEN] == 16 && t->p[P_SDIV] == 2 && t->p[P_SSWING] == 40);
-    /* a project's steps count as the user's */
-    project_save(2);
-    project_load(2);
-    press(B_OCTUP);
-    bad += check("over a project's steps: the dialog", ui.confirm == CF_LOAD_PAT);
-    press(B_OCTDN);
-    /* the hint: PRESETS page K3 PAT, and a load moves the pick there */
-    set_engine_of(t,ENGI_FM6);apply_preset_to(t,0);
+    for (i = 0; i < NPAGES; i++)
+        found |= str_eq(PAGES[i].title, "PHRASES");
+    bad += check("no SEQ > PHRASES page", !found);
+    bad += check("the parts power on with empty sequencers", seq_is_empty(&trk[0]) && seq_is_empty(&trk[1]) &&
+                 seq_is_empty(&trk[2]) && seq_is_empty(&trk[3]));
+    demo_pat16(t, DEMO_ACID);
+    memcpy(keep, t->step, sizeof keep);
+    set_engine_of(t, ENGI_FM6);
+    apply_preset_to(t, 0);
     go_page(GR_BROWSE);
     turn(EN_K2, 1);
-    bad += check("PRESETS: a factory preset's suggested pattern becomes the pick", preset_pat_hint() >= 0 &&
-                 ui.ppick == (uint8_t)preset_pat_hint());
+    bad += check("a sound load from the browser keeps the steps", !memcmp(keep, t->step, sizeof keep));
     return bad;
 }
 
@@ -779,18 +719,9 @@ static int test_actions(void)
     ui_power_on();
     press(B_OCTUP);
     bad += check("HOME: OCT+ shifts the octave (lit)", song.octave == 1 && oct_leds() == 2u);
-    go_page(GR_PATS);
-    bad += check("PATTERNS: OCT+ blinks (a pattern to load), OCT- lit", oct_leds_seen(0) == 3u && oct_leds_seen(1) == 1u);
-    press(B_OCTUP);
-    bad += check("..OCT+ loads it, the octave stays", steps_are(t, 0) && song.octave == 1 && !ui.home);
-    bad += check("..the same pattern again would change nothing: OCT+ dark", oct_leds_seen(0) == 1u);
-    turn(EN_K1, 1);
-    bad += check("..another one picked: OCT+ blinks again", oct_leds_seen(0) == 3u);
-    {
-        char a[16], b[16];
-        foot_hint(a, b);
-        bad += check("..the footer: OCT+ LOAD / OCT- BACK", str_eq(a, "OCT+ LOAD") && str_eq(b, "OCT- BACK"));
-    }
+    my_steps(t);
+    go_title("TOOLS");
+    turn(EN_K1, 3);                               /* CLEAR picked */
     fm1_in.buttons |= 1u << panel.btn[B_OCTUP];   /* both together (the UPDATE MODE hold): nothing */
     host_pressed |= 1u << panel.btn[B_OCTUP];
     frame();
@@ -801,17 +732,18 @@ static int test_actions(void)
     frame();
     fm1_in.buttons &= ~(1u << panel.btn[B_OCTDN]);
     frame();
-    bad += check("OCT- + OCT+ together: no load, no HOME, no octave change", steps_are(t, 0) && !ui.home && song.octave == 1);
+    bad += check("OCT- + OCT+ together on TOOLS: nothing cleared, no HOME, no octave change", !seq_is_empty(t) && !ui.home &&
+                 song.octave == 1);
     go_home();
-    fm1_in.buttons |= 1u << panel.btn[B_OCTUP];   /* pressed on HOME, let go on PATTERNS: no load */
+    fm1_in.buttons |= 1u << panel.btn[B_OCTUP];   /* pressed on HOME, let go on TOOLS: the octave, nothing done */
     host_pressed |= 1u << panel.btn[B_OCTUP];
     frame();
-    go_page(GR_PATS);
+    go_title("TOOLS");
     fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]);
     frame();
-    bad += check("a press that began elsewhere does not load", steps_are(t, 0) && song.octave == 2);
+    bad += check("a press that began elsewhere does nothing there", !seq_is_empty(t) && song.octave == 2 && !ui.home);
     press(B_OCTDN);
-    bad += check("PATTERNS: OCT- goes HOME (the octave stays)", ui.home && song.octave == 2);
+    bad += check("TOOLS: OCT- goes HOME (the octave stays)", ui.home && song.octave == 2);
     /* TOOLS: CLRSQ and INIT are picked, not done, by their knobs */
     my_steps(t);
     go_title("TOOLS");
@@ -1042,19 +974,15 @@ static int test_grid(void)
     song.rec = 0;
     song.playing = 0;
     bad += check("REC on HOME: GM keys quantised into the grid (35 a note on the KICK lane)", ok);
-    /* SEQ > PATTERNS: 12 BEAT into the DRUM track fills the grid */
-    track_defaults_steps(t);
-    pat_sig[0] = steps_sig(t);
-    go_page(GR_PATS);
-    ui.ppick = 11;
-    press(B_OCTUP);
-    ok = msg_is("LOADED 12 BEAT") && t->p[P_SLEN] == 16 && lane_steps(t, DV_KICK) == ((1u << 0) | (1u << 6) | (1u << 8) | (1u << 11)) &&
+    /* a 16-step BEAT as GM notes into the DRUM track: the grid (step_to_grid) */
+    demo_pat16(t, DEMO_BEAT);
+    ok = t->p[P_SLEN] == 16 && lane_steps(t, DV_KICK) == ((1u << 0) | (1u << 6) | (1u << 8) | (1u << 11)) &&
          lane_steps(t, DV_SNARE) == ((1u << 4) | (1u << 12)) && lane_steps(t, DV_HATO) == 1u << 14 &&
          lane_steps(t, DV_HATC) == 0xA6AEu && t->step[0].acc == 1u << DV_KICK && t->step[4].acc == 1u << DV_SNARE &&
          t->step[1].acc == 0u && t->step[16].time == ST_REST;
     for (i = 0; i < 16u; i++)
         ok &= t->step[i].n == 0u && !(t->step[i].flags & SF_ACCENT);
-    bad += check("PATTERNS 12 BEAT into a DRUM track: the grid (hits, the accents on 1 5 9 13)", ok);
+    bad += check("BEAT's GM notes into a DRUM track: the grid (hits, the accents on 1 5 9 13)", ok);
     open_family(FAM_SEQ);
     ui.lane = DV_KICK;
     cursor_set(0);
@@ -1081,14 +1009,6 @@ static int test_grid(void)
         set_engine_of(t, ENGI_DRUM);
         t->engine = t->eng_req;
     }
-    my_steps(t);
-    go_page(GR_PATS);
-    ui.ppick = 11;
-    press(B_OCTUP);
-    press(B_OCTUP);
-    hold(B_SAVE);
-    bad += check("BEAT over the user's steps: the dialog, then SAVE held brings them back", t->step[0].note[0] == 40 &&
-                 !t->step[0].hit && t->p[P_SLEN] == 32);
     /* the menu: the keys play again */
     go_page(GR_ROLL);
     frame();
@@ -1779,6 +1699,25 @@ static int test_popups(void)
     bad += check("POPUPS: another knob turning closes it", !pop.on);
     turn(EN_K1, 1); press(B_OCTDN);
     bad += check("POPUPS: OCT- closes the picker, no octave", !pop.on && song.octave == o + 1);
+    {   /* list pages (ui_list.c): KNOB 2 the row, KNOB 1 its value, OCT+ its list (SCL's Scale: SCALES), OCT- Stage */
+        ui_power_on(); go_title("VOICE"); frame();
+        o = TSEL->p[P_DETUNE];
+        turn(EN_K2, 5); turn(EN_K1, 3);
+        bad += check("LISTS: VOICE 1-3 one list; KNOB 2 to row 6 (VOICE 2's DETUNE), KNOB 1 edits it",
+                     TSEL->p[P_DETUNE] == o + 3 && !page_visible(page_titled("VOICE 2")));
+        turn(EN_K2, -5);
+        press(B_OCTUP);
+        bad += check("LISTS: OCT+ on a list value (VOICE): its whole list", pop.on == POP_LIST);
+        o = TSEL->p[P_VOICE];
+        turn(EN_K2, 1); press(B_OCTUP);
+        bad += check("LISTS: KNOB 2 the next name, OCT+ takes it", !pop.on && TSEL->p[P_VOICE] == o + 1);
+        go_title("SCL"); frame();
+        turn(EN_K2, 1); press(B_OCTUP);
+        bad += check("LISTS: SCL's Scale row, OCT+: the SCALES page", str_eq(cur_page()->title, "SCALES"));
+        go_title("SCL"); frame();
+        press(B_OCTDN);
+        bad += check("LISTS: OCT- on a list: Stage", ui.home);
+    }
     {   /* sections (ui_sections.c): PRESETS the next section and back to the page last used; EDIT: the map */
         uint32_t f;
         ui_power_on(); set_engine_of(TSEL, ENGI_PROPHET); go_title("P5 FLT ENV"); frame();
@@ -2555,7 +2494,7 @@ static int test_cz1_pages(void)
         "C2 PIT R1-4", "C2 PIT R5-8", "C2 PIT L1-4", "C2 PIT L5-8", "C2 PIT POINT",
         "C2 WAV R1-4", "C2 WAV R5-8", "C2 WAV L1-4", "C2 WAV L5-8", "C2 WAV POINT",
         "C2 AMP R1-4", "C2 AMP R5-8", "C2 AMP L1-4", "C2 AMP L5-8", "C2 AMP POINT",
-        "VOICE", "VOICE 2", "VOICE 3", "CZ TOOLS"};
+        "VOICE", "CZ TOOLS"};
     uint8_t p[LCZ_PACKED], q[LCZ_PACKED], raw[CZ_BYTES], before[CZ_BYTES];
     uint32_t tr, id, v, i, ok = 1, sane = 1, kept = 1;
     int bad = 0;
@@ -2701,12 +2640,11 @@ static int test_cz1_factory(void)
 
 static int test_edit_cycle(void)
 {
-    static const char *const CYC_A[] = {"EDIT 1", "EDIT 2", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
+    static const char *const CYC_A[] = {"EDIT 1", "EDIT 2", "VOICE", "EDIT 1"};   /* (VOICE: VOICE 1-3's list) */
     static const char *const CYC_F[] = {"EDIT 1", "EDIT 2", "STORE", "ALGO", "FREQ", "OUT", "EG RATE", "EG LVL", "SCALE",
-                                        "CURVE", "PITCH EG", "PITCH LV", "FM LFO", "FM LFO 2", "FM BEND", "FM PORTA",
-                                        "FM WH/FT", "FM BR/AT", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
+                                        "CURVE", "PITCH EG", "PITCH LV", "FM LFO", "FM BEND", "VOICE", "EDIT 1"};
     static const char *const CYC_D[] = {"EDIT 1", "EDIT 2", "OP1 ENV", "OP2 ENV", "OP3 ENV", "OP4 ENV",
-                                        "OP LEVEL", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
+                                        "OP LEVEL", "VOICE", "EDIT 1"};
     int bad = 0, ok;
     uint32_t i;
     ui_power_on();
@@ -2719,15 +2657,17 @@ static int test_edit_cycle(void)
     bad += check("no ENGINE page (engines are the EDIT layer's)", ok);
     set_engine_of(TSEL, 0);
     bad += check("EDIT cycle (ANALOG): EDIT 1 EDIT 2 VOICE VOICE 2 EDIT 1", engine_cycle(CYC_A, NELEM(CYC_A)));
+#if MELODEE_LEGACY_EXTRAS                           /* (PHASE: retired) */
     set_engine_of(TSEL, 2);
     TSEL->p[P_E7] = 0;
     bad += check("PHASE LINK keeps the compact EDIT cycle", engine_cycle(CYC_A, NELEM(CYC_A)));
     TSEL->p[P_E7] = 1;
     static const char *const CYC_CZ[] = {"EDIT 1", "EDIT 2", "DCW1 ENV", "DCW2 ENV", "DCA2 ENV", "DCO ENV",
-        "CZ LEVEL", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
+        "CZ LEVEL", "VOICE", "EDIT 1"};
     bad += check("PHASE SPLIT exposes native envelope pages", engine_cycle(CYC_CZ, NELEM(CYC_CZ)));
     go_title("DCW1 ENV"); TSEL->p[P_FM1_ATK] = 0; turn(EN_K1, 1);
     bad += check("PHASE DCW1 knob edits its saved parameter", TSEL->p[P_FM1_ATK] > 0);
+#endif
 #if MELODEE_FM4
     set_engine_of(TSEL, 1);
     bad += check("EDIT cycle (DIGITAL): EDIT 1 EDIT 2 OP1..OP4 ENV OP LEVEL VOICE VOICE 2 EDIT 1",
@@ -3057,10 +2997,10 @@ static int test_fm6_pages(void)
     bad += check("  OUT ON off: OP2's switch (fm6_on bit 4)", !((fm6_on[tr] >> 4) & 1u) && ((fm6_on[tr] >> 5) & 1u));
     turn(EN_K4, 1);
     bad += check("  .. and on again", (fm6_on[tr] & FM6_ON_ALL) == FM6_ON_ALL);
-    go_title("FM PORTA");
+    go_title("FM BEND"); frame();                        /* (FM6's controllers: one list, ui_list.c) */
     fm6_fn_reset();
-    turn(EN_K4, 1);
-    turn(EN_K2, 9);                                      /* TIME */
+    turn(EN_K2, 7); turn(EN_K1, 1);                      /* PORTA ENGINE: row 8 */
+    turn(EN_K2, -2); turn(EN_K1, 9);                     /* PORTA TIME: row 6 */
     bad += check("FM PORTA ENGINE, TIME: the track's own (another FM6 track keeps Dexed's)",
                  fm6_fn[tr][FN_ENGINE] == FM6_MARK1 + 1u && fm6_fn[tr][FN_PTIME] == 9u &&
                  fm6_fn[(tr + 1u) % NTRK][FN_ENGINE] == FM6_MARK1 && !fm6_fn[(tr + 1u) % NTRK][FN_PTIME]);
@@ -3139,7 +3079,7 @@ static void host_slot_make(uint32_t k)                /* USR k + 1: 2 s at 22.05
 }
 static int test_slices(void)
 {
-    static const char *const CYC_S[] = {"EDIT 1", "EDIT 2", "SLICES", "VOICE", "VOICE 2", "VOICE 3", "EDIT 1"};
+    static const char *const CYC_S[] = {"EDIT 1", "EDIT 2", "SLICES", "VOICE", "EDIT 1"};
     int bad = 0, ok;
     uint32_t n, j, p0, k, note;
     ui_power_on();
@@ -3716,8 +3656,9 @@ static int test_chord_page(void)
     memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
     bad += check("  CHRD OFF: the page says what to do, MONO gray", screen_gray());
     turn(EN_K1, 1); frame();
-    turn(EN_K2, 1); frame();
-    bad += check("  KNOB 1: CHRD DIA3, KNOB 2: VOIC OPEN", t->p[P_CHRD] == CH_DIA3 && t->p[P_VOIC] == VC_OPEN);
+    turn(EN_K2, 1); frame(); turn(EN_K1, 1); frame();
+    bad += check("  (a list) KNOB 1: CHRD DIA3; KNOB 2 the next row, KNOB 1: VOIC OPEN",
+                 t->p[P_CHRD] == CH_DIA3 && t->p[P_VOIC] == VC_OPEN);
     key_down(7); frame();                                          /* C4 in C (SCALE CHR: the major of C) */
     ok = gates() == 3u && chord_last[song.sel].root == 60;
     memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
@@ -3788,7 +3729,7 @@ static int test_piano_roll(void)
     track_t *t;
     ui_power_on();
     t = TSEL;
-    load_pat16(t, PATTERNS[0].note, PATTERNS[0].flags);               /* ACID: A2..A3, ties, accents, slides */
+    demo_pat16(t, DEMO_ACID);                                         /* ACID: A2..A3, ties, accents, slides */
     t->p[P_ROOT] = 9; t->p[P_SCALE] = 2;
     go_page(GR_ROLL); ui.cursor = 0; ui.bank = 0;
     memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
@@ -4136,7 +4077,7 @@ static int test_fm4_retired(void)
         if (e < NENGINES)
             seen |= 1u << e;
     }
-    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == NENGINES - 9u - 3u * !MELODEE_LEGACY_EXTRAS);
+    bad += check("PRESETS: the list holds every engine's presets but DIGITAL's", seen == all && NENG_SHOWN == NENGINES - 9u - 6u * !MELODEE_LEGACY_EXTRAS);
     go_page(GR_BROWSE);
     set_engine_of(TSEL, 0);
     for (i = 0, seen = 0; i < NENG_SHOWN; i++) {
@@ -4144,14 +4085,18 @@ static int test_fm4_retired(void)
         seen |= 1u << TSEL->eng_req;
     }
     bad += check("PRESETS KNOB 4: the engines in order, DIGITAL skipped, back to the first",
-                 seen == all && TSEL->eng_req == ENGI_PROPHET && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == 2u &&
+                 seen == all && TSEL->eng_req == ENGI_PROPHET && eng_step(0, 1) == ENGI_FM6 && eng_step(ENGI_FM6, 1) == (MELODEE_LEGACY_EXTRAS ? 2u : ENGI_CZ) &&
                  eng_step(ENGI_FM6, -1) == ENGI_PROPHET && eng_step(0, -1) == ENGI_DRUM);
     {   /* the display order (engines.c ENGINE_ORDER): every engine one can pick once; the PRESETS list follows it */
-        static const char *const ORDER[] = {"PROPHET", "FM6", "PHASE", "CZ-1", "LOFI", "VOICE",
+        static const char *const ORDER[] = {"PROPHET", "FM6",
 #if MELODEE_LEGACY_EXTRAS
-                                            "TRIO", "WHEEL", "PHYS",
+                                            "PHASE",
 #endif
-                                            "NOISE", "DRUM"};
+                                            "CZ-1", "LOFI",
+#if MELODEE_LEGACY_EXTRAS
+                                            "VOICE", "TRIO", "WHEEL", "PHYS", "NOISE",
+#endif
+                                            "DRUM"};
         uint32_t last = 0xFFu, r = 0, n = 0;
         ok = NENG_SHOWN == NELEM(ORDER);
         for (i = 0; ok && i < NENG_SHOWN; i++)
@@ -4166,7 +4111,7 @@ static int test_fm4_retired(void)
             last = e;
             r++;
         }
-        bad += check("engines shown ANALOG FM6 PHASE CZ-1 ... NOISE SLICE DRUM (ENGINE_ORDER); PRESETS lists them so",
+        bad += check("engines shown PROPHET FM6 CZ-1 LOFI ... DRUM (ENGINE_ORDER); PRESETS lists them so",
                      ok && r == NENG_SHOWN);
     }
     /* a user preset stored with engine 1: kept as it is, it loads as FM6 with the converted patch */
@@ -4583,7 +4528,7 @@ int main(void)
     bad += test_undo_levels();
     bad += test_new_song();
     bad += test_sound_loads();
-    bad += test_patterns();
+    bad += test_no_phrases();
     bad += test_rec();
     bad += test_midi();
     bad += test_save();

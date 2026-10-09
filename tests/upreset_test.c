@@ -25,6 +25,15 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)
 #include "../firmware/src/storage.c"
 #include "../firmware/src/upreset.c"
 
+static int up_pat_empty(const up_rec_t *r)          /* (the record's 16 steps: no note) */
+{
+    uint32_t i;
+    for (i = 0; i < 16u; i++)
+        if (r->note[i])
+            return 0;
+    return 1;
+}
+
 static int check(const char *what, int ok)
 {
     printf("%-46s %s\n", what, ok ? "ok" : "FAIL");

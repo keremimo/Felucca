@@ -951,8 +951,7 @@ static uint32_t graph_signature(void)
     if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_MOTION) h ^= ui.frame / 2u;
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
-    h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
-         ui.ppick * 1299709u;
+    h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u;
     if (pg->graph == GR_SCALE_PICKER) {
         h ^= ui.scale_family * 40503u;
         for (i = 16u; i < 32u; i++) h = (h ^ favorites.factory[14][i]) * 16777619u;
@@ -1118,38 +1117,6 @@ static void entry_label(uint32_t e, uint32_t k, char *tag, char *nm)
         str_cpy(nm, ENGINES[e % NENGINES]->presets[k].name, 13);
     }
 }
-static void graph_browse(void)
-{
-    uint32_t total, cur = preset_pos(&total), e, k, m = list_mode();
-    int pending = browse_pending();
-    int32_t row;
-    if (!total) {
-        if (m == LM_FAV)
-            panel_note("NO FAVORITES", "LIST ALL TO ADD SOUNDS", 0);
-        else
-            panel_note(m == LM_RECENT ? "NO RECENT SOUNDS" : "NO SOUNDS IN LIST", 0, 0);
-        return;
-    }
-    for (row = -3; row <= 3; row++) {
-        int32_t y = LIST_Y(row + 3), x1 = 212;
-        char tag[6], nm[13], pt[4], pn[13];
-        uint32_t index = preset_visible(cur, total, (uint32_t)(row + 3));
-        int sel = index == cur;
-        int32_t hint = sel && !pending ? preset_pat_hint() : -1;    /* the suggested pattern (of a loaded sound) */
-        if (index >= total) continue;
-        e = preset_at(index, &k);
-        entry_label(e, k, tag, nm);
-        if (hint >= 0) {
-            pat_label((uint32_t)hint, pt, pn);
-            x1 = 206 - text_w(&AF_S, pt) - 6;
-        }
-        list_row(y, sel, tag, T_DIM, nm, T_TEXT, x1);
-        if (hint >= 0)
-            cv_text_r(206, y + 1, &AF_S, pt, T_INK, T_THEME);
-        if (favorite_has(e, k))
-            cv_icon_on(214, y + 2, 12, ICON_X_STAR, sel ? T_INK : T_ACCENT, sel ? T_THEME : T_SURF);
-    }
-}
 /* the EDIT layer (ui_layer.c): the sound loaded, as the browser's selected row: "03" (its place in KNOB 2's list,
  * the engine's sounds) or "U07", the name, the star of a favourite */
 static void p5_short_name(const track_t *t,char *out,uint32_t size)
@@ -1202,18 +1169,6 @@ static void graph_fmbank(void)
     ui.uslot = fm6_bslot;
     graph_user();
     ui.uslot = keep;
-}
-/* SEQ > PATTERNS: the pattern list around the one picked ("03  MELODY", "U07  MY BASS") */
-static void graph_pats(void)
-{
-    uint32_t n = pat_count(), cur = pat_pick();
-    int32_t row, first = clamp((int32_t)cur - 3, 0, (int32_t)n > 7 ? (int32_t)n - 7 : 0);
-    for (row = 0; row < 7 && (uint32_t)(first + row) < n; row++) {
-        uint32_t k = (uint32_t)(first + row);
-        char tag[4], nm[13];
-        pat_label(k, tag, nm);
-        list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232);
-    }
 }
 /* project slots A..D and the template (T): the name (none: USED, TEMPLATE) / --, the selected one filled; BOOT at
  * the right of what power-on loads (BOOT's slot; BOOT OFF or an empty slot: the template, when there is one) */
@@ -1318,77 +1273,6 @@ static void trk_short_name(uint32_t c, char *b)      /* the track's sound, b hol
         str_cpy(b, e->name, 13);
 }
 
-static void draw_tracks(void)
-{
-    uint32_t c;
-    if (ui.force) {
-        lcd_fill(0, Y_GRAPH, 240, H_GRAPH, T_BG);
-        for (c = 0; c < NTRK; c++)
-            ts.meter[c] = 0;
-    }
-    for (c = 0; c < NTRK; c++) {
-        track_t *t = &trk[c];
-        uint32_t sel = c == song.sel, lvl = trk_level(c), mute = t->p[P_MUTE] != 0;
-        uint32_t arm = (song.rec >> c) & 1u, st = arm ? (song.playing ? 1u : 2u) : mute ? 3u : 0u, sig;
-        uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* the knob just turned (hot_col + 1): 1 LEVEL, 2 PAN,
-                                                                * 3 REV, 4 MUTE (its badge) */
-        int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), rv = clamp(t->p[P_REV], 0, 127);
-        uint16_t vc = mute ? T_DIM : T_TRK(c);          /* each strip in its track's colour */
-        char b[16];
-        t->peak = 0;
-        trk_short_name(c, b);
-        m = mute ? 0 : meter_px(pk);
-        if (m < ts.meter[c] - 1)
-            m = ts.meter[c] - 1;                     /* falls ~2 dB a frame */
-        ts.meter[c] = (uint8_t)(m < 0 ? 0 : m);
-        sig = str_hash(1u + sel + st * 2u + (mute && arm) * 16u + hot * 32u, b) + lvl * 7919u +
-              ts.meter[c] * 131u + (uint32_t)(pan + 128) * 104729u + (uint32_t)rv * 1299709u + mute * 3u;
-        if (!ui.force && sig == ts.col[c])
-            continue;
-        ts.col[c] = sig;
-        cv_begin(CARD_W, H_GRAPH, T_BG);
-        cv_rrect(0, 0, CARD_W, H_GRAPH, 5, T_SURF, T_BG);
-        cv_icon_on(4, 5, 16, trk_icon(c, sel), T_TRK(c), T_SURF);
-        if (st == 1u || st == 2u)                    /* REC (recording) / ARM (armed, stopped) */
-            cv_keycap(53 - kc_w(st == 1u ? KC_REC : KC_ARM), 6, st == 1u ? KC_REC : KC_ARM, st == 1u ? T_REC : T_ACCENT,
-                      T_INK, T_SURF);
-        else if (st)                                 /* muted (K4 just turned: lit) */
-            cv_keycap(53 - kc_w(KC_MUTE), 6, KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-        if (mute && arm)                             /* armed and muted: MUTE in place of the name */
-            cv_keycap(5, 23, KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-        else
-            cv_free_text(5, 21, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
-        {   /* LEVEL: the knob, its dB inside (OFF at 0), and the meter of the output */
-            char v[8];
-            knob(KB_X, KB_Y, KNOB_BIG_R, KNOB_BIG_COV, KNOB_BIG_ANG, (int32_t)lvl, 0, 127, hot == 1u ? T_ACCENT : vc);
-            if (lvl) {
-                int32_t d = LEVEL_DB_X10[lvl];
-                fmt_int(v, (d + (d < 0 ? -5 : 5)) / 10);
-                cv_text_on(KB_X + KNOB_BIG_R - text_w(&AF_S, "dB") / 2, KB_Y + KNOB_BIG_R + 5, &AF_S, "dB", T_DIM, T_SURF);
-            } else {
-                str_cpy(v, "OFF", sizeof v);
-            }
-            cv_text_c(KB_X + KNOB_BIG_R, KB_Y + KNOB_BIG_R - 8, &AF_S, v, hot == 1u ? T_ACCENT : lvl ? vc : T_DIM, T_SURF);
-            cv_rrect(45, TS_MY, 4, TS_MH, 2, T_RAISE, T_SURF);
-            if (ts.meter[c])
-                cv_rrect(45, TS_MY + TS_MH - 1 - ts.meter[c], 4, ts.meter[c] + 1, ts.meter[c] >= 4 ? 2 : 0, T_MID, T_RAISE);
-        }
-        {   /* PAN (from the centre) and the REV send: captions, knobs, values */
-            char v[8];
-            uint16_t pc = hot == 2u ? T_ACCENT : vc, rc = hot == 3u ? T_ACCENT : vc;
-            cv_text_c(15, 72, &AF_S, "PAN", T_DIM, T_SURF);
-            cv_text_c(42, 72, &AF_S, "REV", T_DIM, T_SURF);
-            knob(15 - KNOB_SMALL_R, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, pan, -64, 63, pc);
-            knob(42 - KNOB_SMALL_R, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, rv, 0, 127, rc);
-            v[0] = '+';                              /* the cards' numbers, without the % */
-            fmt_int(pan > 0 ? v + 1 : v, pan * 100 / 64);
-            cv_text_c(15, KS_Y + 17, &AF_S, v, pc, T_SURF);
-            fmt_int(v, (rv * 100 + 63) / 127);
-            cv_text_c(42, KS_Y + 17, &AF_S, v, rc, T_SURF);
-        }
-        cv_blit((uint32_t)CARD_X(c), Y_GRAPH);
-    }
-}
 /* HOME note/chord names: the same recognizer as next, with the 1.0 fonts and palette. */
 static const struct {
     uint16_t iv;                                     /* bit i: i semitones over the root */
@@ -1488,10 +1372,6 @@ static void draw_graph(void)
     const track_t *t = TSEL;
     uint16_t c = ACC;
     uint32_t sig;
-    if (!ui.home && pg->graph == GR_TRK) {
-        draw_tracks();
-        return;
-    }
     sig = graph_signature();
     if (!ui.force && sig == ui.graph_sig)
         return;
@@ -1553,10 +1433,6 @@ static void draw_graph(void)
             cv_oy = 0;
             graph_mod(t, c);
             break;
-        case GR_BROWSE:
-            cv_oy = 0;
-            graph_browse();
-            break;
         case GR_SLOTS:
             cv_oy = 0;
             graph_slots();
@@ -1564,10 +1440,6 @@ static void draw_graph(void)
         case GR_USER:
             cv_oy = 0;
             graph_user();
-            break;
-        case GR_PATS:
-            cv_oy = 0;
-            graph_pats();
             break;
         case GR_TOOLS:
             cv_oy = 0;

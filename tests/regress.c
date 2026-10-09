@@ -485,13 +485,15 @@ static void midi_pkt(uint32_t st, uint32_t d1, uint32_t d2)   /* as usb.c: the q
     midi_in_q[mi_w++ % MQ] = (st >> 4) | st << 8 | d1 << 16 | d2 << 24;
 }
 
-/* the shared budget: 4 POLY parts (ANALOG, DIGITAL (without MELODEE_FM4 its BELL converted: FM6), VOICE, 808 DRUM)
- * play random notes on and off for
+/* the shared budget: 4 POLY parts (ANALOG, DIGITAL (without MELODEE_FM4 its BELL converted: FM6), VOICE (retired:
+ * LOFI), 808 DRUM) play random notes on and off for
  * 6 s, up to 8 held each; after every block: at most 8 part voices active, none still fading (a stolen voice
  * fades within its one block), the VOICE part at most 4; then all off: every voice free */
+#define VCAP_E (MELODEE_LEGACY_EXTRAS ? 5u : 3u)
+#define VCAP (MELODEE_LEGACY_EXTRAS ? 4u : NVOICE)
 static int chk_budget(char *msg, uint32_t n)
 {
-    static const uint8_t E[NPART][2] = {{0, 1}, {1, 1}, {5, 1}, {4, 4}};
+    static const uint8_t E[NPART][2] = {{0, 1}, {1, 1}, {VCAP_E, 1}, {4, 4}};
     uint8_t held[NPART][128] = {{0}};
     uint32_t p, k, worst = 0, vworst = 0, fading = 0, kills0 = voice_kills;
     host_tracks_init();
@@ -533,10 +535,10 @@ static int chk_budget(char *msg, uint32_t n)
                 trk_note_off(&trk[p], k);
     rel_at = fpos;
     finish();
-    snprintf(msg, n, "4 POLY parts, random notes: at most %u voices active (budget %u), VOICE part at most %u (cap 4), "
+    snprintf(msg, n, "4 POLY parts, random notes: at most %u voices active (budget %u), part 3 at most %u (cap %u), "
              "%u voices taken, %u still fading after their block, all free %.2f s after the note-offs",
-             worst, NVOICE, vworst, voice_kills - kills0, fading, R.free_s);
-    return worst <= NVOICE && vworst <= 4u && !fading && R.free_s >= 0 && voice_kills > kills0;
+             worst, NVOICE, vworst, VCAP, voice_kills - kills0, fading, R.free_s);
+    return worst <= NVOICE && vworst <= VCAP && !fading && R.free_s >= 0 && voice_kills > kills0;
 }
 
 /* MIDI packets in one audio block can reuse a voice before its stolen tail fades. */
@@ -603,7 +605,8 @@ static int chk_cap_mode_budget(char *msg, uint32_t n)
         trk[0].p[P_VOICE] = MODE[round];
         if (round == 2u) {
             /* A lower cap must not protect old upper slots while the lower extras fade. */
-            host_preset(&trk[0], 5, 0);
+            if (MELODEE_LEGACY_EXTRAS)                  /* (VOICE's cap of 4: retired) */
+                host_preset(&trk[0], 5, 0);
             trk[0].p[P_VOICE] = V_UNISON;
             for (i = 1; i < trk_nvoice(&trk[0]); i++)
                 voice_kill(&trk[0].v[i]);
@@ -1065,7 +1068,8 @@ int main(int argc, char **argv)
     add(J_CHECK, "voices: MONO keeps its note")->check = chk_keep_mono;
     add(J_CHECK, "voices: LEGATO keeps its note")->check = chk_keep_legato;
     add(J_CHECK, "voices: UNISON keeps its note")->check = chk_keep_unison;
-    add(J_CHECK, "voices: VOICE engine cap")->check = chk_voice_cap;
+    if (MELODEE_LEGACY_EXTRAS)
+        add(J_CHECK, "voices: VOICE engine cap")->check = chk_voice_cap;
     add(J_CHECK, "routing: no hanging notes")->check = chk_hang;
     run_jobs(J, nj, jobs_at_once);
 

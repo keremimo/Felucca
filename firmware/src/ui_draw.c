@@ -299,7 +299,9 @@ static void col_old_value(uint32_t c, char *ov)          /* the value card c dre
         ov[i++] = *++k;
     ov[i] = 0;
 }
-enum { CS_CARD, CS_STRIP, CS_RING, CS_FADER, CS_CHIP };   /* how draw_column draws a knob (ui_pages.c) */
+enum { CS_CARD, CS_STRIP, CS_RING, CS_FADER, CS_CHIP, CS_CAPTURE };   /* how draw_column draws a knob (ui_pages.c;
+                                                                      * CS_CAPTURE: kept for a list's rows, ui_list.c) */
+static void list_capture(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc);
 static uint8_t col_style;                               /* (ui_pages.c pv_column) */
 static void pv_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
                       int hot);
@@ -314,6 +316,11 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     const aafont_t *vf = &AF_M;
     uint32_t n, kn;
     int32_t kid = kc_tag(val, &kn);
+    if (col_style == CS_CAPTURE) {                      /* a list's row (ui_list.c) */
+        list_capture(c, label, val, unit, vc);
+        fmt_named = 0;
+        return;
+    }
     fmt_named = 0;                                      /* (params.c: a name, for this card only) */
     if (str_eq(unit, label))
         unit = "";                                      /* "BPM 124 BPM", "USB OFF USB": the label says it */
@@ -424,7 +431,7 @@ static void foot_hint(char *a, char *b)
     uint32_t c = act_col();
     str_cpy(a, "OCT+ ", 8);
     str_cpy(a + 5, c ? act_name(c - 1u) : "--", 8);
-    str_cpy(b, ui.act && cur_page()->graph != GR_PATS ? "OCT- CANCEL" : "OCT- BACK", 16);
+    str_cpy(b, ui.act ? "OCT- CANCEL" : "OCT- BACK", 16);
 }
 
 /* SAVE > USER / PROJECT: EDIT renames the selected slot (ui_name.c); 0 = not such a page, 1 an empty slot, 2 used */
@@ -731,16 +738,6 @@ static void draw_columns(void)
         draw_column(3, "LIST", list_name(list_mode()), "", VAL(3u), -1, ICON_X_FOLDER);
         return;
     }
-    if (cur_page()->graph == GR_PATS) {                  /* PAT, then LOAD (a GO button) */
-        uint32_t n = pat_count(), k = pat_pick();
-        char tag[4], nm[13];
-        pat_label(k, tag, nm);
-        draw_column(0, "PAT", tag, "", VAL(0u), (int32_t)k * 1000 / (int32_t)(n > 1u ? n - 1u : 1u), ICON_X_PATTERN);
-        draw_act_column(1, "LOAD", T_THEME, ICON_AUTO);
-        draw_column(2, "", "", "", T_THEME, -1, ICON_AUTO);
-        draw_column(3, "", "", "", T_THEME, -1, ICON_AUTO);
-        return;
-    }
     if (cur_page()->graph == GR_USER) {                  /* SLOT, then three GO buttons */
         ui.uslot %= user_limit();
         int used = user_used(ui.uslot);
@@ -986,13 +983,6 @@ static void confirm_text(char *a, char *b)
         str_cpy(a + str_len(a), "?", 2);
         user_name(k, b);
         break;
-    case CF_LOAD_PAT: {
-        char tag[4];
-        str_cpy(a, "REPLACE T1 SEQUENCE?", 24);
-        a[9] = (char)('1' + k % NTRK);
-        pat_label(pat_pick(), tag, b);               /* with the pattern picked */
-        break;
-    }
     default:
         str_cpy(a, "CLEAR T1 SEQUENCE?", 24);     /* the header (T1..T4) is hidden */
         a[7] = (char)('1' + k % NTRK);
@@ -1042,6 +1032,7 @@ static void draw_confirm(void)
 }
 
 #include "ui_pages.c"                                   /* the redesign's other pages (R5) */
+#include "ui_list.c"                                    /* list pages */
 #include "ui_popup.c"                                   /* action sheets, pickers */
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
@@ -1057,7 +1048,9 @@ static void draw_page(void)
         page_entered();
     }
     cursor_fix();
-    if (!own_screen() && pv_kind()) {                   /* the redesign's other pages (ui_pages.c) */
+    if (!own_screen() && list_on()) {                   /* a list page (ui_list.c) */
+        list_draw();
+    } else if (!own_screen() && pv_kind()) {            /* the redesign's other pages (ui_pages.c) */
         pv_draw();
     } else if (own_screen()) {                          /* the browser, PATTERNS, SONG: screens of their own */
         if (cur_page()->graph == GR_BROWSE)
@@ -1082,7 +1075,7 @@ static void draw_page(void)
             draw_graph();
     }
     melodee_dbg.stage = 6;
-    if (!ui.home && !own_screen() && !pv_kind())
+    if (!ui.home && !own_screen() && !pv_kind() && !list_on())
         draw_foot();
 }
 static void ui_draw(void)

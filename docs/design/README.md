@@ -58,7 +58,7 @@ One way to move on every screen with something to move through (Kerem, 2026-10-1
 
 - **KNOB 1 across, KNOB 2 up / down**: the cursor (a step, a cell, a column), the row (a slot, a lane, a route, a
   setting); KNOB 3 / 4 edit what the cursor is on where a page has more.
-- **OCT+ Enter, OCT- Esc** on these screens (lists, menus, the browser, PROJECT / USER / FM6 STORE / PHRASES, TOOLS,
+- **OCT+ Enter, OCT- Esc** on these screens (lists, menus, the browser, PROJECT / USER / FM6 STORE, TOOLS,
   SONG, NOTES and drum STEP, NAME, NEW SONG, the questions). Esc closes the innermost thing first: a question (No),
   an action picked, a sub-screen (About, a name, a pending browse), and only then goes to Stage. On Stage and the
   sound pages the OCT keys stay the octave; while recording live on STEP too (the keys played need them).
@@ -70,7 +70,7 @@ One way to move on every screen with something to move through (Kerem, 2026-10-1
 |---|---|---|---|---|---|
 | Browser | list (category) | sound | FAV / engine | keep | back (revert) |
 | Settings | value | row | - | open / step | close |
-| PROJECT, USER, STORE, PHRASES | action | slot | - | do it | unpick, then Stage |
+| PROJECT, USER, STORE | action | slot | - | do it | unpick, then Stage |
 | TOOLS | tile across | tile down | - | do it | unpick, then Stage |
 | SONG | section | track | pattern / repeats | play / stop | Stage |
 | MOD | source | route | destination / amount | - | Stage |
@@ -87,7 +87,7 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
 - **Action sheet**: OCT+ on an item opens what can be done with it (KNOB 2 the row, KNOB 1 a row's value, OCT+ does
   it, OCT- closes); OCT+ held opens the page's own (a ⋯ in the header says there are some). A destructive row asks the
   question first. TOOLS' actions move into these (Clear pattern: NOTES / PATTERN; Init sound: the sound pages;
-  Delete section, Clear song: SONG); PROJECT / USER / FM6 STORE / PHRASES and MOTION lose their action chips.
+  Delete section, Clear song: SONG); PROJECT / USER / FM6 STORE and MOTION lose their action chips.
 - **Picker**: a knob whose value is a list (wave, MOD source / destination, chord, delay division) shows the list
   around its value while it turns, gone ST_KNOB_MS after the last turn. SCALES keeps its own list page (Kerem: the
   list is intuitive), no picker.
@@ -95,8 +95,9 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
 ## Pages: lists or knobs (R6)
 
 - **List pages** (set and leave): a row a setting (KNOB 2 the row, KNOB 1 its value, OCT+ a list value's full list,
-  OCT- back), the page's picture under the rows where it has one. SCL (OCT+ on Scale: the SCALES list), CHORD, TEMPO,
-  GLOBAL, SYSTEM, VOICE 1-3, TIMING, MPC, ENV DEST, LFO DEST, LFO 2, ARP 2, DLY 2, FM6's setup pages.
+  OCT- back), the page's picture under the rows where it has one. SCL (OCT+ on Scale: the SCALES list), CHORD, VOICE
+  1-3 (one list), TIMING, MPC, ENV DEST, LFO DEST, LFO 2, ARP 2, DLY 2, FM6's LFO and controller pages (a list each).
+  TEMPO, GLOBAL, SYSTEM stay knobs (BPM and TUNE are turned while playing, their digits roll).
 - **Knob pages** (played while tweaked): four rings over the page's picture (R5): the engines' EDIT pages, ENV, LFO,
   DLY, REVERB, CHORUS, FX, SLICER, ARP, PATTERN; MIXER, Stage, PATTERNS direct.
 - Defaults (Kerem, 2026-10-10): OCT+ held (about 0.5 s) opens a page's own sheet, a tap stays OCT+; CHANCE keeps its

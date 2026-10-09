@@ -4,9 +4,8 @@
  * slots in four storage objects (the first two at 0xDC000..0xDFFFF,
  * two more at 0xE5000..0xE8FFF), 16 records each. Only names and indexes
  * stay in RAM; one bank is read on demand when loading or editing. A record: engine, name, the instrument parameters, a 16-step
- * pattern (factory PATTERNS[] format). FM6 voices live beside their records
- * (up_fm6.c). Loading one loads the sound only; its pattern
- * is offered by SEQ > PATTERNS ("U07", up_pat_load). The format is unchanged.
+ * pattern (kept in the format, never loaded: the phrases are gone). FM6 voices live beside their records
+ * (up_fm6.c). Loading one loads the sound only.
  *
  * Versions: a bank whose magic, record size or slot count differ reads as
  * empty; so does a record with another layout version. A record keeps np =
@@ -240,15 +239,6 @@ static void up_pat_from(up_rec_t *r, const step_t *st)   /* the first 16 steps -
         r->flags[i] = st[i].time == ST_TIE ? 4u : st[i].flags;
         up_pat_norm(&r->note[i], &r->flags[i]);
     }
-}
-
-static int up_pat_empty(const up_rec_t *r)
-{
-    uint32_t i;
-    for (i = 0; i < 16u; i++)
-        if (r->note[i])
-            return 0;
-    return 1;
 }
 
 /* UP_PUT arguments: slot, engine, name, P_COUNT x v14, 16 x (note, flags) [, kind, 16 x hi] -> *r (values not
@@ -519,7 +509,7 @@ static int up_rename(uint32_t k, const char *name)
 
 /* slot k -> the selected part's sound: engine and every parameter except the track's own (param_kept:
  * the mix, ARP, SCL, the pattern parameters, the SLICER). The steps stay: the record's pattern is
- * loaded only from SEQ > PATTERNS (up_pat_load). 0 ok, 1 empty */
+ * never loaded (the phrases are gone). 0 ok, 1 empty */
 static int up_load(uint32_t k)
 {
     const up_rec_t *r;
@@ -559,54 +549,6 @@ static int up_load(uint32_t k)
     sync_reload = 1;
     ui.force = 1;
     return 0;
-}
-
-/* the patterns of the user presets (SEQ > PATTERNS lists them after the factory ones, ui.c pat_count) */
-static int up_has_pat(uint32_t k) { return up_used(k) && !up_pat_empty(up_rec(k)); }
-
-static uint32_t up_pat_count(void)
-{
-    uint32_t k, n = 0;
-    for (k = 0; k < UP_SLOTS; k++)
-        n += (uint32_t)up_has_pat(k);
-    return n;
-}
-
-static uint32_t up_pat_nth(uint32_t n)         /* slot of the n-th one that holds a pattern (n < up_pat_count()) */
-{
-    uint32_t k;
-    for (k = 0; k < UP_SLOTS; k++)
-        if (up_has_pat(k) && !n--)
-            return k;
-    return 0;
-}
-
-static uint32_t up_pat_rank(uint32_t slot)     /* ones that hold a pattern before it */
-{
-    uint32_t k, n = 0;
-    for (k = 0; k < slot && k < UP_SLOTS; k++)
-        n += (uint32_t)up_has_pat(k);
-    return n;
-}
-
-/* slot k's pattern -> track t's steps 1..16 (the rest cleared), with the record's LEN (at most 16), DIV,
- * SWING and GATE; the sound stays (ui.c pat_load: the undo copy) */
-static void up_pat_load(track_t *t, uint32_t k)
-{
-    const up_rec_t *r;
-    int16_t v[P_COUNT];
-    uint32_t i;
-    if (!up_has_pat(k))
-        return;
-    r = up_rec(k);
-    up_values(r, v);
-    if (up_grid(r))
-        load_grid16(t, r->note, r->flags);
-    else
-        load_pat16(t, r->note, r->flags);
-    for (i = P_SDIV; i <= P_SGATE; i++)
-        t->p[i] = v[i];
-    t->p[P_SLEN] = (int16_t)clamp(v[P_SLEN], 1, 16);   /* (the pattern has 16 steps) */
 }
 
 /* the engine a used slot's sound plays on (a DIGITAL record: FM6, without MELODEE_FM4) */
@@ -657,8 +599,6 @@ static void up_ui_named(uint32_t op, uint32_t k, const char *name)   /* 0 load, 
     }
     if (op == 0u) {
         up_load(k);
-        if (up_has_pat(k))                              /* SEQ > PATTERNS starts at its pattern */
-            ui.ppick = (uint8_t)(NPATTERNS + up_pat_rank(k));
         ui_say("LOADED ", l);
         return;
     }

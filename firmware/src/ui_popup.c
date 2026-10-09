@@ -13,7 +13,7 @@ typedef struct {
     void (*act)(void);                                  /* OCT+ does it (0: OCT+ steps the value) */
     uint8_t cf;                                         /* the question it asks first (CF_*), 0 none */
 } sheet_row_t;
-enum { POP_NONE, POP_SHEET, POP_PICK };
+enum { POP_NONE, POP_SHEET, POP_PICK, POP_LIST };
 #define POP_X 6                                         /* a sheet: 228 wide, its rows 20 px, 22 apart from y 28 */
 #define POP_W 228
 #define POP_ROW 22
@@ -26,6 +26,7 @@ static struct {
 } pop;
 
 static void confirm_open(uint32_t kind, uint32_t trk);  /* ui_input.c */
+static void edit_param(uint32_t slot, int32_t steps);
 static void jam_take(void);
 static int name_on(void);
 static int new_on(void);
@@ -197,6 +198,93 @@ static void pick_poll(void)                             /* ST_KNOB_MS after the 
         pop_close();
 }
 
+/* ------------------------------------------------ a value's list --- */
+/* OCT+ on a list page's row whose value is a name from a list: the whole list (KNOB 2, OCT+ takes it, OCT- closes) */
+static struct { uint8_t page, slot; int16_t sel; } vl;
+static const param_desc_t *vlist_desc(int16_t **vp) { return page_desc(&PAGES[vl.page], vl.slot, vp); }
+static void vlist_open(uint8_t page, uint8_t slot)
+{
+    int16_t *vp;
+    const param_desc_t *d;
+    vl.page = page;
+    vl.slot = slot;
+    d = vlist_desc(&vp);
+    if (!d || !vp)
+        return;
+    vl.sel = *vp;
+    pop.on = POP_LIST;
+    ui.force = 1;
+}
+static void vlist_input(int32_t k2, uint32_t oct)
+{
+    int16_t *vp;
+    const param_desc_t *d = vlist_desc(&vp);
+    if (!d || !vp) {
+        pop_close();
+        return;
+    }
+    if (k2)
+        vl.sel = (int16_t)clamp(vl.sel + (k2 > 0 ? 1 : -1), d->min, d->max);
+    if (oct & 1u) {
+        pop_close();
+    } else if (oct & 2u) {                              /* (its page edits it, as if it were shown) */
+        uint8_t pg = ui.page;
+        int32_t steps = vl.sel - *vp;
+        ui.page = vl.page;
+        if (steps)
+            edit_param(vl.slot, steps);
+        ui.page = pg;
+        pop_close();
+    }
+}
+static void vlist_draw(void)
+{
+    int16_t *vp;
+    const param_desc_t *d = vlist_desc(&vp);
+    int32_t i, n, first, h, y0, top;
+    uint32_t sig;
+    char b[20];
+    if (!d || !vp || !d->names) {
+        pop_close();
+        return;
+    }
+    n = d->max - d->min + 1 < 7 ? d->max - d->min + 1 : 7;
+    sig = (uint32_t)(vl.sel + 1) * 7919u + vl.page * 131u + ux.gen * 977u + ux.pal * 31u;
+    if (!ui.force && sig == pop.sig)
+        return;
+    pop.sig = sig;
+    first = clamp(vl.sel - 3, d->min, d->max - n + 1);
+    h = 30 + n * 20 + 6;
+    y0 = 236 - h;
+    for (top = 0; top < h; ) {                          /* in slices between rows (a canvas holds 124 rows) */
+        int32_t sh = h - top <= 124 ? h - top : 28 + (top + 124 - 28) / 20 * 20 - top;
+        cv_begin(POP_W, (uint32_t)sh, T_BG);
+        cv_oy = -top;
+        cv_rrect(0, 0, POP_W, h, 10, T_LINE, T_BG);
+        cv_rrect(1, 1, POP_W - 2, h - 2, 9, T_SURF, T_LINE);
+        menu_words(b, d->label, sizeof b);
+        if (top == 0)
+            cv_text_on(10, 8, &AF_S, b, T_TEXT, T_SURF);
+        for (i = 0; i < n; i++) {
+            int32_t v = first + i, y = 28 + i * 20, on = v == vl.sel, cur = v == *vp;
+            uint16_t bg = on ? T_LIFT : T_SURF;
+            if (y + 20 <= top || y >= top + sh)
+                continue;
+            if (on) {
+                cv_rect(1, y, POP_W - 2, 18, T_LIFT);
+                cv_rect(1, y, 3, 18, T_THEME);
+            }
+            menu_words(b, d->names[v - d->min], sizeof b);
+            cv_free_text(10, y + 2, &AF_S, b, on ? T_TEXT : T_SEC, bg, POP_W - 40);
+            if (cur)                                    /* (the value now: a dot) */
+                cv_disc(POP_W - 14, y + 9, 6, T_THEME, 0);
+        }
+        cv_oy = 0;
+        cv_blit(POP_X, (uint32_t)(y0 + top));
+        top += sh;
+    }
+}
+
 /* ------------------------------------------------------- drawing --- */
 static void sheet_draw(void)
 {
@@ -285,4 +373,6 @@ static void pop_draw(void)
         sheet_draw();
     else if (pop.on == POP_PICK)
         pick_draw();
+    else if (pop.on == POP_LIST)
+        vlist_draw();
 }

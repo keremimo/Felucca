@@ -786,18 +786,12 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
 #endif
     if ((act_cols() >> slot) & 1u) {                      /* an action's knob picks it (right) or drops it (left); */
-        if (pg->graph != GR_PATS)                         /* OCT+ does it (act_do) */
-            ui.act = steps > 0 ? (uint8_t)(slot + 1u) : ui.act == slot + 1u ? 0u : ui.act;
+        ui.act = steps > 0 ? (uint8_t)(slot + 1u) : ui.act == slot + 1u ? 0u : ui.act;   /* (OCT+ does it: act_do) */
         return;
     }
     if (pg->graph == GR_USER) {                           /* KNOB 1 the slot */
         if (slot == 0u)
             ui.uslot = (uint8_t)clamp((int32_t)ui.uslot + list_accel(EN_K1, steps, user_limit(), 0), 0, user_limit() - 1);
-        return;
-    }
-    if (pg->graph == GR_PATS) {                          /* KNOB 1 the pattern */
-        if (slot == 0u)
-            ui.ppick = (uint8_t)clamp((int32_t)pat_pick() + steps, 0, (int32_t)pat_count() - 1);
         return;
     }
     if (pg->graph == GR_MOD && slot == 0u) {             /* MOD: KNOB 1 the slot, 2..4 its SRC DST AMT */
@@ -926,14 +920,6 @@ static void act_do(void)
     if (cur_page()->graph == GR_SONG) {
         if (song.playing || seq_counting() || chain_busy()) transport_req = 2;
         else chain_play_ui();
-        return;
-    }
-    if (cur_page()->graph == GR_PATS) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (pat_needs_confirm(TSEL))                      /* the user's steps: the dialog */
-            confirm_open(CF_LOAD_PAT, song.sel);
-        else                                              /* empty, or a pattern loaded and untouched */
-            pat_load_ui(TSEL, pat_pick());
         return;
     }
 #if MELODEE_SLICE
@@ -1504,7 +1490,7 @@ static void ui_input(void)
     if (octup != BT_NONE || !((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u))
         oct_deferred = 0;
     oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || new_on() || layer_set_open() ||
-                   step_oct_context() || pop.on == POP_SHEET || smap.on);
+                   step_oct_context() || pop.on == POP_SHEET || pop.on == POP_LIST || smap.on || list_on());
     uint32_t lay, knob_layer, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
     seq_erase_update(pressed);
@@ -1644,9 +1630,6 @@ static void ui_input(void)
                 name_open(NK_USER_SAVE, ui.confirm_trk);
             } else if (kind == CF_ERASE_USER) {
                 user_ui_named(1u, ui.confirm_trk, 0);
-            } else if (kind == CF_LOAD_PAT) {
-                pat_load_ui(&trk[ui.confirm_trk % NTRK], pat_pick());
-                str_cpy(ui.msg2, "[SAVE] HOLD TO UNDO", sizeof ui.msg2);
             } else if (kind == CF_CLEAR_MOTION) {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
                 if (!chain_busy()) { load_begin(t, UNDO_PAT); motion_clear(t); load_end(t); ui_message("MOTION CLEARED"); }
@@ -1705,9 +1688,11 @@ static void ui_input(void)
         enc_drop();
         return;
     }
-    if (pop.on == POP_SHEET) {                          /* an action sheet: KNOB 1 / 2, OCT+ / OCT- (ui_popup.c) */
+    if (pop.on == POP_SHEET || pop.on == POP_LIST) {   /* an action sheet, a value's list: KNOB 1 / 2, OCT+ / OCT-
+                                                         * (ui_popup.c) */
         int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);
-        sheet_input(k1, k2, oct);
+        if (pop.on == POP_LIST) vlist_input(k2, oct);
+        else sheet_input(k1, k2, oct);
         ui.pg_down = 0;
         enc_drop();
         return;
@@ -1772,7 +1757,8 @@ static void ui_input(void)
                 pop_close();
                 break;
             }
-            if (act_cols() || layer_set_open())         /* action pages: enter / back (below); SET layers: OCT- */
+            if (act_cols() || layer_set_open() || list_on())   /* action, list pages: enter / back (below); SET layers:
+                                                                 * OCT- */
                 break;
             if (step_page() && ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u)) {   /* SAVE held: undo further / redo */
                 ui.save_t0 |= 2u;                       /* (no page, no other undo when SAVE is let go) */
@@ -1822,10 +1808,14 @@ static void ui_input(void)
     for (id = 0; b; id++, b >>= 1)
         if (b & 1u)
             page_tap(panel_btn_of(id));
-    if (act_cols() && (oct & 2u)) {                     /* action pages: OCT+ does the picked action, */
+    if (list_on() && (oct & 2u)) {                      /* a list page: OCT+ the row's list, OCT- Stage */
+        list_enter();
+    } else if (list_on() && (oct & 1u)) {
+        go_home();
+    } else if (act_cols() && (oct & 2u)) {              /* action pages: OCT+ does the picked action, */
         act_do();
     } else if (act_cols() && (oct & 1u)) {              /* OCT- drops it, or (none picked) goes HOME */
-        if (cur_page()->graph != GR_PATS && ui.act)
+        if (ui.act)
             ui.act = 0;
         else
             go_home();
@@ -1905,11 +1895,15 @@ static void ui_input(void)
         if (k == 0u && pg->graph == GR_ROLL && step_gesture(s))   /* KNOB 1 too, as SELECT (ENV / SCL / a key held) */
             continue;
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || ((pg->scope==SC_DRUM || pg->scope==SC_DRUMHIT) && pg->id[k]!=255) || page_desc(pg, k, &hv) ||
-            ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
+            ((pg->graph == GR_USER || pg->graph == GR_MOD) && k == 0u)
             || pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
             || (pg->graph == GR_SLICES && k < 2u)) {   /* (not an empty column) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
+        }
+        if (list_on()) {                                /* a list page: KNOB 2 the row, KNOB 1 its value (ui_list.c) */
+            list_knob(k, s);
+            continue;
         }
         momentary_take(k);
         if (ui.home) {                                  /* Stage: the selected track's engine's four, as its pages; they drop in */

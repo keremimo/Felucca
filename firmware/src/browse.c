@@ -23,11 +23,13 @@ static const char *const PRESET_CAT[NENGINES] = {
 #if MELODEE_FM4
     [ENGI_DIGITAL] = "KEBRGPEK",                        /* DIGITAL (MELODEE_FM4 builds): E.PIANO .. FUNK KEY */
 #endif
+#if MELODEE_LEGACY_EXTRAS                                /* (retired: PHASE VOICE NOISE) */
     [2] = "RGSLEU",                                     /* PHASE: BRASS ORGAN STRING RESO BELL WIRE */
-    [3] = "LBULL",                                      /* LOFI */
     [5] = "PLBF",                                       /* VOICE: CHOIR AAH, VOX LEAD, WOW BASS, WHISPER */
-    [10] = "DD",                                        /* DRUM: the kits */
     [11] = "FFFF",                                      /* NOISE */
+#endif
+    [3] = "LBULL",                                      /* LOFI */
+    [10] = "DD",                                        /* DRUM: the kits */
     [12] = "KEBRPEGUKRBEEKGSPLUEWEBE",                  /* FM6 */
     [ENGI_CZ] = "ORRRSSSSSUUUBBBBURWSWWWWUKKKKKKKKGGGGGPPPEEEEEDEESSULLLLFDDDEFFFF",   /* INIT TONE, Casio's 64 */
     [ENGI_PROPHET] =                                    /* INIT, Sequential's 200 */

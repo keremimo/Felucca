@@ -398,13 +398,13 @@ static void eng(uint32_t e) { set_engine_of(TSEL, e); }
  * OP LEVEL pages and the algorithm charts, exist only there: fm4_screen) */
 #define E_FM (MELODEE_FM4 ? ENGI_DIGITAL : ENGI_FM6)
 
-enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_PRESETS_CAT, S_PRESETS_PENDING, S_PRESETS_RECENT, S_USER, S_PHRASES, S_PROJECT, S_PROJECT_BOOT, S_TEMPO, S_TOOLS,
+enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_PRESETS_CAT, S_PRESETS_PENDING, S_PRESETS_RECENT, S_USER, S_PROJECT, S_PROJECT_BOOT, S_TEMPO, S_TOOLS,
        S_SONG_EMPTY, S_SONG, S_STEP, S_PATTERN, S_CHANCE, S_MOTION, S_DRUM, S_MIXER, S_MIXER_PAN,
        S_ENV, S_ENVDEST, S_LFO, S_MOD, S_FX, S_SLICER, S_DLY, S_SCL, S_CHORD, S_CHORD_WIDE, S_CHORD_OFF, S_CHORD_KIT, S_ARP, S_VOICE, S_GLOBAL, S_SYSTEM,
        S_EDIT_ANALOG, S_EDIT_DIGITAL, S_OP_ENV, S_EDIT_WHEEL, S_EDIT_PHYS,
        S_ALG1, S_ALG2, S_ALG3, S_ALG4, S_ALG5, S_ALG6, S_ALG7, S_ALG8, S_OP_LEVEL,
        S_FM6_ALG1, S_FM6_ALG5, S_FM6_ALG22, S_FM6_ALG32, S_FM6_FREQ, S_FM6_EG, S_FM6_PEG, S_FM6_STORE, S_CZ1_ENV,
-       S_CONFIRM_SEQ, S_CONFIRM_PROJ, S_CONFIRM_USER, S_CONFIRM_PAT, S_CONFIRM_MOTION, S_CONFIRM_ERASE,
+       S_CONFIRM_SEQ, S_CONFIRM_PROJ, S_CONFIRM_USER, S_CONFIRM_MOTION, S_CONFIRM_ERASE,
        S_MENU, S_MENU_SPEAKER, S_ABOUT, S_ABOUT_REC, S_ABOUT_CREDITS, S_ABOUT_END, S_UBOOT, S_CALIBRATION,
        S_BATT0, S_BATT1, S_BATT2, S_BATT3, S_BATT_USB, S_MOTION_REC, S_MOTION_OFF, S_SONG_HOME,
        S_FX_PEEK, S_FX_HELD, S_FX_WAIT, S_FX_HARM, S_MENU_HOLD, S_MENU_USB, S_REVERB,
@@ -420,12 +420,13 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_STAGE_DRUM, S_STAGE_CZ, S_STAGE_P5, S_STAGE_QUEUED, S_STAGE_BROWSE, S_STAGE_STOPPED, S_STAGE_FILTER, S_STAGE_ENV, S_PATGRID, S_PATGRID_STOPPED, S_PROJECT_NEW, S_NEW_KEY, S_NEW_ROLES,
        S_REF_STAGE_HELD, S_REF_STAGE_RELEASED, S_REF_STAGE_CUTOFF, S_REF_STAGE_DRUM, S_REF_BROWSER, S_REF_PATTERNS, S_REF_SONG,
        S_REF_ENV, S_REF_LFO, S_REF_EDIT_OSC, S_REF_FX, S_REF_DLY, S_REF_MIXER, S_REF_NOTES, S_REF_SETTINGS, S_REF_DIALOG,
-       S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6, S_COUNT };
+       S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6,
+       S_REF_SCL_LIST, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
-    "phrases", "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
+    "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
     "voice", "global", "system", "edit_analog", MELODEE_FM4 ? "edit_digital" : "edit_fm6", "op_env", "edit_wheel",
-    "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "fm6_freq", "fm6_eg", "fm6_peg", "fm6_store", "cz1_env", "confirm_seq", "confirm_project", "confirm_user", "confirm_pattern",
+    "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "fm6_freq", "fm6_eg", "fm6_peg", "fm6_store", "cz1_env", "confirm_seq", "confirm_project", "confirm_user",
     "confirm_motion", "confirm_erase", "menu", "menu_speaker", "about", "about_rec", "about_credits", "about_end", "uboot", "calibration",
     "batt_0", "batt_1", "batt_2", "batt_3", "batt_usb", "motion_rec", "motion_off", "song_home",
     "perform_peek", "perform_held", "perform_wait", "perform_harm", "menu_hold", "menu_usb", "reverb_spring",
@@ -440,7 +441,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
     "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long",
     "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "stage_env", "patterns", "patterns_stopped", "project_new", "new_key", "new_roles",
-    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_fx", "ref_dly", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_sections_p5", "ref_map_p5", "ref_map_fm6"};
+    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_fx", "ref_dly", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -459,8 +460,8 @@ static void mock_state(int s)
     song.playing = 1;
     song.g[G_BPM] = 124;
     for (i = 0; i < NTRK; i++) trk[i].seq_idx = 5;
-    load_pat16(&trk[0], PATTERNS[0].note, PATTERNS[0].flags);
-    load_pat16(&trk[1], PATTERNS[4].note, PATTERNS[4].flags);
+    demo_pat16(&trk[0], DEMO_ACID);
+    demo_pat16(&trk[1], DEMO_PAD);
     for (i = 0; i < 16u; i++) {
         step_t *st = &trk[3].step[i];
         memset(st, 0, sizeof *st);
@@ -490,7 +491,7 @@ static void mock_state(int s)
         trk[0].peak = 11000; trk[1].peak = 3300; trk[3].peak = 20000;     /* (the mock's stand-in meters) */
         ui.hot_col = 1; ui.hot_t = 30;
         break;
-    case S_MOCK_DIALOG: ui.confirm = CF_OVR_PROJ; ui.confirm_trk = 0; go_page(GR_PATS); break;
+    case S_MOCK_DIALOG: ui.confirm = CF_OVR_PROJ; ui.confirm_trk = 0; go_title("PROJECT"); break;
     case S_MOCK_MENU: ui.menu = 1; ui.menu_sel = 0; break;
     default: break;
     }
@@ -524,7 +525,7 @@ static void roll_scene(int s)
     case S_ROLL_EMPTY: break;
     case S_ROLL_ACID:
     case S_ROLL_PLAYING:
-        load_pat16(t, PATTERNS[0].note, PATTERNS[0].flags);
+        demo_pat16(t, DEMO_ACID);
         t->p[P_ROOT] = 9; t->p[P_SCALE] = 2; ui.cursor = 6;
         if (s == S_ROLL_PLAYING) {
             song.playing = 1; t->seq_idx = 9;
@@ -555,7 +556,7 @@ static void roll_scene(int s)
         ui.cursor = 9;
         break;
     case S_ROLL_LEN32:
-        load_pat16(t, PATTERNS[0].note, PATTERNS[0].flags);
+        demo_pat16(t, DEMO_ACID);
         t->p[P_SLEN] = 32;
         for (i = 16; i < 32u; i++) {
             uint8_t n = (uint8_t)(60 + (i * 5u) % 12u);
@@ -724,6 +725,10 @@ static void ref_scene(int s)
         if (s == S_REF_MAP_P5) smap_open();
         else { ui.hot_col = 0; ui.hot_t = 30; }
         break;
+    case S_REF_SCL_LIST:                             /* (R6) SCL as a list: D# minor, the Scale row */
+        song.playing = 0; trk[1].p[P_ROOT] = 3; trk[1].p[P_SCALE] = 2;
+        go_title("SCL"); lst.page = ui.page; lst.row = 1; lst.first = 0;
+        break;
     case S_REF_MAP_FM6:                              /* (R7) FM6's map from OP3 EG RATE */
         set_engine_of(&trk[1], ENGI_FM6); trk[1].engine = ENGI_FM6; song.playing = 0;
         fm6_opsel = 2; go_title("EG RATE"); smap_open();
@@ -766,7 +771,7 @@ static void setup(int s)
         return;
     }
     state();
-    if (s >= S_REF_STAGE_HELD && s <= S_REF_MAP_FM6) {
+    if (s >= S_REF_STAGE_HELD && s <= S_REF_SCL_LIST) {
         ref_scene(s);
         return;
     }
@@ -802,7 +807,6 @@ static void setup(int s)
     }
     case S_PRESETS_RECENT: list_set(LM_RECENT); go_page(GR_BROWSE); break;
     case S_USER: song.playing = 0; up_store(3, "MY LONG BASS NAME"); up_store(4, "PAD"); ui.uslot = 3; go_page(GR_USER); break;
-    case S_PHRASES: go_page(GR_PATS); break;
     case S_PROJECT: song.playing = 0; project_save(1); song.g[G_SLOT] = 2; go_page(GR_SLOTS); ui.act = 4; break;
     case S_TEMPO: go_title("TEMPO"); song.g[G_SWING] = 12; break;
     case S_PROJECT_BOOT:                                 /* A, B saved, the template; BOOT B, SLOT TMPL, KNOB 2 turned */
@@ -1024,7 +1028,6 @@ static void setup(int s)
     case S_CONFIRM_SEQ: ui.confirm = CF_CLEAR_SEQ; ui.confirm_trk = 2; break;
     case S_CONFIRM_PROJ: ui.confirm = CF_OVR_PROJ; ui.confirm_trk = 0; break;
     case S_CONFIRM_USER: song.playing = 0; up_store(6, "A VERY LONG SOUND NAME"); ui.confirm = CF_OVR_USER; ui.confirm_trk = 6; break;
-    case S_CONFIRM_PAT: ui.confirm = CF_LOAD_PAT; ui.confirm_trk = 0; ui.ppick = 4; break;
     case S_CONFIRM_MOTION: ui.confirm = CF_CLEAR_MOTION; ui.confirm_trk = 3; break;
     case S_CONFIRM_ERASE: song.playing = 0; up_store(6, "A VERY LONG SOUND NAME"); ui.confirm = CF_ERASE_USER; ui.confirm_trk = 6; break;
     case S_MENU: ui.menu = 1; ui.menu_sel = 0; song.rec = 1; break;
