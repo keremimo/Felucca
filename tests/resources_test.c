@@ -31,9 +31,12 @@ static int cache_tests(void)
     bad+=check("missing flash refuses mutations without evicting committed indexes",native_put(ENGI_FM6,0,fm)==2 && native_put(ENGI_CZ,0,cz)==2 && up_store(0,"NO FLASH")==2 && native_used(ENGI_FM6,0) && native_used(ENGI_CZ,0) && up_used(0));
     flash_ok=1;
     bad+=check("failed missing-flash writes preserve stored patches",native_raw(ENGI_FM6,0)[118]=='A' && native_raw(ENGI_CZ,0)[128]=='A' && up_value(up_rec(0),P_E0)==0);
-    resource_get(RES_PERFORM,RESOURCE_CAPACITY);
+    resource_get(RES_PERFORM,RESOURCE_MAIN_CAPACITY);
+    for(uint32_t b=0;b<RESOURCE_BANKS-1u;b++)if(b!=RESOURCE_CACHE_BANK || RESOURCE_CACHE_AVAILABLE)
+        resource_get(RES_ENGINE0+b,(uint32_t)((uintptr_t)resource_banks[b].end-(uintptr_t)resource_banks[b].start));
     bad+=check("legacy scratch exhaustion returns a safe missing bank",!upf_bank(0) && !upf_valid(upf_bank(0)));
     resource_release(RES_PERFORM);
+    for(uint32_t b=0;b<RESOURCE_BANKS-1u;b++)resource_release(RES_ENGINE0+b);
     return bad;
 }
 static int audio_tests(void)
@@ -108,7 +111,57 @@ static int audio_tests(void)
     printf("resources: default engine bytes %u, worst audio bytes %u, host arena %u\n",expected,maximum+32768u+CHO_LEN*2u+(uint32_t)REV_MEMORY_BYTES+DL_N*2u,RESOURCE_CAPACITY);
     return bad;
 }
+static int bank_tests(void)
+{
+    int bad=0;
+    audio_resources_reset();
+    for(uint32_t b=0;b<RESOURCE_BANKS;b++){
+        if(b==RESOURCE_CACHE_BANK && !RESOURCE_CACHE_AVAILABLE)continue;
+        uint32_t n=(uint32_t)((uintptr_t)resource_banks[b].end-(uintptr_t)resource_banks[b].start);
+        uint8_t *p=resource_get(b,n);
+        bad+=check("each disjoint bank can be filled exactly without spanning its boundary",p==resource_banks[b].start && resource[b].size==n);
+        if(p)memset(p,(int)(b+1u),n);
+    }
+    bad+=check("all SRAM tails contribute usable capacity",resource_used()==RESOURCE_CAPACITY && resource_used()>RESOURCE_MAIN_CAPACITY);
+    bad+=check("combined capacity cannot be returned as one contiguous allocation",!resource_get(RES_PERFORM,RESOURCE_CAPACITY));
+    void *saved=resource[0].ptr;uint32_t size=resource[0].size;
+    bad+=check("failed growth leaves original allocation and contents intact",!resource_get(0,size+4u) && resource[0].ptr==saved && resource[0].size==size && ((uint8_t *)saved)[size-1u]==1u);
+    bad+=check("overflowing requests fail without releasing a live allocation",!resource_get(0,UINT32_MAX) && !resource_get(0,UINT32_MAX-3u) && resource[0].ptr==saved && resource[0].size==size);
+    for(uint32_t b=1;b<RESOURCE_BANKS;b++)if(b!=RESOURCE_CACHE_BANK || RESOURCE_CACHE_AVAILABLE)
+        bad+=check("exhaustion does not overwrite another bank",((uint8_t *)resource[b].ptr)[0]==b+1u && ((uint8_t *)resource[b].ptr)[resource[b].size-1u]==b+1u);
+    resource_release(0);
+    uint32_t *p=resource_get(0,5u);
+    bad+=check("released tail is reusable and rounded allocation is zeroed",p==saved && resource[0].size==8u && !p[0] && !p[1]);
+    bad+=check("same-size reuse preserves contents",(p[0]=0xA5A5A5A5u,resource_get(0,8u)==p && p[0]==0xA5A5A5A5u));
+    audio_resources_reset();
+    uint32_t rng=1u;int valid=1;
+    for(uint32_t cycle=0;cycle<8192u && valid;cycle++){
+        rng=rng*1664525u+1013904223u;uint32_t id=(rng>>16)%RES_COUNT;
+        rng=rng*1664525u+1013904223u;
+        uint32_t bytes=(rng>>16)%36000u;
+        if(!(cycle%7u))resource_release(id);else resource_get(id,bytes);
+        for(uint32_t a=0;a<RES_COUNT && valid;a++)if(resource[a].size){
+            uintptr_t lo=(uintptr_t)resource[a].ptr,hi=lo+resource[a].size;int contained=0;
+            for(uint32_t b=0;b<RESOURCE_BANKS;b++)
+                if(b!=RESOURCE_CACHE_BANK || RESOURCE_CACHE_AVAILABLE)
+                    contained|=lo>=(uintptr_t)resource_banks[b].start && hi<=(uintptr_t)resource_banks[b].end;
+            valid&=contained && !(lo&3u) && !(resource[a].size&3u);
+            for(uint32_t b=0;b<a;b++)if(resource[b].size)
+                valid&=hi<=(uintptr_t)resource[b].ptr || lo>=(uintptr_t)resource[b].ptr+resource[b].size;
+        }
+    }
+    bad+=check("8192 allocation/release transitions stay aligned, inside one bank and disjoint",valid);
+    audio_resources_reset();return bad;
+}
 int main(void)
 {
-    int bad=cache_tests()+audio_tests();printf("Resource test %s\n",bad?"FAILED":"passed");return !!bad;
+    resource_host_cache_enabled=0;int bad=bank_tests();
+    uint32_t sram_capacity=RESOURCE_CAPACITY;
+    resource_host_cache_enabled=1;bad+=bank_tests();
+    bad+=check("validated data-cache bank adds exactly 28 KiB",RESOURCE_CAPACITY==sram_capacity+28672u);
+#ifndef RESOURCES_BANKS_ONLY
+    bad+=cache_tests()+audio_tests();
+    resource_host_cache_enabled=0;bad+=cache_tests()+audio_tests();
+#endif
+    printf("Resource test %s\n",bad?"FAILED":"passed");return !!bad;
 }

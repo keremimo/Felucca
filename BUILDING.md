@@ -71,7 +71,9 @@ SAMPLE engine has only the generated drum kit.
 
 ## Tests
 
-Audio working memory is allocated on demand from the unused part of POOL. Each
+Audio working memory is allocated on demand from the unused part of POOL and
+linker-derived gaps after RAM code, ordinary data and retained state. Allocations
+stay within a single bank and preserve boot records and stack guards. Each
 track reserves only its current engine state; STUT reserves 8 KiB per enabled
 track, while GATE needs no recording buffer. Performance loops reuse the same
 32 KiB capacity as the four stutters. Chorus and reverb retain their tails before
@@ -138,6 +140,28 @@ cd /tmp/melodee-site && python3 -m http.server 8000
 
 Installing firmware is at your own risk. If an install fails and the FM-1 no longer
 starts, recovery needs [FM-1-transporter](https://github.com/kurogedelic/FM-1-transporter).
+
+## Experimental cache RAM
+
+`MELODEE_CACHE_RAM=1 ./build.sh` reclaims seven 4 KiB data-cache ways
+at `0x01F28000..0x01F2F000`, following the AC79 SDK's flash-execution
+configuration. All instruction-cache ways remain available. The default is 0
+pending device validation. Keep USB audio enabled during validation.
+
+The boot routine runs wholly in SRAM with interrupts off and CPU1 held. It
+refuses external-memory configurations, verifies the cache registers, tests the
+entire bank with address patterns and complements, and only then exposes it to
+the allocator. Failed tests restore the inherited configuration; a boot retry
+skips cache reconfiguration. Code and stacks remain in ordinary SRAM/XIP.
+
+`tools/usb_audio_stats.py --port Felucca --memory --window` reports cache status
+(0 disabled, 1 ready, 2 boot retry, 3 external memory, 4 timeout, 5 register
+failure, 6 memory failure), before/after register values, test duration,
+resource capacity/usage/failures and bytes allocated in cache RAM. Existing
+diagnostic requests retain their schemas. Host tests cover startup refusal,
+faulty/aliased banks and rollback, but cannot prove physical cache behavior.
+Verify boot, sustained audio/MIDI/USB activity, persistence and update entry
+before enabling this option by default.
 
 ## Experimental second-core FM6/Prophet build
 

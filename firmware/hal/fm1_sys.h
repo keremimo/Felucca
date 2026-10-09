@@ -122,7 +122,7 @@ static void fm1_reboot(void)
  * C1_CON bit 1 to hold the core and bit 3 to release it. */
 static inline void fm1_core1_stop(void)
 {
-#if MELODEE_DUAL_CORE
+#if MELODEE_DUAL_CORE || MELODEE_CACHE_RAM
     *(volatile uint32_t *)0x1EEE004u |= 2u;
     *(volatile uint32_t *)0x1EEE004u &= ~8u;
     __asm__ volatile("csync" ::: "memory");

@@ -183,7 +183,7 @@ def build_app():
     flags = [*CFLAGS, "-Ifirmware/hal", "-Ifirmware/src", "-Ibuild/gen"]
     for flag in ("MELODEE_FLASH", "MELODEE_OTA", "MELODEE_OTA_DRYRUN", "MELODEE_OTA_RAMONLY", "MELODEE_CDC",
                  "MELODEE_UART", "MELODEE_USB_AUDIO", "MELODEE_ICONS", "MELODEE_FM4", "MELODEE_PROPHET_PROTOTYPE",
-                 "MELODEE_BENCH_SILENT", "MELODEE_DUAL_CORE"):
+                 "MELODEE_BENCH_SILENT", "MELODEE_DUAL_CORE", "MELODEE_CACHE_RAM"):
         v = os.environ.get(flag)    # unset: the default in firmware/src/melodee.c
         if v in ("0", "1"):
             flags.append(f"-D{flag}={v}")
@@ -288,6 +288,23 @@ def check(img, syms, dis, rt):
         if arena < 152 * 1024: errors.append("audio working arena below worst-case budget")
     if bss > 96 * 1024:
         errors.append("RAM region overflow")
+    tails = 0
+    for name, floor, ceiling in (("low", sym("_dt_end"), 0x01C07F00),
+                                 ("data", sym("_bss_end"), 0x01C20000),
+                                 ("retained", sym("_noinit_end"), 0x01C7FD50)):
+        begin, end = sym(f"_resource_{name}_start"), sym(f"_resource_{name}_end")
+        if not floor <= begin <= end <= ceiling or (begin | end) % 4:
+            errors.append(f"{name} resource bank crosses a reserved SRAM boundary")
+        else:
+            tails += end - begin
+            notes.append(f"{name} SRAM tail {end - begin} B: {begin:#010x}..{end:#010x} (end exclusive)")
+    notes.append(f"total audio resources {arena + tails} B in four separate SRAM banks; reclaimed {tails} B")
+    if sym("fm1_cache_init"):
+        if not sym("_rt_start") <= sym("fm1_cache_init") < sym("_rt_end"):
+            errors.append("cache configuration must execute wholly in SRAM")
+        if (sym("_resource_cache_start"), sym("_resource_cache_end")) != (0x01F28000, 0x01F2F000):
+            errors.append("cache resource bank must cover exactly the seven freed data-cache ways")
+        notes.append(f"cache RAM: optional 28672 B after boot self-test; maximum resources {arena + tails + 28672} B")
     if 0x54000 - pool < 8192:                     # keep >= 8 KiB of the pool spare
         errors.append(f"pool headroom {0x54000 - pool} B < 8192 B")
     return errors, notes

@@ -104,6 +104,8 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -pthread -o "$OUT/dual_core_test" tests/du
 run "paired FM6/Prophet voices: serial/concurrent sample equality and eight-voice allocation" "$OUT/dual_core_test"
 $CC -o "$OUT/audio_worker_test" tests/audio_worker_test.c
 run "audio worker: stalled jobs and wrapping deadlines" "$OUT/audio_worker_test"
+$CC -o "$OUT/cache_ram_test" tests/cache_ram_test.c
+run "cache RAM startup, memory faults and safe fallback" "$OUT/cache_ram_test"
 run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/engine_retirement_test" tests/engine_retirement_test.c -lm
 run "retired synth identities, project/user patch preservation and favorites" "$OUT/engine_retirement_test"
