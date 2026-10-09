@@ -163,6 +163,34 @@ static void head_chip_text(char *b)
         str_cpy(b, t, 16);
     }
 }
+/* the page's place in its family: a dot a page, the page's a pill in the track's colour (no room: "3/12") */
+static void head_pages(int32_t x1)                     /* (x1: where the chip, or the battery, starts) */
+{
+    const page_t *pg = cur_page();
+    uint32_t i, n = 0, k = 0;
+    int32_t x = 96;
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].fam == pg->fam && page_visible(i)) {
+            if (i == ui.page)
+                k = n;
+            n++;
+        }
+    if (n < 2u)
+        return;
+    if (x + (int32_t)n * 9 + 8 > x1 - 6) {              /* (no room for the dots) */
+        char b[8];
+        fmt_int(b, (int32_t)k + 1);
+        str_cpy(b + str_len(b), "/", 2);
+        fmt_int(b + str_len(b), (int32_t)n);
+        cv_text_on(x, 4, &AF_X, b, T_MID, T_BG);
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        int32_t w = i == k ? 12 : 4;
+        cv_rrect(x, 7, w, 4, 2, i == k ? T_THEME : T_LINE, T_BG);
+        x += w + 5;
+    }
+}
 static void draw_head(void)
 {
     char b[16], chip[16];
@@ -171,7 +199,8 @@ static void draw_head(void)
     head_chip_text(chip);
     sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + (uint32_t)(song.octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
-          (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u;
+          (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
+          (ui.home ? 0u : ui.page * 2654435761u);
     if (song.g[G_BPM] != ui.roll_bpm) {
         char a[8];
         fmt_int(a, ui.roll_bpm);
@@ -204,6 +233,8 @@ static void draw_head(void)
     } else {
         int32_t cw = text_w(&AF_X, chip) + 16;
         if (cw < 82) cw = 82;
+        if (!ui.home && !song.octave && !chain.running)   /* a page: where it is in its family */
+            head_pages(232 - cw - (low ? 20 : 0));
         if (song.octave || chain.running) {             /* the octave shift, or the song's row */
             if (chain.running) { str_cpy(b, "ROW ", 8); fmt_int(b + 4, (int32_t)chain.row + 1); }
             else { str_cpy(b, song.octave > 0 ? "OCT +" : "OCT ", 8); fmt_int(b + str_len(b), song.octave); }
@@ -245,6 +276,10 @@ static void draw_frame(int stage)
  * a label too long to share the card with its icon goes without it.
  * vc: the value's colour (T_THEME, T_DIM inactive, T_ACCENT the knob just turned) */
 static uint8_t stage_drop_rows;                         /* Stage's knobs dropping in: the cards' bottom rows only, 0 all */
+enum { CS_CARD, CS_STRIP };                             /* how draw_column draws a knob: a card, the redesign's pages' */
+static uint8_t col_style;                               /* (ui_pages.c pv_column) */
+static void pv_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
+                      int hot);
 static void draw_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc,
                         int32_t ratio, uint32_t icon)
 {
@@ -276,6 +311,13 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     key[n + 5] = (char)(icon == ICON_NONE ? '~' : '!' + icon % 90u);
     key[n + 6] = (char)('0' + hot);
     key[n + 7] = 0;
+    if (col_style != CS_CARD) {                         /* the redesign's pages: their own style (ui_pages.c) */
+        if (!ui.force && str_eq(key, ui.col[c]))
+            return;
+        str_cpy(ui.col[c], key, sizeof ui.col[c]);
+        pv_column(c, label, val, unit, vc, ratio, hot);
+        return;
+    }
     uw = unit[0] ? text_w(&AF_X, unit) + 2 : 0;
     if (text_w(vf, val) + uw > room)
         vf = &AF_S;
@@ -958,6 +1000,7 @@ static void draw_confirm(void)
     cv_blit(DLG_X, DLG_Y);
 }
 
+#include "ui_pages.c"                                   /* the redesign's other pages (R5) */
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
@@ -1022,7 +1065,9 @@ static void ui_draw(void)
         page_entered();
     }
     cursor_fix();
-    if (own_screen()) {                                 /* the browser, PATTERNS, SONG: screens of their own */
+    if (!own_screen() && pv_kind()) {                   /* the redesign's other pages (ui_pages.c) */
+        pv_draw();
+    } else if (own_screen()) {                          /* the browser, PATTERNS, SONG: screens of their own */
         if (cur_page()->graph == GR_BROWSE)
             browser_draw();
         else if (cur_page()->graph == GR_SONG)
@@ -1054,7 +1099,7 @@ static void ui_draw(void)
     if (ui.hot_t)
         ui.hot_t--;
     melodee_dbg.stage = 6;
-    if (!ui.home && !own_screen())
+    if (!ui.home && !own_screen() && !pv_kind())
         draw_foot();
     ui.force = 0;
     scr_shown();

@@ -1954,23 +1954,23 @@ static int test_product_ux(void)
     bad += check("PLAY and REC LEDs stay lit across time and audio block phase", ok);
     led_pos_init();
     ok = 1;
-    for (p = 0; p < NPALETTES; p++) for (b = 0; b < 1u; b++) {
-        uint16_t graph[240 * H_GRAPH], columns[240 * (Y_SEP_END - Y_LABEL)];
+    for (p = 0; p < NPALETTES; p++) for (b = 0; b < 1u; b++) {   /* (ENV: its knobs the strip under the curve) */
+        uint16_t sound[240 * (240 - PV_SOUND_Y)], columns[240 * PV_STRIP_H];
         ui_power_on(); palette_set(p); settings.zoom = 1;
         open_family(FAM_ENV); frame();
-        memcpy(graph, host_screen + Y_GRAPH * 240, sizeof graph);
-        memcpy(columns, host_screen + Y_LABEL * 240, sizeof columns);
+        memcpy(sound, host_screen + PV_SOUND_Y * 240, sizeof sound);
+        memcpy(columns, host_screen + PV_STRIP_Y * 240, sizeof columns);
         ui.hot_col = 1; ui.hot_t = 40; ui.force = 1; ui_draw();
-        ok &= !memcmp(graph, host_screen + Y_GRAPH * 240, sizeof graph);
+        ok &= !memcmp(sound, host_screen + PV_SOUND_Y * 240, sizeof sound);
         int changed = 0;
-        for (uint32_t y = 0; y < Y_SEP_END - Y_LABEL; y++) for (uint32_t x = 0; x < 240; x++) {
-            uint16_t old = columns[y * 240 + x], now = host_screen[(Y_LABEL + y) * 240 + x];
+        for (uint32_t y = 0; y < PV_STRIP_H; y++) for (uint32_t x = 0; x < 240; x++) {
+            uint16_t old = columns[y * 240 + x], now = host_screen[(PV_STRIP_Y + y) * 240 + x];
             if (x >= (uint32_t)CARD_X(1) && x < (uint32_t)(CARD_X(1) + CARD_W)) changed |= old != now;   /* (outlined) */
             else ok &= old == now;
         }
         ok &= changed;
     }
-    bad += check("all palettes: active column is subtle, stable-size, no zoom over graph", ok);
+    bad += check("all palettes: the knob turning is lifted in place, the others and the page stay", ok);
     bad += check("SAMPLE and SLICE retired from selectors with reserved stored IDs",!eng_ok(4) && !eng_ok(13) && !ENGINES[4]->npresets && !ENGINES[13]->npresets);
     ui_power_on(); return bad;
 }
