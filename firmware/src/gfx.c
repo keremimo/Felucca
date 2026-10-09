@@ -22,7 +22,7 @@ typedef struct {
 } aafont_t;
 typedef struct { const char *name; uint16_t bg, surf, text, accent, trk[4]; } ui_pal_t;
 typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
-#include "ui_fonts.h"                   /* AF_S 12 px / 400, AF_M 15 px / 500, AF_L 28 px / 600 */
+#include "ui_fonts.h"                   /* AF_X 9 px / 500 (labels), AF_S 11 px / 400, AF_M 15 px / 500, AF_L 30 px / 500 */
 #include "ui_palettes.h"
 #include "ui_keycaps.h"                 /* KC_*: the keycaps / badges (tools/gen_aa_keycaps.py), KNOB_* arcs */
 #define ELLIPSIS '\x85'                 /* the ellipsis glyph of AF_S and AF_M */
@@ -60,6 +60,7 @@ static int16_t cv_cy0, cv_cy1;   /* text clip: canvas rows cv_cy0 .. cv_cy1 - 1 
 static struct {
     uint16_t bg, surf, text, theme, accent;
     uint16_t mid, dim, line, sel, tint, ink, rec, raise, key, lane, grid;
+    uint16_t panel, quiet, lift, sec;   /* the redesign's (docs/design): panel, a quiet lane, the selected lane, names */
     uint8_t light, mono;
     uint8_t pal, trk;            /* the palette, the track whose colour is THEME (palette_track) */
     uint32_t gen;                /* bumped by palette_set (the text ramps follow) */
@@ -80,6 +81,10 @@ static struct {
 #define T_KEY ux.key             /* a keycap's fill (its label: T_INK; unavailable: a T_DIM fill) */
 #define T_LANE ux.lane           /* the piano roll: an in-scale row (SURF -> THEME 10 %) */
 #define T_GRID ux.grid           /* the piano roll: a step line (SURF -> TEXT 6 %; beats and C rows: RAISE) */
+#define T_PANEL ux.panel         /* a view's big area (BG -> SURF 55 %) */
+#define T_QUIET ux.quiet         /* a lane not selected (BG -> SURF 25 %) */
+#define T_LIFT ux.lift           /* the selected lane (SURF -> TEXT 3 %) */
+#define T_SEC ux.sec             /* secondary names (BG -> TEXT 80 %) */
 #define NPALETTES UI_NPALETTES
 #ifdef UI_TEST_PALETTE
 #define UI_PAL_ENTRIES (UI_NPALETTES + 1u)   /* + GRAY (host tests: every screen must stay gray in it) */
@@ -134,6 +139,10 @@ static void palette_set(uint32_t i)
     ux.raise = ux_mix(p->surf, p->text, UI_RAISE_PCT);
     ux.key = ux_mix(p->bg, p->text, UI_KEY_PCT);
     ux.grid = ux_mix(p->surf, p->text, 6);
+    ux.panel = ux_mix(p->bg, p->surf, 55);
+    ux.quiet = ux_mix(p->bg, p->surf, 25);
+    ux.lift = ux_mix(p->surf, p->text, 3);
+    ux.sec = ux_mix(p->bg, p->text, 80);
     ux.light = ux_luma(p->bg) > 128u;
     ux.rec = ux.mono ? p->accent : ux.light ? UI_REC_LIGHT : UI_REC_DARK;
     palette_theme();
@@ -303,6 +312,59 @@ static void cv_rrect(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint
             cv_pset(x + i, y + h - 1 - j, px);
             cv_pset(x + w - 1 - i, y + h - 1 - j, px);
         }
+}
+
+/* a disc of diameter d (px) centred on (cx, cy) (odd d: a pixel's centre; even: its corner), anti-aliased over
+ * what is on the canvas (4 x 4 samples a pixel); ring: only its outer 1 px (the patterns' track numbers) */
+static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a);
+static void cv_disc(int32_t cx, int32_t cy, int32_t d, uint16_t c, int ring)
+{
+    int32_t qx = cx * 8 + ((d & 1) ? 4 : 0), qy = (cy + cv_oy) * 8 + ((d & 1) ? 4 : 0), r = d * 4, ri = r - 8, x, y;
+    for (y = cy + cv_oy - d / 2 - 1; y <= cy + cv_oy + d / 2 + 1; y++)
+        for (x = cx - d / 2 - 1; x <= cx + d / 2 + 1; x++) {
+            int32_t n = 0, i, j;
+            if ((uint32_t)x >= cv_w || (uint32_t)y >= cv_h) continue;
+            for (j = 0; j < 4; j++)
+                for (i = 0; i < 4; i++) {
+                    int32_t dx = x * 8 + 1 + 2 * i - qx, dy = y * 8 + 1 + 2 * j - qy, q = dx * dx + dy * dy;
+                    n += q <= r * r && !(ring && q < ri * ri);
+                }
+            if (n) {
+                uint16_t *p = &cv_px[(uint32_t)y * cv_w + (uint32_t)x];
+                *p = swap16(mix565(swap16(*p), c, (uint32_t)n * 2u));
+            }
+        }
+}
+static void cv_circle(int32_t cx, int32_t cy, int32_t d, uint16_t c, uint16_t under) { (void)under; cv_disc(cx, cy, d, c, 0); }
+static void cv_ring(int32_t cx, int32_t cy, int32_t d, uint16_t c) { cv_disc(cx, cy, d, c, 1); }
+/* column x from y a to y b (1/16 px, either order) 2 px thick, its ends anti-aliased, blended over the canvas: a
+ * smooth trace drawn a column at a time (Stage's waveform, docs/design) */
+static void cv_vspan_aa(int32_t x, int32_t a, int32_t b, uint16_t c)
+{
+    int32_t lo = a < b ? a : b, hi = (a < b ? b : a) + 32, y;
+    if ((uint32_t)x >= cv_w)
+        return;
+    for (y = lo >> 4; y <= (hi - 1) >> 4; y++) {
+        int32_t py = y + cv_oy, top = y * 16, cov = (hi < top + 16 ? hi : top + 16) - (lo > top ? lo : top);
+        uint16_t *p;
+        if ((uint32_t)py >= cv_h || cov <= 0) continue;
+        p = &cv_px[(uint32_t)py * cv_w + (uint32_t)x];
+        *p = swap16(mix565(swap16(*p), c, (uint32_t)cov * 2u));
+    }
+}
+/* a 1 px dashed outline, 3 on, 2 off (a pattern waiting: the design's dashed chip), its corners rounded (r) and solid */
+static void cv_dashed(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint16_t c)
+{
+    int32_t i;
+    for (i = r; i < w - r; i++)
+        if ((i - r) % 5 < 3) { cv_pset(x + i, y, c); cv_pset(x + i, y + h - 1, c); }
+    for (i = r; i < h - r; i++)
+        if ((i - r) % 5 < 3) { cv_pset(x, y + i, c); cv_pset(x + w - 1, y + i, c); }
+    for (i = 0; i < r; i++) {                       /* the corners: the quarter circle's pixels */
+        int32_t j = r - 1 - i;
+        cv_pset(x + i, y + j, c); cv_pset(x + w - 1 - i, y + j, c);
+        cv_pset(x + i, y + h - 1 - j, c); cv_pset(x + w - 1 - i, y + h - 1 - j, c);
+    }
 }
 
 /* ------------------------------------------------- 4-bit alpha blit --- */

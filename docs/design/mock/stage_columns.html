@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--surface-1:#2a2a2e;--text-secondary:#aaa}
+body{background:#111;color:#eee;font-family:system-ui;margin:12px;width:1100px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+</style></head><body><style>
+@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500&display=swap');
+.mg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:1rem 0}
+.mc{background:var(--surface-1);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.mc svg{width:100%;max-width:300px;border-radius:8px;font-family:Rubik,system-ui,sans-serif}
+.cap{font-size:13px;color:var(--text-secondary);text-align:center}
+</style>
+<h2 class="sr-only">Stage as four track columns with a note panel at the bottom; turning a knob drops the selected track's four engine knobs down over the columns.</h2>
+<div class="mg">
+<div class="mc"><svg viewBox="0 0 240 240" id="e0"></svg><div class="cap">Resting: four columns, notes and chord below</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="e1"></svg><div class="cap">First turn: the knobs drop in over the columns</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="e2"></svg><div class="cap">Turning: knobs out, the panel shows what it shapes</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="e3"></svg><div class="cap">Drum track selected: lanes flash in the panel</div></div>
+</div>
+<script>
+const C=['#FF7A5C','#FFC145','#46D9B0','#9D8CFF'],TX='#F3EEF8',MD='#9A93A8',DM='#5A5468',LN='#2E2939',SF='#221E2C',BG='#17141F',PN='#1D1926';
+const t=(x,y,s,f,c,a,w)=>`<text x="${x}" y="${y}" font-size="${f}" fill="${c}" ${a?`text-anchor="${a}"`:''} font-weight="${w?500:400}">${s}</text>`;
+const r=(x,y,w,h,f,rx,st,dash)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx==null?4:rx}" fill="${f}" ${st?`stroke="${st}"`:''} ${dash?'stroke-dasharray="3 2"':''}/>`;
+const mix=(a,b,k)=>{const p=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));const A=p(a),B=p(b);return '#'+A.map((v,i)=>Math.round(v*k+B[i]*(1-k)).toString(16).padStart(2,'0')).join('')};
+const TR=[['DRUMS','909','Kit','DRUM','P1',null,-4,'1000100010001010',.8],['BASS','Pickle','Pincher','PROPHET-5','P2','P3',-6,'1001001000100100',.7],['CHORDS','Glass','Keys','CZ-1','P1',null,-9,'1000000010000000',.55],['LEAD','Brass','One','FM6','P4',null,-12,'0010010001000110',.45]];
+const head=(chip,c,sel)=>t(8,14,'▶',10,TX)+t(20,14,'124',11,TX,0,1)+[0,1,2,3].map(i=>`<circle cx="${54+i*8}" cy="10" r="2.5" fill="${i==sel?TX:DM}"/>`).join('')+r(150,3,82,14,c,4)+t(191,13.5,chip,9,BG,'middle',1);
+const arc=(cx,cy,R,f,c,w)=>{const L=2*Math.PI*R;return `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${LN}" stroke-width="${w}" stroke-dasharray="${L*.75} ${L}" transform="rotate(135 ${cx} ${cy})" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${c}" stroke-width="${w}" stroke-dasharray="${L*.75*f} ${L}" transform="rotate(135 ${cx} ${cy})" stroke-linecap="round"/>`};
+const cols=sel=>{let s='';TR.forEach((d,i)=>{const x=4+i*58,c=C[i],on=i==sel;s+=r(x,22,54,152,on?'#262033':PN,6,on?c:null)+`<rect x="${x}" y="22" width="54" height="3" fill="${c}"/>`;
+s+=t(x+6,37,d[0],8.5,c,0,1)+t(x+6,53,d[1],12,TX,0,1)+t(x+6,67,d[2],12,TX,0,1)+t(x+6,80,d[3],8.5,MD);
+s+=r(x+6,86,22,14,c,4)+t(x+17,96.5,d[4],9,BG,'middle',1);if(d[5])s+=r(x+31,86,20,14,'none',4,c,1)+t(x+41,96.5,d[5],9,c,'middle',1);
+for(let k=0;k<16;k++){const cx=x+10+(k%4)*11.3,cy=114+Math.floor(k/4)*9.5,hit=d[7][k]=='1',ph=k==5;s+=`<circle cx="${cx}" cy="${cy}" r="${ph?3:2.4}" fill="${ph?TX:hit?c:LN}"/>`}
+s+=arc(x+27,156,12,d[8],c,3)+t(x+27,159.5,d[6],9,TX,'middle',1)});return s};
+const wave=(y0,y1,amp,c)=>{const cy=(y0+y1)/2;let p=`M8 ${cy} `;for(let x=8;x<=232;x++){const a=(x-8)/224*Math.PI*2;p+=`L${x} ${(cy-amp*(0.55*Math.sin(a*3)+0.25*Math.sin(a*6.02+.6)+0.15*Math.sin(a*9.1))).toFixed(1)} `}return `<path d="${p}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>`};
+const panel=()=>r(4,178,232,60,PN,6);
+const chord=(y,col,sub)=>t(12,y,'A',30,col,0,1)+t(34,y,'m7',17,col,0,1)+t(78,y,'A3  C4  E4  G4',11,sub,0,1);
+const K=[['CUTOFF','62','%',.62],['RESO','30','%',.3],['ENV AMT','+41','',.7],['RELEASE','0.8','s',.35]];
+const cards=(dy,hot,c)=>{let s='';K.forEach((k,i)=>{const x=4+i*58,y=22+dy,h=i==hot;s+=r(x,y,54,44,h?mix(c,SF,.22):SF,6,h?c:null)+t(x+6,y+12,k[0],8.5,c,0,1)+t(x+6,y+30,k[1],15,TX,0,1)+t(x+8+k[1].length*8.6,y+30,k[2],9,MD)+r(x+6,y+36,42,3,LN,1.5)+r(x+6,y+36,42*k[3],3,c,1.5)});return s+`<rect x="0" y="${66+dy}" width="240" height="3" fill="${BG}" opacity="0.7"/>`};
+const filt=c=>{let p='M10 230 ';for(let x=0;x<=220;x+=4){const f=x/220,y=230-30*(f<.5?1:Math.max(0,1-(f-.5)*3))-Math.exp(-((f-.5)**2)/0.002)*12;p+=`L${10+x} ${Math.min(232,y).toFixed(1)} `}return `<path d="${p}" fill="none" stroke="${c}" stroke-width="2"/><line x1="120" y1="182" x2="120" y2="234" stroke="${c}" stroke-dasharray="2 3" opacity="0.6"/>`};
+const c=C[1];
+let s=r(0,0,240,240,BG,0)+head('PROPHET-5',c,1)+cols(1)+panel()+wave(182,236,16,mix(c,PN,.35))+chord(216,TX,c);
+document.getElementById('e0').innerHTML=s;
+s=r(0,0,240,240,BG,0)+cols(1)+`<g clip-path="url(#cq)"><clipPath id="cq"><rect x="0" y="18" width="240" height="60"/></clipPath>${cards(-20,-1,c)}</g>`+head('PROPHET-5',c,1)+panel()+wave(182,236,16,mix(c,PN,.35))+chord(216,TX,c);
+document.getElementById('e1').innerHTML=s;
+s=r(0,0,240,240,BG,0)+head('PROPHET-5',c,1)+cols(1)+cards(0,0,c)+panel()+filt(mix(c,PN,.55))+chord(216,TX,c)+t(228,194,'62%',13,c,'end',1);
+document.getElementById('e2').innerHTML=s;
+const d=C[0];
+s=r(0,0,240,240,BG,0)+head('909 KIT',d,0)+cols(0)+panel()+wave(180,214,12,mix(d,PN,.45));
+['BD','SD','CP','CH','OH','TM','RS','CB'].forEach((n,i)=>{const on=n=='SD'||n=='CH';s+=r(9+i*28,216,26,16,on?d:SF,4,on?null:LN)+t(22+i*28,227,n,9,on?BG:DM,'middle',1)});
+document.getElementById('e3').innerHTML=s;
+</script></body></html>

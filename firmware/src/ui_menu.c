@@ -5,6 +5,7 @@
  * CALIBRATION (the setup screen: HARDWARE CALIBRATION), ABOUT.
  * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information. */
 /* ------------------------------------------------------------ menu --- */
+#define MENU_HEAD 24                     /* the menu's own title strip (Stage and the pages: H_HEAD) */
 enum { MI_COLOR, MI_LOWCUT, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB,
@@ -176,7 +177,7 @@ static int32_t menu_scroll_max(void)
 /* the menu's header (0..24): its icon and title, the REC mark, the way back */
 static void menu_head(void)
 {
-    cv_begin(240, H_HEAD, T_BG);
+    cv_begin(240, MENU_HEAD, T_BG);
     cv_icon_on(8, 4, 16, ui.menu == 2 ? ICON_X_INFO : ICON_X_COG, T_THEME, T_BG);
     cv_text(30, 3, &AF_M, ui.menu == 2 ? "ABOUT / CREDITS" : "MENU", T_TEXT);
     if (ui.menu >= 2) {                               /* the way back at the right, the REC mark before it (then */
@@ -239,16 +240,16 @@ static void draw_menu(void)
             cv_rrect(235, 2, 3, MENU_DOC_H - 4, 1, T_LINE, T_BG);           /* the scroll bar */
             cv_rrect(235, 2 + (max ? scroll * (MENU_DOC_H - 4 - thumb) / max : 0), 3, thumb, 1, T_MID, T_LINE);
             cv_oy = 0;
-            cv_blit(0, H_HEAD + pass * 124u);
+            cv_blit(0, MENU_HEAD + pass * 124u);
         }
-        cv_begin(240, 240 - (H_HEAD + MENU_DOC_H), T_BG);
+        cv_begin(240, 240 - (MENU_HEAD + MENU_DOC_H), T_BG);
         cv_key_hint(8, 4, KC_PRESETS, "SCROLL", 1, T_BG);
-        cv_blit(0, H_HEAD + MENU_DOC_H);
+        cv_blit(0, MENU_HEAD + MENU_DOC_H);
         return;
     }
     for (pass = 0; pass < 2u; pass++) {
-        int32_t top = pass ? MENU_SPLIT : H_HEAD;
-        cv_begin(240, (uint32_t)(pass ? 240 - MENU_SPLIT : MENU_SPLIT - H_HEAD), T_BG);
+        int32_t top = pass ? MENU_SPLIT : MENU_HEAD;
+        cv_begin(240, (uint32_t)(pass ? 240 - MENU_SPLIT : MENU_SPLIT - MENU_HEAD), T_BG);
         cv_oy = -top;                                 /* drawn in screen rows */
         uint32_t first=ui.menu_sel>=MENU_VISIBLE?ui.menu_sel-MENU_VISIBLE+1u:0u;
         for (i = first; i < first+MENU_VISIBLE && i<MI_COUNT; i++) {
@@ -266,28 +267,28 @@ static void draw_menu(void)
                   i==MI_CLICK_LEVEL?(const char *const[]){"LOW","MID","HIGH"}[settings_click_level%3u]:
                   i==MI_COUNTIN?(const char *const[]){"OFF","1 BAR","2 BARS"}[settings_countin%3u]:
                   i==MI_PREVIEW?(settings_preview?"ON":"OFF"):(settings_chord_add?"ADD":"HOLD");
-                cv_text_r(228,yt+3,&AF_M,value,val,bg);
+                cv_text_r(228,yt+5,&AF_S,value,val,bg);
             }
-            if (i==MI_LATCH) cv_text_r(228,yt+3,&AF_M,settings_latch?"ON":"OFF",val,bg);
-            if (i==MI_ACCEL) cv_text_r(228,yt+3,&AF_M,PREF_BITS&PREF_ACCEL_OFF?"OFF":"ON",val,bg);
-            if (i==MI_SCREEN) cv_text_r(228,yt+3,&AF_M,(const char *const[]){"NEVER","5 MIN","15 MIN","30 MIN","60 MIN"}[scr_get()],val,bg);
+            if (i==MI_LATCH) cv_text_r(228,yt+5,&AF_S,settings_latch?"ON":"OFF",val,bg);
+            if (i==MI_ACCEL) cv_text_r(228,yt+5,&AF_S,PREF_BITS&PREF_ACCEL_OFF?"OFF":"ON",val,bg);
+            if (i==MI_SCREEN) cv_text_r(228,yt+5,&AF_S,(const char *const[]){"NEVER","5 MIN","15 MIN","30 MIN","60 MIN"}[scr_get()],val,bg);
             if (i == MI_LIGHTS)
-                cv_text_r(228, yt + 3, &AF_M, LIGHTS_NAME[settings_lights % LIGHTS_N], val, bg);
+                cv_text_r(228, yt + 5, &AF_S, LIGHTS_NAME[settings_lights % LIGHTS_N], val, bg);
             if (i == MI_LOWCUT)
-                cv_text_r(228, yt + 3, &AF_M, (const char *const[]){"OFF", "LOWCUT", "BASS+"}[settings.lowcut % 3u], val, bg);
+                cv_text_r(228, yt + 5, &AF_S, (const char *const[]){"OFF", "LOWCUT", "BASS+"}[settings.lowcut % 3u], val, bg);
 #if MELODEE_USB_AUDIO
             if (i == MI_USB)
-                cv_text_r(228, yt + 3, &AF_M, MI_USB_NAME[ua_off_want & 3u], val, bg);
+                cv_text_r(228, yt + 5, &AF_S, MI_USB_NAME[ua_off_want & 3u], val, bg);
 #endif
             if (i == MI_HOLD) {                         /* "0.4" and its unit */
                 char b[8] = "0.4";
                 b[2] = (char)('0' + HOLD_MS[settings_hold % 4u] / 100u);
-                cv_text_r(cv_text_r(228, yt + 6, &AF_S, "s", val == T_INK ? T_INK : T_MID, bg) - 3, yt + 3, &AF_M, b, val, bg);
+                cv_text_r(cv_text_r(228, yt + 6, &AF_S, "s", val == T_INK ? T_INK : T_MID, bg) - 3, yt + 5, &AF_S, b, val, bg);
             }
             if (i == MI_COLOR) {
                 uint32_t k;
                 const uint16_t *tok = &T_BG;            /* BG SURF TEXT THEME ACCENT */
-                cv_text_r(146, yt + 3, &AF_M, UI_PALETTES[settings.palette % NPALETTES].name, val, bg);
+                cv_text_r(146, yt + 5, &AF_S, UI_PALETTES[settings.palette % NPALETTES].name, val, bg);
                 for (k = 0; k < 5u; k++) {
                     cv_rrect(152 + (int32_t)k * 15, yt + 6, 12, 12, 3, T_RAISE, bg);     /* a rim for the dark ones */
                     cv_rrect(153 + (int32_t)k * 15, yt + 7, 10, 10, 2, tok[k], T_RAISE);

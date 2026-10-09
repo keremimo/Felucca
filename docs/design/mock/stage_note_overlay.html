@@ -1,0 +1,39 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--surface-1:#2a2a2e;--text-secondary:#aaa;--background:#111}
+body{background:#111;color:#eee;font-family:system-ui;margin:12px;width:1100px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+</style></head><body><style>
+@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500&display=swap');
+.mg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:1rem 0}
+.mc{background:var(--surface-1);border-radius:12px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.mc svg{width:100%;max-width:300px;border-radius:10px;font-family:Rubik,ui-rounded,system-ui,sans-serif}
+.cap{font-size:13px;color:var(--text-secondary);text-align:center}
+</style>
+<h2 class="sr-only">Stage screen with the played notes and chord name drawn in front of the live waveform, in four states.</h2>
+<div class="mg">
+<div class="mc"><svg viewBox="0 0 240 240" id="b0"></svg><div class="cap">Chord held: notes in front, waveform dimmed behind</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="b1"></svg><div class="cap">Released: last voicing stays, waveform at full strength</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="b2"></svg><div class="cap">Turning cutoff: engine picture replaces the waveform, notes stay</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="b3"></svg><div class="cap">Drum track: no notes, lanes flash on hits</div></div>
+</div>
+<script>
+const C=['#FF7A5C','#FFC145','#46D9B0','#9D8CFF'],TX='#F3EEF8',MD='#9A93A8',DM='#5A5468',LN='#2E2939',SF='#221E2C',BG='#17141F',PN='#1D1926';
+const t=(x,y,s,f,c,a,w)=>`<text x="${x}" y="${y}" font-size="${f}" fill="${c}" ${a?`text-anchor="${a}"`:''} ${w?'font-weight="500"':''}>${s}</text>`;
+const r=(x,y,w,h,f,rx,st)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx==null?4:rx}" fill="${f}" ${st?`stroke="${st}"`:''}/>`;
+const mix=(a,b,k)=>{const p=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));const A=p(a),B=p(b);return '#'+A.map((v,i)=>Math.round(v*k+B[i]*(1-k)).toString(16).padStart(2,'0')).join('')};
+const TR=[['909 Kit','P1','1000100010001010',.8],['Pickle Pincher','P2','1001001000100100',.7],['Glass Keys','P1','1000000010000000',.55],['Brass One','P4','0010010001000110',.45]];
+const wave=(c,amp,seed)=>{let p='M8 111 ';for(let x=0;x<=224;x++){const a=x/224*Math.PI*2;const y=111-amp*(0.55*Math.sin(a*3+seed)+0.25*Math.sin(a*6.02+seed*2)+0.15*Math.sin(a*9.1)+0.08*Math.sin(a*14));p+=`L${8+x} ${y.toFixed(1)} `}return `<line x1="8" y1="111" x2="232" y2="111" stroke="${LN}"/><path d="${p}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>`};
+const filt=c=>{let p='M10 146 ';for(let x=0;x<=220;x+=4){const f=x/220,y=146-58*(f<.5?1:Math.max(0,1-(f-.5)*3))-Math.exp(-((f-.5)**2)/0.002)*18;p+=`L${10+x} ${Math.min(146,y).toFixed(1)} `}return `<path d="${p}" fill="none" stroke="${c}" stroke-width="2"/><line x1="120" y1="74" x2="120" y2="148" stroke="${c}" stroke-dasharray="2 3" opacity="0.6"/>`};
+const chord=(col,sub)=>t(14,100,'A',30,col,0,1)+t(36,100,'m7',17,col,0,1)+t(14,120,'A3  C4  E4  G4',11,sub,0,1);
+const K=[['CUTOFF','62','%',.62],['RESO','30','%',.3],['ENV AMT','+41','',.7],['RELEASE','0.8','s',.35]],KD=[['TUNE','+2','st',.55],['TONE','64','',.5],['DECAY','80','',.63],['SNAP','40','',.31]];
+const S=[
+ {sel:1,eng:'PROPHET-5',k:K,hot:-1,mid:c=>wave(mix(c,PN,.35),26,0)+chord(TX,c)},
+ {sel:1,eng:'PROPHET-5',k:K,hot:-1,mid:c=>wave(c,8,1.3)+chord(mix(c,PN,.75),mix(c,PN,.55))},
+ {sel:1,eng:'PROPHET-5',k:K,hot:0,mid:c=>filt(mix(c,PN,.55))+chord(TX,c)+t(226,86,'62%',13,c,'end',1)},
+ {sel:0,eng:'909 KIT',k:KD,hot:-1,mid:c=>{let o=wave(mix(c,PN,.45),30,.6);['BD','SD','CP','CH','OH','RS'].forEach((n,i)=>{const on=n=='SD'||n=='CH';o+=r(14+i*36,132,32,14,on?c:SF,4,on?null:LN)+t(30+i*36,142,n,9,on?BG:DM,'middle',1)});return o}}];
+S.forEach((v,n)=>{const c=C[v.sel];let s=r(0,0,240,240,BG,0)+t(8,15,'▶',11,TX)+t(20,15,'124',11,TX,0,1)+[0,1,2,3].map(i=>`<circle cx="${54+i*8}" cy="11" r="2.5" fill="${i==1?TX:DM}"/>`).join('')+r(150,4,82,14,c,4)+t(191,14.5,v.eng,9,BG,'middle',1);
+v.k.forEach((k,i)=>{const x=4+i*58,h=i==v.hot;s+=r(x,22,54,44,h?mix(c,SF,.22):SF,6,h?c:null)+t(x+6,34,k[0],8.5,c,0,1)+t(x+6,52,k[1],15,TX,0,1)+t(x+8+k[1].length*8.6,52,k[2],9,MD)+r(x+6,58,42,3,LN,1.5)+r(x+6,58,42*k[3],3,c,1.5)});
+s+=r(4,70,232,82,PN,6)+v.mid(c);
+TR.forEach((d,i)=>{const y=156+i*21,on=i==v.sel,cc=C[i];s+=r(4,y,232,19,on?'#262033':'#1A1722',5,on?cc:null)+`<rect x="4" y="${y}" width="3" height="19" fill="${cc}"/>`+t(13,y+13.5,i+1,10,cc,0,1)+t(25,y+13.5,d[0],10,on?TX:'#C9C2D6',0,on)+r(104,y+3.5,18,12,on?cc:'none',3,on?null:cc)+t(113,y+12.5,d[1],8,on?BG:cc,'middle',1);for(let k=0;k<16;k++)s+=`<rect x="${128+k*5.6}" y="${y+5.5}" width="4" height="8" rx="1" fill="${k==5?TX:d[2][k]=='1'?cc:LN}" ${d[2][k]=='1'&&k!=5?'opacity="0.75"':''}/>`;s+=r(222,y+14,10,2,LN,1)+r(222,y+4,3,11*d[3]+2,cc,1)});
+document.getElementById('b'+n).innerHTML=s});
+</script></body></html>

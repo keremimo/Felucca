@@ -417,7 +417,8 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_ROLL_EMPTY, S_ROLL_ACID, S_ROLL_CHORDS, S_ROLL_TIES, S_ROLL_LEN32, S_ROLL_HIGH, S_ROLL_LOW, S_ROLL_WIDE, S_ROLL_PLAYING,
        S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_NATIVE_FM_USER, S_NATIVE_CZ_USER,
        S_NOTES_SLIDE, S_NOTES_MIXED, S_NOTES_CHORD, S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_NOTES_REC, S_NOTES_ERASE, S_NOTES_DRUM_REC, S_NOTES_DRUM_ERASE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_MENU_CLICK, S_MENU_CLICK_LEVEL, S_MENU_COUNTIN, S_MENU_PREVIEW, S_MENU_ADD, S_DRUM_SOUND_808, S_DRUM_SOUND_909, S_DRUM_MIX_909, S_DRUM_HIT_909, S_DRUM_HIT_FREE, S_DRUM_HIT_LONG,
-       S_STAGE_DRUM, S_STAGE_CZ, S_STAGE_P5, S_STAGE_QUEUED, S_STAGE_BROWSE, S_STAGE_STOPPED, S_STAGE_FILTER, S_STAGE_ENV, S_PATGRID, S_PATGRID_STOPPED, S_PROJECT_NEW, S_NEW_KEY, S_NEW_ROLES, S_COUNT };
+       S_STAGE_DRUM, S_STAGE_CZ, S_STAGE_P5, S_STAGE_QUEUED, S_STAGE_BROWSE, S_STAGE_STOPPED, S_STAGE_FILTER, S_STAGE_ENV, S_PATGRID, S_PATGRID_STOPPED, S_PROJECT_NEW, S_NEW_KEY, S_NEW_ROLES,
+       S_REF_STAGE_HELD, S_REF_STAGE_RELEASED, S_REF_STAGE_CUTOFF, S_REF_STAGE_DRUM, S_REF_BROWSER, S_REF_PATTERNS, S_REF_SONG, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "phrases", "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -436,7 +437,8 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "roll_empty", "roll_acid", "roll_chords", "roll_ties", "roll_len32_p2", "roll_high", "roll_low", "roll_wide", "roll_playing",
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
     "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long",
-    "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "stage_env", "patterns", "patterns_stopped", "project_new", "new_key", "new_roles"};
+    "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "stage_env", "patterns", "patterns_stopped", "project_new", "new_key", "new_roles",
+    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -580,14 +582,115 @@ static void roll_scene(int s)
     ui.bank = (uint8_t)(ui.cursor / 16u);
 }
 
+/* the redesign's reference scenes (docs/design/ref, tools/ui_mockcmp.py): the mockups' state with the device's own
+ * sounds: 1 909 KIT, 2 Pickle Pincher (PROPHET, selected), 3 a CZ-1 ELEC.PIANO, 4 FM6 BRASS SECT; patterns P1 P2 P1 P4;
+ * playing at 124 BPM, step 6 */
+static uint32_t preset_named(uint32_t e, const char *n)
+{
+    uint32_t k;
+    for (k = 0; k < ENGINES[e]->npresets; k++)
+        if (!strcmp(ENGINES[e]->presets[k].name, n)) return k;
+    return 0;
+}
+/* Stage's knobs out (a knob just turned), dropped in all the way */
+static void stage_out(void) { stage.knob_ms = fm1_ms | 1u; stage.out = 1; stage.drop = 0; }
+static void ref_steps(track_t *t, const char *on, uint32_t note, int hits)
+{
+    uint32_t i;
+    for (i = 0; i < 16u; i++) {
+        step_t *st = &t->step[i];
+        memset(st, 0, sizeof *st);
+        st->time = ST_REST;
+        if (on[i] != '1') continue;
+        st->time = ST_NOTE; st->vel = 100;
+        if (hits) st->hit = (uint8_t)(i % 4u == 0u ? 1u : i % 4u == 2u ? 8u : 2u);
+        else { st->n = 1; st->note[0] = (uint8_t)(note + i % 5u); }
+    }
+    t->p[P_SLEN] = 16;
+}
+static void ref_scene(int s)
+{
+    static const char *const ON[4] = {"1000100010001010", "1001001000100100", "1000000010000000", "0010010001000110"};
+    static const uint8_t PAT[4] = {0, 1, 0, 3};
+    uint32_t k;
+    song.playing = 0;
+    set_engine_of(&trk[0], ENGI_DRUM); apply_preset_to(&trk[0], preset_named(ENGI_DRUM, "909 KIT"));
+    set_engine_of(&trk[1], ENGI_PROPHET); apply_preset_to(&trk[1], 33);           /* Pickle Pincher */
+    set_engine_of(&trk[2], ENGI_CZ); apply_preset_to(&trk[2], preset_named(ENGI_CZ, "ELEC.PIANO"));
+    set_engine_of(&trk[3], ENGI_FM6); apply_preset_to(&trk[3], preset_named(ENGI_FM6, "BRASS SECT"));
+    for (k = 0; k < NTRK; k++) {
+        trk[k].engine = trk[k].eng_req;
+        if (PAT[k]) pattern_switch(&trk[k], PAT[k]);
+        ref_steps(&trk[k], ON[k], 45u + 12u * k, k == 0u);
+        trk[k].seq_idx = 5;
+        trk[k].peak = 9000 + 3000 * (int32_t)k;
+    }
+    p5_patch_of(&trk[1])->raw[P5_CUTOFF] = 79; p5_patch_of(&trk[1])->raw[P5_RESONANCE] = 38;
+    p5_patch_of(&trk[1])->raw[P5_ENV_FILTER] = 105; p5_patch_of(&trk[1])->raw[P5_RELEASE_AMP] = 40;
+    song.playing = 1; song.g[G_BPM] = 124; song.sel = 1; trk[1].pattern_next = 2;   /* (P3 waiting for the bar) */
+    song.batt_raw = 600; usb.config = 0;               /* (the mockups show no battery) */
+    for (k = 0; k < SCOPE_N; k++) {                     /* the mockups' waveform: three partials (let go: quieter) */
+        double a = k * 2.0 * 3.14159265 / 75.0, g = s == S_REF_STAGE_RELEASED ? 0.04 : 1.0;
+        scope_buf[k] = (int16_t)(g * 12000.0 * (0.55 * sin(a) + 0.25 * sin(a * 2.0 + 0.6) + 0.15 * sin(a * 3.05)));
+    }
+    scope_w = 0;
+    switch (s) {
+    case S_REF_STAGE_HELD: case S_REF_STAGE_RELEASED: case S_REF_STAGE_CUTOFF:
+        go_home();
+        input_on(TSEL, 57, 100); input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); input_on(TSEL, 67, 100);
+        if (s == S_REF_STAGE_RELEASED) { input_off(TSEL, 57); input_off(TSEL, 60); input_off(TSEL, 64); input_off(TSEL, 67); }
+        if (s == S_REF_STAGE_CUTOFF) { ui.hot_col = 0; ui.hot_t = 30; stage_out(); }
+        break;
+    case S_REF_STAGE_DRUM:
+        song.sel = 0; go_home(); drum_flash[0] = 2u | 8u; break;
+    case S_REF_BROWSER: {
+        uint32_t i;
+        for (i = 0; i < NELEM(CAT_ORDER) && CAT_ORDER[i] != CAT_BASS; i++) {}
+        list_set(LM_CAT + i); go_page(GR_BROWSE); break;
+    }
+    case S_REF_PATTERNS:                             /* the mock's: T1 1..3 (1 playing), T2 1, 2 playing, 3 waiting, 4;
+                                                      * T3 1 playing, 2; T4 1, 4 playing; the song A A B B C A on B */
+        song.playing = 0;
+        pattern_switch(&trk[0], 1); ref_steps(&trk[0], ON[0], 0, 1); pattern_switch(&trk[0], 2); ref_steps(&trk[0], ON[0], 0, 1);
+        pattern_switch(&trk[0], 0);
+        pattern_switch(&trk[1], 0); ref_steps(&trk[1], ON[1], 57, 0); pattern_switch(&trk[1], 3); ref_steps(&trk[1], ON[1], 57, 0);
+        pattern_switch(&trk[1], 1);
+        pattern_switch(&trk[2], 1); ref_steps(&trk[2], ON[2], 69, 0); pattern_switch(&trk[2], 0);
+        pattern_switch(&trk[3], 0); ref_steps(&trk[3], ON[3], 81, 0); pattern_switch(&trk[3], 3);
+        song.playing = 1; trk[1].pattern_next = 2; fm1_ms = 0;
+        chain_config.count = 6;
+        for (k = 0; k < 6u; k++) {
+            static const uint8_t ROW[6] = {0, 0, 1, 1, 2, 0};
+            chain_config.row[k] = (chain_row_t){ROW[k], 1};
+            memset(chain_patterns[k], ROW[k], NTRK);
+        }
+        chain.running = 1; chain.row = 2;
+        go_page(GR_PATGRID);
+        break;
+    case S_REF_SONG:
+        song.playing = 0; project_save(0);
+        chain_config.count = 4;
+        for (k = 0; k < 4u; k++) chain_config.row[k] = (chain_row_t){(uint8_t)k, (uint8_t)(k == 1u ? 2u : 1u)};
+        memset(chain_patterns[1], 1, NTRK); memset(chain_patterns[2], 1, NTRK); memset(chain_patterns[3], 2, NTRK);
+        ui.song_row = 1; go_page(GR_SONG);
+        break;
+    default: break;
+    }
+}
+
 static void setup(int s)
 {
     memset(kb_chn, 0, sizeof kb_chn);               /* no key held (roll_playing holds one) */
+    memset(&stage, 0, sizeof stage);                /* (Stage's knobs in) */
     if (s >= S_MOCK_HOME && s <= S_MOCK_MENU) {
         mock_state(s);
         return;
     }
     state();
+    if (s >= S_REF_STAGE_HELD && s <= S_REF_SONG) {
+        ref_scene(s);
+        return;
+    }
     switch (s) {
     case S_HOME: song.octave = 2; song.rec = 1; usb.config = 1; break;
     case S_HOME_IDLE: song.playing = 0; song.batt_raw = 570; ui.hot_col = 1; ui.hot_t = 30; break;
@@ -701,17 +804,17 @@ static void setup(int s)
     case S_STAGE_DRUM:
         drum(0); go_home(); trk[3].seq_idx = 9; drum_flash[3] = 1u | 8u | 32u; break;
     case S_STAGE_CZ:
-        eng(ENGI_CZ); apply_preset(3); go_home(); ui.hot_col = 2; ui.hot_t = 30;
+        eng(ENGI_CZ); apply_preset(3); go_home(); ui.hot_col = 2; ui.hot_t = 30; stage_out();
         input_on(TSEL, 48, 100); input_on(TSEL, 55, 100); input_on(TSEL, 64, 100); break;
     case S_STAGE_P5:
         eng(ENGI_PROPHET); go_home(); input_on(TSEL, 62, 100); input_on(TSEL, 65, 100); input_on(TSEL, 69, 100);
-        input_on(TSEL, 72, 100); ui.hot_col = 0; ui.hot_t = 30; break;   /* (CUTOFF turning: the filter's curve) */
+        input_on(TSEL, 72, 100); ui.hot_col = 0; ui.hot_t = 30; stage_out(); break;   /* (CUTOFF turning: the filter's curve) */
     case S_STAGE_FILTER:                                 /* ANALOG's RES turning, a chord held: the curve behind it */
-        go_home(); TSEL->p[P_E5] = 100; ui.hot_col = 1; ui.hot_t = 30;
+        go_home(); TSEL->p[P_E5] = 100; ui.hot_col = 1; ui.hot_t = 30; stage_out();
         input_on(TSEL, 57, 100); input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); break;
     case S_STAGE_ENV:                                    /* ANALOG's REL turning: the envelope */
         go_home(); TSEL->p[P_ATK] = 20; TSEL->p[P_DEC] = 50; TSEL->p[P_SUS] = 80; TSEL->p[P_REL] = 90;
-        ui.hot_col = 3; ui.hot_t = 30; break;
+        ui.hot_col = 3; ui.hot_t = 30; stage_out(); break;
     case S_STAGE_QUEUED:
         go_home(); trk[1].pattern_next = 2; trk[2].p[P_MUTE] = 1; song.rec = 2u; fm1_ms = 0; break;
     case S_STAGE_BROWSE:

@@ -1,0 +1,70 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--surface-1:#2a2a2e;--text-secondary:#aaa;--background:#111}
+body{background:#111;color:#eee;font-family:system-ui;margin:12px;width:1100px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+</style></head><body><style>
+@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500&display=swap');
+.mg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:1rem 0 0}
+.mc{background:var(--surface-1);border-radius:12px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.mc svg{width:100%;max-width:300px;border-radius:10px;font-family:Rubik,ui-rounded,system-ui,sans-serif}
+.cap{font-size:13px;color:var(--text-secondary);text-align:center}
+.kr{background:var(--surface-1);border-radius:12px;padding:12px 16px;margin-top:16px}
+.kl{font-size:13px;color:var(--text-secondary);margin:8px 0 4px}
+</style>
+<h2 class="sr-only">Four concept screens for a new Melodee interface, plus how the key lights behave in three modes.</h2>
+<div class="mg">
+<div class="mc"><svg viewBox="0 0 240 240" id="s1"><rect width="240" height="240" fill="#17141F"/></svg><div class="cap">Stage (new home): four tracks, four knobs</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="s2"><rect width="240" height="240" fill="#17141F"/></svg><div class="cap">Sound browser: by category, accelerated</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="s3"><rect width="240" height="240" fill="#17141F"/></svg><div class="cap">Patterns: 4 tracks × 8 clips</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="s4"><rect width="240" height="240" fill="#17141F"/></svg><div class="cap">Song: jam captured into sections</div></div>
+</div>
+<div class="kr" id="keys"></div>
+<script>
+const C=['#FF7A5C','#FFC145','#46D9B0','#9D8CFF'],TX='#F3EEF8',MD='#9A93A8',DM='#5A5468',LN='#2E2939',SF='#221E2C',BG='#17141F';
+const t=(x,y,s,f,c,a,w)=>`<text x="${x}" y="${y}" font-size="${f}" fill="${c}" ${a?`text-anchor="${a}"`:''} ${w?'font-weight="500"':''}>${s}</text>`;
+const r=(x,y,w,h,f,ex)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${ex&&ex.rx!=null?ex.rx:4}" fill="${f}" ${ex&&ex.s?`stroke="${ex.s}" stroke-width="1"`:''} ${ex&&ex.d?'stroke-dasharray="3 2"':''}/>`;
+const head=(l,rt)=>t(8,16,'▶',11,TX)+t(20,16,'124',11,TX,0,1)+[0,1,2,3].map(i=>`<circle cx="${54+i*8}" cy="12" r="2.5" fill="${i==1?TX:DM}"/>`).join('')+t(232,16,rt,9,MD,'end');
+let s=head('', 'A · 2/4');
+const tr=[['DRUMS','909','Kit','DRUM','P1',null,-4,'1000100010001010'],['BASS','Pickle','Pincher','PROPHET-5','P2','P3',-6,'1001001000100100'],['CHORDS','Glass','Keys','CZ-1','P1',null,-9,'1000000010000000'],['LEAD','Brass','One','FM6','P4',null,-12,'0010010001000110']];
+tr.forEach((d,i)=>{const x=4+i*58,c=C[i],sel=i==1;s+=r(x,24,54,182,sel?'#262033':'#1D1926',sel?{s:c}:{});s+=`<rect x="${x}" y="24" width="54" height="3" fill="${c}"/>`;
+s+=t(x+6,40,d[0],9,c,0,1)+t(x+6,57,d[1],12,TX,0,1)+t(x+6,71,d[2],12,TX,0,1)+t(x+6,85,d[3],9,MD);
+s+=r(x+6,93,22,14,c)+t(x+17,103.5,d[4],9,BG,'middle',1);if(d[5])s+=r(x+31,93,20,14,'none',{s:c,d:1})+t(x+41,103.5,d[5],9,c,'middle',1);
+for(let k=0;k<16;k++){const cx=x+10+(k%4)*11,cy=121+Math.floor(k/4)*10,on=d[7][k]=='1',ph=k==5;s+=`<circle cx="${cx}" cy="${cy}" r="${ph?3:2.4}" fill="${ph?TX:on?c:LN}"/>`}
+const lv=(d[6]+40)/40,L=2*Math.PI*15;s+=`<circle cx="${x+27}" cy="${178}" r="15" fill="none" stroke="${LN}" stroke-width="3"/><circle cx="${x+27}" cy="178" r="15" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${L*0.75*lv} ${L}" transform="rotate(135 ${x+27} 178)"/>`+t(x+27,182,d[6],10,TX,'middle',1)});
+s+=t(120,226,'‹  LEVEL  ›',12,TX,'middle',1)+['LEVEL','TONE','SPACE','MUTE'].map((n,i)=>`<circle cx="${103+i*11}" cy="234" r="2" fill="${i?DM:TX}"/>`).join('');
+document.getElementById('s1').insertAdjacentHTML('beforeend',s);
+s=r(8,6,62,15,C[1])+t(39,17,'2 · BASS',9,BG,'middle',1)+t(232,17,'48 sounds',9,MD,'end');
+['All','★ Faves','Recent','Bass','Keys','Pad','Lead','Brass','Pluck','Drums','FX'].forEach((n,i)=>{const y=40+i*16,on=n=='Bass';if(on)s+=r(0,y-11,66,15,'#2A2433',{rx:0})+`<rect x="0" y="${y-11}" width="3" height="15" fill="${C[1]}"/>`;s+=t(9,y,n,10,on?TX:i<3?MD:'#C9C2D6',0,on)});
+s+=`<line x1="70" y1="28" x2="70" y2="206" stroke="${LN}"/>`;
+s+=t(80,52,'Bass Line 3',10,DM)+t(80,72,'Moog Bass',11,MD)+r(76,84,150,46,'#262033',{s:C[1],rx:6})+t(84,104,'Pickle Pincher',14,TX,0,1)+t(84,121,'PROPHET-5',9,C[1],0,1)+t(220,121,'12 / 48',9,MD,'end')+t(80,150,'Rubber Bass',11,MD)+t(80,170,'Solid Bass',10,DM)+t(80,190,'Synth Bass 2',10,DM);
+s+=`<line x1="234" y1="30" x2="234" y2="204" stroke="${LN}" stroke-width="2"/><line x1="234" y1="64" x2="234" y2="84" stroke="${C[1]}" stroke-width="3" stroke-linecap="round"/>`+r(196,30,30,15,C[1])+t(211,41,'×4',9,BG,'middle',1);
+s+=t(10,228,'★',13,C[1])+r(150,216,36,17,SF,{s:LN})+t(168,228,'↶',11,MD,'middle')+r(192,216,40,17,SF,{s:LN})+t(212,228,'✓',11,TX,'middle');
+document.getElementById('s2').insertAdjacentHTML('beforeend',s);
+s=head('', 'patterns');
+for(let k=0;k<8;k++)s+=t(41+k*26,38,k+1,9,DM,'middle');
+const pg=[[[1,1,1,0,0,0,0,0],0,null],[[1,1,1,1,0,0,0,0],1,2],[[1,1,0,0,0,0,0,0],0,null],[[1,0,0,1,0,0,0,0],3,null]];
+pg.forEach((p,i)=>{const y=44+i*38,c=C[i];s+=`<circle cx="14" cy="${y+16}" r="9" fill="${i==1?c:'none'}" stroke="${c}"/>`+t(14,y+19.5,i+1,10,i==1?BG:c,'middle',1);
+for(let k=0;k<8;k++){const x=30+k*26,has=p[0][k],pl=p[1]==k,q=p[2]==k;
+if(pl){s+=r(x,y,23,32,c)+r(x+3,y+25,17,3,'#00000055',{rx:1.5})+r(x+3,y+25,10,3,BG,{rx:1.5})}
+else if(has){s+=r(x,y,23,32,SF,q?{s:c,d:1}:{});for(let b=0;b<3;b++)s+=`<rect x="${x+5+b*5}" y="${y+12+((k+b)%3)*4}" width="3" height="${14-((k+b)%3)*4}" rx="1" fill="${c}" opacity="0.6"/>`}
+else s+=r(x+.5,y+.5,22,31,'none',{s:LN})}});
+s+=t(8,222,'SONG',9,MD,0,1);['A','A','B','B','C','A'].forEach((n,i)=>{s+=r(44+i*31,211,28,16,i==2?TX:SF)+t(58+i*31,222.5,n,10,i==2?BG:MD,'middle',1)});
+document.getElementById('s3').insertAdjacentHTML('beforeend',s);
+s=t(8,16,'Song',11,TX,0,1)+t(42,16,'· 1:02',9,MD)+`<circle cx="176" cy="12" r="3.5" fill="#FF5A6E"/>`+t(232,16,'capturing jam',9,'#FF8A99','end');
+const X=b=>8+b*7;[['A',0],['B',8],['C',16],['D',24]].forEach(m=>{s+=t(X(m[1])+3,36,m[0],9,MD,0,1)+`<line x1="${X(m[1])}" y1="28" x2="${X(m[1])}" y2="192" stroke="${LN}"/>`});
+const lanes=[[[0,8,1],[8,8,2],[16,8,2],[24,8,3]],[[0,8,1],[8,16,2],[24,8,4]],[[8,8,1],[16,8,2],[24,8,1]],[[16,4,3],[20,4,4],[24,8,2]]];
+lanes.forEach((L,i)=>{const y=46+i*36;L.forEach(g=>{const x=X(g[0])+1,w=g[1]*7-2;s+=r(x,y,w,28,C[i],{rx:5})+t(x+5,y+18,'P'+g[2],10,BG,0,1)})});
+s+=`<line x1="${X(13)}" y1="40" x2="${X(13)}" y2="194" stroke="${TX}" stroke-width="1.5"/>`+t(8,216,'4 sections · 32 bars',10,MD)+t(232,216,'B ×2',10,TX,'end',1)+r(8,224,224,6,SF,{rx:3})+r(8,224,92,6,TX,{rx:3});
+document.getElementById('s4').insertAdjacentHTML('beforeend',s);
+const W=['F','G','A','B','C','D','E','F','G','A','B','C','D','E','F','G'],BK=[0,1,2,4,5,7,8,9,11,12,14];
+const ON='#F3EEF8',DI='#7A7290',OF='#2B2735';
+function kb(white,black){const kw=38,g=4;let o=`<svg viewBox="0 0 680 92" width="100%" role="img"><title>keys</title><rect x="0" y="0" width="680" height="92" rx="10" fill="#1A1722"/>`;
+black.forEach((st,j)=>{const i=BK[j],x=16+i*kw+kw/2+2;o+=`<rect x="${x}" y="8" width="${kw-g-4}" height="30" rx="6" fill="${st=='q'?OF:st=='b'?ON:st=='d'?DI:OF}" ${st=='q'?`stroke="${ON}" stroke-dasharray="3 2"`:''}/>`});
+white.forEach((st,i)=>{const x=16+i*kw;o+=`<rect x="${x}" y="44" width="${kw-g}" height="40" rx="6" fill="${st=='q'?OF:st=='b'?ON:st=='d'?DI:OF}" ${st=='q'?`stroke="${ON}" stroke-width="1.5" stroke-dasharray="3 2"`:''}/>`});return o+'</svg>'}
+const sc=n=>['C','D','F','G'].includes(n)?'d':n=='A'||n=='B'||n=='E'?'o':'o';
+const play=W.map((n,i)=>n=='C'?'b':['C','D','F','G'].includes(n)?'d':'o');play[7]='b';
+const playB=['o','d','d','o','d','o','d','d','o','d','o'];
+const pats=['d','b','d','q','o','o','o','o','o','o','o','o','o','o','o','o'],patB=['d','b','d','d','o','o','o','o','o','o','o'];
+const steps=['d','o','o','d','o','b','d','o','o','d','o','o','d','o','d','o'],stepB=['b','o','o','o','o','o','o','o','o','o','o'];
+document.getElementById('keys').innerHTML=`<div class="kl">Play: scale keys lit, root and sounding notes bright</div>${kb(play,playB)}<div class="kl">Patterns (hold SEQ): white 1–8 = clips, bright = playing, outline = queued; black 1–4 = tracks</div>${kb(pats,patB)}<div class="kl">Steps: 16 white = steps, bright = playhead; black = page</div>${kb(steps,stepB)}`;
+</script></body></html>

@@ -67,21 +67,21 @@ static uint32_t up_gen;                      /* bumped on every user bank change
 static uint8_t sync_reload;                  /* engine / preset / project / user preset loaded: editor RELOAD push */
 
 #define ACC T_THEME                /* values, curves */
-#define VAL(c) ((c) == ui.hot_col && ui.hot_t ? T_ACCENT : T_TEXT)    /* the knob just turned: accent */
+#define VAL(c) ((void)(c), T_TEXT)   /* a value (the knob just turned: its card tinted and outlined, ui_draw.c) */
 #define RATIO(d, v) ((d)->max > (d)->min ? ((int32_t)(v) - (d)->min) * 1000 / ((d)->max - (d)->min) : -1)
-/* layout: header 0..24, four cards 28..72 (57 px at x 3 + 59 c),
- * the panel 76..198 (a SURF area; the graphs live in it), footer 202..240; BG between them */
+/* layout (docs/design): header 0..18, four cards 22..66 (54 px at x 4 + 58 c), the panel 70..194 (the graphs live
+ * in it; Stage: its own panel and lanes, ui_stage.c), footer 198..240; BG between them */
 #define Y_HEAD 0
-#define H_HEAD 24
-#define Y_LABEL 28                    /* the cards */
-#define Y_SEP_END 72
-#define CARD_W 57
+#define H_HEAD 18
+#define Y_LABEL 22                    /* the cards */
+#define Y_SEP_END 66
+#define CARD_W 54
 #define CARD_H 44
-#define CARD_X(c) (3 + 59 * (int32_t)(c))
-#define Y_GRAPH 76                    /* the panel */
-#define H_GRAPH 122
-#define Y_FOOT 202
-#define H_FOOT 38
+#define CARD_X(c) (4 + 58 * (int32_t)(c))
+#define Y_GRAPH 70                    /* the panel */
+#define H_GRAPH 124
+#define Y_FOOT 198
+#define H_FOOT 42
 
 static struct {
     uint8_t home;

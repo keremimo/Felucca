@@ -44,7 +44,7 @@ LABELS = [("PRESETS", "PRESETS"), ("SELECT", "SELECT"), ("ALGO", "ALGO"), ("OCTD
           ("MUTE", "MUTE"), ("ARM", "ARM"), ("HOLD", "HOLD"), ("ON", "ON"), ("OFF", "OFF"),
           ("FX", "FX"), ("K14", "K1-4"), ("SCL", "SCL")]
 
-KNOBS = [("BIG", 17), ("SMALL", 10)]   # outer radius; the ring is 2 px
+KNOBS = [("BIG", 17, 2), ("SMALL", 10, 2), ("RING", 14, 3)]   # outer radius, the ring's width (RING: Stage's levels)
 
 
 def pill_cov(w, h, r):
@@ -84,10 +84,10 @@ def keycap(font, label):
     return w, ar.pack(nib)
 
 
-def knob_quadrant(r):
+def knob_quadrant(r, w):
     """(coverage nibbles, angle bytes) of the top-right quadrant, row j = dy (0 nearest the centre)"""
     cov, ang = [], []
-    r0 = r - 2.0
+    r0 = r - float(w)
     for j in range(r):
         for i in range(r):
             n = 0
@@ -120,8 +120,8 @@ def main():
     lines += [f'    {{{off}, {w}, "{l}"}},' for _, l, off, w in rows]
     lines += ["};", ar.c_array("KC_DATA", "uint8_t", list(data), fmt="0x{:02x}"), ""]
     knob_bytes = 0
-    for name, r in KNOBS:
-        cov, ang = knob_quadrant(r)
+    for name, r, w in KNOBS:
+        cov, ang = knob_quadrant(r, w)
         pc = ar.pack(cov)
         knob_bytes += len(pc) + len(ang)
         lines += [f"#define KNOB_{name}_R {r}",

@@ -1,0 +1,34 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--surface-1:#2a2a2e;--text-secondary:#aaa;--background:#111}
+body{background:#111;color:#eee;font-family:system-ui;margin:12px;width:1100px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+</style></head><body><style>
+@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500&display=swap');
+.mg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:1rem 0}
+.mc{background:var(--surface-1);border-radius:12px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.mc svg{width:100%;max-width:300px;border-radius:10px;font-family:Rubik,ui-rounded,system-ui,sans-serif}
+.cap{font-size:13px;color:var(--text-secondary);text-align:center}
+</style>
+<h2 class="sr-only">Stage screen in four variants: the top knob row and middle visual change with the selected track's engine, while the four track lanes stay at the bottom.</h2>
+<div class="mg">
+<div class="mc"><svg viewBox="0 0 240 240" id="a0"></svg><div class="cap">Track 2 selected: Prophet-5</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="a1"></svg><div class="cap">Track 4 selected: FM6</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="a2"></svg><div class="cap">Track 3 selected: CZ-1</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="a3"></svg><div class="cap">Track 1 selected: drums</div></div>
+</div>
+<script>
+const C=['#FF7A5C','#FFC145','#46D9B0','#9D8CFF'],TX='#F3EEF8',MD='#9A93A8',DM='#5A5468',LN='#2E2939',SF='#221E2C',BG='#17141F';
+const t=(x,y,s,f,c,a,w)=>`<text x="${x}" y="${y}" font-size="${f}" fill="${c}" ${a?`text-anchor="${a}"`:''} ${w?'font-weight="500"':''}>${s}</text>`;
+const r=(x,y,w,h,f,rx,st)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx==null?4:rx}" fill="${f}" ${st?`stroke="${st}"`:''}/>`;
+const TR=[['909 Kit','P1','1000100010001010',.8],['Pickle Pincher','P2','1001001000100100',.7],['Glass Keys','P1','1000000010000000',.55],['Brass One','P4','0010010001000110',.45]];
+const V=[
+ {sel:1,eng:'PROPHET-5',k:[['CUTOFF','62','%',.62],['RESO','30','%',.3],['ENV AMT','+41','',.7],['RELEASE','0.8','s',.35]],face:c=>{let p='M14 128 ';for(let x=0;x<=200;x+=4){const f=x/200,y=128-62*(f<.55?1-0.05*f:Math.max(0,1-(f-.55)*3.2))-(Math.exp(-((f-.55)**2)/0.002))*22;p+=`L${14+x} ${Math.min(128,y).toFixed(1)} `}return `<path d="${p}" fill="none" stroke="${c}" stroke-width="2"/>`+t(222,96,'SSI',9,MD,'end')+t(222,108,'4-pole',9,DM,'end')}},
+ {sel:3,eng:'FM6',k:[['BRIGHT','+38','',.8],['RATIO','2','×',.55],['MOD ENV','+12','',.6],['DETUNE','14','',.2]],face:c=>{let o='';const P=[[60,92,6],[60,112,5],[60,128,4],[110,112,3],[110,128,2],[160,128,1]];P.forEach(q=>{o+=r(q[0]-12,q[1]-7,24,13,q[2]==4||q[2]==2?c:SF,3,q[2]==4||q[2]==2?null:LN)+t(q[0],q[1]+3.5,q[2],9,q[2]==4||q[2]==2?BG:MD,'middle',1)});o+=`<line x1="60" y1="99" x2="60" y2="105" stroke="${MD}"/><line x1="60" y1="119" x2="60" y2="121" stroke="${MD}"/><line x1="110" y1="119" x2="110" y2="121" stroke="${MD}"/>`;return o+t(222,96,'ALG 5',9,MD,'end',1)+t(222,108,'MARK I',9,DM,'end')}},
+ {sel:2,eng:'CZ-1',k:[['TIMBRE','71','',.71],['DETUNE','+3','',.55],['VIBRATO','22','',.22],['RELEASE','45','',.45]],face:c=>{let p='M14 110 ';for(let x=0;x<=192;x++){const ph=(x%48)/48,w=.71,sh=ph<w*.5?ph/(w*.5)*.5:.5+(ph-w*.5)/(1-w*.5)*.5;p+=`L${14+x} ${(110-16*Math.sin(2*Math.PI*sh)).toFixed(1)} `}return `<path d="${p}" fill="none" stroke="${c}" stroke-width="2"/>`+t(222,96,'SAW',9,MD,'end',1)+t(222,108,'line 1+2',9,DM,'end')}},
+ {sel:0,eng:'909 KIT',k:[['TUNE','+2','st',.55],['TONE','64','',.5],['DECAY','80','',.63],['SNAP','40','',.31]],face:c=>{const L=['BD','SD','CP','CH','OH','RS'],P=['1000100010001010','0000100000001000','0000000000001000','1010101010101010','0010001000100010','0001000000010000'];let o='';L.forEach((n,i)=>{const y=90+i*8;o+=t(16,y+3,n,7.5,i==1?c:DM,0,1);for(let k=0;k<16;k++)o+=`<rect x="${34+k*11.5}" y="${y-2}" width="8" height="5" rx="1.5" fill="${P[i][k]=='1'?(i==1?c:'#7A7290'):LN}"/>`});return o}}];
+V.forEach((v,n)=>{const c=C[v.sel];let s=r(0,0,240,240,BG,0)+t(8,15,'▶',11,TX)+t(20,15,'124',11,TX,0,1)+[0,1,2,3].map(i=>`<circle cx="${54+i*8}" cy="11" r="2.5" fill="${i==1?TX:DM}"/>`).join('')+r(150,4,82,14,c,4)+t(191,14.5,v.eng,9,BG,'middle',1);
+v.k.forEach((k,i)=>{const x=4+i*58;s+=r(x,24,54,50,SF,6)+t(x+6,37,k[0],8.5,c,0,1)+t(x+6,56,k[1],15,TX,0,1)+t(x+8+k[1].length*8.6,56,k[2],9,MD)+r(x+6,63,42,3,LN,1.5)+r(x+6,63,42*k[3],3,c,1.5)});
+s+=r(4,80,232,56,'#1D1926',6)+v.face(c);
+TR.forEach((d,i)=>{const y=142+i*23,on=i==v.sel,cc=C[i];s+=r(4,y,232,20,on?'#262033':'#1A1722',5,on?cc:null)+`<rect x="4" y="${y}" width="3" height="20" fill="${cc}"/>`+t(13,y+14,i+1,10,cc,0,1)+t(25,y+14,d[0],10,on?TX:'#C9C2D6',0,on)+r(104,y+4,18,12,on?cc:'none',3,on?null:cc)+t(113,y+13,d[1],8,on?BG:cc,'middle',1);for(let k=0;k<16;k++)s+=`<rect x="${128+k*5.6}" y="${y+6}" width="4" height="8" rx="1" fill="${k==5?TX:d[2][k]=='1'?cc:LN}" ${d[2][k]=='1'&&k!=5?'opacity="0.75"':''}/>`;s+=r(222,y+15,10,2,LN,1)+r(222,y+5,3,12*d[3]+2,cc,1)});
+document.getElementById('a'+n).innerHTML=s});
+</script></body></html>
