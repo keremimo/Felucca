@@ -626,6 +626,7 @@ static void ref_scene(int s)
     p5_patch_of(&trk[1])->raw[P5_CUTOFF] = 79; p5_patch_of(&trk[1])->raw[P5_RESONANCE] = 38;
     p5_patch_of(&trk[1])->raw[P5_ENV_FILTER] = 105; p5_patch_of(&trk[1])->raw[P5_RELEASE_AMP] = 40;
     song.playing = 1; song.g[G_BPM] = 124; song.sel = 1;
+    song.batt_raw = 600; usb.config = 0;               /* (the mockups show no battery) */
     switch (s) {
     case S_REF_STAGE_HELD: case S_REF_STAGE_RELEASED: case S_REF_STAGE_CUTOFF:
         go_home();

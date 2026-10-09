@@ -64,10 +64,11 @@ static void draw_battery(int32_t bx)
 #define ROLL_FRAMES 9u
 #define ROLL_SNAP 3u                                    /* frames (~45 ms) */
 #define ROLL_BPM 4u                                     /* ui.roll[]: the four cards, then the header BPM */
-#define ROLL_Y 18                                       /* a card's value strip: rows 18..36 */
+#define ROLL_Y 15                                       /* a card's value strip: rows 15..34 (M) */
 #define ROLL_H 19
-#define BPM_X (MELODEE_ICONS ? 72 : 56)
-#define BPM_W 30                                        /* the header's BPM strip: 30 columns, every row */
+#define BPM_X 20
+#define BPM_W 26                                        /* the header's BPM strip: 26 columns, every row (S) */
+static uint16_t roll_bg;                                /* what a card's value lies on (its fill: tinted while hot) */
 static const uint8_t ROLL_EASE[17] = {0, 45, 84, 118, 147, 172, 193, 210, 223, 234, 242, 247, 251, 253, 254, 255, 255};
 
 static int roll_digit(char c) { return c >= '0' && c <= '9'; }
@@ -105,11 +106,11 @@ static void roll_note(uint32_t k, const char *a, const char *b, int snap)
  * later per place from the right), clipped to the strip. The roll's last frame clears it: the static text. */
 static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16_t fg)
 {
-    const aafont_t *f = &AF_M;
+    const aafont_t *f = k < ROLL_BPM ? &AF_M : &AF_S;
     uint32_t e = (uint8_t)(ui.frame - ui.roll[k].t0) + 1u, i, p = 0;
     const char *a = ui.roll[k].from;
     int32_t cy = k < ROLL_BPM ? ROLL_Y : 0, h = k < ROLL_BPM ? ROLL_H : H_HEAD;
-    uint16_t bg = k < ROLL_BPM ? T_SURF : T_BG;
+    uint16_t bg = k < ROLL_BPM ? roll_bg : T_BG;
     char t[8], ch[2] = {0, 0};
     if (e >= ROLL_FRAMES)
         ui.roll[k].from[0] = 0;
@@ -144,15 +145,31 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
     return x + text_w(f, s);
 }
 
-/* the header (y 0..24): transport, REC, tempo | a message, or the song row / octave | track, USB, battery.
- * M text from y 3, S from y 6; 16 px icons from y 4, 12 px from y 6 */
+/* the header (docs/design, 18 px): the transport (a song playing: its disc) at x 8, the BPM at x 20, a dot per track
+ * (the selected one in text, one armed in REC's red, the others dim), the octave shift or the song row; at the right a
+ * chip in the track's colour naming where you are (Stage: the engine; a page: its title), or a message in its place
+ * (a layer: its name); a battery glyph only while it runs low */
+static void head_chip_text(char *b)
+{
+    const page_t *pg = cur_page();
+    uint32_t e = TSEL->eng_req % NENGINES;
+    if (ui.home) {
+        if (browse_pending()) { uint32_t kk, s = browse_shown(&kk); e = src_engine(s, kk); }
+        str_cpy(b, ENGINES[eng_idx(e)]->name, 16);
+    } else {
+        const char *t = pg->scope == SC_ENGINE ? ENGINES[e]->page_title[pg->id[0] != P_E0] : pg->title;
+        str_cpy(b, t, 16);
+    }
+}
 static void draw_head(void)
 {
-    char b[16];
-    uint32_t rec = (song.rec >> song.sel) & 1u ? 2u : song.rec != 0u;   /* 2 the selected track armed, 1 another */
-    uint32_t sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + rec * 5u + (uint32_t)(song.octave + 8) * 11u + song.sel * 13131u +
-                   (ui.msg_t ? str_hash(7u, ui.msg) : ui.layer * 7919u) + (uint32_t)song.g[G_BPM] * 101u + (ui.bpm_t != 0) * 31u +
-                   TSEL->pattern_gen * 7919u + TSEL->pattern_next * 40503u + (uint32_t)batt_shown() * 7777u + (usb.config && !usb.suspended) * 99991u + (chain.running ? (chain.row + 1u) * 104729u : 0u);
+    char b[16], chip[16];
+    uint32_t k, low = !(usb.config && !usb.suspended) && batt_level() <= 1, msg = ui.msg_t || ui.layer;
+    uint32_t sig;
+    head_chip_text(chip);
+    sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + (uint32_t)(song.octave + 8) * 11u +
+          song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
+          (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u;
     if (song.g[G_BPM] != ui.roll_bpm) {
         char a[8];
         fmt_int(a, ui.roll_bpm);
@@ -166,46 +183,34 @@ static void draw_head(void)
     if (!ui.force && sig == ui.head_sig) {
         if (ui.roll[ROLL_BPM].from[0]) {                /* rolling: the BPM's strip only */
             cv_begin(BPM_W, H_HEAD, T_BG);
-            roll_text(ROLL_BPM, 0, 3, b, ui.bpm_t ? T_ACCENT : T_THEME);
+            roll_text(ROLL_BPM, 0, 3, b, ui.bpm_t ? T_ACCENT : T_TEXT);
             cv_blit(BPM_X, Y_HEAD);
         }
         return;
     }
     ui.head_sig = sig;
     cv_begin(240, H_HEAD, T_BG);
-    /* zones: transport 8..24, REC 28..44, tempo 56..100, a message 106..236, or: the song row / octave 116..166,
-     * track 170..186, USB 189..213, battery 214..238 (icons: ink centred on row 12; USB and battery 24 px) */
-    if (song.playing)                                /* a song playing: its disc instead of the triangle */
-        cv_icon_mid(8, H_HEAD / 2, 16, chain.running ? ICON_X_SONG : ICON_X_PLAY, T_THEME, T_BG);
-    else
-        cv_icon_mid(8, H_HEAD / 2, 16, ICON_X_STOP, T_MID, T_BG);
-    draw_rec_mark(28, T_BG);
-    if (MELODEE_ICONS) cv_icon_mid(54, H_HEAD / 2, 16, ICON_TEMPO, T_MID, T_BG);
-    roll_text(ROLL_BPM, BPM_X, 3, b, ui.bpm_t ? T_ACCENT : T_THEME);
+    cv_icon_mid(8, H_HEAD / 2, 12, chain.running ? ICON_X_SONG : song.playing ? ICON_X_PLAY : ICON_X_STOP,
+                song.playing ? T_TEXT : T_MID, T_BG);
+    roll_text(ROLL_BPM, BPM_X, 3, b, ui.bpm_t ? T_ACCENT : T_TEXT);
+    for (k = 0; k < NTRK; k++)                          /* the tracks: selected, armed, the others */
+        cv_circle(54 + 8 * (int32_t)k, H_HEAD / 2, 5, (song.rec >> k) & 1u ? T_REC : k == song.sel ? T_TEXT : T_DIM, T_BG);
     if (seq_erase_active(TSEL)) {
-        cv_text_on(106, 6, &AF_S, "ERASING", T_REC, T_BG);
-        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_THEME, T_BG);
-        draw_battery(214);
-    } else if (ui.msg_t || ui.layer) {                     /* a message, or the layer's name */
-        cv_free_hint(106, 6, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - 106);   /* (may start with a keycap) */
+        cv_text_r(232, 3, &AF_S, "ERASING", T_REC, T_BG);
+    } else if (msg) {                                   /* a message, or the layer's name (may hold a keycap) */
+        cv_free_hint(88, 3, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - 88);
     } else {
-        {                                             /* song row, octave or active pattern */         /* the song row playing, else the octave */
-            int32_t x = chain.running ? 116 + cv_icon_mid(116, H_HEAD / 2, 16, ICON_X_SONG, T_MID, T_BG)   /* SONG: the disc */
-                                      : cv_text(116, 6, &AF_S, song.octave ? "OCT" : "PAT", T_MID);
-            if (chain.running) {
-                fmt_int(b, (int32_t)chain.row + 1);
-            } else if (!song.octave) {
-                fmt_int(b, (int32_t)TSEL->pattern + 1);
-            } else {
-                str_cpy(b, song.octave > 0 ? "+" : "", sizeof b);
-                fmt_int(b + str_len(b), song.octave);
-            }
-            cv_text(x + 4, 3, &AF_M, b, T_THEME);
+        int32_t cw = text_w(&AF_X, chip) + 16;
+        if (cw < 82) cw = 82;
+        if (song.octave || chain.running) {             /* the octave shift, or the song's row */
+            if (chain.running) { str_cpy(b, "ROW ", 8); fmt_int(b + 4, (int32_t)chain.row + 1); }
+            else { str_cpy(b, song.octave > 0 ? "OCT +" : "OCT ", 8); fmt_int(b + str_len(b), song.octave); }
+            cv_text_on(88, 4, &AF_X, b, T_MID, T_BG);
         }
-        cv_icon_mid(170, H_HEAD / 2, 16, trk_icon(song.sel, 1), T_THEME, T_BG);
-        if (usb.config && !usb.suspended)
-            cv_icon_mid(189, H_HEAD / 2, 24, ICON_X_USB, T_MID, T_BG);
-        draw_battery(214);
+        if (low)                                        /* the battery, only when it runs low */
+            cv_icon_mid(232 - cw - 18, H_HEAD / 2, 12, batt_level() ? ICON_X_BAT1 : ICON_X_BAT0, T_REC, T_BG);
+        cv_rrect(232 - cw, 2, cw, 14, 4, T_THEME, T_BG);
+        cv_text_c(232 - cw / 2, 3, &AF_X, chip, T_INK, T_THEME);
     }
     cv_blit(0, Y_HEAD);
 }
@@ -239,8 +244,8 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     char key[48];
     int hot = c == ui.hot_col && ui.hot_t, named = fmt_named, strip, snap;
     uint8_t sig;
-    uint16_t lc = hot ? T_ACCENT : vc == T_DIM ? T_DIM : T_THEME;
-    int32_t x, lx = 5, uw, room = COL_W - 8;
+    uint16_t lc = vc == T_DIM ? T_DIM : T_THEME, cbg = hot ? ux_mix(T_SURF, T_THEME, 22) : T_SURF;
+    int32_t x, lx = 6, uw, room = COL_W - 10;
     const aafont_t *vf = &AF_M;
     uint32_t n, kn;
     int32_t kid = kc_tag(val, &kn);
@@ -264,9 +269,11 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     key[n + 5] = (char)(icon == ICON_NONE ? '~' : '!' + icon % 90u);
     key[n + 6] = (char)('0' + hot);
     key[n + 7] = 0;
-    uw = unit[0] ? text_w(&AF_S, unit) + 3 : 0;
+    uw = unit[0] ? text_w(&AF_X, unit) + 2 : 0;
     if (text_w(vf, val) + uw > room)
         vf = &AF_S;
+    if (text_w(vf, val) + uw > room)                    /* ("HARM MIN"): 9 px before it is cut */
+        vf = &AF_X;
     if (uw && text_w(vf, val) + uw > room)              /* ("369 /439"): the value keeps its digits, the unit goes */
         unit = "", uw = 0;
     sig = (uint8_t)str_hash(str_hash(song.sel + TSEL->eng_req * 4u + ux.gen * 64u, label), unit);
@@ -274,8 +281,9 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     strip = !snap && str_eq(key, ui.col[c]);
     if (strip && !ui.roll[c].from[0])
         return;
+    roll_bg = cbg;
     if (strip) {                                        /* rolling: the value strip only */
-        cv_begin(COL_W, ROLL_H, T_SURF);
+        cv_begin(COL_W, ROLL_H, cbg);
         if (hot) {                                      /* (the hot card's outline crosses the strip) */
             cv_rect(0, 0, 1, ROLL_H, T_THEME);
             cv_rect(COL_W - 1, 0, 1, ROLL_H, T_THEME);
@@ -297,30 +305,29 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
             ui.roll[c].from[0] = 0;
         str_cpy(ui.col[c], key, sizeof ui.col[c]);
         cv_begin(COL_W, COL_H, T_BG);
-        if (hot) {                                      /* the knob just turned: outlined */
+        if (hot) {                                      /* the knob just turned: tinted, outlined */
             cv_rrect(0, 0, COL_W, COL_H, 6, T_THEME, T_BG);
-            cv_rrect(1, 1, COL_W - 2, COL_H - 2, 5, T_SURF, T_THEME);
+            cv_rrect(1, 1, COL_W - 2, COL_H - 2, 5, cbg, T_THEME);
         } else {
             cv_rrect(0, 0, COL_W, COL_H, 6, T_SURF, T_BG);
         }
     }
     if (label[0] || val[0]) {
-        if (!strip && MELODEE_ICONS && icon != ICON_NONE && label[0] && text_w(&AF_S, label) <= COL_W - 2 - 19)
-            lx = 5 + cv_icon_on(5, 5, 12, icon, lc, T_SURF) + 2;      /* icon rows 5..16, the label from x 19 */
-        if (!strip && label[0])
-            cv_text_fit(lx, 3, &AF_S, label, lc, T_SURF, COL_W - 2 - lx);
+        (void)icon;                                     /* (the design draws no card icons) */
+        if (!strip && label[0])                         /* the label: 9 px capitals in the track's colour, baseline 12 */
+            cv_text_fit(lx, 3, &AF_X, label, lc, cbg, COL_W - 2 - lx);
         if (kid >= 0)                                   /* "[OCT+]": the keycap (accent: it would act; DIM: it would not) */
-            x = cv_keycap(5, 20, (uint32_t)kid, vc == T_ACCENT || vc == T_DIM ? vc : T_KEY, T_INK, T_SURF);
-        else if (vf == &AF_M)
-            x = roll_text(c, 5, 17, val, vc);
+            x = cv_keycap(6, 17, (uint32_t)kid, vc == T_ACCENT || vc == T_DIM ? vc : T_KEY, T_INK, cbg);
+        else if (vf == &AF_M)                           /* the value: 15 px, baseline 30 */
+            x = roll_text(c, 6, 15, val, vc);
         else
-            x = cv_text_fit(5, 20, vf, val, vc, T_SURF, room - uw);
-        if (unit[0])
-            cv_text_on(x + 3, 20, &AF_S, unit, T_MID, T_SURF);     /* on the value's baseline (S) */
-        if (!strip && ratio >= 0) {
-            int32_t gw = COL_W - 10, fx = ratio * gw / 1000;
-            cv_rrect(5, 38, gw, 3, 1, T_LINE, T_SURF);
-            cv_rrect(5, 38, fx < 3 ? 3 : fx, 3, 1, vc == T_DIM ? T_DIM : T_THEME, T_LINE);
+            x = cv_text_fit(6, vf == &AF_S ? 19 : 21, vf, val, vc, cbg, room - uw);
+        if (unit[0])                                    /* the unit: 9 px, mid, on the value's baseline */
+            cv_text_on(x + 2, 21, &AF_X, unit, T_MID, cbg);
+        if (!strip && ratio >= 0) {                     /* the gauge: 42 x 3 at y 36 */
+            int32_t gw = COL_W - 12, fx = ratio * gw / 1000;
+            cv_rrect(6, 36, gw, 3, 1, T_LINE, cbg);
+            cv_rrect(6, 36, fx < 3 ? 3 : fx, 3, 1, vc == T_DIM ? T_DIM : T_THEME, T_LINE);
         }
     }
     cv_oy = 0;

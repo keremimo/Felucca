@@ -121,8 +121,10 @@ int main(int argc, char **argv)
     assert(palette_track(1) && !palette_track(1));             /* (and so does the track: once) */
     cv_begin(3, 1, T_BG); cv_text(0, 0, &probe, "A", T_THEME);
     assert(swap16(cv_px[1]) != night);
-    /* fonts: Rubik S 11 px, M 14 px, L 26 px; tabular digits; the ellipsis; L has capitals only */
-    assert(AF_S.h == 14 && AF_S.asc == 11 && AF_M.h == 18 && AF_M.asc == 14 && AF_L.h == 32 && AF_L.asc == 25);
+    /* fonts (docs/design): Rubik X 9 px, S 11 px, M 15 px, L 30 px; tabular digits; the ellipsis; L capitals only */
+    assert(AF_X.h == 12 && AF_X.asc == 9 && AF_S.h == 14 && AF_S.asc == 11 && AF_M.h == 19 && AF_M.asc == 15 &&
+           AF_L.h == 37 && AF_L.asc == 29);
+    assert(text_w(&AF_X, "0000") == text_w(&AF_X, "1111"));
     assert(text_w(&AF_M, "0000") == text_w(&AF_M, "1111") && text_w(&AF_S, "1.25") == text_w(&AF_S, "8.75"));
     assert(glyph(&AF_S, (uint8_t)ELLIPSIS) != glyph(&AF_S, '?') && glyph(&AF_M, (uint8_t)ELLIPSIS) != glyph(&AF_M, '?'));
     assert(text_w(&AF_L, "abc") == text_w(&AF_L, "ABC"));
