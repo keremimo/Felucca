@@ -255,8 +255,43 @@ enum { ST_NOTE, ST_TIE, ST_REST };
 #define RECORD_UNIT 65536u                     /* fractional onset within its swung step; duration uses an exponent */
 /* owner: bank/track in low 5 bits, duration exponent in high 3. step: actual index in
  * low 6 bits, overview rounded forward in bit 6, wrapped to zero in bit 7. */
-typedef struct { uint16_t on, duration; uint8_t note, vel, owner, step; } recorded_note_t;
-_Static_assert(sizeof(recorded_note_t) == 8u, "timed note layout");
+typedef struct { uint16_t on, duration; uint8_t note, vel, owner, step; int8_t pitch; uint8_t length; } recorded_note_t;
+_Static_assert(sizeof(recorded_note_t) == 10u, "timed note layout");
+/* Sound offsets: semitones, decay and voice character; zero preserves the factory kit. */
+typedef struct { int8_t c[16][4]; } drum_patch_t;
+static drum_patch_t drum_patch[NTRK];
+static int drum_patch_valid(const drum_patch_t *p)
+{
+    for(uint32_t i=0;i<16;i++)if(p->c[i][0]<-24 || p->c[i][0]>24 || p->c[i][1]<-64 || p->c[i][1]>63 || p->c[i][2]<-64 || p->c[i][2]>63 || p->c[i][3]<0)return 0;
+    return 1;
+}
+#define DRUM_WIRE_BYTES 54u /* 16 voices x (6-bit tune, 7-bit decay/character/attenuation) */
+static void drum_wire_put(uint8_t *b,uint32_t *pos,uint32_t v,uint32_t n)
+{while(n--){b[*pos>>3]|=(uint8_t)((v&1u)<<(*pos&7u));v>>=1;++*pos;}}
+static uint32_t drum_wire_get(const uint8_t *b,uint32_t *pos,uint32_t n)
+{uint32_t v=0;for(uint32_t i=0;i<n;i++,++*pos)v|=(uint32_t)((b[*pos>>3]>>(*pos&7u))&1u)<<i;return v;}
+static void drum_patch_pack(uint8_t *b,const drum_patch_t *p)
+{
+    memset(b,0,DRUM_WIRE_BYTES);uint32_t pos=0;
+    for(uint32_t i=0;i<16;i++){
+        drum_wire_put(b,&pos,(uint32_t)(p->c[i][0]+24),6);
+        drum_wire_put(b,&pos,(uint32_t)(p->c[i][1]+64),7);
+        drum_wire_put(b,&pos,(uint32_t)(p->c[i][2]+64),7);
+        drum_wire_put(b,&pos,(uint32_t)p->c[i][3],7);
+    }
+}
+static int drum_patch_unpack(drum_patch_t *p,const uint8_t *b)
+{
+    uint32_t pos=0;
+    for(uint32_t i=0;i<16;i++){
+        p->c[i][0]=(int8_t)((int32_t)drum_wire_get(b,&pos,6)-24);
+        p->c[i][1]=(int8_t)((int32_t)drum_wire_get(b,&pos,7)-64);
+        p->c[i][2]=(int8_t)((int32_t)drum_wire_get(b,&pos,7)-64);
+        p->c[i][3]=(int8_t)drum_wire_get(b,&pos,7);
+    }
+    return drum_patch_valid(p);
+}
+
 #define NLANE 8                  /* drum lanes of a step (the DRUM engine's: eng_drum.c DRUM_LANE_NOTE) */
 typedef struct {                 /* acid-style step: up to 4 notes (POLY), time, accent, slide; drum hits */
     uint8_t note[4];

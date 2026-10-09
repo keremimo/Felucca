@@ -39,6 +39,8 @@
 #define UP_PMAX 72u                              /* room for P_COUNT to grow */
 #define UP_USED 0xA5u
 #define UP_VER 4u                                /* 2 since 1.0; 1 is read too (PHYS MODEL 2 was DUST) */
+#define UP_VER_DRUM 9u
+#define UP_VER_DRUM_GRID 10u
 #define UP_VER_GRID 5u                           /* 2 with a drum grid as the pattern (see the top) */
 #define UP_BANK_MAGIC 0x31425055u                /* "UPB1" */
 typedef struct {
@@ -100,15 +102,22 @@ static int up_cz_raw(const up_rec_t *r,uint8_t *raw)
     return cz_legacy_tone(raw,p,n);
 }
 static int up_bank_shape(uint32_t len,uint32_t rsize){return (len==sizeof(up_bank_t) && rsize==sizeof(up_rec_t)) || (len==UP_BANK_LEGACY_SIZE && rsize==192u);}
+static int up_drum_raw(const up_rec_t *r,drum_patch_t *p)
+{
+    uint8_t b[DRUM_WIRE_BYTES];if(r->np>sizeof r->packed-8u)return 0;
+    memcpy(b,r->cz_extra,sizeof r->cz_extra);memcpy(b+sizeof r->cz_extra,r->packed+r->np,8u);return drum_patch_unpack(p,b);
+}
+
 static int up_valid(const up_rec_t *r)
 {
     if (r->used == UP_USED && (up_native_cz(r) || up_legacy_cz(r))) { uint8_t raw[CZ_BYTES];return (up_legacy_cz(r)?r->np==92u:(r->np==92u || r->np==100u || r->np==P_COUNT)) && r->name[0] && up_cz_raw(r,raw); }
-    if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < USER_GENERAL &&
+    if (!(r->used == UP_USED && r->ver >= 1u && (r->ver <= UP_VER_GRID || (r->engine==ENGI_DRUM && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID))) && r->engine < USER_GENERAL &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
     /* Pre-1.0 Melodee reused UPB1/version 1, but its MPC/chord ids and engine 9 mean different things.
      * Fresh-start policy: preserve the bytes while treating these fork layouts as empty. */
     if (r->ver == 1u && (r->np == 58u || r->np == 62u)) return 0;
     if (r->ver >= 4u) for (uint32_t i = 0; i < r->np; i++) if (r->packed[i] > 191u) return 0;
+    if(r->engine==ENGI_DRUM && (r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)){drum_patch_t p;if(!up_drum_raw(r,&p))return 0;}
     return 1;
 }
 
@@ -121,7 +130,7 @@ static int up_used(uint32_t k)
     return up_valid(up_rec(k));
 }
 
-static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID; }
+static int up_grid(const up_rec_t *r) { return r->ver == 3u || r->ver == UP_VER_GRID || r->ver==UP_VER_DRUM_GRID; }
 static int16_t up_value(const up_rec_t *r, uint32_t k) { if(up_legacy_cz(r)){uint32_t pos=r->ver==6u?977u:983u;for(uint32_t i=0;i<k;i++)pos+=LCZ_PRESET_WIDTH[i];return (int16_t)up_legacy_bits(r,pos,LCZ_PRESET_WIDTH[k])+LCZ_PRESET_MIN[k];} return r->ver >= 4u ? (int16_t)r->packed[k] - 64 : r->p[k]; }
 static void up_set_value(up_rec_t *r, uint32_t k, int16_t v)
 {
@@ -475,6 +484,7 @@ static int up_store(uint32_t k, const char *name)
             }
         }
     }
+    if(r.engine==ENGI_DRUM){uint8_t b[DRUM_WIRE_BYTES];drum_patch_pack(b,&drum_patch[song.sel]);memcpy(r.cz_extra,b,sizeof r.cz_extra);memcpy(r.packed+r.np,b+sizeof r.cz_extra,8u);r.ver=r.ver==UP_VER_GRID?UP_VER_DRUM_GRID:UP_VER_DRUM;}
     if (r.engine == ENGI_FM6) {
         /* A fresh nonce prevents an interrupted save of the same macros from
          * pairing the new record with the previous voice. Renames keep it. */
@@ -538,6 +548,7 @@ static int up_load(uint32_t k)
                 t->p[i] = v[i];
         t->preset = 0;
         if (up_native_cz(r)||up_legacy_cz(r))up_cz_raw(r,cz_patch[song.sel % NTRK].raw);
+        if(r->engine==ENGI_DRUM){memset(&drum_patch[song.sel],0,sizeof(drum_patch_t));if(r->ver==UP_VER_DRUM || r->ver==UP_VER_DRUM_GRID)up_drum_raw(r,&drum_patch[song.sel]);}
         cz_track_accept(t);
         fm1_irq_on();
         upf_track_load(t, k); /* FM6: load the preset's actual voice */

@@ -19,6 +19,8 @@ FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_re
          "phys_render", "drum_render", "noise_render", "fm6_render", "px_modal_block", "px_modal_run", "px_memb_block",
          "px_string_excite", "px_string_run", "px_symp_run",
          "dr_bd", "dr_sd", "dr_tom", "dr_rs", "dr_cl", "dr_cp", "dr_ma", "dr_metal", "dr_cb", "dr_cy", "dr_hat", "dr8_run",   # drum_808.c
+         "drum_source", "drum_limit", "drum_color", "dr_metal_tune",
+         "d9_render_bd", "d9_render_sd", "d9_render_tom", "d9_render_rim", "d9_render_clap", "d9_render_smp",
          "slicer_track",
                                    # SLICE (eng_slice.c): the render, the reverse windows
          "fm1_alnk0_irq", "track_render_audio",       # per-track renderer has its own bounded function
@@ -29,6 +31,10 @@ FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_re
 # built only with MELODEE_FM4=1 (DIGITAL, src/eng_digital.c; not in the default build, so not in BUDGET): absent,
 # they are skipped; present, checked against these (their budget lines until the engine was retired in 1.0)
 OPTIONAL = {"digital_render": 12, "digital_render_legacy": 333, "digital_render_custom": 558}
+# The FM6 operator kernel may be extracted from its renderer. Keep the original
+# combined budget, so moving work into a helper cannot weaken the existing guard.
+EXTRACTED = {"fm6_render": ("fm6_run", "fm6_run_into")}
+KERNEL_NAMES = {n for names in EXTRACTED.values() for n in names}
 TOL = 0.10                      # exact (no noise): small edits pass, a grown render loop does not
 DIV_W = 8                       # a divide weighs 1 + 8 instructions
 NEST = 4                        # an instruction in a loop inside a loop weighs 4, two deep 16, ...
@@ -51,7 +57,7 @@ def functions(path):
             if m:
                 name = m.group(1)
                 if not name.startswith("."):
-                    cur = out.setdefault(name, []) if name in FUNCS else None
+                    cur = out.setdefault(name, []) if name in FUNCS or name in KERNEL_NAMES else None
                 continue
             m = INSN.match(line)
             if cur is not None and m and not m.group(3).lstrip().startswith("<"):
@@ -91,6 +97,11 @@ def main():
         return 0
     fns = functions(dis)
     res = {n: cost(fns[n]) for n in FUNCS if fns.get(n)}
+    for parent, kernels in EXTRACTED.items():
+        if parent not in res: continue
+        for kernel in kernels:
+            if fns.get(kernel):
+                for key, value in cost(fns[kernel]).items(): res[parent][key] += value
     retired = {"trio_render", "trio_pass", "wheel_render", "wheel_block", "phys_render",
                "px_modal_block", "px_modal_run", "px_memb_block", "px_string_excite",
                "px_string_run", "px_symp_run"}

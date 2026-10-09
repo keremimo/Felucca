@@ -41,7 +41,7 @@ static void js_desc(const param_desc_t *d)
         for (i = 0; i <= d->max - d->min; i++) {
             if (i)
                 putchar(',');
-            js_str(d->names[i]);
+            js_str(d->names[i+d->min]);
         }
         putchar(']');
     } else {

@@ -22,6 +22,37 @@ runs Felucca.
 - Editor: [web editor](https://keremimo.github.io/melodee/webapp/editor/)
 - Build: [BUILDING.md](BUILDING.md)
 
+## Drum development branch
+
+This branch adds **808 KIT / 909 KIT** on DRUM and Melodee's own drum editor.
+Both kits synthesize their voices in real time. The 909 kick, snare, toms, rim and clap
+use the circuit models from [fm1-x0x](https://github.com/charlesvestal/fm1-x0x/tree/201e5c5c1ac056a028a006bd1eabb23ac1bb174d),
+ported with its native pi32v2 fp32 support. Its hats, crash and ride use new metallic
+oscillator/noise models: their timbre is an approximation of the 909's sampled metallic
+voices. No recorded samples are stored or required. GPL-3.0 source attribution is in
+[firmware/src/x0x](firmware/src/x0x).
+
+- **EDIT > DRUM SOUND:** choose a drum, then edit its tuning (±24 semitones), decay and
+  tone, attack or snappy. **DRUM MIX** sets its level. Each sound has independent settings,
+  including the 808's congas, clave, maraca and cowbell and the 909's three toms.
+- **SEQ > DRUM HIT:** choose a step and drum, then offset that individual hit's pitch
+  (±24 semitones) or set its sounding length in 1/16-step increments. **FREE** lets the
+  voice decay naturally; turning length below its minimum returns to FREE. White keys
+  toggle the selected sound at a step; black lane keys choose the lane's main sound;
+  ACC adds an accented hit. SELECT walks recorded hits, including repeated hits of
+  the same sound in one step. EDIT deletes that hit. SAVE retains the existing step undo/redo.
+  Recorded hits also retain their original onset, velocity and drum instrument.
+- Sound settings persist in projects, templates and drum user presets; individual edits
+  persist with the recorded pattern. All 1,024 event slots and their original timing
+  precision remain available within the existing atomic flash allocation. Older project,
+  bank, template and preset schemas still load; newly saved files require this branch.
+
+The sound controls follow the tuning/decay and instrument-specific controls described in
+Roland's [TR-8 tutorial](https://support.roland.com/hc/en-us/articles/202525699-TR-8-A-Short-Tutorial).
+Individual pitch and sounding-length overrides extend those sound controls to each hit.
+Host checks establish behavior and storage compatibility; hardware audio and controls
+still need validation on an FM-1.
+
 ## What's new in 0.13.1
 
 - **PROPHET Lo Freq:** oscillator B's Lo Freq switch drops it seven octaves instead of ten, as measured

@@ -706,7 +706,8 @@ static int click_wanted(void) { return settings_click == CLICK_ON || (settings_c
 static volatile uint8_t audition_request;
 static uint8_t audition_track, audition_count, audition_notes[12], audition_vel[12];
 static uint8_t audition_active, audition_owner, audition_n, audition_played[12];
-static uint32_t audition_left;
+static uint32_t audition_left, audition_gate;
+static int32_t audition_pitch;
 static void audition_stop(void)
 {
     track_t *t = &trk[audition_owner % NTRK];
@@ -722,11 +723,13 @@ static __attribute__((noinline)) void audition_tick(uint32_t n)
     if (audition_request) {
         audition_stop(); audition_owner=audition_track; audition_left=FS/6u;
         track_t *t=&trk[audition_owner % NTRK];
+        drum_event_pitch=audition_pitch;drum_event_length=audition_gate;
         for(uint32_t i=0;i<audition_count;i++) {
             uint32_t note=audition_notes[i];
             if ((live_held[trk_index(t)][note>>5] & (1u<<(note&31u))) || t->arp_note==note) continue;
             audition_played[audition_n++]=(uint8_t)note; trk_note_on(t,note,audition_vel[i]);
         }
+        drum_event_pitch=0;drum_event_length=0;
         audition_active=1; audition_request=0;
     }
     if(audition_active) { if(n>=audition_left)audition_stop(); else audition_left-=n; }

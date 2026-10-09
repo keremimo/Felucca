@@ -240,7 +240,7 @@ static int expanded_recording_archive(void)
     }
     for(uint32_t i=0;i<RECORD_MAX;i++)recording[i]=(recorded_note_t){(uint16_t)(i*61u),1234,60,100,(uint8_t)(i%32u),3};
     recording_reindex();
-    static recorded_note_t saved[RECORD_MAX];memcpy(saved,recording,sizeof saved);
+    static recorded_note_t saved[RECORD_MAX];uint32_t at=0;for(uint32_t owner=0;owner<32;owner++)for(uint32_t i=0;i<RECORD_MAX;i++)if((recording[i].owner&31u)==owner)saved[at++]=recording[i];
     int ok=!project_save_as(0,"FULL TAKE");
     uint32_t len,crc;ok &= !list(0,&len,&crc);
     static uint8_t archive[BANK_STORE_SIZE], readback[BANK_STORE_SIZE];memcpy(archive,ED_BK_RAW,sizeof archive);

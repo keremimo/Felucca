@@ -86,7 +86,7 @@ cd "$(dirname "$0")/.."
 [ "$(uname -s)" = Darwin ] && export DYLD_FALLBACK_LIBRARY_PATH="${DYLD_FALLBACK_LIBRARY_PATH:-/opt/homebrew/lib:/usr/local/lib:/usr/lib}"
 OUT=build/host
 mkdir -p "$OUT"
-CC="${CC:-cc} -O1 -Wall -Wno-unused-function"
+CC="${CC:-cc} -O1 -ffp-contract=off -Wall -Wno-unused-function"
 fail=0
 python3 tools/gen_scales.py --check
 run() { echo "== $1"; shift; "$@" || fail=1; }
@@ -270,6 +270,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/drum_test" tests/drum_test.c -lm
     mkdir -p build/drum_demo
     run "DRUM: 808 instruments, velocity, hat choke, release, eight lanes and shared voice budget" "$OUT/drum_test" build/drum_demo
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/drum_editor_test" tests/drum_editor_test.c -lm
+    run "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" "$OUT/drum_editor_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
     mkdir -p build/noise_demo
     run "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" "$OUT/noise_test" build/noise_demo

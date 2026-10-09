@@ -42,7 +42,7 @@ static int audio_tests(void)
     audio_resources_reset();host_tracks_init();
     const uint8_t engines[4]={0,ENGI_FM6,3,ENGI_DRUM};uint32_t expected=sizeof(fm6_part_t)+sizeof(drum_lane_t)*DV_NLANE;
     for(uint32_t k=0;k<4u;k++){trk[k].engine=engines[k];eng_state_prepare(&trk[k]);}
-    bad+=check("default engine setup uses 8068 bytes rather than 51552",resource_used()==expected && expected==8068u);
+    bad+=check("default engine setup uses 8164 bytes rather than 51552",resource_used()==expected && expected==8164u);
     for(uint32_t cycle=0;cycle<2048u;cycle++){
         uint32_t k=cycle%NPART,e=eng_vis(cycle/NPART);
         eng_state_clear(k);trk[k].engine=(uint8_t)e;

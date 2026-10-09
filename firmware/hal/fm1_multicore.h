@@ -49,7 +49,7 @@ void __attribute__((section(".dsp_text"), noreturn, used)) fm1_core1_main(void)
     *(volatile uint32_t *)0x1EEF2DCu = lo;
     *(volatile uint32_t *)0x1EEF2E0u = hi;
     *(volatile uint32_t *)0x1EEF2E4u = lo;
-    *(volatile uint32_t *)0x1EEF2D0u |= (1u << 2) | (1u << 3);
+    *(volatile uint32_t *)0x1EEF2D0u = (*(volatile uint32_t *)0x1EEF2D0u & ~((1u << 2) | (0x1Fu << 16))) | (1u << 3);
     audio_worker_loop();
 }
 

@@ -130,7 +130,7 @@ static void test_compatibility(void)
     memcpy(legacy,bank,8);frozen_project92(legacy+8,bank+8,PROJ_STORE_V14-4);
     magic=PROJ_MAGIC_V14;size=PROJ_STORE_V14;memcpy(legacy+8,&magic,4);memcpy(legacy+12,&size,4);
     hash=proj_hash(legacy+8,size-4);memcpy(legacy+8+size-4,&hash,4);
-    memcpy(legacy+8+size,bank+8+PROJ_STORE_SIZE,BANK_SIZE_H-8-size-4);
+    frozen_bank_tail(legacy+8+size,bank+8+PROJ_STORE_SIZE,BANK_SIZE_H-8-size-4);
     magic=BANK_MAGIC_H;size=BANK_SIZE_H;memcpy(legacy,&magic,4);memcpy(legacy+4,&size,4);
     hash=proj_hash(legacy,size-4);memcpy(legacy+size-4,&hash,4);
     assert(bank_valid(legacy,size));bank_upgrade(legacy);assert(bank_valid(legacy,BANK_STORE_SIZE));
