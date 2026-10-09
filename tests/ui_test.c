@@ -222,6 +222,22 @@ static void turn(uint32_t role, int32_t s)
     fm1_ms += 200u;                               /* each one a slow detent, loaded at once) */
 }
 static void stop_transport(void) { transport_req = 0; song.playing = 0; }
+/* a slot page (ui_slots.c): OCT+ its slot's sheet (unless open), KNOB 2 to the row labelled so, OCT+ does it */
+static void sheet_do(const char *label)
+{
+    uint32_t i, n;
+    if (pop.on != POP_SHEET)
+        press(B_OCTUP);
+    if (pop.on != POP_SHEET)
+        return;
+    for (i = 0; i < pop.n && !str_eq(pop.rows[i].label, label); i++)
+        ;
+    for (n = 0; n < 16u && pop.sel < i && pop.sel + 1u < pop.n; n++)
+        turn(EN_K2, 1);
+    for (n = 0; n < 16u && pop.sel > i; n++)
+        turn(EN_K2, -1);
+    press(B_OCTUP);
+}
 static int16_t stored_param(uint32_t slot, uint32_t track, uint32_t id)
 {
     project_t p;
@@ -588,8 +604,9 @@ static int test_save(void)
     ui_power_on();
     trk[0].p[P_E0] = 5;
     press(B_SAVE);
-    bad += check("SAVE opens USER with SAVE selected, without writing a slot",
-                 !ui.home && cur_page()->graph == GR_USER && ui.act == 4u && !up_used(0));
+    bad += check("SAVE opens USER, its slot's sheet on Save here, without writing a slot",
+                 !ui.home && cur_page()->graph == GR_USER && pop.on == POP_SHEET && str_eq(pop.rows[pop.sel].label, "Save here") &&
+                 !up_used(0));
     press(B_OCTUP);
     bad += check("SAVE then OCT+ opens NAME (the automatic name), writes nothing yet",
                  name_on() && nm.kind == NK_USER_SAVE && str_eq(nm.s, nm.ph) && nm.cur == nm.len && !up_used(0));
@@ -605,8 +622,8 @@ static int test_save(void)
     bad += check("SAVE again still cycles to PROJECT", cur_page()->graph == GR_SLOTS);
     go_home();
     press(B_SAVE);
-    bad += check("SAVE from HOME returns directly to USER, even after visiting PROJECT",
-                 cur_page()->graph == GR_USER && ui.act == 4u);
+    bad += check("SAVE from HOME returns directly to USER (its sheet, Save here), even after visiting PROJECT",
+                 cur_page()->graph == GR_USER && pop.on == POP_SHEET && str_eq(pop.rows[pop.sel].label, "Save here"));
     press(B_OCTUP);
     bad += check("direct SAVE still asks before overwriting an occupied slot",
                  ui.confirm == CF_OVR_USER && up_value(up_rec(0), P_E0) == 5);
@@ -633,36 +650,32 @@ static int test_save(void)
     ui.page = (uint8_t)i;
     page_entered();
     ui.msg_t = 0;
-    turn(EN_K4, 1);                               /* SAVE picked */
-    bad += check("PROJECT KNOB 4 picks SAVE, saves nothing", ui.act == 4u && !project_used(0) && !ui.msg_t);
     press(B_OCTUP);
-    bad += check("OCT+ while playing: STOP TO SAVE, no NAME", msg_is("STOP TO SAVE") && !project_used(0) &&
+    bad += check("PROJECT: OCT+ opens the slot's sheet, saves nothing", pop.on == POP_SHEET && !project_used(0) && !ui.msg_t);
+    sheet_do("Save here");
+    bad += check("Save here while playing: STOP TO SAVE, no NAME", msg_is("STOP TO SAVE") && !project_used(0) &&
                  song.g[G_SAVE] == 0 && !name_on());
     stop_transport();
-    turn(EN_K4, 1);
-    press(B_OCTUP);
-    bad += check("stopped, an empty slot: OCT+ opens NAME (no name yet: PROJECT A)", name_on() && nm.kind == NK_PROJ_SAVE &&
+    sheet_do("Save here");
+    bad += check("stopped, an empty slot: Save here opens NAME (no name yet: PROJECT A)", name_on() && nm.kind == NK_PROJ_SAVE &&
                  nm.len == 0u && str_eq(nm.ph, "PROJECT A") && !project_used(0));
     press(B_OCTUP);
     bad += check("..OCT+ saves it unnamed, SAVE dropped", !name_on() && project_used(0) && msg_is("SAVED (RAM)") &&
                  ui.act == 0u);
-    turn(EN_K4, 1);
-    press(B_OCTUP);
+    sheet_do("Save here");
     bad += check("a used slot: the OVERWRITE? dialog", ui.confirm == CF_OVR_PROJ && ui.confirm_trk == 0);
     trk[0].p[P_E0] = 5;
     press(B_OCTDN);
     bad += check("OCT- keeps the slot", ui.confirm == CF_NONE && stored_param(0, 0, P_E0) != 5);
-    turn(EN_K4, 1);
-    press(B_OCTUP);
+    sheet_do("Save here");
     press(B_OCTUP);
     bad += check("OCT+ (YES): NAME, the slot not written yet", name_on() && stored_param(0, 0, P_E0) != 5);
     press(B_OCTUP);
     bad += check("OCT+ overwrites it", ui.confirm == CF_NONE && !name_on() && stored_param(0, 0, P_E0) == 5);
     trk[0].p[P_LEVEL] = 11;
-    turn(EN_K3, 1);
-    press(B_OCTUP);
-    bad += check("KNOB 3 LOAD, OCT+: the project back; LOAD stays picked", trk[0].p[P_LEVEL] != 11 &&
-                 trk[0].p[P_LEVEL] == stored_param(0, 0, P_LEVEL) && msg_is("LOADED") && ui.act == 3u);
+    sheet_do("Load");
+    bad += check("Load: the project back", trk[0].p[P_LEVEL] != 11 && trk[0].p[P_LEVEL] == stored_param(0, 0, P_LEVEL) &&
+                 msg_is("LOADED") && ui.act == 0u);
     /* user presets */
     for (i = 0; i < NPAGES; i++)
         if (PAGES[i].graph == GR_USER)
@@ -671,9 +684,8 @@ static int test_save(void)
     page_entered();
     up_store(4, "OLD");
     ui.uslot = 4;
-    turn(EN_K4, 1);
-    press(B_OCTUP);
-    bad += check("USER SAVE over a used slot: the OVERWRITE? dialog", ui.confirm == CF_OVR_USER && ui.confirm_trk == 4u);
+    sheet_do("Save here");
+    bad += check("USER Save here over a used slot: the OVERWRITE? dialog", ui.confirm == CF_OVR_USER && ui.confirm_trk == 4u);
     press(B_OCTUP);
     bad += check("YES: NAME with the sound's name (not the old slot's)", name_on() && !str_eq(nm.s, "OLD"));
     press(B_OCTUP);
@@ -684,9 +696,8 @@ static int test_save(void)
     }
     song.playing = 1;
     ui.msg_t = 0;
-    turn(EN_K3, 1);                               /* ERASE */
-    press(B_OCTUP);
-    bad += check("USER ERASE while playing: STOP TO SAVE", msg_is("STOP TO SAVE") && up_used(4));
+    sheet_do("Erase");
+    bad += check("USER Erase while playing: STOP TO SAVE", msg_is("STOP TO SAVE") && up_used(4));
     stop_transport();
     return bad;
 }
@@ -2327,7 +2338,7 @@ static int test_name(void)
     ui_power_on();
     go_page(GR_USER);
     ui.uslot = 2;
-    press(B_OCTUP);                               /* (SAVE picked on entry) */
+    sheet_do("Save here");
     up_auto_name(b, TSEL->eng_req, 2);
     bad += check("NAME: USER SAVE into an empty slot opens NAME, prefilled with the automatic name",
                  name_on() && nm.kind == NK_USER_SAVE && nm.slot == 2u && str_eq(nm.s, b) && nm.cur == nm.len);
@@ -2425,8 +2436,7 @@ static int test_name(void)
         bad += check("  OCT- cancels: nothing written, back on the USER page", !name_on() && !up_used(2) && ui.page == page && !ui.home);
     }
     /* typing a name and saving it */
-    ui.act = 4;
-    press(B_OCTUP);
+    sheet_do("Save here");
     for (i = 0; i < 12u; i++) nm_tap(nm_black_key(NB_DEL, 0));
     nm_tap(white(1)); nm_tap(white(0)); nm_tap(white(0)); nm_tap(nm_black_key(NB_RIGHT, 0));    /* C B */
     nm_tap(nm_black_key(NB_SPACE, 0)); nm_tap(nm_black_key(NB_MODE, 0)); nm_tap(white(1));        /* " 2" */
@@ -2440,7 +2450,7 @@ static int test_name(void)
     bad += check("  OCT+ stopped: saved as typed, the trailing space dropped (CB 2)", !name_on() && up_used(2) && str_eq(b, "CB 2") &&
                  msg_is("SAVED (RAM)"));
     /* SAVE held does nothing in NAME; the FX layer neither */
-    ui.act = 4; press(B_OCTUP); press(B_OCTUP);   /* (U03 used: OVERWRITE?, YES) */
+    sheet_do("Save here"); press(B_OCTUP);        /* (U03 used: OVERWRITE?, YES) */
     bad += check("  overwrite: the dialog, then NAME", name_on() && nm.kind == NK_USER_SAVE);
     ui.msg_t = 0;
     hold(B_SAVE);
@@ -2474,16 +2484,15 @@ static int test_name(void)
     }
     /* the sound's own name is the prefill */
     trk[0].user = 3;
-    ui.uslot = 7; ui.act = 4;
-    press(B_OCTUP);
+    ui.uslot = 7;
+    sheet_do("Save here");
     up_name(2, b);
     bad += check("  SAVE of a sound that came from U03: prefilled with U03's name", name_on() && str_eq(nm.s, b));
     press(B_OCTDN);
     /* projects */
     go_page(GR_SLOTS);
     song.g[G_SLOT] = 2;
-    turn(EN_K4, 1);
-    press(B_OCTUP);
+    sheet_do("Save here");
     for (i = 0; i < 4u; i++) { nm_tap(white(7)); nm_tap(white(6)); frames(800); }   /* P N P N .. */
     press(B_OCTUP);
     {
@@ -2751,9 +2760,11 @@ static int test_boot_template(void)
     memset(&tmpl, 0, sizeof tmpl);
     settings_boot = 0;
     go_title("PROJECT");
-    turn(EN_K2, 2);
-    bad += check("PROJECT KNOB 2: BOOT B, the device's (song.g untouched), saved", settings_boot == 2u &&
-                 song.g[G_BOOT] == 0);
+    song.g[G_SLOT] = 1;
+    turn(EN_K2, 1);
+    sheet_do("Boot");
+    bad += check("PROJECT KNOB 2 to B, its sheet's Boot: BOOT B, the device's (song.g untouched), saved", settings_boot == 2u &&
+                 song.g[G_BOOT] == 0 && song.g[G_SLOT] == 2);
     turn(EN_K1, 9);
     param_format(&GP[G_SLOT], song.g[G_SLOT], v, &u);
     bad += check("KNOB 1 past D: SLOT TMPL", song.g[G_SLOT] == PROJ_TMPL && str_eq(v, "TMPL"));
@@ -2761,8 +2772,7 @@ static int test_boot_template(void)
     fm6_fn[1][FN_PBUP] = 7;                              /* (track 2's FM6 bend range: kept too) */
     set_engine_of(&trk[2], ENGI_DRUM);
     trk[2].p[P_E0] = 4;                                  /* (KIT 808) */
-    turn(EN_K4, 1);
-    press(B_OCTUP);
+    sheet_do("Save as template");
     bad += check("SAVE on TMPL: the template, at once (no NAME, no dialog)", template_used() && !name_on() &&
                  ui.confirm == CF_NONE && (msg_is("TEMPLATE SAVED (RAM)") || msg_is("TEMPLATE SAVED")));
     press(B_EDIT);
@@ -2772,8 +2782,7 @@ static int test_boot_template(void)
     set_engine_of(&trk[2], 0);
     trk[0].step[3].time = ST_NOTE; trk[0].step[3].n = 1; trk[0].step[3].note[0] = 60;
     project_save(0);                                     /* (A used: the template's project goes to B) */
-    turn(EN_K3, 1);
-    press(B_OCTUP);
+    sheet_do("Load template");
     ok = trk[1].p[P_LEVEL] == 77 && trk[2].eng_req == ENGI_DRUM && trk[2].p[P_E0] == 4 && fm6_fn[1][FN_PBUP] == 7u;
     for (i = 0; i < NTRK; i++)
         ok &= seq_is_empty(&trk[i]);
@@ -3068,8 +3077,7 @@ static int test_fm6_pages(void)
     fm6_fn_reset();
     go_title("STORE");
     turn(EN_K1, 4);
-    turn(EN_K2, 1);
-    press(B_OCTUP);
+    sheet_do("Save here");
     fm6_name(a, fm6_patch[tr]);
     b[0] = 0;
     if (native_used(ENGI_FM6,4)) {
@@ -3082,13 +3090,11 @@ static int test_fm6_pages(void)
     song.playing = 1;
     ui.msg_t = 0;
     turn(EN_K1, 1);
-    turn(EN_K2, 1);
-    press(B_OCTUP);
+    sheet_do("Save here");
     bad += check("  STORE while playing: STOP TO SAVE, U06 empty", msg_is("STOP TO SAVE") && !up_used(5) &&
                  TSEL->p[P_E7] == 0);
     stop_transport();
-    turn(EN_K4, 1);
-    press(B_OCTUP);
+    sheet_do("Init sound");
     fm6_name(a, fm6_patch[tr]);
     fm6_unpack(FM6_INIT, v);
     fm6_name(b, v);
@@ -3474,7 +3480,7 @@ static int test_bughunt_ui(void)
     /* 1: REC in NAME, the menu or a dialog: nothing (PLAY cannot stop the transport there) */
     ui_power_on();
     go_page(GR_USER); ui.uslot = 3;
-    press(B_OCTUP);                                     /* NAME opens */
+    sheet_do("Save here");                              /* NAME opens */
     press(B_REC);
     bad += check("REC in NAME does nothing (no arm, no transport start); NAME stays",
                  name_on() && !song.rec && !transport_req && !song.playing);
@@ -3482,7 +3488,7 @@ static int test_bughunt_ui(void)
     bad += check("REC in the menu does nothing (then PLAY: nothing either)", ui.menu && !song.rec && !transport_req);
     ui_power_on();
     up_ui(2, 5);
-    go_page(GR_USER); ui.uslot = 5; press(B_OCTUP);
+    go_page(GR_USER); ui.uslot = 5; sheet_do("Save here");
     press(B_REC);
     ok = ui.confirm == CF_OVR_USER && !song.rec && !transport_req;
     press(B_OCTUP);
@@ -3551,8 +3557,7 @@ static int test_bughunt_ui(void)
     ui_power_on();
     go_page(GR_USER); ui.uslot = 1;
     up_ui(2, 1);
-    turn(EN_K1 + 2, 1);                                 /* KNOB 3: ERASE picked */
-    press(B_OCTUP);
+    sheet_do("Erase");
     ok = ui.confirm == CF_ERASE_USER && ui.confirm_trk == 1u && up_used(1);
     {
         char a[24], b[32];
@@ -3561,10 +3566,10 @@ static int test_bughunt_ui(void)
     }
     press(B_OCTDN);
     ok &= !ui.confirm && up_used(1);
-    turn(EN_K1 + 2, 1); press(B_OCTUP); press(B_OCTUP);
+    sheet_do("Erase"); press(B_OCTUP);
     bad += check("USER ERASE: the ERASE U02? dialog; OCT- keeps the preset, OCT+ erases it",
                  ok && !ui.confirm && !up_used(1));
-    turn(EN_K1 + 2, 1); press(B_OCTUP);
+    sheet_do("Erase");
     bad += check("  an empty slot: no dialog, EMPTY SLOT", !ui.confirm && msg_is("EMPTY SLOT"));
     {   /* 4: CHANCE is not STEP: no grid, no key entry, no EDIT clear (its knobs only) */
         uint32_t before;
@@ -3933,7 +3938,7 @@ static int test_bughunt_ui2(void)
         press(B_OCTUP);
         project_name(1, pn);
         ok &= str_eq(pn, "NEW") && str_eq(proj_name, "NEW");
-        turn(EN_K4, 1); press(B_OCTUP);                               /* SAVE to B: OVERWRITE? */
+        sheet_do("Save here");                                        /* SAVE to B: OVERWRITE? */
         press(B_OCTUP);                                               /* YES: NAME */
         ok &= name_on() && str_eq(nm.s, "NEW");
         press(B_OCTDN);
@@ -3941,7 +3946,7 @@ static int test_bughunt_ui2(void)
     }
     {   /* 5. NAME: PLAY stops a transport started meanwhile (so the name can be saved), never starts it; REC ignored */
         uint32_t ok;
-        ui_power_on(); go_page(GR_USER); ui.uslot = 3; press(B_OCTUP);
+        ui_power_on(); go_page(GR_USER); ui.uslot = 3; sheet_do("Save here");
         ok = name_on();
         press(B_PLAY); frame();
         ok &= !transport_req && !song.playing && name_on();          /* stopped: PLAY starts nothing */
@@ -4556,12 +4561,12 @@ static int test_prophet_pages(void)
     bad+=check("Prophet exposes all sixteen native editing and store pages",visible==16);
     go_title("P5 OSC A");p5_patch_t before=*p5_patch_of(TSEL);turn(EN_K1,1);before.raw[P5_FREQ_A]++;
     bad+=check("native oscillator knob changes its field and preserves opaque bytes",!memcmp(&before,p5_patch_of(TSEL),sizeof before));
-    go_title("P5 STORE");p5_store_slot=128;turn(EN_K2,1);
-    bad+=check("native STORE waits for OCT+ before opening NAME",!name_on()&&act_col()==2);
-    press(B_OCTUP);bad+=check("empty P128 opens native slot naming without overwrite",name_on()&&nm.slot==127&&name_limit()==20);
+    go_title("P5 STORE");p5_store_slot=128;turn(EN_K2,1);press(B_OCTUP);
+    bad+=check("native STORE: OCT+ the slot's sheet, no NAME yet",!name_on()&&pop.on==POP_SHEET&&p5_store_slot==128);
+    sheet_do("Save here");bad+=check("empty P128 opens native slot naming without overwrite",name_on()&&nm.slot==127&&name_limit()==20);
     nm.len=nm.cur=0;nm.s[0]=0;for(uint32_t k=0;k<20;k++){nm_insert((char)('A'+k));nm.cur++;}
     bad+=check("native NAME holds twenty characters and refuses a twenty-first",nm.len==20&&!nm_insert('Z')&&nm.s[20]==0);
-    name_close();go_title("P5 STORE");p5_patch_of(TSEL)->raw[97]=255;turn(EN_K4,1);press(B_OCTUP);
+    name_close();go_title("P5 STORE");p5_patch_of(TSEL)->raw[97]=255;sheet_do("Init sound");
     bad+=check("native INIT resets the full patch with sound undo available",p5_patch_of(TSEL)->raw[97]==0&&undo.keep);
     undo_swap();bad+=check("undo after native INIT restores opaque bytes",p5_patch_of(TSEL)->raw[97]==255);
     return bad;

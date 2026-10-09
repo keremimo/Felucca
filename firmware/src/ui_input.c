@@ -50,7 +50,7 @@ static int oct_nav(void)
 }
 static int oct_enter_ok(void)                           /* OCT+ would do something here */
 {
-    return list_on() || page_sheet() || pop.on || smap.on || (!ui.home && cur_page()->graph == GR_BROWSE);
+    return list_on() || slot_kind() || page_sheet() || pop.on || smap.on || (!ui.home && cur_page()->graph == GR_BROWSE);
 }
 
 /* the OCT LEDs, bit 0 OCT-, bit 1 OCT+. In the dialogs, the menu and on action pages OCT- (back) is
@@ -1646,6 +1646,8 @@ static void ui_input(void)
                 name_open(NK_USER_SAVE, ui.confirm_trk);
             } else if (kind == CF_ERASE_USER) {
                 user_ui_named(1u, ui.confirm_trk, 0);
+            } else if (kind == CF_ERASE_PROJ) {
+                project_erase(ui.confirm_trk & 3u);
             } else if (kind == CF_CLEAR_MOTION) {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
                 if (!chain_busy()) { load_begin(t, UNDO_PAT); motion_clear(t); load_end(t); ui_message("MOTION CLEARED"); }
@@ -1839,8 +1841,10 @@ static void ui_input(void)
             ui.act = 0;
         else
             go_home();
-    } else if (oct_nav() && !ui.layer && (oct & 2u)) {  /* any other page: OCT+ Enter (the page's sheet), */
-        if (page_sheet())
+    } else if (oct_nav() && !ui.layer && (oct & 2u)) {  /* any other page: OCT+ Enter (a slot's sheet, the page's), */
+        if (slot_kind())
+            slot_enter();
+        else if (page_sheet())
             page_sheet_open();
     } else if (oct_nav() && !ui.layer && (oct & 1u)) {  /* OCT- Esc: SCALES back to SCL's list, else Stage */
         uint32_t p = page_titled("SCL");
@@ -1934,6 +1938,11 @@ static void ui_input(void)
         }
         if (list_on()) {                                /* a list page: KNOB 2 the row, KNOB 1 its value (ui_list.c) */
             list_knob(k, s);
+            continue;
+        }
+        if (slot_kind()) {                              /* a slot page: KNOB 1 / 2 the slot (ui_slots.c) */
+            if (k < 2u)
+                edit_param(0, s);
             continue;
         }
         momentary_take(k);

@@ -11,7 +11,8 @@ typedef struct {
     void (*value)(char *b);                             /* its value at the right (0: none) */
     void (*turn)(int32_t s);                            /* KNOB 1 changes it (0: none) */
     void (*act)(void);                                  /* OCT+ does it (0: OCT+ steps the value) */
-    uint8_t cf;                                         /* the question it asks first (CF_*), 0 none */
+    uint8_t cf;                                         /* the question it asks first (CF_*), 0 none; with act: act
+                                                         * asks it itself (after its checks), the row drawn red */
 } sheet_row_t;
 enum { POP_NONE, POP_SHEET, POP_PICK, POP_LIST };
 #define POP_X 6                                         /* a sheet: 228 wide, its rows 20 px, 22 apart from y 28 */
@@ -31,6 +32,8 @@ static void jam_take(void);
 static int name_on(void);
 static int new_on(void);
 static void menu_words(char *d, const char *s, uint32_t n);   /* ui_menu.c */
+static uint32_t slot_kind(void);                        /* ui_slots.c */
+static void slot_save_sheet(void);
 
 static void pop_close(void)
 {
@@ -59,7 +62,8 @@ static void ps_save(void)
         ;
     ui.home = 0;
     ui.page = (uint8_t)i;
-    page_entered();                                     /* (USER: SAVE picked, OCT+ saves) */
+    page_entered();
+    slot_save_sheet();                                  /* (its slot's sheet, on Save here) */
 }
 static void ps_fav_v(char *b) { str_cpy(b, preset_favorite() ? "On" : "Off", 8); }
 static void ps_fav(void) { preset_mark(!preset_favorite()); }
@@ -124,7 +128,7 @@ static const sheet_row_t SHEET_SONG[] = {
 static uint32_t page_sheet(void)
 {
     uint32_t fam;
-    if (ui.menu || ui.confirm || ui.layer || pop.on || name_on() || new_on())
+    if (ui.menu || ui.confirm || ui.layer || pop.on || name_on() || new_on() || slot_kind())
         return 0;
     if (ui.home)
         return 1;
@@ -164,10 +168,10 @@ static void sheet_input(int32_t k1, int32_t k2, uint32_t oct)
         pop_close();
     } else if (oct & 2u) {
         pop_close();
-        if (r->cf)
-            confirm_open(r->cf, r->cf == CF_DEL_ROW ? ui.song_row : song.sel);
-        else if (r->act)
+        if (r->act)
             r->act();
+        else if (r->cf)
+            confirm_open(r->cf, r->cf == CF_DEL_ROW ? ui.song_row : song.sel);
         else if (r->turn)
             r->turn(1);
     }

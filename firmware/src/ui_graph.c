@@ -1145,51 +1145,6 @@ static void engine_sound_row(int32_t y)
         cv_icon_on(214, y + 2, 12, ICON_X_STAR, T_INK, T_THEME);
     (void)total;
 }
-/* user preset slots around the selected one: "U07  NAME" / EMPTY */
-static void graph_user(void)
-{
-    ui.uslot %= user_limit();
-    int32_t row, first = clamp((int32_t)ui.uslot - 3, 0, user_limit() - 7);
-    for (row = 0; row < 7; row++) {
-        uint32_t k = (uint32_t)(first + row);
-        char tag[5], nm[13];
-        int used = user_used(k);
-        user_label(tag, k);
-        if (used)
-            user_name(k, nm);
-        else
-            str_cpy(nm, "--", sizeof nm);
-        list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232);
-    }
-}
-/* FM6 STORE lists the same user preset slots as SAVE > USER. */
-static void graph_fmbank(void)
-{
-    uint8_t keep = ui.uslot;
-    ui.uslot = fm6_bslot;
-    graph_user();
-    ui.uslot = keep;
-}
-/* project slots A..D and the template (T): the name (none: USED, TEMPLATE) / --, the selected one filled; BOOT at
- * the right of what power-on loads (BOOT's slot; BOOT OFF or an empty slot: the template, when there is one) */
-static void graph_slots(void)
-{
-    uint32_t i, boot = settings_boot && graph_project_used(settings_boot - 1u) ? settings_boot
-                     : template_used() ? (uint32_t)PROJ_TMPL : 0u;
-    for (i = 0; i < (uint32_t)PROJ_TMPL; i++) {
-        int32_t y = 4 + (int32_t)i * 19;
-        char b[4];
-        int sel = (int32_t)i + 1 == song.g[G_SLOT] && !ui.proj_new, tm = i + 1u == (uint32_t)PROJ_TMPL;
-        int used = tm ? template_used() : graph_project_used(i);
-        const char *n = tm ? "TEMPLATE" : graph_project_name(i);
-        b[0] = (char)(tm ? 'T' : 'A' + i);
-        b[1] = 0;
-        list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, boot == i + 1u ? 186 : 232);
-        if (boot == i + 1u)
-            cv_text_r(226, y + 1, &AF_S, "BOOT", sel ? T_INK : T_ACCENT, sel ? T_THEME : T_SURF);
-    }
-    list_row(4 + PROJ_TMPL * 19, ui.proj_new, "+", T_MID, "NEW SONG", T_TEXT, 232);   /* KNOB 1 past TMPL */
-}
 /* MIXER page: four SURF columns, one under each card: the circled numeral (filled and in the accent:
  * the selected track) with a REC / ARM / MUTE badge (P_MUTE, KNOB 1), the sound's short name (a MUTE badge
  * when armed and muted), the LEVEL knob (dB inside) with the output meter beside it, then the PAN and REV
@@ -1433,14 +1388,6 @@ static void draw_graph(void)
             cv_oy = 0;
             graph_mod(t, c);
             break;
-        case GR_SLOTS:
-            cv_oy = 0;
-            graph_slots();
-            break;
-        case GR_USER:
-            cv_oy = 0;
-            graph_user();
-            break;
         case GR_TOOLS:
             cv_oy = 0;
             panel_note("TURN TO PICK", "[OCT+] CONFIRM", 0);
@@ -1458,10 +1405,6 @@ static void draw_graph(void)
         }
         case GR_FMPEG:                                   /* FM6: the pitch envelope */
             graph_dxenv(fm6_patch[song.sel % NTRK] + FP_PR1, fm6_patch[song.sel % NTRK] + FP_PL1, 1, c);
-            break;
-        case GR_FMSTORE:                                 /* FM6: the bank slots around fm6_bslot */
-            cv_oy = 0;
-            graph_fmbank();
             break;
         default:
 #if MELODEE_LEGACY_EXTRAS

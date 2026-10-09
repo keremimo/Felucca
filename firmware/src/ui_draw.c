@@ -434,17 +434,6 @@ static void foot_hint(char *a, char *b)
     str_cpy(b, ui.act ? "OCT- CANCEL" : "OCT- BACK", 16);
 }
 
-/* SAVE > USER / PROJECT: EDIT renames the selected slot (ui_name.c); 0 = not such a page, 1 an empty slot, 2 used */
-static uint32_t foot_rename(void)
-{
-    uint32_t g = ui.home ? GR_NONE : cur_page()->graph;
-    if (g == GR_USER)
-        return 1u + (uint32_t)user_used(ui.uslot % user_limit());
-    if (g == GR_SLOTS)                                 /* (the template has no name) */
-        return song.g[G_SLOT] == PROJ_TMPL ? 0u : 1u + (uint32_t)graph_project_used((uint32_t)song.g[G_SLOT] - 1u);
-    return 0;
-}
-
 /* the sound's name on the track: a user preset or the engine's preset (b holds 16) */
 static void sound_name(const track_t *t, char *b)
 {
@@ -541,7 +530,7 @@ static void draw_foot(void)
     if (act_cols()) {                                  /* the hint, and whether OCT+ would act */
         char ha[16], hb[16];
         foot_hint(ha, hb);
-        sig += str_hash(str_hash(act_ready() ? 7u : 3u, ha), hb) + foot_rename() * 7717u;
+        sig += str_hash(str_hash(act_ready() ? 7u : 3u, ha), hb);
     }
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
@@ -554,17 +543,10 @@ static void draw_foot(void)
     if (act_cols()) {                                 /* row 1: the OCT+ / OCT- hint in place of the steps */
         char ha[16], hb[16];
         khint_t kh[3];
-        uint32_t rn = foot_rename();
         foot_hint(ha, hb);                            /* "OCT+ LOAD", "OCT- BACK": keycaps and their words */
         kh[0] = (khint_t){KC_OCTUP, ha + 5};
         kh[1] = (khint_t){KC_OCTDN, hb + 5};
-        if (rn) {                                     /* USER / PROJECT: "EDIT NAME" between them */
-            kh[2] = kh[1];
-            kh[1] = (khint_t){KC_EDIT, "NAME"};
-            cv_key_row(8, 232, 2, kh, 3, (act_ready() ? 1u : 0u) | (rn == 2u ? 2u : 0u) | 4u, T_BG);
-        } else {
-            cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
-        }
+        cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
     } else if (pg->graph == GR_SCALE_PICKER && !ui.home) {
         cv_text_on(8, 2, &AF_S, SCALE_FAMILY_TITLE[ui.scale_family], T_THEME, T_BG);
         cv_key_hint(232 - kh_w(KC_KEYS, "PLAY"), 2, KC_KEYS, "PLAY", 1, T_BG);
@@ -736,16 +718,6 @@ static void draw_columns(void)
         draw_column(1, "ENG", eng == ENGI_PROPHET ? "P5" : ENGINES[eng]->name, "", VAL(1u), -1, engine_icon(ENGINES[eng]->name));
         draw_column(2, "FAV", favorite_has(src, k) ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
         draw_column(3, "LIST", list_name(list_mode()), "", VAL(3u), -1, ICON_X_FOLDER);
-        return;
-    }
-    if (cur_page()->graph == GR_USER) {                  /* SLOT, then three GO buttons */
-        ui.uslot %= user_limit();
-        int used = user_used(ui.uslot);
-        user_label(val, ui.uslot);
-        draw_column(0, "SLOT", val, "", VAL(0u), (int32_t)ui.uslot * 1000 / (int32_t)(user_limit() - 1u), ICON_AUTO);
-        draw_act_column(1, "LOAD", used ? T_THEME : T_DIM, ICON_AUTO);
-        draw_act_column(2, "ERASE", used ? T_THEME : T_DIM, ICON_AUTO);
-        draw_act_column(3, "SAVE", T_THEME, ICON_AUTO);
         return;
     }
 #if MELODEE_SLICE
@@ -950,6 +922,12 @@ static void confirm_text(char *a, char *b)
         if (!project_name(k & 3u, b) || !b[0])          /* the project's name, else what SONG plays from it */
             str_cpy(b, "Its song and patterns change", 32);
         break;
+    case CF_ERASE_PROJ:
+        str_cpy(a, "ERASE PROJECT A?", 24);
+        a[14] = (char)('A' + (k & 3u));
+        if (!project_name(k & 3u, b) || !b[0])
+            str_cpy(b, "Its song and patterns go", 32);
+        break;
     case CF_DEL_ROW:
         str_cpy(a, "DELETE SONG ROW?", 24);
         break;
@@ -1034,6 +1012,7 @@ static void draw_confirm(void)
 #include "ui_pages.c"                                   /* the redesign's other pages (R5) */
 #include "ui_list.c"                                    /* list pages */
 #include "ui_popup.c"                                   /* action sheets, pickers */
+#include "ui_slots.c"                                   /* PROJECT, USER, the STOREs: their slots */
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
@@ -1048,7 +1027,9 @@ static void draw_page(void)
         page_entered();
     }
     cursor_fix();
-    if (!own_screen() && list_on()) {                   /* a list page (ui_list.c) */
+    if (!own_screen() && slot_kind()) {                 /* a slot page (ui_slots.c) */
+        slot_draw();
+    } else if (!own_screen() && list_on()) {            /* a list page (ui_list.c) */
         list_draw();
     } else if (!own_screen() && pv_kind()) {            /* the redesign's other pages (ui_pages.c) */
         pv_draw();
@@ -1075,7 +1056,7 @@ static void draw_page(void)
             draw_graph();
     }
     melodee_dbg.stage = 6;
-    if (!ui.home && !own_screen() && !pv_kind() && !list_on())
+    if (!ui.home && !own_screen() && !pv_kind() && !list_on() && !slot_kind())
         draw_foot();
 }
 static void ui_draw(void)

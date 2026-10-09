@@ -44,9 +44,11 @@ static int user_used(uint32_t k);
 static void user_name(uint32_t k, char *out);
 static void user_label(char *out, uint32_t k);
 static void user_ui_named(uint32_t op, uint32_t k, const char *name);
+static void slot_save_sheet(void);              /* ui_slots.c */
 static int project_save_as(uint32_t slot, const char *name);
 static int project_name(uint32_t slot, char *b);
 static int project_rename(uint32_t slot, const char *name);
+static int project_erase(uint32_t slot);
 static void project_cur_name(char *b);
 static uint32_t user_of(const track_t *t)    /* user preset slot its sound came from, USER_NONE = none */
 {
@@ -147,7 +149,7 @@ static struct {
 #include "screen.c"
 
 enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER,
-       CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG };   /* ui.confirm: REC held on
+       CF_DEL_ROW, CF_CLEAR_SONG, CF_INIT_SOUND, CF_CLEAR_MOTION, CF_ERASE_USER, CF_TAKE_JAM, CF_NEW_SONG, CF_ERASE_PROJ };   /* ui.confirm: REC held on
                                    * SEQ / ARP, on TRACKS; SAVE over a used slot; a pattern over the user's steps;
                                    * USER ERASE */
 
@@ -296,7 +298,7 @@ static void page_entered(void)
     ui.note_slot = 0;
     seq_midi_reset();
     ui.hot_t = 0;                                /* clear the previous page's emphasis */
-    ui.act = pg->graph == GR_USER ? 4u : 0u;     /* the save screen is ready for OCT+ */
+    ui.act = 0;
     ui.proj_new = 0;
     if (pg->graph == GR_BROWSE) {                /* (OCT- goes back to the sound from before: its loads, a level */
         browse_mark = browse_loads;              /* of their own) */
@@ -498,6 +500,8 @@ static void open_family(uint32_t fam)
     ui.fam_last[fam] = ui.page;
     ui.home = 0;
     page_entered();
+    if (fam == FAM_SAVE && cur_page()->graph == GR_USER)
+        slot_save_sheet();                       /* SAVE: the slot's sheet, on Save here (ui_slots.c) */
 }
 
 /* GLO always enters the mixer from another family. Subsequent taps visit the
@@ -1111,9 +1115,8 @@ static uint32_t act_cols(void)                   /* the columns that are actions
 {
     const page_t *pg = cur_page();
     uint32_t c, m = 0;
-    if (ui.home)
-        return 0;
-    if(pg->scope==SC_P5STORE)return 14u;
+    if (ui.home || pg->graph == GR_SLOTS || pg->graph == GR_USER || pg->graph == GR_FMSTORE || pg->scope == SC_P5STORE)
+        return 0;                                /* (the slot pages: a slot's sheet, ui_slots.c) */
     if (pg->graph == GR_MOTION) return 8u;
     if (pg->graph == GR_TOOLS) return 15u;
     if (pg->graph == GR_SONG)
