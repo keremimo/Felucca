@@ -17,7 +17,7 @@ import sys
 
 FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_render_custom", "phase_render", "lofi_render", "cz_native_render", "cz_native_wave", "formant_render",
          "trio_render", "trio_pass", "wheel_render", "wheel_block",
-         "phys_render", "drum_render", "noise_render", "fm6_render", "px_modal_block", "px_modal_run", "px_memb_block",
+         "phys_render", "drum_render", "noise_render", "fm6_render", "p5_samples", "p5_mod_samples", "px_modal_block", "px_modal_run", "px_memb_block",
          "px_string_excite", "px_string_run", "px_symp_run",
          "dr_bd", "dr_sd", "dr_tom", "dr_rs", "dr_cl", "dr_cp", "dr_ma", "dr_metal", "dr_cb", "dr_cy", "dr_hat", "dr8_run",   # drum_808.c
          "drum_source", "drum_limit", "drum_color", "dr_metal_tune",
@@ -36,6 +36,7 @@ OPTIONAL = {"digital_render": 12, "digital_render_legacy": 333, "digital_render_
 # combined budget, so moving work into a helper cannot weaken the existing guard.
 EXTRACTED = {"fm6_render": ("fm6_run", "fm6_run_into", "fm6_output", "fm6_join")}
 KERNEL_NAMES = {n for names in EXTRACTED.values() for n in names}
+FEATURE_OPTIONAL = {"p5_samples", "p5_mod_samples"}  # MELODEE_PROPHET=0 omits these
 TOL = 0.10                      # exact (no noise): small edits pass, a grown render loop does not
 DIV_W = 8                       # a divide weighs 1 + 8 instructions
 NEST = 4                        # an instruction in a loop inside a loop weighs 4, two deep 16, ...
@@ -61,6 +62,8 @@ def functions(path):
                     cur = out.setdefault(name, []) if name in FUNCS or name in KERNEL_NAMES else None
                 continue
             m = INSN.match(line)
+            if cur is not None and m and "<unknown instruction>" in m.group(3):
+                raise SystemExit("target: undecoded instruction; disassemble with -mcpu=r3 -mattr=+fprev1")
             if cur is not None and m and not m.group(3).lstrip().startswith("<"):
                 cur.append((int(m.group(1), 16), m.group(3).strip()))
     return out
@@ -184,7 +187,7 @@ def main():
     retired = {"trio_render", "trio_pass", "wheel_render", "wheel_block", "phys_render",
                "px_modal_block", "px_modal_run", "px_memb_block", "px_string_excite",
                "px_string_run", "px_symp_run"}
-    missing = [n for n in FUNCS if n not in res and n not in OPTIONAL and n not in retired]
+    missing = [n for n in FUNCS if n not in res and n not in OPTIONAL and n not in FEATURE_OPTIONAL and n not in retired]
     base = {}
     if os.path.exists(budget):
         for line in open(budget):
@@ -209,7 +212,8 @@ def main():
         state = "no budget (BUDGET_UPDATE=1 adds it)" if b is None else "ok"
         if b is not None and not os.environ.get("BUDGET_UPDATE"):
             if r["cost"] > b * (1 + TOL):
-                state = f"OVER BUDGET (+{(r['cost'] / b - 1) * 100:.0f} %, limit +{TOL * 100:.0f} %)"
+                state = (f"OVER BUDGET (+{(r['cost'] / b - 1) * 100:.0f} %, limit +{TOL * 100:.0f} %)"
+                         if b else "OVER BUDGET (previously no loop)")
                 fail += 1
             elif r["cost"] < b * (1 - TOL):
                 state = f"note: {(r['cost'] / b - 1) * 100:.0f} % (BUDGET_UPDATE=1 to keep it)"

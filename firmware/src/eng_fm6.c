@@ -11,7 +11,7 @@
  * PATCH slots and saved inside projects. The FM6 function settings (bend, portamento, the controllers, ENGINE:
  * fm6_core.c fm6_fn) are the track's, as each Dexed instance has its own, saved with the project and the
  * template (project.c), edited on the FM pages and by DX7 function SysEx. On the device the seven EDIT
- * values are macros on top of the patch, neutral at 0 (then the track renders as Dexed does):
+ * values are macros on top of the patch, neutral at 0 (then the native patch is unmodified):
  *   ALG   PAT = the patch's algorithm, 1..32 another one
  *   FB    added to the patch's feedback (0..7)
  *   MLVL  the output level of every operator that is not a carrier (-36 .. +36 dB): the brightness
@@ -319,7 +319,8 @@ typedef struct {
  * (fm6_key, fm6_note_on, fm6_legato) */
 typedef struct {
     uint8_t note, fplay;                                 /* note + 1 (0: never keyed); playing, as it was left */
-    int32_t seq, porta[6], fb[2];
+    int32_t seq, porta[6];
+    float fb[2];
     fm6_peg_t pe;
 } fm6_mono_t;
 typedef struct {                                         /* a part's (engines.c eng_state) */
@@ -352,7 +353,7 @@ static void fm6_lfo_step(fm6_lfo_t *l, const uint8_t *ed)   /* one block of the 
         x = (int32_t)(((~ph) >> 7) & (1u << 24));
         break;
     case 4:                                              /* sine */
-        x = (1 << 23) + (fm6_sin((int32_t)(ph >> 8)) >> 1);
+        x = (int32_t)((0.5f + fm6_sin(ph >> 8) * 0.5f) * 16777216.0f);
         break;
     default:                                             /* sample & hold */
         if (ph < inc)
@@ -701,8 +702,8 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
     /* pitch: the LFO (PMD x PMS, after the delay, or a controller's), the pitch envelope, bend */
     sens = FM6_PMS[ed[FP_LPMS]] * (lfo - (1 << 23));
     {
-        int32_t p1 = (int32_t)(((int64_t)(pmd * (uint32_t)dly) * sens) >> 39);
-        int32_t p2 = (int32_t)(((int64_t)P->pt.pmod * sens) >> 14);
+        int32_t p1 = (int32_t)((float)pmd * (float)dly * (float)sens * (1.0f / 549755813888.0f));
+        int32_t p2 = (int32_t)((float)P->pt.pmod * (float)sens * (1.0f / 16384.0f));
         p1 = p1 < 0 ? -p1 : p1;
         p2 = p2 < 0 ? -p2 : p2;
         pm = p1 > p2 ? p1 : p2;
@@ -713,8 +714,8 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
     pm += pbase + m->plog;                               /* + Melodee's glide, LFO / ENV pitch, unison */
     /* amplitude: the LFO (AMD, after the delay) or a controller's, at least the EG bias */
     lfo = (1 << 24) - lfo;
-    a1 = (int32_t)(((int64_t)((((uint32_t)ed[FP_LAMD] * 165u) >> 6) * (uint32_t)dly) >> 8) * lfo >> 24);
-    a2 = (int32_t)(((int64_t)P->pt.amod * lfo) >> 7);
+    a1 = (int32_t)((float)(((uint32_t)ed[FP_LAMD] * 165u) >> 6) * (float)dly * (float)lfo * (1.0f / 4294967296.0f));
+    a2 = (int32_t)((float)P->pt.amod * (float)lfo * (1.0f / 128.0f));
     amd = a1 > a2 ? a1 : a2;
     a1 = (1 << 24) - ((P->pt.emod + 1) << 17);
     amd = (uint32_t)a1 > (uint32_t)amd ? a1 : amd;
@@ -750,12 +751,12 @@ static void fm6_control(track_t *t, voice_t *v, fm6_voice_t *s, const vmod_t *m)
                 P->pt.pok = 0;
             }
             if (!((P->pt.pok >> a) & 1u)) {
-                uint32_t sa = (uint32_t)(((uint64_t)(uint32_t)amd * FM6_AMS[a]) >> 24);
+                uint32_t sa = (uint32_t)((float)amd * ((float)FM6_AMS[a] * (1.0f / 16777216.0f)));
                 P->pt.pt[a] = sa ? fm6_ams_pt(sa) : 198789u;   /* exp(12.2) */
                 P->pt.pok |= (uint8_t)(1u << a);
             }
             pt = P->pt.pt[a];
-            level -= (int32_t)(((uint64_t)(uint32_t)level * ((uint64_t)pt << 4)) >> 28);
+            level -= (int32_t)((float)level * ((float)pt * (1.0f / 16777216.0f)));
         }
         if (!car && mod)
             level = clamp(level + mod, 0, 20 << 24);
@@ -818,6 +819,15 @@ static void fm6_ghost(track_t *t, voice_t *v, fm6_voice_t *s)
     }
 }
 
+static void fm6_output(const float *sum, int32_t *out, uint32_t n, const vmod_t *m, int32_t gain, int add)
+{
+    float scale = (float)gain * (1.0f / 131072.0f);
+    for (uint32_t i = 0; i < n; i++) {
+        int32_t y = (int32_t)(fm_clampf(sum[i], -16.0f, 16.0f) * (float)amp_at(m, i) * scale);
+        if (add) out[i] += y; else out[i] = y;
+    }
+}
+
 #if MELODEE_DUAL_CORE
 /* Only the planned operator kernel and output gain run on CPU1. Controls,
  * envelopes, allocation, modulation, patches and RNG stay on CPU0. */
@@ -826,20 +836,12 @@ static struct {
     vmod_t modulation;
     uint32_t n;
     int32_t gain;
-    int32_t bus[2][CTL], sum[CTL], pcm[CTL];
+    float bus[2][CTL], sum[CTL];
+    int32_t pcm[CTL];
 } fm6_job;
 static int fm6_pending;
 static uint32_t fm6_pairs;
 static int32_t *fm6_pending_out;
-
-static void fm6_output(const int32_t *sum, int32_t *out, uint32_t n, const vmod_t *m, int32_t gain, int add)
-{
-    for (uint32_t i = 0; i < n; i++) {
-        int32_t x = clamp(sum[i], -(1 << 28), (1 << 28) - 1);
-        int32_t y = (int32_t)(((int64_t)x * (amp_at(m, i) * gain)) >> 41);
-        if (add) out[i] += y; else out[i] = y;
-    }
-}
 
 static void fm6_worker_kernel(void *unused)
 {
@@ -887,10 +889,7 @@ static void fm6_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const v
     fm6_join();
     fm6_output(fm6_sum, out, n, m, k, 1);
 #else
-    for (uint32_t i = 0; i < n; i++) {
-        int32_t x = clamp(fm6_sum[i], -(1 << 28), (1 << 28) - 1);
-        out[i] += (int32_t)(((int64_t)x * (amp_at(m, i) * k)) >> 41);
-    }
+    fm6_output(fm6_sum, out, n, m, k, 1);
 #endif
 }
 

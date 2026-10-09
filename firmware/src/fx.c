@@ -158,8 +158,8 @@ static int32_t lc_l1, lc_l2, lc_r1, lc_r2, dc_l, dc_r, dce_l, dce_r;
  * to +-31 at the output after silence.) */
 static inline int32_t dc_block(int32_t x, int32_t *dc, int32_t *err)
 {
-    int32_t e = (x << 6) - *dc + *err, d = e >> 12;
-    *err = e - (d << 12);
+    int32_t e = x * 64 - *dc + *err, d = e >> 12;
+    *err = e - d * 4096;
     *dc += d;
     return x - ((*dc + 32) >> 6);
 }

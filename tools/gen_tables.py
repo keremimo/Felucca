@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Fixed-point lookup tables for MELODEE (no float on the target).
+"""DSP lookup tables for MELODEE (integer controls and native fp32 synths).
 
 FS = 44100 Hz, control rate = every CTL (32) samples. All curves map a
 0..127 parameter value to the unit the DSP needs, plus a display table.
@@ -89,37 +89,29 @@ def main(path):
             x -= (-3.1005 - math.log(.022)) * ((20 - v) / 20) ** 2
         return math.exp(x)
     L += arr("P5_LFO_INC", "uint32_t", [int(p5_lfo_hz(v) / FS * 2**32) for v in range(128)], 8)
-    # LFO amount response (initial + wheel + pressure), Q15. Rev-4 vibrato depth measured at
+    # LFO amount response (initial + wheel + pressure), normalized. Rev-4 vibrato depth measured at
     # 18..55 fits 0.0519 * raw^1.737 cents; the full scale (235 cents) lives in the engine.
-    L += arr("P5_AMOUNT_Q15", "uint16_t", [round(32767 * (v / 127) ** 1.737) for v in range(128)])
-    # Envelopes, raw 0..127: t = 1 ms .. 10 s. Attack is a linear ramp of t; decay and release
-    # are exponential with time constant t (Rev-4 decays were ~4.6x longer than a 99 % point);
-    # the Rev 1/2 (SSM) filter envelope decays linearly, full scale in 3.6 t (fitted to "It's a Prophet 5").
+    L += arr("P5_AMOUNT", "float", [f"{(v / 127) ** 1.737:.9e}f" for v in range(128)])
+    # Keep the calibrated times, without quantizing rates to Q24/Q16.
     p5ms = [10000 ** (v / 127) for v in range(128)]
-    L += arr("P5_ENV_ATK", "uint32_t", [max(1, int((1 << 24) * CTL / (m * FS / 1000))) for m in p5ms], 8)
-    L += arr("P5_ENV_EXP", "uint16_t", [max(1, min(65535, int(65536 * (1 - math.exp(-CTL / (m / 1000 * FS))))))
-                                        for m in p5ms])
-    L += arr("P5_ENV_SSM", "uint32_t", [max(1, int((1 << 24) * CTL / (3.6 * m * FS / 1000))) for m in p5ms], 8)
-    # 2^(i/256), Q14: exponential pitch (wheel and Poly-Mod) at audio rate
-    exp2 = arr("P5_EXP2_Q14", "uint16_t", [round(16384 * 2 ** (i / 256)) for i in range(257)])
-    exp2[0] = exp2[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
-    L += exp2
-    # Four TPT poles at the selected prototype sample rate.
+    L += arr("P5_ENV_ATK", "float", [f"{CTL / (m * FS / 1000):.9e}f" for m in p5ms])
+    L += arr("P5_ENV_EXP", "float", [f"{1 - math.exp(-CTL / (m / 1000 * FS)):.9e}f" for m in p5ms])
+    L += arr("P5_ENV_SSM", "float", [f"{CTL / (3.6 * m * FS / 1000):.9e}f" for m in p5ms])
+    # TPT coefficients at the selected oversampling rate. Keep this small
+    # RAM table for audio-rate Poly-Mod; feedback division and tanh use fp32.
     for os in (2, 1):
         L += ["#if P5_OVERSAMPLE == 2" if os == 2 else "#else"]
-        p5g = arr("P5_TPT_G", "uint16_t", [round(4096 * math.tan(math.pi * f / (os * FS)) /
-                                                 (1 + math.tan(math.pi * f / (os * FS)))) for f in fc])
-        p5g[0] = p5g[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
-        L += p5g
-    L += ["#endif"]
-    p5inv = arr("P5_INV_DEN", "uint16_t", [round((8192 * 4096) / (4096 + i * 32)) for i in range(257)])
-    p5inv[0] = p5inv[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
-    L += p5inv
-    # Nearest 32-unit lookup: <17 Q15 units of error, with the same tanh knee.
-    # Distributed SSI saturation invokes this seven times per audio sample.
-    p5tanh = arr("P5_TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 2048 * 2)) for i in range(2049)])
-    p5tanh[0] = p5tanh[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
-    L += p5tanh
+        vals = [math.tan(math.pi * f / (os * FS)) / (1 + math.tan(math.pi * f / (os * FS))) for f in fc]
+        g = arr("P5_TPT_G", "float", [f"{v:.9e}f" for v in vals])
+        g[0] = g[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+        L += g
+    L += ["#endif"]  # oversampling
+    tanh = arr("P5_TANH", "float", [f"{math.tanh(i / 128):.9e}f" for i in range(1025)])
+    tanh[0] = tanh[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+    L += tanh
+    exp2 = arr("P5_EXP2", "float", [f"{2 ** (i / 512):.9e}f" for i in range(514)])
+    exp2[0] = exp2[0].replace(" =", ' __attribute__((section(".dsp_tables"))) =')
+    L += exp2
     L += ["#endif"]
     # level: 0 = off, else dB = (v - 112) / 2  (112 = 0 dB, 127 = +7.5 dB)
     db = [None] + [(v - 112) / 2 for v in range(1, 128)]
@@ -150,14 +142,9 @@ def fm6_tables():
         sin_t[i] = (v + 32) >> 6
         sin_t[i + 512] = -((v + 32) >> 6)
         u, v = (u * c - v * s + (1 << 29)) >> 30, (u * s + v * c + (1 << 29)) >> 30
-    L += arr("FM6_SIN", "int32_t", sin_t, 8, ram=True)
-    # 2^x: 1024 points of one octave in Q30 (exp2.cc), then 2^31
-    y, inc, e = float(1 << 30), math.exp2(1.0 / 1024), []
-    for i in range(1024):
-        e.append(math.floor(y + 0.5))
-        y *= inc
-    L += arr("FM6_EXP2", "uint32_t", e + [1 << 31], 8)
-    # phase increment of a log frequency (freqlut.cc): Q24 phase, 2^20 Hz at the top of the table
+    L += arr("FM6_SIN", "float", [f"{v / 2**24:.9e}f" for v in sin_t], 8, ram=True)
+    # Exact integer phase steps for Q24 log pitches (Freqlut). The continuous
+    # signal path is float, but float cannot carry every bit of this pitch.
     y, inc, fl = float(1 << 44) / FS, math.pow(2, 1.0 / 1024), []
     for i in range(1025):
         fl.append(math.floor(y + 0.5))

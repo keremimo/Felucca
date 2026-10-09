@@ -12,7 +12,7 @@ static int64_t tap[32];
 #define FM6_TAP(b, n)                                                                              \
     do {                                                                                           \
         for (uint32_t ti = 0; ti < (n); ti++)                                                      \
-            tap[ti] += (b)[ti];                                                                    \
+            tap[ti] += (int64_t)((b)[ti] * 16777216.0f);                                                                    \
     } while (0)
 #define main hostsim_main
 #include "hostsim.c"

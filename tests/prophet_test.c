@@ -132,7 +132,7 @@ static void mapping_probe(uint8_t coarse, int key_b, int note, int key_filter,
     vmod_t m={0};m.pitch16=note*16;m.shape=64<<8;
     int32_t out[1]={0};p5_render(t,v,out,1,&m);
     for(uint32_t j=0;j<2;j++)step[j]=s->phase[j]-before[j];
-    double g=(double)s->coeff_g[0]/4096;
+    double g=s->coeff_g[0];
     *filter_hz=atan(g/(1-g))*(FS*P5_OVERSAMPLE)/3.141592653589793;
     if(memcmp(patch,&original,sizeof original))failures++;
 }
@@ -237,12 +237,12 @@ static void filter_tests(void)
     for(uint32_t cut=0;cut<=127;cut+=7)for(uint32_t res=0;res<=127;res+=7){
         p5_voice_t a={0},b={0};
         for(uint32_t k=0;k<2048;k++){
-            int32_t x=(int32_t)(noise32(&seed)>>16)-32768;
-            int32_t ya=p5_filter(&a,x,(int32_t)cut*256,(int32_t)res,1);
-            int32_t yb=p5_filter(&b,x,(int32_t)cut*256,(int32_t)res,0);
-            bounded &= ya>=-32768&&ya<=32767&&yb>=-32768&&yb<=32767;
+            float x=((int32_t)(noise32(&seed)>>16)-32768)/32768.0f;
+            float ya=p5_filter(&a,x,(float)cut,(float)res,1);
+            float yb=p5_filter(&b,x,(float)cut,(float)res,0);
+            bounded &= isfinite(ya)&&isfinite(yb)&&fabsf(ya)<=1.0f&&fabsf(yb)<=1.0f;
             distinct |= ya!=yb;
-            for(uint32_t j=0;j<4;j++)bounded &= abs(a.z[j])<60000&&abs(b.z[j])<60000;
+            for(uint32_t j=0;j<4;j++)bounded &= isfinite(a.z[j])&&isfinite(b.z[j])&&fabsf(a.z[j])<=60000.0f/32768.0f&&fabsf(b.z[j])<=60000.0f/32768.0f;
         }
     }
     check("both four-pole modes stable across cutoff/resonance sweep",bounded);
@@ -250,7 +250,7 @@ static void filter_tests(void)
     for(uint32_t mode=0;mode<=1;mode++){
         p5_voice_t s={0};double power=0;
         for(uint32_t k=0;k<FS*2;k++){
-            int32_t y=p5_filter(&s,k==0?10000:0,82*256,127,(int)mode);
+            double y=32768.0*p5_filter(&s,k==0?10000.0f/32768.0f:0.0f,82.0f,127.0f,(int)mode);
             if(k>FS)power+=(double)y*y;
         }
         printf("prophet: %s self-oscillation RMS %.1f\n",mode?"Curtis":"SSI",sqrt(power/FS));
@@ -314,64 +314,62 @@ int main(int argc,char **argv)
     for(uint32_t inc=1;inc<100000;inc++){
         uint32_t phase[]={0,inc/2,inc-1,0xFFFFFFFFu-inc+1,0xFFFFFFFFu};
         for(uint32_t j=0;j<NELEM(phase);j++){
-            int32_t correction=p5_fast_blep(phase[j],inc);
-            blep_ok &= correction>=-32768&&correction<=32768;
+            float correction=p5_fast_blep(phase[j],inc);
+            blep_ok &= isfinite(correction)&&correction>=-1.0f&&correction<=1.0f;
         }
     }
-    check("low-rate oscillator discontinuity correction stays bounded across Q15 division boundaries",blep_ok);
+    check("low-rate fp32 oscillator discontinuity correction stays bounded",blep_ok);
     int high_blep_ok=1;uint32_t rng=57;double max_blep_error=0;
     for(uint32_t k=0;k<10000;k++){
         rng=rng*1664525u+1013904223u;
         uint32_t inc=(1u<<27)+rng%(1932735280u-(1u<<27)),distance=rng%inc;
         double x=(double)distance/inc;
         double want=32768*(2*x-x*x-1);
-        double error=fabs(p5_fast_blep(distance,inc)-want);
+        double error=fabs(p5_fast_blep(distance,inc)*32768.0-want);
         if(error>max_blep_error)max_blep_error=error;
-        high_blep_ok &= error<=6;
+        high_blep_ok &= error<=0.02;
     }
     printf("prophet: high-rate BLEP maximum error %.3f Q15 units\n",max_blep_error);
-    check("fast high-rate oscillator correction stays within six Q15 units of the normalized curve",high_blep_ok);
+    check("fp32 high-rate oscillator correction stays within 0.02 Q15 units of the normalized curve",high_blep_ok);
     p5_part_t wheel_state={0};p5_patch_t wheel_patch;p5_patch_init(&wheel_patch);
     int ratio_ok=1;
     for(uint32_t wave=0;wave<2;wave++){
         wheel_patch.raw[P5_LFO_TRI]=!wave;wheel_patch.raw[P5_LFO_PULSE]=(uint8_t)wave;
         for(uint32_t ph=0;ph<=65535;ph++){
             wheel_state.lfo=ph<<16;
-            p5_mod_samples(&wheel_state,wheel_patch.raw,0,32767,0);
-            double cents=wheel_state.wheel[0]*235.0/16384;
-            double expected=32768*pow(2,cents/1200);
-            ratio_ok &= fabs(wheel_state.wheel_pitch[0]-expected)<=3;
+            p5_mod_samples(&wheel_state,wheel_patch.raw,0,1.0f,0.0f);
+            double cents=wheel_state.wheel[0]*470.0;
+            double expected=pow(2,cents/1200);
+            ratio_ok &= fabs(wheel_state.wheel_pitch[0]/expected-1.0)<=1e-6;
         }
     }
-    check("shared wheel pitch ratio stays within three Q15 units of 2^(cents/1200)",ratio_ok);
+    check("fp32 shared wheel pitch ratio stays within 1 ppm of 2^(cents/1200)",ratio_ok);
     int exp_ok=1;
     for(int32_t x=-8*4096;x<=6*4096;x+=7){
-        uint32_t base=pitch_inc(60*16),y=p5_inc(base,x);
+        uint32_t base=pitch_inc(60*16),y=p5_inc(base,(float)x/4096.0f);
         double want=base*pow(2,x/4096.0);if(want>1932735280.0)want=1932735280.0;
         exp_ok &= fabs(y/want-1)<2e-4;
     }
     check("exponential Poly-Mod frequency stays within 0.35 cent across its range",exp_ok);
-    int sat_ok=1;int32_t previous=-1;
+    int sat_ok=1;float previous=-1.0f;
     for(int32_t x=0;x<=131072;x++){
-        int32_t actual=p5_fast_softclip(x),expected=(int32_t)(32767*tanh((double)(x>65536?65536:x)/32768));
-        sat_ok &= actual>=previous && abs(actual-expected)<=17 && p5_fast_softclip(-x)==-actual;
+        float input=(float)x/32768.0f,actual=p5_fast_softclip(input);
+        double expected=tanh((double)input);
+        sat_ok &= actual>=previous && fabs(actual-expected)<=6e-6 && p5_fast_softclip(-input)==-actual;
         previous=actual;
     }
-    check("fast saturation stays odd, monotonic and within 17 Q15 units of tanh",sat_ok);
-    int fraction_ok=1;uint32_t seed=43;for(uint32_t k=0;k<10000;k++){seed=seed*1664525u+1013904223u;uint32_t inc=(seed>>1)+1u;uint32_t distance=seed%inc;uint32_t exact=(uint32_t)(((uint64_t)distance<<15)/inc),fast=p5_sync_fraction(distance,inc);fraction_ok &= fast>=exact&&fast-exact<=1u;}
-    check("32-bit hard-sync fraction stays within one Q15 unit of exact division",fraction_ok);
-    int gains_ok=1,wheel_ok=1;
-    for(int32_t wave=-120000;wave<=120000;wave+=17)
-    for(int32_t gain=0;gain<=32766;gain+=258)
-        gains_ok &= p5_wave_gain(wave,gain)==(int32_t)(((int64_t)wave*gain)>>15);
+    check("fp32 saturation stays odd, monotonic and within 6e-6 of tanh",sat_ok);
+    int fraction_ok=1,wheel_ok=1;uint32_t seed=43;
     for(uint32_t k=0;k<10000;k++){
-        seed=seed*1664525u+1013904223u;uint32_t base=seed%1932735281u;
-        uint16_t ratio=(uint16_t)(16384u+seed%49152u);
-        uint64_t exact=((uint64_t)base*ratio)>>15;
-        wheel_ok &= p5_wheel_inc(base,ratio)==(exact>1932735280u?1932735280u:(uint32_t)exact);
+        seed=seed*1664525u+1013904223u;uint32_t inc=(seed>>1)+1u,distance=seed%inc;
+        double exact=(double)distance/inc;
+        fraction_ok &= fabs(p5_sync_fraction(distance,inc)-exact)<1.5e-7;
+        uint32_t base=seed%1932735281u;float ratio=(16384u+seed%49152u)/32768.0f;
+        exact=(double)base*ratio;if(exact>1932735232.0)exact=1932735232.0;
+        wheel_ok &= fabs(p5_wheel_inc(base,ratio)-exact)<=256;
     }
-    check("summed-wave gain uses exact overflow-free arithmetic across the native signal range",gains_ok);
-    check("32-bit wheel pitch multiplication equals the wide reference across pitch/depth limits",wheel_ok);
+    check("fp32 hard-sync fraction stays within 1.5e-7 of exact division",fraction_ok);
+    check("fp32 wheel multiplication stays within 256 phase units across pitch/depth limits",wheel_ok);
     native_tests();for(int k=1;k<argc;k++)factory_file(argv[k]);
     mapping_tests();wheel_pitch_tests();stolen_tail_test();voice_tests();filter_tests();demos();
     printf("prophet: %d failure(s); patch %zu B, state %zu B per track\n",failures,sizeof(p5_patch_t),sizeof(p5_part_t));

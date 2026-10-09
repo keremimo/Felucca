@@ -63,3 +63,7 @@ d9_render_tom 3064
 d9_render_rim 4383
 d9_render_clap 1047
 d9_render_smp 1444
+
+# Native fp32 Prophet kernels, r3 + fprev1 disassembly.
+p5_samples 1075
+p5_mod_samples 105

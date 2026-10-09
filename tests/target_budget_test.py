@@ -49,3 +49,21 @@ assert budget.cost(irreducible)['cost'] > 0
 unlisted = [(0, 'r0 = 0'), (8, 'r1 = 0'), (12, 'goto -2 <unlisted : a >')]
 assert budget.cost(unlisted)['cost'] == 1
 print('target budget: alternatives, split/nested loops, divides, calls and conservative fallbacks passed')
+
+import tempfile
+
+with tempfile.TemporaryDirectory() as directory:
+    source = Path(directory) / "float.dis"
+    source.write_text("fm6_render:\n 1000: 3f e5 11 b6 \tr11 = r1 - r6 (f)\n")
+    instructions = budget.functions(source)["fm6_render"]
+    assert len(instructions) == 1
+    assert budget.cost(instructions)["call"] == 0
+    source.write_text("fm6_render:\n 1000: 3f e5 \t<unknown instruction>\n"
+                      " 1002: 41 40 \tif (r1 == 0) goto -4 <fm6_render: 1000 >\n")
+    try:
+        budget.functions(source)
+    except SystemExit as error:
+        assert "-mattr=+fprev1" in str(error)
+    else:
+        raise AssertionError("undecoded FPU instruction accepted as an integer branch")
+print("target budget: decoded FPU instructions counted once; undecoded instructions rejected")

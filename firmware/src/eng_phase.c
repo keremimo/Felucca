@@ -21,7 +21,12 @@ static void cz_init(void) { for (uint32_t k = 0; k < NTRK; k++) cz_patch_init(cz
  * control tick. No exponential asymptote and no extra release after END. */
 typedef struct { uint32_t rate[8]; int32_t level[8]; uint8_t sustain, end; } cz_env_def_t;
 typedef struct { int32_t level; uint8_t stage, gate; } cz_env_t;
-typedef struct { cz_env_t eg[2][3]; uint32_t vib_phase, vib_ticks, noise; } cz_voice_t;
+typedef struct { float level; uint8_t stage, gate; } cz_native_env_t;
+typedef struct {
+    union { cz_env_t eg[2][3]; cz_native_env_t native_eg[2][3]; };
+    uint32_t vib_phase, vib_ticks, noise;
+    float native_dc[2];
+} cz_voice_t;
 typedef struct { cz_voice_t v[NPOLY]; } cz_part_t;
 static cz_part_t *cz_part(uint32_t part);              /* engines.c: shared runtime pool */
 static cz_voice_t *cz_voice(track_t *t, voice_t *v)

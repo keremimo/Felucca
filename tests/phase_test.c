@@ -98,11 +98,11 @@ int main(void)
     for(uint32_t k=0;k<8;k++){raw[21+2*k]=119;raw[22+2*k]=(uint8_t)(k%2?60:127);}raw[28]|=128;
     trk_note_on(t,60,100);v=&t->v[0];
     for(uint32_t k=0;k<30;k++){memset(out,0,sizeof out);track_render(t,out,CTL);}
-    c=cz_voice(t,v);check("imported eight-point native DCA sustains at fourth point",c->eg[0][2].stage==3 && c->eg[0][2].level==cz_hw_target(60,2));
-    check("chip rate law and separate DCW/DCA domains",abs((int)(cz_hw_rate(119,1)*2)-(int)cz_hw_rate(119,2))<=1);
+    c=cz_voice(t,v);check("imported eight-point native DCA sustains at fourth point",c->native_eg[0][2].stage==3 && c->native_eg[0][2].level==cz_hw_target(60,2));
+    check("chip rate law and separate DCW/DCA domains",fabsf(cz_hw_rate(119,1)-cz_hw_rate(119,2)*4.0f)<1e-5f);
     trk_note_off(t,60);for(uint32_t k=0;k<100;k++){memset(out,0,sizeof out);track_render(t,out,CTL);}
     check("native key-off plays remaining points then frees voice",!v->active);
-    cz_hw_pd_t hw;int valid=1;for(uint32_t w=0;w<8;w++)for(uint32_t win=0;win<8;win++)for(uint32_t depth=0;depth<=1023;depth+=341){cz_native_pd(&hw,(w<<13)|(win<<6),depth);for(uint32_t ph=0;ph<2048;ph+=17)valid &= abs(cz_native_wave(&hw,ph<<21,0))<=32767;}
+    cz_hw_pd_t hw;int valid=1;for(uint32_t w=0;w<8;w++)for(uint32_t win=0;win<8;win++)for(uint32_t depth=0;depth<=1023;depth+=341){cz_native_pd(&hw,(w<<13)|(win<<6),depth);for(uint32_t ph=0;ph<2048;ph+=17)valid &= fabsf(cz_native_wave(&hw,ph<<21,0))<=1.000001f;}
     check("native hidden wave/window combinations stay bounded",valid);
     return fails != 0;
 }

@@ -74,9 +74,13 @@ static double centroid(const double *y, uint32_t a)   /* Hz, of y[a .. a + NFFT)
 {
     static double re[NFFT], im[NFFT];
     uint32_t i, j, len;
-    double num = 0, den = 0;
+    double num = 0, den = 0, mean = 0;
+    /* Remove DC before windowing: a one-PCM-unit quiet tail otherwise turns
+     * into a Hann sideband at 11 Hz and a false timbre mismatch at silence. */
+    for(i=0;i<NFFT;i++)mean+=y[a+i];
+    mean/=NFFT;
     for (i = 0; i < NFFT; i++) {
-        re[i] = y[a + i] * (0.5 - 0.5 * cos(2 * M_PI * i / NFFT));
+        re[i] = (y[a + i]-mean) * (0.5 - 0.5 * cos(2 * M_PI * i / NFFT));
         im[i] = 0;
     }
     for (i = 1, j = 0; i < NFFT; i++) {
