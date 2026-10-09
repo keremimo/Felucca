@@ -646,7 +646,14 @@ static void ref_scene(int s)
     case S_REF_BROWSER: {
         uint32_t i;
         for (i = 0; i < NELEM(CAT_ORDER) && CAT_ORDER[i] != CAT_BASS; i++) {}
-        list_set(LM_CAT + i); go_page(GR_BROWSE); break;
+        list_set(LM_CAT + i); go_page(GR_BROWSE);
+        {   /* (a fast turn through it: x4, its 12th sound pending, as the mockup's) */
+            uint32_t total;
+            list_cur(&total);
+            brw.on = 1; brw.trk = song.sel; brw.mode = (uint8_t)list_mode(); brw.n = (uint16_t)(total > 11u ? 11u : 0u);
+            brw.t = fm1_ms; brw.x = 4;
+        }
+        break;
     }
     case S_REF_PATTERNS:                             /* the mock's: T1 1..3 (1 playing), T2 1, 2 playing, 3 waiting, 4;
                                                       * T3 1 playing, 2; T4 1, 4 playing; the song A A B B C A on B */

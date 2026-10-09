@@ -210,7 +210,8 @@ static void recent_push(uint32_t src, uint32_t k)
 enum { LM_ALL, LM_FAV, LM_RECENT, LM_CAT };
 #define LM_N (LM_CAT + NELEM(CAT_ORDER))
 static uint8_t list_recent;
-static struct { uint8_t on, trk, mode; uint16_t n; uint32_t t; } brw;   /* the pending place: list index n */
+static struct { uint8_t on, trk, mode, x; uint16_t n; uint32_t t; } brw;   /* the pending place: list index n; x the
+                                                                             * turn's acceleration (the browser's badge) */
 static uint32_t list_mode(void)
 {
     uint32_t i;
@@ -384,6 +385,7 @@ static void browse_turn(uint32_t role, int32_t s)
         return;
     }
     d = list_accel(role, s, total, &fast);
+    brw.x = (uint8_t)clamp((d < 0 ? -d : d) / (s < 0 ? -s : s), 1, 99);
     cur = brw.on && brw.n < total ? brw.n : loaded;
     if (cur >= total)                                       /* the sound is not in the list: its first or last */
         n = d > 0 ? 0u : total - 1u;

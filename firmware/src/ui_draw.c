@@ -572,6 +572,7 @@ static void engine_columns(void)
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
 }
 #include "ui_stage.c"                                   /* Stage (HOME) and SEQ > PATTERNS */
+#include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
 static void draw_columns(void)
 {
     if(cur_page()->scope==SC_DRUM){
@@ -1035,17 +1036,21 @@ static void ui_draw(void)
         page_entered();
     }
     cursor_fix();
-    if (ui.force)
-        draw_frame(ui.home);
-    melodee_dbg.stage = 3;
-    draw_head();
-    melodee_dbg.stage = 4;
-    draw_columns();
-    melodee_dbg.stage = 5;
-    if (ui.home)                                        /* Stage: its panel and the lanes (ui_stage.c), no footer */
-        stage_draw();
-    else
-        draw_graph();
+    if (!ui.home && cur_page()->graph == GR_BROWSE) {  /* the sound browser: a screen of its own (ui_browser.c) */
+        browser_draw();
+    } else {
+        if (ui.force)
+            draw_frame(ui.home);
+        melodee_dbg.stage = 3;
+        draw_head();
+        melodee_dbg.stage = 4;
+        draw_columns();
+        melodee_dbg.stage = 5;
+        if (ui.home)                                    /* Stage: its panel and the lanes (ui_stage.c), no footer */
+            stage_draw();
+        else
+            draw_graph();
+    }
     if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {     /* the second message (ui_notices) */
         str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
         ui.msg2[0] = 0;
@@ -1056,7 +1061,7 @@ static void ui_draw(void)
     if (ui.hot_t)
         ui.hot_t--;
     melodee_dbg.stage = 6;
-    if (!ui.home)
+    if (!ui.home && cur_page()->graph != GR_BROWSE)
         draw_foot();
     ui.force = 0;
     scr_shown();
