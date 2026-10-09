@@ -254,8 +254,11 @@ static int test_step_modifiers(void)
     put_note(t, 7, 62, 1); frame(); press(B_FX);
     bad += check("FX tapped on STEP: its page, the note stays (EDIT deletes)", step_on(&t->step[7]) && cur_page()->fam == FAM_FX);
     t = edit_setup(); cursor_set(7); frame();
-    press(B_OCTDN); press(B_OCTUP);
-    bad += check("plain STEP OCT taps move the cursor instead of shifting octave", ui.cursor == 7 && !song.octave);
+    press(B_OCTUP);
+    bad += check("plain STEP OCT+: neither the cursor (the knobs move it) nor the octave (Stage only)", ui.cursor == 7 &&
+                 !song.octave && !ui.home && cur_page()->graph == GR_ROLL);
+    press(B_OCTDN);
+    bad += check("plain STEP OCT-: Esc, back to Stage, no octave", ui.home && !song.octave);
 
     t = edit_setup(); press(B_ENV);
     bad += check("unused ENV tap still opens ENV", cur_page()->fam == FAM_ENV);
@@ -317,7 +320,8 @@ static int test_held_gestures(void)
     bad += check("  .. and moves it (4 -> 6); let go, it follows the play head again", step_note_length(t, 6) == 4 &&
                  ui.cursor == 9);
     press(B_OCTUP);
-    bad += check("  OCT+ while recording live: the octave, not the cursor", song.octave == 1 && ui.cursor == 9);
+    bad += check("  OCT+ while recording live: not the octave (Stage only), not the cursor", !song.octave && ui.cursor == 9 &&
+                 !ui.home);
     put_note(t, 9, 64, 1);
     fm1_in.buttons |= 1u << panel.btn[B_FX]; host_pressed |= 1u << panel.btn[B_FX]; frame(); frame();
     {

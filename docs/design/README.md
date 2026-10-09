@@ -58,10 +58,10 @@ One way to move on every screen with something to move through (Kerem, 2026-10-1
 
 - **KNOB 1 across, KNOB 2 up / down**: the cursor (a step, a cell, a column), the row (a slot, a lane, a route, a
   setting); KNOB 3 / 4 edit what the cursor is on where a page has more.
-- **OCT+ Enter, OCT- Esc** on these screens (lists, menus, the browser, PROJECT / USER / FM6 STORE, TOOLS,
-  SONG, NOTES and drum STEP, NAME, NEW SONG, the questions). Esc closes the innermost thing first: a question (No),
-  an action picked, a sub-screen (About, a name, a pending browse), and only then goes to Stage. On Stage and the
-  sound pages the OCT keys stay the octave; while recording live on STEP too (the keys played need them).
+- **OCT+ Enter, OCT- Esc** everywhere but Stage (Kerem, 2026-10-10: the octave is Stage's alone; the sound pages,
+  NOTES and drum STEP, recording live included, navigate too). Esc closes the innermost thing first: a question (No),
+  a popup, an action picked, a sub-screen (SCALES: back to SCL, About, a name, a pending browse), and only then goes
+  to Stage. Enter: a list row's list, the action picked, a sound page's sheet; NOTES / drum STEP: to come (R6 3b).
 - **SELECT** turns the pages, as before.
 - **Direct pages stay direct**: one knob per track where speed matters (Stage, MIXER, PATTERNS, NEW SONG's roles);
   the sound pages' four knobs edit their four values. PATTERNS: OCT- clears what is queued.
@@ -100,7 +100,12 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   TEMPO, GLOBAL, SYSTEM stay knobs (BPM and TUNE are turned while playing, their digits roll).
 - **Knob pages** (played while tweaked): four rings over the page's picture (R5): the engines' EDIT pages, ENV, LFO,
   DLY, REVERB, CHORUS, FX, SLICER, ARP, PATTERN; MIXER, Stage, PATTERNS direct.
-- Defaults (Kerem, 2026-10-10): OCT+ held (about 0.5 s) opens a page's own sheet, a tap stays OCT+; CHANCE keeps its
+- **ENV / LFO follow the engine** (Kerem, 2026-10-10): the Prophet, FM6 and CZ-1 have envelopes and LFOs of their own
+  (the track's ADSR and ENV DEST do nothing there), so ENV visits theirs (P5 FLT ENV, AMP ENV, ENV MOD; FM6 EG RATE,
+  EG LVL, PITCH EG, PITCH LV; CZ-1 each line's pitch, wave and amp envelope) and the track ADSR hides; LFO visits
+  theirs first (P5 LFO, WHEEL; FM LFO; CZ VIBRATO), then the track LFO (it modulates any engine through LFO DEST
+  and is the matrix's LFO) and MOD. LOFI, DRUM, SLICE keep the track's.
+- Defaults (Kerem, 2026-10-10): OCT+ (tapped, or held about 0.7 s) opens a page's own sheet; CHANCE keeps its
   page and is in the note / hit sheets too; a picker closes ST_KNOB_MS after the last turn or on OCT-.
 
 ## Sound pages, fast (R7: mock/r7_sound_nav)

@@ -788,7 +788,7 @@ static int test_actions(void)
     fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]);
     frame();
     bad += check("..OCT+ let go: cleared", ui.confirm == CF_NONE && seq_is_empty(t));
-    bad += check("back on SEQ: the octave LEDs again", oct_leds() == 2u);
+    bad += check("back on SEQ: OCT- lit (Esc), OCT+ dark (nothing to enter), not the octave", oct_leds() == 1u && song.octave);
     return bad;
 }
 
@@ -1672,7 +1672,54 @@ static void chain_screens(const char *dir)
 }
 
 /* PATTERNS and SONG (ui_patterns.c): a row's letter is its set of patterns; a pattern's bars follow LEN and DIV */
-/* popups (ui_popup.c): OCT+ on a sound page an octave on release, held its sheet; the sheet's rows; a list knob's picker */
+/* ENV / LFO on the engines with envelopes and LFOs of their own (ui.c native_titles): their pages, the track's ADSR
+ * and ENV DEST hidden; LFO goes on to the track LFO. OCT- on a sound page: Stage; on SCALES: SCL */
+static int test_native_env_lfo(void)
+{
+    int bad = 0, o;
+    uint32_t i, found = 0;
+    ui_power_on();
+    set_engine_of(TSEL, ENGI_CZ);
+    open_family(FAM_ENV);
+    bad += check("ENV on CZ-1: Line 1's pitch envelope, ENV lit", str_eq(cur_page()->title, "C1 PIT R1-4") && cur_fam() == FAM_ENV);
+    open_family(FAM_ENV);
+    bad += check("..ENV again: its wave (DCW) envelope", str_eq(cur_page()->title, "C1 WAV R1-4"));
+    for (i = 0; i < NPAGES; i++)
+        found |= PAGES[i].fam == FAM_ENV && page_visible(i);
+    bad += check("..the track's ADSR and ENV DEST hidden", !found);
+    open_family(FAM_LFO);
+    bad += check("LFO on CZ-1: its vibrato, LFO lit", str_eq(cur_page()->title, "CZ VIBRATO") && cur_fam() == FAM_LFO);
+    open_family(FAM_LFO);
+    bad += check("..LFO again: the track LFO (it modulates the CZ-1 too)", str_eq(cur_page()->title, "LFO"));
+    go_home();
+    set_engine_of(TSEL, ENGI_PROPHET);
+    open_family(FAM_ENV);
+    bad += check("ENV on the Prophet: its filter envelope", str_eq(cur_page()->title, "P5 FLT ENV"));
+    open_family(FAM_LFO);
+    bad += check("LFO on the Prophet: its LFO", str_eq(cur_page()->title, "P5 LFO"));
+    go_home();
+    set_engine_of(TSEL, ENGI_FM6);
+    open_family(FAM_ENV);
+    bad += check("ENV on FM6: the operator's EG", str_eq(cur_page()->title, "EG RATE"));
+    open_family(FAM_LFO);
+    bad += check("LFO on FM6: its LFO", str_eq(cur_page()->title, "FM LFO"));
+    go_home();
+    set_engine_of(TSEL, 3);
+    open_family(FAM_ENV);
+    bad += check("ENV on LOFI: the track's ADSR", str_eq(cur_page()->title, "ENV"));
+    o = song.octave;
+    press(B_OCTDN);
+    bad += check("OCT- on a sound page: Stage, no octave", ui.home && song.octave == o);
+    press(B_OCTDN);
+    bad += check("OCT- on Stage: an octave down", ui.home && song.octave == o - 1);
+    go_title("SCALES");
+    press(B_OCTDN);
+    bad += check("OCT- on SCALES: back to SCL's list", !ui.home && str_eq(cur_page()->title, "SCL"));
+    return bad;
+}
+
+/* popups (ui_popup.c): OCT+ on a sound page its sheet (tapped: Enter, held too), never the octave (Stage only); the
+ * sheet's rows; a list knob's picker */
 static int test_popups(void)
 {
     int bad = 0, o;
@@ -1680,9 +1727,11 @@ static int test_popups(void)
     ui.home = 0; ui.page = (uint8_t)page_first(FAM_EDIT); page_entered(); frame();
     o = song.octave;
     press(B_OCTUP);
-    bad += check("POPUPS: OCT+ tapped on a sound page: an octave up (on release), no sheet", song.octave == o + 1 && !pop.on);
+    bad += check("POPUPS: OCT+ tapped on a sound page: the sound's sheet (Enter), no octave", pop.on == POP_SHEET && song.octave == o);
+    press(B_OCTDN);
+    bad += check("POPUPS: OCT- closes it, the page stays", !pop.on && !ui.home && song.octave == o);
     hold(B_OCTUP);
-    bad += check("POPUPS: OCT+ held: the sound's sheet, no octave", pop.on == POP_SHEET && song.octave == o + 1);
+    bad += check("POPUPS: OCT+ held: the sheet too, no octave", pop.on == POP_SHEET && song.octave == o);
     turn(EN_K2, 1); turn(EN_K2, 1);
     press(B_OCTUP);
     bad += check("POPUPS: KNOB 2 the row, OCT+ does it (Favourite) and closes", !pop.on && preset_favorite());
@@ -1698,7 +1747,7 @@ static int test_popups(void)
     turn(EN_K1, 1); turn(EN_K2, 1);
     bad += check("POPUPS: another knob turning closes it", !pop.on);
     turn(EN_K1, 1); press(B_OCTDN);
-    bad += check("POPUPS: OCT- closes the picker, no octave", !pop.on && song.octave == o + 1);
+    bad += check("POPUPS: OCT- closes the picker (the page stays), no octave", !pop.on && !ui.home && song.octave == o);
     {   /* list pages (ui_list.c): KNOB 2 the row, KNOB 1 its value, OCT+ its list (SCL's Scale: SCALES), OCT- Stage */
         ui_power_on(); go_title("VOICE"); frame();
         o = TSEL->p[P_DETUNE];
@@ -4568,6 +4617,7 @@ int main(void)
     bad += test_chord_page();
     bad += test_song_view();
     bad += test_popups();
+    bad += test_native_env_lfo();
     bad += test_bughunt_ui();
     bad += test_bughunt_ui2();
     bad += test_piano_roll();

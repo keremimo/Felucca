@@ -35,11 +35,27 @@ static int led_get(const uint8_t *nl, uint32_t id)
 static const uint8_t FAM_BTN[FAM_COUNT] = {B_HOME, B_ENV, B_LFO, B_FX, B_SCL, B_EDIT, B_GLO, B_SAVE,
                                            B_ARP, B_SEQ, B_GLO};   /* GLO: mixer + global settings; REC is transport */
 
-static uint32_t cur_fam(void) { return ui.home ? FAM_HOME : cur_page()->fam; }
+static uint32_t cur_fam(void)                       /* (an engine's own envelope / LFO page: ENV / LFO, ui.c native_page) */
+{
+    return ui.home ? FAM_HOME : native_page(ui.page, FAM_ENV) ? FAM_ENV : native_page(ui.page, FAM_LFO) ? FAM_LFO :
+           cur_page()->fam;
+}
 
 static int layer_set_open(void);                       /* (ui_layer.c) */
+/* OCT- / OCT+ shift the octave on Stage (HOME) only; everywhere else, and over Stage's menu, dialogs and popups,
+ * they are Esc / Enter (docs/design/README.md, Navigation) */
+static int oct_nav(void)
+{
+    return !ui.home || ui.menu || ui.confirm || name_on() || new_on() || layer_set_open() || pop.on || smap.on;
+}
+static int oct_enter_ok(void)                           /* OCT+ would do something here */
+{
+    return list_on() || page_sheet() || pop.on || smap.on || (!ui.home && cur_page()->graph == GR_BROWSE);
+}
+
 /* the OCT LEDs, bit 0 OCT-, bit 1 OCT+. In the dialogs, the menu and on action pages OCT- (back) is
- * lit and OCT+ blinks while it would do something; elsewhere they show the octave shift */
+ * lit and OCT+ blinks while it would do something; off Stage OCT- lit, OCT+ lit where it enters; on Stage
+ * they show the octave shift */
 static uint32_t oct_leds(void)
 {
     uint32_t blink = ((fm1_ms / 250u) & 1u) == 0u;
@@ -49,6 +65,8 @@ static uint32_t oct_leds(void)
         return 1u;
     if (ui.confirm || ui.menu || act_cols())
         return 1u | (blink && (ui.confirm || (ui.menu ? ui.menu == 1u : act_ready())) ? 2u : 0u);
+    if (oct_nav())
+        return 1u | (oct_enter_ok() ? 2u : 0u);
     return (song.octave < 0 ? 1u : 0u) | (song.octave > 0 ? 2u : 0u);
 }
 
@@ -999,10 +1017,11 @@ static void act_do(void)
     }
 }
 
-/* OCT- / OCT+ where they answer (the dialogs, the menu, action pages): on release, and only a press
- * that began there; both down together (UPDATE MODE, main.c) is no tap. Bit 0 OCT-, bit 1 OCT+ */
-static uint8_t oct_eat;                                 /* OCT taps not to come (an OCT+ held for a sheet) */
-static uint8_t oct_deferred;                            /* OCT+ pressed on a page with a sheet: its octave on release */
+/* OCT- / OCT+ as Esc / Enter (oct_nav): on release, and only a press that began there; both down together
+ * (UPDATE MODE, main.c) is no tap. Bit 0 OCT-, bit 1 OCT+ */
+static uint8_t oct_eat;                                 /* OCT taps not to come (held for a sheet, used in a combo) */
+static uint8_t oct_deferred;                            /* OCT+ pressed on Stage (its sheet when held): the octave on
+                                                         * release */
 static uint32_t oct_taps(uint32_t pressed, int here)
 {
     static uint8_t down, chord;
@@ -1034,8 +1053,6 @@ static int step_modifier_context(void)
     return step_page() && (!drum_track(TSEL) || !grid_on() || (cur_page()->graph == GR_ROLL && live_rec_sel())) &&
            !ui.menu && !ui.confirm && !ui.ly && !name_on();
 }
-/* .. and OCT taps move the cursor, but not while recording live: the keys played need the octave buttons then */
-static int step_oct_context(void) { return step_modifier_context() && !live_rec_sel(); }
 static uint32_t step_modifier_mask(void)                /* (EDIT: STEP only, not CHANCE) */
 {
     if (grid_on() && live_rec_sel()) return 1u << panel.btn[B_EDIT];
@@ -1489,8 +1506,7 @@ static void ui_input(void)
     }
     if (octup != BT_NONE || !((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u))
         oct_deferred = 0;
-    oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || new_on() || layer_set_open() ||
-                   step_oct_context() || pop.on == POP_SHEET || pop.on == POP_LIST || smap.on || list_on());
+    oct = oct_taps(pressed, oct_nav());
     uint32_t lay, knob_layer, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
     seq_erase_update(pressed);
@@ -1752,9 +1768,10 @@ static void ui_input(void)
             break;
         case B_OCTDN:
         case B_OCTUP: {
-            uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
-            if (pop.on == POP_PICK && b == B_OCTDN) {   /* a picker: OCT- closes it (ui_popup.c) */
+            uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]), bit = b == B_OCTUP ? 2u : 1u;
+            if (pop.on == POP_PICK) {                   /* a picker: either closes it (ui_popup.c) */
                 pop_close();
+                oct_eat |= (uint8_t)bit;
                 break;
             }
             if (act_cols() || layer_set_open() || list_on())   /* action, list pages: enter / back (below); SET layers:
@@ -1763,7 +1780,8 @@ static void ui_input(void)
             if (step_page() && ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u)) {   /* SAVE held: undo further / redo */
                 ui.save_t0 |= 2u;                       /* (no page, no other undo when SAVE is let go) */
                 ui.oct_t0 |= 2u;                        /* (OCT+: no tap, no sheet) */
-                ui.step_oct_used |= b == B_OCTUP ? 2u : 1u;
+                ui.step_oct_used |= (uint8_t)bit;
+                oct_eat |= (uint8_t)bit;                /* (its release: no Esc / Enter) */
                 if (chain_busy())
                     ui_message("STOP TO UNDO");
                 else if (!step_history_apply(b == B_OCTUP))
@@ -1773,6 +1791,7 @@ static void ui_input(void)
             if ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u) {   /* SAVE held elsewhere: OCT- undoes a load further, */
                 ui.save_t0 |= 2u;                       /* OCT+ redoes (no page, no undo when SAVE is let go) */
                 ui.oct_t0 |= 2u;
+                oct_eat |= (uint8_t)bit;
                 if (chain_busy())
                     ui_message("STOP TO UNDO");
                 else
@@ -1781,16 +1800,17 @@ static void ui_input(void)
             }
             if (!ui.home && cur_page()->graph == GR_BROWSE) {   /* the browser: OCT- back, OCT+ keep (ui_browser.c) */
                 browser_key(b == B_OCTUP);
+                oct_eat |= (uint8_t)bit;
                 break;
             }
-            if (step_oct_context())                    /* STEP OCT taps: the cursor; EDIT consumes them below */
+            if (oct_nav())                              /* off Stage: Esc / Enter, on release (below) */
                 break;
             if ((fm1_in.buttons & both) == both) {
                 song.octave = 0;
                 ui.oct_t0 |= 2u;                        /* (OCT+ then neither a tap nor a sheet) */
                 oct_deferred = 0;
             } else if (b == B_OCTUP && page_sheet() == 1u) {
-                oct_deferred = 1;                       /* a page with a sheet: OCT+ on release, held: the sheet */
+                oct_deferred = 1;                       /* Stage: OCT+ on release, held: the sound's sheet */
             } else {
                 song.octave += b == B_OCTDN ? (song.octave > -3 ? -1 : 0) : (song.octave < 3 ? 1 : 0);
             }
@@ -1819,6 +1839,17 @@ static void ui_input(void)
             ui.act = 0;
         else
             go_home();
+    } else if (oct_nav() && !ui.layer && (oct & 2u)) {  /* any other page: OCT+ Enter (the page's sheet), */
+        if (page_sheet())
+            page_sheet_open();
+    } else if (oct_nav() && !ui.layer && (oct & 1u)) {  /* OCT- Esc: SCALES back to SCL's list, else Stage */
+        uint32_t p = page_titled("SCL");
+        if (str_eq(cur_page()->title, "SCALES") && p < NPAGES) {
+            ui.page = (uint8_t)p;
+            page_entered();
+        } else {
+            go_home();
+        }
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
 #if MELODEE_SLICE
@@ -1923,6 +1954,7 @@ static void ui_input(void)
             uint32_t dir = ((combo_oct >> panel.btn[B_OCTDN]) & 1u) | (((combo_oct >> panel.btn[B_OCTUP]) & 1u) << 1);
             ui.step_used |= (uint16_t)ed;
             ui.step_oct_used |= (uint8_t)dir;
+            oct_eat |= (uint8_t)dir;                   /* (their release: no Esc / Enter) */
             if (chain_busy()) ui_message("STOP TO UNDO");
             else if (dir == 3u) ui_message("USE ONE OCT BUTTON");
             else {
@@ -1946,11 +1978,8 @@ static void ui_input(void)
             }
             ui.step_used &= (uint16_t)~bit;
         }
-        if (step_oct_context()) {
-            if (oct & ~ui.step_oct_used) cursor_set(ui.cursor + ((oct & 2u) ? 1 : -1));
-            ui.step_oct_used &= (uint8_t)(((fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u) |
-                                         (((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) << 1));
-        }
+        ui.step_oct_used &= (uint8_t)(((fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u) |
+                                     (((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) << 1));
         ui.step_move = (ui.step_mods & ui.step_used) != 0u;
     }
 

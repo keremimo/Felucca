@@ -165,9 +165,39 @@ static uint32_t layer_btn(void);
 /* FM operator pages belong to DIGITAL; they never appear on other instruments (without MELODEE_FM4: never). SLICES:
  * a SLICE track's (ui_slice.c) */
 static int list_gone(uint32_t i);                        /* ui_list.c: a page in another's list */
+/* ENV / LFO on the engines with envelopes and LFOs of their own (Prophet, FM6, CZ-1: engine_t.ownenv, the track's
+ * ADSR and ENV DEST do nothing there): their own pages (FAM_EDIT, by title). ENV: only those; LFO: those first, then
+ * the track LFO's pages and MOD (the track LFO modulates any engine through LFO DEST and is the matrix's source) */
+static const char *const *native_titles(uint32_t fam)
+{
+    static const char *const P5_ENV[] = {"P5 FLT ENV", "P5 AMP ENV", "P5 ENV MOD", 0};
+    static const char *const FM_ENV[] = {"EG RATE", "EG LVL", "PITCH EG", "PITCH LV", 0};
+    static const char *const CZ_ENV[] = {"C1 PIT R1-4", "C1 WAV R1-4", "C1 AMP R1-4", "C2 PIT R1-4", "C2 WAV R1-4",
+                                         "C2 AMP R1-4", 0};
+    static const char *const P5_LFO[] = {"P5 LFO", "P5 WHEEL", 0};
+    static const char *const FM_LFO[] = {"FM LFO", 0};
+    static const char *const CZ_LFO[] = {"CZ VIBRATO", 0};
+    uint32_t e = TSEL->eng_req;
+    if (fam == FAM_ENV)
+        return e == ENGI_PROPHET ? P5_ENV : e == ENGI_FM6 ? FM_ENV : e == ENGI_CZ ? CZ_ENV : 0;
+    if (fam == FAM_LFO)
+        return e == ENGI_PROPHET ? P5_LFO : e == ENGI_FM6 ? FM_LFO : e == ENGI_CZ ? CZ_LFO : 0;
+    return 0;
+}
+static int native_page(uint32_t i, uint32_t fam)       /* page i: one of fam's native pages (a prefix of its title) */
+{
+    const char *const *t = native_titles(fam);
+    for (; t && *t; t++)
+        if (!memcmp(PAGES[i].title, *t, str_len(*t)))
+            return 1;
+    return 0;
+}
+
 static int page_visible(uint32_t i)
 {
     if (list_gone(i))
+        return 0;
+    if (PAGES[i].fam == FAM_ENV && native_titles(FAM_ENV))   /* (the track's ADSR, ENV DEST: nothing there) */
         return 0;
     if(PAGES[i].scope==SC_DRUM || PAGES[i].scope==SC_DRUMHIT)return drum_track(TSEL);
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
@@ -420,9 +450,36 @@ static void page_scroll(int32_t dir)
     page_entered();
 }
 
+/* the pages a family's button visits, in order: ENV / LFO on an engine with its own (native_titles) its pages
+ * first; n = 0: none */
+static uint32_t fam_pages(uint32_t fam, uint8_t *pg)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < NPAGES; i++)
+        if (native_page(i, fam) && page_visible(i))
+            pg[n++] = (uint8_t)i;
+    for (i = 0; i < NPAGES; i++)
+        if (PAGES[i].fam == fam && page_visible(i) && !native_page(i, fam))
+            pg[n++] = (uint8_t)i;
+    return n;
+}
+static int fam_has(uint32_t fam, uint32_t page)         /* page: one the family's button visits */
+{
+    return page < NPAGES && (native_page(page, fam) || PAGES[page].fam == fam) && page_visible(page);
+}
+
 static void open_family(uint32_t fam)
 {
-    if (!ui.home && cur_page()->fam == fam) {          /* same button again: next page */
+    if ((fam == FAM_ENV || fam == FAM_LFO) && native_titles(fam)) {   /* ENV / LFO of the Prophet, FM6, CZ-1 */
+        uint8_t pg[NPAGES];
+        uint32_t n = fam_pages(fam, pg), k;
+        for (k = 0; k < n && pg[k] != ui.page; k++) {}
+        if (!n)
+            return;
+        ui.page = !ui.home && k < n ? pg[(k + 1u) % n]                 /* again: the next one; from elsewhere the */
+                  : native_page(ui.fam_last[fam], fam) && fam_has(fam, ui.fam_last[fam]) ? ui.fam_last[fam] : pg[0];
+                                                                        /* engine's page last used, else its first */
+    } else if (!ui.home && cur_page()->fam == fam) {   /* same button again: next page */
         uint32_t n, i = ui.page;
         for (n = 0; n < NPAGES; n++) {
             i = (i + 1u) % NPAGES;
