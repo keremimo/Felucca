@@ -211,8 +211,12 @@ static void draw_head(void)
         }
         if (low)                                        /* the battery, only when it runs low */
             cv_icon_mid(232 - cw - 18, H_HEAD / 2, 12, batt_level() ? ICON_X_BAT1 : ICON_X_BAT0, T_REC, T_BG);
-        cv_rrect(232 - cw, 2, cw, 14, 4, T_THEME, T_BG);
-        cv_text_c(232 - cw / 2, 3, &AF_X, chip, T_INK, T_THEME);
+        if (!ui.home && cur_page()->graph == GR_PATGRID) {   /* PATTERNS: its name plain (the grid is in colour) */
+            cv_text_r(232, 4, &AF_X, "patterns", T_MID, T_BG);
+        } else {
+            cv_rrect(232 - cw, 2, cw, 14, 4, T_THEME, T_BG);
+            cv_text_c(232 - cw / 2, 3, &AF_X, chip, T_INK, T_THEME);
+        }
     }
     cv_blit(0, Y_HEAD);
 }
@@ -571,8 +575,9 @@ static void engine_columns(void)
     draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
 }
-#include "ui_stage.c"                                   /* Stage (HOME) and SEQ > PATTERNS */
+#include "ui_stage.c"                                   /* Stage (HOME) */
 #include "ui_browser.c"                                 /* SAVE > PRESETS, the sound browser */
+#include "ui_patterns.c"                                /* SEQ > PATTERNS, SEQ > SONG */
 static void draw_columns(void)
 {
     if(cur_page()->scope==SC_DRUM){
@@ -598,30 +603,6 @@ static void draw_columns(void)
     const char *unit;
     if (ui.home)                                        /* Stage: its knobs drop in when turned (ui_stage.c stage_knobs) */
         return;
-    if (cur_page()->graph == GR_PATGRID) {              /* PATTERNS: a track's each */
-        patgrid_columns();
-        return;
-    }
-    if (cur_page()->graph == GR_SONG) {
-        uint32_t row = ui.song_row < CHAIN_ROWS ? ui.song_row : CHAIN_ROWS - 1u;
-        int used = row < chain_config.count;
-        fmt_int(val, (int32_t)row + 1);
-        draw_column(0, "ROW", val, "", VAL(0u), -1, ICON_X_SONG);
-        if (used) fmt_int(val, (int32_t)chain_patterns[row][song.sel] + 1);
-        else str_cpy(val, "--", sizeof val);
-        draw_column(1, "PAT", val, "", used ? VAL(1u) : T_DIM, -1, ICON_X_PATTERN);
-        if (used) fmt_int(val, chain_config.row[row].repeat);
-        else str_cpy(val, "--", sizeof val);
-        draw_column(2, "REPS", val, "", used ? VAL(2u) : T_DIM, -1, ICON_AUTO);
-        if (act_col() == 4u)                            /* TAKE JAM picked: OCT+ */
-            draw_act_column(3, "JAM", T_THEME, ICON_X_SONG);
-        else {                                          /* the rows played since PLAY */
-            if (jam.n) fmt_int(val, jam.n);
-            else str_cpy(val, "--", sizeof val);
-            draw_column(3, "JAM", val, jam.n ? (jam.n > 1u ? "ROWS" : "ROW") : "", jam.n ? VAL(3u) : T_DIM, -1, ICON_X_SONG);
-        }
-        return;
-    }
     if (cur_page()->graph == GR_CHANCE) {
         fmt_int(val, (int32_t)ui.cursor + 1);
         draw_column(0, "STEP", val, "", VAL(0u), -1, ICON_AUTO);
@@ -977,6 +958,11 @@ static void draw_confirm(void)
     cv_blit(DLG_X, DLG_Y);
 }
 
+static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
+{
+    uint32_t g = cur_page()->graph;
+    return !ui.home && (g == GR_BROWSE || g == GR_PATGRID || g == GR_SONG);
+}
 static void ui_draw(void)
 {
     if (!scr_frame()) return;
@@ -1036,8 +1022,15 @@ static void ui_draw(void)
         page_entered();
     }
     cursor_fix();
-    if (!ui.home && cur_page()->graph == GR_BROWSE) {  /* the sound browser: a screen of its own (ui_browser.c) */
-        browser_draw();
+    if (own_screen()) {                                 /* the browser, PATTERNS, SONG: screens of their own */
+        if (cur_page()->graph == GR_BROWSE)
+            browser_draw();
+        else if (cur_page()->graph == GR_SONG)
+            song_draw();
+        else {
+            draw_head();
+            patterns_draw();
+        }
     } else {
         if (ui.force)
             draw_frame(ui.home);
@@ -1061,7 +1054,7 @@ static void ui_draw(void)
     if (ui.hot_t)
         ui.hot_t--;
     melodee_dbg.stage = 6;
-    if (!ui.home && cur_page()->graph != GR_BROWSE)
+    if (!ui.home && !own_screen())
         draw_foot();
     ui.force = 0;
     scr_shown();

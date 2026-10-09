@@ -661,6 +661,7 @@ static void ref_scene(int s)
         pattern_switch(&trk[0], 1); ref_steps(&trk[0], ON[0], 0, 1); pattern_switch(&trk[0], 2); ref_steps(&trk[0], ON[0], 0, 1);
         pattern_switch(&trk[0], 0);
         pattern_switch(&trk[1], 0); ref_steps(&trk[1], ON[1], 57, 0); pattern_switch(&trk[1], 3); ref_steps(&trk[1], ON[1], 57, 0);
+        pattern_switch(&trk[1], 2); ref_steps(&trk[1], ON[3], 57, 0);
         pattern_switch(&trk[1], 1);
         pattern_switch(&trk[2], 1); ref_steps(&trk[2], ON[2], 69, 0); pattern_switch(&trk[2], 0);
         pattern_switch(&trk[3], 0); ref_steps(&trk[3], ON[3], 81, 0); pattern_switch(&trk[3], 3);
@@ -674,13 +675,26 @@ static void ref_scene(int s)
         chain.running = 1; chain.row = 2;
         go_page(GR_PATGRID);
         break;
-    case S_REF_SONG:
-        song.playing = 0; project_save(0);
+    case S_REF_SONG: {                               /* the mock's: four sections, B twice; T1 1 2 2 3, T2 1 2 2 4,
+                                                      * T3 - 1 2 1, T4 - - 3 2 (-: pattern 6, empty); B's second time
+                                                      * playing, a quarter in; KNOB 1 on D */
+        static const uint8_t SP[4][NTRK] = {{0, 0, 5, 5}, {1, 1, 0, 5}, {1, 1, 1, 2}, {2, 3, 0, 1}};
+        uint32_t b;
+        song.playing = 0;
+        for (k = 0; k < NTRK; k++) {
+            for (b = 0; b < 4u; b++) { pattern_switch(&trk[k], b); ref_steps(&trk[k], ON[(k + b) % 4u], 45u + 12u * k, k == 0u); }
+            pattern_switch(&trk[k], 0);
+        }
+        project_save(0); ui.msg_t = 0;
         chain_config.count = 4;
-        for (k = 0; k < 4u; k++) chain_config.row[k] = (chain_row_t){(uint8_t)k, (uint8_t)(k == 1u ? 2u : 1u)};
-        memset(chain_patterns[1], 1, NTRK); memset(chain_patterns[2], 1, NTRK); memset(chain_patterns[3], 2, NTRK);
-        ui.song_row = 1; go_page(GR_SONG);
+        for (k = 0; k < 4u; k++) {
+            chain_config.row[k] = (chain_row_t){SP[k][0], (uint8_t)(k == 1u ? 2u : 1u)};
+            memcpy(chain_patterns[k], SP[k], NTRK);
+        }
+        ui.song_row = 3; go_page(GR_SONG);
+        song.playing = 1; chain.running = 1; chain.row = 1; chain.remaining = 1; trk[0].seq_idx = 4;
         break;
+    }
     default: break;
     }
 }
@@ -689,6 +703,7 @@ static void setup(int s)
 {
     memset(kb_chn, 0, sizeof kb_chn);               /* no key held (roll_playing holds one) */
     memset(&stage, 0, sizeof stage);                /* (Stage's knobs in) */
+    chain.running = 0;                              /* (the song the SONG scene plays) */
     if (s >= S_MOCK_HOME && s <= S_MOCK_MENU) {
         mock_state(s);
         return;

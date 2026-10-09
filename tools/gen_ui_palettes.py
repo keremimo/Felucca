@@ -12,7 +12,7 @@ takes the colour of the track ALGORITHM picks (src/gfx.c palette_track). The fir
 blends (src/gfx.c, the same integer maths as mix() here):
   MID  = mix(BG, TEXT, 70 %)    labels, units, secondary text
   DIM  = mix(BG, TEXT, 42 %)    inactive, empty steps, disabled
-  LINE = mix(BG, TEXT, 18 %)    1 px dividers, the faint gauge track
+  LINE = mix(BG, TEXT, 18 %)    1 px dividers, the faint gauge track (NIGHT: 10 %, the design's #2E2939; LINE_PCT)
   SEL  = mix(BG, THEME, 80 %)   selection fill and gauge fill
   TINT = mix(BG, THEME, 12 %)   a faint area (the selected drum lane)
   RAISE = mix(SURF, TEXT, 12 %) a raised area on a surface: stubs, guides, slots, chips, button wells
@@ -60,6 +60,7 @@ REC_DARK, REC_LIGHT = (255, 72, 72), (190, 24, 40)
 QR_LIGHT, QR_DARK, CRASH_BG, CRASH_INK = (255, 255, 255), (0, 0, 0), (160, 0, 0), (255, 255, 255)
 PCT = {"MID": 70, "DIM": 42, "LINE": 18, "SEL": 80, "TINT": 12, "KEY": 78}
 RAISE_PCT = 12                     # SURF -> TEXT
+LINE_PCT = {"NIGHT": 10}           # a palette's own LINE (else PCT["LINE"]): NIGHT's dividers as faint as the design's
 
 
 def to565(c):
@@ -118,7 +119,7 @@ def derive(p, t):
     mono = name == "GRAY"
     d = dict(bg=bg, surf=surf, text=text, theme=theme, accent=accent,
              mid=mix(bg, text, PCT["MID"], mono), dim=mix(bg, text, PCT["DIM"], mono),
-             line=mix(bg, text, PCT["LINE"], mono), sel=mix(bg, theme, PCT["SEL"], mono),
+             line=mix(bg, text, LINE_PCT.get(name, PCT["LINE"]), mono), sel=mix(bg, theme, PCT["SEL"], mono),
              tint=mix(bg, theme, PCT["TINT"], mono), raise_=mix(surf, text, RAISE_PCT, mono),
              key=mix(bg, text, PCT["KEY"], mono))
     d["ink"] = bg
@@ -183,6 +184,10 @@ def main():
                 f"#define UI_GRAY_INDEX {len(PALETTES)}u      /* (UI_TEST_PALETTE only) */",
                 f"#define UI_PAL_TAG {PAL_TAG}u          /* stored id = UI_PAL_TAG + index */"]
         out += [f"#define UI_{k}_PCT {v}" for k, v in PCT.items()] + [f"#define UI_RAISE_PCT {RAISE_PCT}   /* SURF -> TEXT */"]
+        out += ["/* each palette's LINE (BG -> TEXT %), in UI_PALETTES' order */",
+                "static const uint8_t UI_LINE_PCTS[] = {" +
+                ", ".join(str(LINE_PCT.get(p[0], PCT["LINE"])) for p in PALETTES) + ",",
+                "#ifdef UI_TEST_PALETTE", f"    {LINE_PCT.get(TEST_GRAY[0], PCT['LINE'])},", "#endif", "};"]
         out += [f"#define UI_REC_DARK 0x{to565(REC_DARK):04x}u", f"#define UI_REC_LIGHT 0x{to565(REC_LIGHT):04x}u",
                 f"#define UI_QR_LIGHT 0x{to565(QR_LIGHT):04x}u", f"#define UI_QR_DARK 0x{to565(QR_DARK):04x}u",
                 f"#define UI_CRASH_BG 0x{to565(CRASH_BG):04x}u", f"#define UI_CRASH_INK 0x{to565(CRASH_INK):04x}u", "",

@@ -134,7 +134,7 @@ static void palette_set(uint32_t i)
     ux.bg = p->bg; ux.surf = p->surf; ux.text = p->text; ux.accent = p->accent;
     ux.mid = ux_mix(p->bg, p->text, UI_MID_PCT);
     ux.dim = ux_mix(p->bg, p->text, UI_DIM_PCT);
-    ux.line = ux_mix(p->bg, p->text, UI_LINE_PCT);
+    ux.line = ux_mix(p->bg, p->text, UI_LINE_PCTS[ux.pal]);     /* (NIGHT's fainter: the design's) */
     ux.ink = p->bg;
     ux.raise = ux_mix(p->surf, p->text, UI_RAISE_PCT);
     ux.key = ux_mix(p->bg, p->text, UI_KEY_PCT);

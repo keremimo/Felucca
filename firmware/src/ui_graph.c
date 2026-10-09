@@ -7,8 +7,6 @@
  * graph_signature() changes. The look:
  * curves THEME (2 px), guides and empty marks RAISE, captions MID / DIM, the active thing ACCENT,
  * bars rounded; a list's selected row is a THEME bar with INK text. */
-static uint32_t patgrid_sig(void);                   /* SEQ > PATTERNS (ui_stage.c) */
-static void graph_patgrid(void);
 #define PANEL_X0 10                                  /* the graphs' inner area: x 10..230 */
 #define PANEL_W 220
 #define GOY 11                                       /* graphs drawn on a 100 px scale sit at y 11..111 */
@@ -972,21 +970,10 @@ static uint32_t graph_signature(void)
             h = (h ^ chord_last[song.sel].note[i]) * 16777619u;
         h ^= (uint32_t)t->engine * 389u;             /* (MONO and kits follow the sounding engine) */
     }
-    if (pg->graph == GR_SONG) {
-        h ^= ui.song_row * 40503u + chain_config.count * 7919u;
-        for (i = 0; i < CHAIN_ROWS * NTRK; i++) h = (h ^ ((uint8_t *)chain_patterns)[i]) * 16777619u;
-        for (i = 0; i < CHAIN_ROWS; i++)
-            h = (h ^ (chain_config.row[i].slot + 4u * chain_config.row[i].repeat)) * 16777619u;
-        h ^= chain.running ? (chain.row + 1u) * 104729u + chain.remaining * 1299709u : 0u;
-        for (i = 0; i < 4u; i++) h ^= (uint32_t)graph_project_used(i) << (24u + i);
-        h += graph_pname_sig;
-    }
     if (pg->graph == GR_BROWSE)                      /* LIST, the place pending, the favourites */
         h ^= list_mode() * 131071u + (browse_pending() ? brw.n + 1u : 0u) * 524287u + (uint32_t)favorites.filter * 8191u;
     if (pg->graph == GR_MOD)
         h ^= (mod_ui_slot + 1u) * 40503u;
-    if (pg->graph == GR_PATGRID)                     /* every track's patterns, the one waiting blinking */
-        h ^= patgrid_sig();
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* FM6's pages: the patch, switches, functions, bank */
         h ^= fm6_pgen[song.sel % NTRK] * 2654435761u + fm6_on[song.sel % NTRK] * 40503u + fm6_opsel * 131u +
              fm6_bslot * 7919u + up_gen * 104729u;
@@ -1490,27 +1477,6 @@ static void graph_scope(uint16_t c, int32_t top, int32_t h)
 }
 
 /* Each arrangement row selects one bank per track. */
-static void graph_song(void)
-{
-    uint32_t first = ui.song_row > 2u ? ui.song_row - 2u : 0u;
-    for (uint32_t k = 0; k < NTRK; k++) { char label[3] = {'T', (char)('1' + k), 0}; cv_text_on(54 + (int32_t)k * 30, 0, &AF_S, label, k == song.sel ? T_THEME : T_DIM, T_SURF); }
-    cv_text_on(182, 0, &AF_S, "REPS", T_DIM, T_SURF);
-    if (!chain_config.count) { panel_note("T1   T2   T3   T4", "[K2] ADD ROW", "[ALGO] TRACK  [K2] PATTERN"); return; }
-    for (uint32_t i = first; i < CHAIN_ROWS && i < first + 6u && i <= chain_config.count; i++) {
-        char b[16]; int32_t y = LIST_Y(i - first) + 16; int sel = i == ui.song_row;
-        uint16_t bg = sel ? T_THEME : T_SURF, col = sel ? T_INK : T_TEXT, dim = sel ? T_INK : T_DIM;
-        if (sel) cv_rrect(6, y, 228, 16, 4, T_THEME, T_SURF);
-        if (chain.running && i == chain.row) cv_icon_on(9, y + 2, 12, ICON_X_RIGHT, sel ? T_INK : T_ACCENT, bg);
-        fmt_int(b, (int32_t)i + 1); cv_text_on(24, y + 1, &AF_S, b, dim, bg);
-        if (i == chain_config.count) { cv_text_on(54, y + 1, &AF_S, "+ ADD ROW", dim, bg); break; }
-        for (uint32_t k = 0; k < NTRK; k++) {
-            fmt_int(b, (int32_t)chain_patterns[i][k] + 1);
-            cv_text_on(54 + (int32_t)k * 30, y + 1, &AF_S, b, k == song.sel ? col : dim, bg);
-        }
-        b[0] = 'x'; fmt_int(b + 1, chain_config.row[i].repeat);
-        cv_text_on(182, y + 1, &AF_S, b, col, bg);
-    }
-}
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -1594,17 +1560,9 @@ static void draw_graph(void)
             cv_oy = 0;
             graph_user();
             break;
-        case GR_SONG:
-            cv_oy = 0;
-            graph_song();
-            break;
         case GR_PATS:
             cv_oy = 0;
             graph_pats();
-            break;
-        case GR_PATGRID:
-            cv_oy = 0;
-            graph_patgrid();
             break;
         case GR_TOOLS:
             cv_oy = 0;
