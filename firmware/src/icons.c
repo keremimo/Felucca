@@ -29,7 +29,7 @@ static int32_t cv_icon_on(int32_t x, int32_t y, uint32_t size, uint32_t id, uint
         dat = AI12_DATA;
     }
     cv_alpha(x, y, size, size, dat + (uint32_t)idx[id] * (size * size / 2u), ramp(fg, bg));
-    GFX_HOOK_TEXT(x, y + cv_oy, x + (int32_t)size, y + cv_oy + (int32_t)size, "icon", 4u);
+    GFX_HOOK_TEXT(x, y + cv_oy, x + (int32_t)size, y + cv_oy + (int32_t)size, "icon", 4u | (cv_dim ? 16u : 0u));
     return (int32_t)size;
 }
 /* the same, its ink centred on row cy (header icons: each glyph sits differently in its cell) */

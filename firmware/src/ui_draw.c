@@ -919,9 +919,9 @@ static void draw_uboot(void)
 
 /* the OCT- / OCT+ dialog: what it does (ui.confirm, ui.confirm_trk) on two lines, on a surface */
 #define DLG_X 16
-#define DLG_Y 62
+#define DLG_Y 58
 #define DLG_W 208
-#define DLG_H 116
+#define DLG_H 124
 static void confirm_text(char *a, char *b)
 {
     uint32_t k = ui.confirm_trk;
@@ -935,7 +935,7 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "OVERWRITE PROJECT A?", 24);
         a[18] = (char)('A' + (k & 3u));
         if (!project_name(k & 3u, b) || !b[0])          /* the project's name, else what SONG plays from it */
-            str_cpy(b, "SONG PATTERN CHANGES", 24);
+            str_cpy(b, "Its song and patterns change", 32);
         break;
     case CF_DEL_ROW:
         str_cpy(a, "DELETE SONG ROW?", 24);
@@ -945,12 +945,12 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_NEW_SONG:                                   /* what is lost */
         str_cpy(a, "START A NEW SONG?", 24);
-        str_cpy(b, "UNSAVED CHANGES", 24);
+        str_cpy(b, "Unsaved changes", 24);
         break;
     case CF_TAKE_JAM:                                   /* the rows it replaces */
         str_cpy(a, "SONG FROM JAM?", 24);
         fmt_int(b, (int32_t)chain_config.count);
-        str_cpy(b + str_len(b), " ROWS REPLACED", 16);
+        str_cpy(b + str_len(b), " rows replaced", 16);
         break;
     case CF_INIT_SOUND:
         str_cpy(a, "INITIALIZE SOUND?", 24);
@@ -983,32 +983,45 @@ static void confirm_text(char *a, char *b)
         break;
     }
 }
+/* the question (docs/design: mock/r5_pages, ref/dialog): a card over the page dimmed (ui_draw: drawn under cv_dim):
+ * the warning in a tinted ring, the question in words, its detail, OCT- as "↶ No" and OCT+ as "✓ Yes" (the track's
+ * colour) */
+static void confirm_words(char *s)                      /* "OVERWRITE PROJECT A?" -> "Overwrite project A?" */
+{
+    uint32_t i;
+    for (i = 1; s[i]; i++) {
+        int single = s[i - 1] == ' ' && (s[i + 1] == '?' || !s[i + 1]);   /* (a slot's letter at the end) */
+        if (s[i] >= 'A' && s[i] <= 'Z' && !single)
+            s[i] = (char)(s[i] + 32);
+    }
+}
 static void draw_confirm(void)
 {
-    char a[24], b[24];
+    char a[24], b[32];
     const aafont_t *tf = &AF_M;
+    uint16_t ring = ux_mix(T_SURF, T_THEME, 20);
     confirm_text(a, b);
-    lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
-    ui.head_sig = ~0u;
-    cv_begin(DLG_W, DLG_H, T_BG);                     /* a SURF card: warning, the question, the detail, two buttons */
-    cv_rrect(0, 0, DLG_W, DLG_H, 8, T_SURF, T_BG);
-    cv_icon_on(DLG_W / 2 - 8, 12, 16, ui.confirm == CF_CLEAR_MOTION ? ICON_X_MOTION_DEL : ICON_X_WARN, T_ACCENT, T_SURF);
+    confirm_words(a);
+    cv_begin(DLG_W, DLG_H, T_BG);
+    cv_rrect(0, 0, DLG_W, DLG_H, 10, T_LINE, T_BG);
+    cv_rrect(1, 1, DLG_W - 2, DLG_H - 2, 9, T_SURF, T_LINE);
+    cv_disc(DLG_W / 2, 26, 22, ring, 0);
+    cv_icon_mid(DLG_W / 2 - 6, 26, 12, ui.confirm == CF_CLEAR_MOTION ? ICON_X_MOTION_DEL : ICON_X_WARN, T_THEME, ring);
     if (text_w(tf, a) > DLG_W - 16)
         tf = &AF_S;
-    cv_text_c(DLG_W / 2, 34, tf, a, T_TEXT, T_SURF);
+    cv_text_c(DLG_W / 2, 45, tf, a, T_TEXT, T_SURF);
     if (b[0]) {
         char f[32];
         text_fit(f, sizeof f, b, &AF_S, DLG_W - 16);    /* a name: free text */
-        cv_text_flags(DLG_W / 2 - text_w(&AF_S, f) / 2, 56, &AF_S, f, T_MID, T_SURF, 8u | (f[str_len(f) - 1u] == ELLIPSIS));
+        cv_text_flags(DLG_W / 2 - text_w(&AF_S, f) / 2, 67, &AF_S, f, T_MID, T_SURF, 8u | (f[str_len(f) - 1u] == ELLIPSIS));
     }
-    cv_rrect(10, 80, 90, 26, 6, T_RAISE, T_SURF);     /* OCT-: NO */
-    cv_key_hint(55 - kh_w(KC_OCTDN, "NO") / 2, 87, KC_OCTDN, "NO", 1, T_RAISE);
-    cv_rrect(108, 80, 90, 26, 6, T_THEME, T_SURF);    /* OCT+: YES (on the THEME fill: an INK keycap, THEME label) */
-    {
-        int32_t x = 153 - kh_w(KC_OCTUP, "YES") / 2;
-        x = cv_keycap(x, 87, KC_OCTUP, T_INK, T_THEME, T_THEME);
-        cv_text_on(x + KH_GAP, 86, &AF_S, "YES", T_INK, T_THEME);
-    }
+    cv_rrect(16, 92, 80, 22, 6, T_LINE, T_SURF);       /* OCT-: no */
+    cv_rrect(17, 93, 78, 20, 5, T_PANEL, T_LINE);
+    cv_icon_mid(56 - 6 - text_w(&AF_S, "No") / 2 - 4, 103, 12, ICON_X_UNDO, T_MID, T_PANEL);
+    cv_text_on(56 - text_w(&AF_S, "No") / 2 + 6, 96, &AF_S, "No", T_MID, T_PANEL);
+    cv_rrect(112, 92, 80, 22, 6, T_THEME, T_SURF);     /* OCT+: yes */
+    cv_icon_mid(152 - 6 - text_w(&AF_S, "Yes") / 2 - 4, 103, 12, ICON_X_CHECK, T_INK, T_THEME);
+    cv_text_on(152 - text_w(&AF_S, "Yes") / 2 + 6, 96, &AF_S, "Yes", T_INK, T_THEME);
     cv_blit(DLG_X, DLG_Y);
 }
 
@@ -1017,6 +1030,43 @@ static int own_screen(void)                             /* a page drawn whole by
 {
     uint32_t g = cur_page()->graph;
     return !ui.home && (g == GR_BROWSE || g == GR_PATGRID || g == GR_SONG);
+}
+/* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
+static void draw_page(void)
+{
+    if (!ui.home && !page_visible(ui.page)) {          /* an OP page of a track that is not DIGITAL (without
+                                                         * MELODEE_FM4: any track): EDIT 1 */
+        ui.page = (uint8_t)page_first(FAM_EDIT);
+        page_entered();
+    }
+    cursor_fix();
+    if (!own_screen() && pv_kind()) {                   /* the redesign's other pages (ui_pages.c) */
+        pv_draw();
+    } else if (own_screen()) {                          /* the browser, PATTERNS, SONG: screens of their own */
+        if (cur_page()->graph == GR_BROWSE)
+            browser_draw();
+        else if (cur_page()->graph == GR_SONG)
+            song_draw();
+        else {
+            draw_head();
+            patterns_draw();
+        }
+    } else {
+        if (ui.force)
+            draw_frame(ui.home);
+        melodee_dbg.stage = 3;
+        draw_head();
+        melodee_dbg.stage = 4;
+        draw_columns();
+        melodee_dbg.stage = 5;
+        if (ui.home)                                    /* Stage: its panel and the lanes (ui_stage.c), no footer */
+            stage_draw();
+        else
+            draw_graph();
+    }
+    melodee_dbg.stage = 6;
+    if (!ui.home && !own_screen() && !pv_kind())
+        draw_foot();
 }
 static void ui_draw(void)
 {
@@ -1039,7 +1089,14 @@ static void ui_draw(void)
         return;
     }
     if (ui.confirm) {                                   /* the OCT- / OCT+ dialog */
-        if (ui.force) {
+        if (ui.force) {                                 /* over the page, dimmed (each canvas darkened as it goes) */
+            uint8_t cf = ui.confirm;
+            ui.confirm = 0;
+            cv_dim = 1;
+            draw_page();
+            cv_dim = 0;
+            ui.confirm = cf;
+            ui.force = 1;
             draw_confirm();
             ui.force = 0;
         }
@@ -1071,36 +1128,7 @@ static void ui_draw(void)
         ui.force = 0;
         return;
     }
-    if (!ui.home && !page_visible(ui.page)) {          /* an OP page of a track that is not DIGITAL (without
-                                                         * MELODEE_FM4: any track): EDIT 1 */
-        ui.page = (uint8_t)page_first(FAM_EDIT);
-        page_entered();
-    }
-    cursor_fix();
-    if (!own_screen() && pv_kind()) {                   /* the redesign's other pages (ui_pages.c) */
-        pv_draw();
-    } else if (own_screen()) {                          /* the browser, PATTERNS, SONG: screens of their own */
-        if (cur_page()->graph == GR_BROWSE)
-            browser_draw();
-        else if (cur_page()->graph == GR_SONG)
-            song_draw();
-        else {
-            draw_head();
-            patterns_draw();
-        }
-    } else {
-        if (ui.force)
-            draw_frame(ui.home);
-        melodee_dbg.stage = 3;
-        draw_head();
-        melodee_dbg.stage = 4;
-        draw_columns();
-        melodee_dbg.stage = 5;
-        if (ui.home)                                    /* Stage: its panel and the lanes (ui_stage.c), no footer */
-            stage_draw();
-        else
-            draw_graph();
-    }
+    draw_page();
     if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {     /* the second message (ui_notices) */
         str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
         ui.msg2[0] = 0;
@@ -1110,9 +1138,6 @@ static void ui_draw(void)
         ui.bpm_t--;
     if (ui.hot_t)
         ui.hot_t--;
-    melodee_dbg.stage = 6;
-    if (!ui.home && !own_screen() && !pv_kind())
-        draw_foot();
     ui.force = 0;
     scr_shown();
 }

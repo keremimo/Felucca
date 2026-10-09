@@ -17,6 +17,11 @@ The redesign is built from the proposal's mockups, screen by screen, and checked
 | browser | `concept_screens` (2) | 48 | 80 | R3: 93.5 |
 | patterns | `concept_screens` (3) | 48 | 85 | R4: 96.7 |
 | song | `concept_screens` (4) | 38 | 80 | R4: 94.7 |
+| env, lfo | `r5_pages` | (new) | 80 | R5: 83.4, 92.2 |
+| edit_osc, fx, dly | `r5_pages` | (new) | 80 | R5: 93.0, 95.2, 84.0 |
+| mixer | `r5_pages` | (new) | 80 | R5: 95.1 |
+| notes | `r5_pages` | (new) | 80 | R5: 66.1 (the view centres the notes a row apart) |
+| settings, dialog | `r5_pages` | (new) | 80 | R5: 94.5, 88.1 |
 
 Texts differ on purpose (the device's own sound names): the targets leave room for them.
 

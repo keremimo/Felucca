@@ -3522,7 +3522,7 @@ static int test_bughunt_ui(void)
     press(B_OCTUP);
     ok = ui.confirm == CF_ERASE_USER && ui.confirm_trk == 1u && up_used(1);
     {
-        char a[24], b[24];
+        char a[24], b[32];
         confirm_text(a, b);
         ok &= str_eq(a, "ERASE U02?") && b[0];
     }

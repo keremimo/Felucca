@@ -29,7 +29,8 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 
 /* host tests hook in here (layout lint, draw cost); nothing in the firmware */
 #ifndef GFX_HOOK_TEXT
-#define GFX_HOOK_TEXT(x0, y0, x1, y1, s, flags) ((void)0)   /* an ink box; flags 1 ellipsised, 2 cut, 4 icon, 8 free text, 32 in a scrolled view */
+#define GFX_HOOK_TEXT(x0, y0, x1, y1, s, flags) ((void)0)   /* an ink box; flags 1 ellipsised, 2 cut, 4 icon, 8 free text,
+                                                              * 16 under a question (cv_dim), 32 in a scrolled view */
 #define GFX_HOOK_BLIT(x, y, r0) ((void)0)
 #define GFX_HOOK_BEGIN() ((void)0)
 #define GFX_HOOK_PIXELS(n) ((void)0)
@@ -197,9 +198,20 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
         cv_px[i] = s;
 }
 
+/* cv_dim: a canvas goes out darkened (72 % toward BG): the page under a question (ui_draw.c) */
+static uint8_t cv_dim;
+static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a);
+static void cv_dim_rows(uint32_t r0)
+{
+    uint32_t i;
+    for (i = r0 * cv_w; i < cv_w * cv_h; i++)
+        cv_px[i] = swap16(mix565(T_BG, swap16(cv_px[i]), 9u));
+}
 static void cv_blit(uint32_t x, uint32_t y)
 {
     GFX_HOOK_BLIT(x, y, 0u);
+    if (cv_dim)
+        cv_dim_rows(0);
     lcd_blit(x, y, cv_w, cv_h, cv_px);
     cv_flight = cv_px;
 }
@@ -208,6 +220,8 @@ static void cv_blit(uint32_t x, uint32_t y)
 static void cv_blit_from(uint32_t x, uint32_t y, uint32_t r0)
 {
     GFX_HOOK_BLIT(x, y, r0);
+    if (cv_dim && r0 < cv_h)
+        cv_dim_rows(r0);
     if (r0 < cv_h) {
         lcd_blit(x, y + r0, cv_w, cv_h - r0, cv_px + r0 * cv_w);
         cv_flight = cv_px;
@@ -652,6 +666,8 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
             if (y0 + cv_oy < cv_cy0) y0 = cv_cy0 - cv_oy;
             if (y1 + cv_oy > cv_cy1) y1 = cv_cy1 - cv_oy;
         }
+        if (cv_dim)                                  /* (the page under a question: covered on purpose) */
+            flags |= 16u;
         GFX_HOOK_TEXT(x0, y0 + cv_oy, x1, y1 + cv_oy, s0, flags);
     }
     (void)s0;
@@ -780,9 +796,9 @@ static int32_t cv_keycap(int32_t x, int32_t y, uint32_t id, uint16_t fill, uint1
     const uint16_t *rv = kc_ramp(under, fill, ink);
     cv_alpha(x, y, k->w, KC_H, KC_DATA + k->off, rv);
     if (x < 0 || x + k->w > (int32_t)cv_w || y + cv_oy < 0 || y + KC_H + cv_oy > (int32_t)cv_h)
-        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 6u);      /* cut by the canvas */
+        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 6u | (cv_dim ? 16u : 0u));   /* cut */
     else
-        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 4u);
+        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 4u | (cv_dim ? 16u : 0u));
     return x + k->w;
 }
 
