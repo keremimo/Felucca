@@ -9,12 +9,12 @@ enum { MI_COLOR, MI_LOWCUT, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB,
 #endif
-       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_PANEL, MI_ABOUT, MI_BACK, MI_COUNT };
+       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_LATCH, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_BACK, MI_COUNT };
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "SPEAKER", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO",
 #endif
-                                              "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY", "CALIBRATION", "ABOUT", "BACK"};
+                                              "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY", "FX LATCH", "SCREEN OFF", "CALIBRATION", "ABOUT", "BACK"};
 #if MELODEE_USB_AUDIO
 /* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
 static const char *const MI_USB_NAME[4] = {"IN+OUT", "IN", "OUT", "OFF"};
@@ -207,7 +207,7 @@ static void draw_menu(void)
 #if MELODEE_USB_AUDIO
                                            ICON_X_USB,
 #endif
-                                           ICON_X_TIMER, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_DOCTOR, ICON_X_INFO, ICON_X_BACK};
+                                           ICON_X_TIMER, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_TIMER, ICON_X_TIMER, ICON_X_DOCTOR, ICON_X_INFO, ICON_X_BACK};
     uint32_t i, pass, sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u +
                             settings_hold * 3511u + settings_lights * 6151u +
 #if MELODEE_USB_AUDIO
@@ -261,6 +261,8 @@ static void draw_menu(void)
                   i==MI_PREVIEW?(settings_preview?"ON":"OFF"):(settings_chord_add?"ADD":"HOLD");
                 cv_text_r(228,yt+3,&AF_M,value,val,bg);
             }
+            if (i==MI_LATCH) cv_text_r(228,yt+3,&AF_M,settings_latch?"ON":"OFF",val,bg);
+            if (i==MI_SCREEN) cv_text_r(228,yt+3,&AF_M,(const char *const[]){"NEVER","5 MIN","15 MIN","30 MIN","60 MIN"}[scr_get()],val,bg);
             if (i == MI_LIGHTS)
                 cv_text_r(228, yt + 3, &AF_M, LIGHTS_NAME[settings_lights % LIGHTS_N], val, bg);
             if (i == MI_LOWCUT)
@@ -362,6 +364,13 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         value=s>0?(value<top?value+1:value):s<0?(value?value-1:0):(value+1)%(top+1);
         if(id==0)settings_click=value;else if(id==1)settings_click_level=value;else if(id==2)settings_countin=value;else if(id==3)settings_preview=value;else settings_chord_add=value;
         ok=0;ui.force=1;
+    }
+    if ((s || ok) && ui.menu==1 && (ui.menu_sel==MI_LATCH || ui.menu_sel==MI_SCREEN)) {
+        uint32_t value=ui.menu_sel==MI_LATCH?settings_latch:scr_get(), top=ui.menu_sel==MI_LATCH?1u:4u;
+        value=s>0?(value<top?value+1u:value):s<0?(value?value-1u:0u):(value+1u)%(top+1u);
+        if (ui.menu_sel==MI_LATCH) { settings_latch=(uint8_t)value; perf_latch_on=settings_latch; if (!value) perf_latched=0; }
+        else scr_put(value);
+        ui.force=1; ok=0;
     }
     if (ok && ui.menu == 1) {
         switch (ui.menu_sel) {

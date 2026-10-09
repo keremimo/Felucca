@@ -56,9 +56,12 @@ static uint32_t panel_btn_of(uint32_t matrix_id)        /* label of a matrix but
 }
 
 /* steps of a role, + = clockwise */
+static uint8_t panel_moved;
 static int32_t panel_enc(uint32_t role)
 {
-    return fm1_enc_take(panel.enc[role]) * panel.dir[role];
+    int32_t value=fm1_enc_take(panel.enc[role]) * panel.dir[role];
+    panel_moved |= value != 0;
+    return value;
 }
 
 /* Keep the retained settings layout fixed. palette: the index into UI_PALETTES (SET3 held an index

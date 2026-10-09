@@ -1017,6 +1017,10 @@ static uint32_t btn_hold(uint32_t *t0, uint32_t label, uint32_t now, int hold_ok
 
 /* the quick layers: ui_layer.c (included after this file) */
 static void layer_masks(void);
+static void layer_lock_input(uint32_t pressed);
+static void fx_assign(int32_t s);
+static void fx_default(void);
+static uint32_t fx_key_held(void);
 static void layer_arm(uint32_t pressed, uint32_t now);
 static uint32_t layer_held(void);
 static uint32_t layer_gesture(uint32_t now, uint32_t combo);
@@ -1138,6 +1142,8 @@ static void seq_erase_update(uint32_t pressed)
 static void ui_input(void)
 {
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
+    if (scr_input(pressed, notes)) return;
+    layer_lock_input(pressed);
     if(momentary.active && (pressed&(1u<<panel.btn[B_OCTUP]))){
         momentary.active=momentary.count=momentary.native=0;pressed&=~(1u<<panel.btn[B_OCTUP]);ui_message("KEPT");
     }
@@ -1191,10 +1197,13 @@ static void ui_input(void)
         for (k = 0; k < 4u; k++)                        /* KNOB 1..4: the layer's (ui_layer.c layer_knob) */
             if ((ks[k] = panel_enc(EN_K1 + k)) != 0)
                 combo = 1;
-        panel_enc(EN_PRESET);                           /* (a stray turn would load another sound) */
+        s=panel_enc(EN_PRESET);
+        if (ui.ly==LAYER_FX && s) fx_assign(s);
+        if (ui.ly==LAYER_FX && fx_key_held() && (pressed & (1u<<panel.btn[B_EDIT]))) fx_default();
         panel_enc(EN_ALGO);                             /* (another track: OCT- puts back the layer's track only) */
     }
     lytap = layer_gesture(now, combo);
+    layer_masks();
     layer_show();
     layer_keys(lkeys);
     for (k = 0; k < 4u; k++)
@@ -1531,6 +1540,7 @@ static void ui_input(void)
         }
         ui.step_move = (ui.step_mods & ui.step_used) != 0u;
     }
+
     if(momentary.active && !(fm1_in.buttons&(1u<<panel.btn[B_LFO])))momentary_restore();
     seq_erase_update(0);
     if (recording_full) { recording_full = 0; ui_message("RECORDING FULL"); }

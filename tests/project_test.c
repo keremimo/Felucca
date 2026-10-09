@@ -168,8 +168,8 @@ int main(void)
     int bad = 0, ok;
 
     bad += check("layout: SLICER after DETUNE, then the matrix just before P_E0",
-                 P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_MPCDEG && P_MPCDEG + 1 == P_LN0 && P_LN7 + 1 == P_E0 && P_E0 == 92 &&
-                 P_COUNT == PROJ_NP_V3 + 43u && PROJ_NP_V3 == PROJ_NP_V2 + 4u);
+                 P_SLCR == P_DETUNE + 1 && P_SLDEPTH + 1 == P_M1SRC && P_M4AMT + 1 == P_FM1_ATK && P_FM4_LEVEL + 1 == P_CHRD && P_VOIC + 1 == P_MPCDEG && P_MPCDEG + 1 == P_LN0 && P_LN7 + 1 == P_LSYNC && P_SPRD + 1 == P_E0 && P_E0 == 96 &&
+                 P_COUNT == PROJ_NP_V3 + 47u && PROJ_NP_V3 == PROJ_NP_V2 + 4u);
     bad += check("FUN8 fits one flash object, the retained cache in NOINIT", sizeof(project_store_t) == PROJ_STORE_SIZE && PROJ_STORE_V8 <= 4096u - 256u);
 
     /* format 2, as written before the SLICER */
@@ -410,7 +410,7 @@ int main(void)
         project_store_t st, st2;
         uint32_t i, zero = 1;
         bad += check("FUN8 name at the end of the reserved tail, the FM6 patches before it, after the data",
-                     PROJ_NAME_OFF == PROJ_STORE_SIZE - 16u && PROJ_FM6_OFF == 3088u && 68u + NTRK * (P_COUNT + 2u + NSTEP * 9u) +
+                     PROJ_NAME_OFF == PROJ_STORE_SIZE - 16u && PROJ_FM6_OFF == 3104u && 68u + NTRK * (P_COUNT + 2u + NSTEP * 9u) +
                      sizeof(chain_config_t) + sizeof(motion_store_t) + 12u == PROJ_FM6_OFF);
         memset(&a, 0, sizeof a);
         for(uint32_t k=0;k<NTRK;k++)p5_patch_init(&a.p5[k]);

@@ -81,6 +81,16 @@ static int audio_tests(void)
     fx_buses(c,r,out,CTL);r[0]=0;
     bad+=check("SPRING resumes with its exact filter and modulation state",!memcmp(spring_ref,out,sizeof spring_ref));
     for(uint32_t t=0;t<30u*FS;t+=CTL)fx_buses(c,r,out,CTL);
+    song.g[G_RTYPE]=2;fx_buses(c,r,out,CTL);
+    r[0]=12000;fx_buses(c,r,out,CTL);r[0]=0;
+    int hall_tail=0;
+    for(uint32_t t=0;t<30u*FS;t+=CTL){fx_buses(c,r,out,CTL);for(uint32_t j=0;j<CTL;j++)hall_tail |= out[j] | (hl.side?rev_side[j]:0);}
+    bad+=check("HALL keeps its audible stereo tail then releases storage",hall_tail && !resource[RES_REVERB].size && !hl.side);
+    reverb_prepare();__typeof__(hl) hall_saved=hl;int32_t hall_ref[CTL]={0},hall_sd[CTL];r[0]=10000;
+    rev_hall(r,hall_ref,CTL);memcpy(hall_sd,rev_side,sizeof hall_sd);hl=hall_saved;resource_release(RES_REVERB);rev_comb=0;rev_memory=0;
+    fx_buses(c,r,out,CTL);r[0]=0;
+    bad+=check("HALL resumes with its exact line positions and filter state",!memcmp(hall_ref,out,sizeof hall_ref) && hl.side && !memcmp(hall_sd,rev_side,sizeof hall_sd));
+    for(uint32_t t=0;t<30u*FS;t+=CTL)fx_buses(c,r,out,CTL);
     song.g[G_RTYPE]=0;fx_buses(c,r,out,CTL);reverb_prepare();
     uint32_t off=0;
     for(uint32_t k=0;k<4u;k++){fx.comb_lp[k]=-2;for(uint32_t j=0;j<REV_COMB[k];j++)rev_comb[off++]=-2;}

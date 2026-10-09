@@ -109,7 +109,7 @@ static void test_compatibility(void)
     project_t q,back;project_store_t current,old;project_capture(&q);q.t[0].p[P_E4]=53;assert(proj_pack(&current,&q));
     memcpy(old.raw,current.raw,68);uint32_t src=68,dst=68;
     for(uint32_t t=0;t<NTRK;t++){
-        memcpy(old.raw+dst,current.raw+src,84);src+=92;dst+=84;
+        memcpy(old.raw+dst,current.raw+src,84);src+=P_E0;dst+=84;
         memcpy(old.raw+dst,current.raw+src,8+2+NSTEP*9);src+=8+2+NSTEP*9;dst+=8+2+NSTEP*9;
     }
     memcpy(old.raw+dst,current.raw+src,PROJ_STORE_SIZE-src-4);

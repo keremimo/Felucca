@@ -36,10 +36,14 @@
 #                   slots (at most +5 %), demos in build/mod_demo/.
 # PERFORM (tests/perform_test.c): the FX hold layer (src/perform.c): 1/16 starts, stereo buffer effects, the
 #                   too-long REPEAT, the SLICER interplay, silent layer keys, idle bit-identical, cost; build/perform_demo/;
-#                   OCT UP / DN (the harmonizer): pitch, stereo, clicks, the shimmer bounded, cost; build/fx_demo/.
+#                   OCT UP / DN (the harmonizer): pitch, stereo, clicks, the shimmer bounded, cost; build/fx_demo/;
+#                   FLANGER / PHASER: silence, DC, bounds, tempo-locked sweeps, clicks, stacking; the white-key map.
 # REVERB (tests/reverb_test.c): REVERB TYPE (src/fx.c): ROOM bit for bit as before, SPRING's decay against SIZE,
-#                   its chirp (group delay rising with frequency), stability at the corners, level, a model change
-#                   without a click, its cost against ROOM (+30 % at most); demos in build/fx_demo/.
+#                   its chirp (group delay rising with frequency), stability at the corners, level; HALL's decay,
+#                   damping, echo density, ringing, flutter, stereo and exact silence; model changes without a
+#                   click, the cost against ROOM (+30 % at most); demos in build/fx_demo/.
+# MOD / SPREAD (tests/mod_spread_test.c): the matrix's S&H / SLEW sources and DEPTH destination, SPREAD's sides.
+# LAYERS / SCREEN (tests/layer_screen_test.c): double-tapped layers, FX LATCH, the FX key map, SCREEN OFF, LFO 2.
 # INPUT (tests/input_test.c): the key / button debounce of hal/fm1_input.h against the TIMER5 scan and bouncing
 #                   contacts: a press within 2 scans (<= 2.3 ms), one note per bouncy press, no early or hanging
 #                   release, stray samples ignored, fast repeats, the encoders' detents.
@@ -229,7 +233,11 @@ if [ -f build/gen/melodee_tables.h ]; then
     mkdir -p build/perform_demo build/fx_demo
     run "FX layer effects: on the 1/16, stereo, too-long REPEAT, SLICER, silent keys, idle bit-identical, clicks, OCT UP / DN, cost, demos" "$OUT/perform_test" build/perform_demo build/fx_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/reverb_test" tests/reverb_test.c -lm
-    run "REVERB TYPE: ROOM bit-identical, SPRING decay / chirp / stability / level, model change, cost, demos" "$OUT/reverb_test" build/fx_demo
+    run "REVERB TYPE: ROOM bit-identical, SPRING decay / chirp / stability / level, HALL decay / damping / density / stereo / silence, model change, cost, demos" "$OUT/reverb_test" build/fx_demo
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mod_spread_test" tests/mod_spread_test.c -lm
+    run "matrix S&H / SLEW / DEPTH, SPREAD: off = bit-identical, sides, sends mono, SLICER and mutes" "$OUT/mod_spread_test"
+    $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/layer_screen_test" tests/layer_screen_test.c -lm
+    run "double-tap layers, FX LATCH, FX key map, SCREEN OFF, LFO 2 SYNC / TRIG / POL" "$OUT/layer_screen_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/phase_test" tests/phase_test.c -lm
     run "CZ: oscillator boundaries, native rate/target envelopes and independent lines" "$OUT/phase_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/cz1_knob_test" tests/cz1_knob_test.c -lm

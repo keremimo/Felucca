@@ -65,6 +65,8 @@ static int settings_import(persist_t *p, int n)
 #endif
     p->magic = PERSIST_MAGIC;
     p->palette = palette_to_stored(palette_from_stored(p->palette));
+    settings_screen=p->favorites.factory[15][27] < 8u ? p->favorites.factory[15][27] : 0u;
+    settings_latch=p->favorites.factory[15][30] & 1u;
     settings.magic = SETTINGS_MAGIC;
     settings.palette = palette_from_stored(p->palette);
     settings.lowcut = p->lowcut;
@@ -114,6 +116,8 @@ static void settings_export(persist_t *p)
 #if MELODEE_USB_AUDIO
     p->ext.usb_off = ua_off;
 #endif
+    p->favorites.factory[15][27]=settings_screen;
+    p->favorites.factory[15][30]=(p->favorites.factory[15][30]&~1u) | settings_latch;
     p->ext.boot = settings_boot;
     p->ext.drumch = settings_drumch == 10u ? 0u : !settings_drumch ? 17u : settings_drumch;
     p->ext.lights = settings_lights == LIGHTS_MID ? 0u : settings_lights + 1u;

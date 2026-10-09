@@ -15,6 +15,7 @@
  * plays are recorded, not the keys held (what plays back is what was heard). A key or MIDI note plays a
  * chord when the track's CHRD is on (chord.c): its notes go through the same input as so many keys. */
 #define KB_SILENT 255u
+static volatile uint8_t kb_asleep;
 static uint32_t kb_prev;
 static uint8_t kb_note[27], kb_trk[27];  /* per key: the note it started and on which track */
 static uint8_t last_note = 60;
@@ -545,8 +546,54 @@ static void input_off(track_t *t, uint32_t note)
 static uint32_t perf_key(uint32_t k)
 {
     uint32_t p = key_place(k);
-    return !key_black(k) ? (p < PF_M1 ? p : PF_N) : p < NTRK ? PF_M1 + p : PF_N;
+    return !key_black(k) ? (p < PF_KEYS ? perf_map[p] : PF_N) : p < NTRK ? PF_M1 + p : PF_N;
 }
+
+static uint8_t kb_fx[27];
+static __attribute__((noinline)) void perf_key_press(uint32_t k, int down)
+{
+    uint32_t e, j;
+    if (down) {
+        e = perf_key(k);
+        kb_fx[k] = (uint8_t)(e + 1u);
+        perf_press(e, 1);
+        return;
+    }
+    if (!kb_fx[k])
+        return;
+    e = kb_fx[k] - 1u;
+    kb_fx[k] = 0;
+    for (j = 0; j < 27u; j++)
+        if (kb_fx[j] == e + 1u)
+            return;
+    perf_press(e, 0);
+}
+
+/* the map changed (ui_layer.c: PRESETS with a key held, EDIT, a settings load): a white key held takes its new
+ * effect at once (the old one let go); FX LATCH: a latched effect of the key's becomes the new one */
+static __attribute__((noinline)) void perf_key_remap(void)
+{
+    uint32_t k, e, o;
+    perf_remap = 0;
+    for (k = 0; k < 27u; k++) {
+        if (!kb_fx[k] || key_black(k) || (o = kb_fx[k] - 1u) == (e = perf_key(k)))
+            continue;
+        if (!perf_latch_on) {
+            perf_key_press(k, 0);
+            perf_key_press(k, 1);
+            continue;
+        }
+        kb_fx[k] = (uint8_t)(e + 1u);
+        if (o < PF_N && ((perf_latched >> o) & 1u)) {
+            perf_latched &= ~PF_BIT(o);
+            if (e < PF_N) {
+                perf_latched |= PF_BIT(e);
+                perf_ord[e] = ++perf_seq;
+            }
+        }
+    }
+}
+
 
 /* key k plays kb_note[k] on track t: its chord (chord.c; the note alone with CHRD OFF). A note another key
  * holds already sounds: it is not started again (nor sent to MIDI OUT); the key keeps its notes */
@@ -600,6 +647,7 @@ static __attribute__((noinline)) void kb_lat(uint32_t k)
 static void keyboard_block(void)
 {
     uint32_t cur = fm1_in.notes, ch, k;
+    if (perf_remap) perf_key_remap();
     ch = cur ^ kb_prev;                           /* keys also sound while entering steps */
     if (!ch)
         return;
@@ -608,11 +656,12 @@ static void keyboard_block(void)
             continue;
         if ((cur >> k) & 1u) {                    /* the selected track; the key-up goes to the same one */
             kb_trk[k] = song.sel;
-            if (fm1_in.buttons & kb_mask) {       /* a layer's button held: the key is the layer's (ui_layer.c), */
+            if (kb_asleep) { kb_note[k]=KB_SILENT; continue; }
+            if ((fm1_in.buttons & kb_mask) || kb_lock) {       /* a layer's button held: the key is the layer's (ui_layer.c), */
                 kb_note[k] = KB_SILENT;           /* with FX an effect (perform.c) */
                 kb_layer |= 1u << k;
-                if (fm1_in.buttons & perf_mask)
-                    perf_press(perf_key(k), 1);
+                if ((fm1_in.buttons & perf_mask) || (kb_lock & 2u))
+                    perf_key_press(k, 1);
                 continue;
             }
             if (song.grid == 2u)                  /* NAME (ui_name.c): every key types, none sounds */
@@ -630,7 +679,7 @@ static void keyboard_block(void)
         } else {
             if ((kb_layer >> k) & 1u) {
                 kb_layer &= ~(1u << k);
-                perf_press(perf_key(k), 0);
+                perf_key_press(k, 0);
                 continue;
             }
             if (kb_note[k] == KB_SILENT)
@@ -693,6 +742,7 @@ static void seq_start(void)
     chain_start();
     for (i = 0; i < NTRK; i++) {                   /* every track from its step 0, together */
         track_t *t = &trk[i];
+        if (t->p[P_LTRIG] && t->p[P_LSYNC]) t->lfo_ph = (uint32_t)t->p[P_LPHASE] << 25;
         t->seq_idx = (uint16_t)(t->p[P_SLEN] - 1);
         t->seq_pos = 0x7FFFFFFF;                   /* step 0 fires on the first block */
         t->rskip_n = 0;

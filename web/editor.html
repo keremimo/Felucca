@@ -595,7 +595,7 @@ const parse = {
     const trailer = a.slice(r.i);
     if (trailer[0] === 16) o.chainRows = 16;       /* existing v6 SONG capability */
     if (trailer.length >= 4 && [0, 16].includes(trailer[0]) && trailer[1] === 0x55 && trailer[2] === 1)
-      o.uiCaps = trailer[3] & 31;                 /* tagged preferences; never interpret old PR bytes as SONG */
+      o.uiCaps = trailer[3] & 63;                 /* tagged preferences; never interpret old PR bytes as SONG */
     o.motionMax = 0; o.chance = false; o.backupCaps = 0;
     if (o.uiCaps && trailer[4] === 0x4d && trailer[5] === 1 && trailer[6] === 64) {
       o.motionMax = 64; o.chance = trailer[7] === 1;
@@ -618,7 +618,7 @@ const parse = {
   [CMD.UI_STATE](a) {
     const r = new Reader(a), o = { caps: r.b(), palette: r.b(), font: r.b(), monitor: r.b(), filter: r.b() };
     const u28 = () => r.b() | r.b() << 7 | r.b() << 14 | r.b() << 21;
-    o.favoriteSig = u28(); o.bankSig = u28(); if((o.caps&16) && a.length>=18) [o.click,o.clickLevel,o.countin,o.preview,o.chordAdd]=Array.from({length:5},()=>r.b()); else o.caps&=~16; return o;
+    o.favoriteSig = u28(); o.bankSig = u28(); if((o.caps&16) && a.length>=18) [o.click,o.clickLevel,o.countin,o.preview,o.chordAdd]=Array.from({length:5},()=>r.b()); else o.caps&=~16; if((o.caps&32) && a.length>=20) [o.fxLatch,o.screenOff]=[r.b(),r.b()]; else o.caps&=~32; return o;
   },
   [CMD.UI_SET](a) { const r = new Reader(a); return { rc: r.b(), id: r.b(), value: r.b(), ...parse[CMD.UI_STATE](a.slice(3)) }; },
   [CMD.UI_PALETTES](a) { const r = new Reader(a), n = r.b(); return Array.from({ length: n }, () => r.s()); },
@@ -1918,8 +1918,8 @@ function makeMockDevice(opt = {}) {
   const NONOFF = ["OFF", "ON"], NDIV = ["1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1/1", "2BAR", "4BAR"], NGO = ["--", "GO"], NDASH = ["--"];
   const D = (label, fmt, min, max, def, names = null, unit = "") => ({ label, fmt, min, max, def, names, unit });
   const E = (label, names, def) => D(label, F.ENUM, 0, names.length - 1, def, names);
-  const MSRC = ["OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR"];
-  const MDST = ["OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "-", "REV", "RATE", "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"];
+  const MSRC = ["OFF", "LFO", "ENV", "VEL", "KEY", "RAND", "MODW", "AT", "EXPR", "S&H", "SLEW"];
+  const MDST = ["OFF", "PITCH", "CUT", "SHP", "AMP", "PAN", "DIST", "CHO", "-", "REV", "RATE", "VIB", "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "DEPTH"];
   const TP = [
     D("LVL", F.DB, 0, 127, 104),
     D("ATK", F.TIME, 0, 127, 10), D("DEC", F.TIME, 0, 127, 70), D("SUS", F.PCT, 0, 127, 90), D("REL", F.TIME, 0, 127, 60),
@@ -1945,7 +1945,7 @@ function makeMockDevice(opt = {}) {
     E("ENG", ["ANALOG", "-", "PHASE", "LOFI", "-", "VOICE", "-", "-",
       "-", "-", "DRUM", "NOISE", "FM6", "-", "-", "CZ-1", "-", "-", "-", "PROPHET"], 0), D("A4", F.INT, 400, 480, 440, null, "Hz"),
     E("CLRSQ", NGO, 0), E("INIT", NGO, 0),
-    E("TYPE", ["ROOM", "SPRING"], 0),               /* G_RTYPE (id 24, was G_DRCH): the reverb's model */
+    E("TYPE", ["ROOM", "SPRING", "HALL"], 0),               /* G_RTYPE (id 24, was G_DRCH): the reverb's model */
     D("-", F.INT, 0, 0, 0), D("-", F.INT, 0, 0, 0),   /* G_DRLVL, G_DRREV: inert since 1.0 */
   ];
   const NONE = D("-", F.INT, 0, 0, 0);
@@ -2050,7 +2050,8 @@ function makeMockDevice(opt = {}) {
     E("VOIC", ["CLOSE", "OPEN", "INV1", "INV2", "+OCT"], 0),
     D("DEG", F.INT, 1, 12, 1));                      /* 83: QNT MPC, the degree of pad H02 */
   TP.push(...["KICK","SNARE","CLAP","HATCL","HATOP","TOM","RIM","BELL"].map(n=>D(n,F.PCT,0,127,127)));
-  const P_COUNT = 100, G_COUNT = 27, NSTEP = 64, P_E0 = 92, G_ENGSEL = 20, P_SLCR = 45;
+  TP.push(E("SYNC", ["OFF","4BAR","2BAR","1/1","1/2","1/4","1/8","8T","1/16","16T","1/32"],0), E("TRIG",["NOTE","FREE"],0), E("POL",["BI","UNI"],0), D("SPRD",F.PCT,0,127,0));
+  const P_COUNT = 104, G_COUNT = 27, NSTEP = 64, P_E0 = 96, G_ENGSEL = 20, P_SLCR = 45;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const enumOrig = (d, v) => d.fmt === F.ENUM && d.names ? aliasOf(d.names, v - d.min) + d.min : v;   /* params.c enum_orig */
   /* four tracks (firmware v3), four synth parts (1.0); engine / preset / p / step below are the selected track's */
@@ -2068,8 +2069,8 @@ function makeMockDevice(opt = {}) {
     slots: [null, null, null, null], songRows: [], chainPlaying: false, chainRow: 0, chainRemaining: 0,
     smp: [0, 1, 2].map(() => ({ flash: new Uint8Array(SMP.SLOT_SIZE).fill(0xFF), zones: 0, name: "", len: 0, next: SMP.DATA_OFF })),
     bank: new Array(opt.slots || 64).fill(null),     /* user presets: {engine, name, p, pattern, grid} */
-    uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 25,
-    palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0, click:0, clickLevel:1, countin:0, preview:0, chordAdd:0,
+    uiCaps: opt.legacy || opt.v3 || opt.v5 ? 0 : opt.uiCaps ?? 57,
+    palette: 0, font: 0, monitor: 0, filter: 0, bankSig: 0, click:0, clickLevel:1, countin:0, preview:0, chordAdd:0, fxLatch:0, screenOff:0,
     palettes: ["MONO", "GREEN", "AMBER", "ICE", "VIOLET", "ROSE", "PAPER", "HI-CON"],
     favorites: Array.from({ length: ENG.length + 3 }, () => []),
     watch: false, v4: false, lastReq: 0,
@@ -2178,6 +2179,7 @@ function makeMockDevice(opt = {}) {
       [st.uiCaps, st.palette, st.uiCaps & 2 ? st.font : 127, st.uiCaps & 4 ? st.monitor : 127, st.uiCaps & 8 ? st.filter : 127].forEach(b);
       for (const n of [sig, st.bankSig]) for (let i = 0; i < 4; i++) b(n >>> (i * 7));
       if(st.uiCaps&16)[st.click,st.clickLevel,st.countin,st.preview,st.chordAdd].forEach(b);
+      if(st.uiCaps&32)[st.fxLatch,st.screenOff].forEach(b);
     };
     const NB = st.bank.length;
     switch (cmd) {
@@ -2266,8 +2268,8 @@ function makeMockDevice(opt = {}) {
       case CMD.UI_STATE: uiState(); break;
       case CMD.UI_PALETTES: b(st.palettes.length); st.palettes.forEach(s); break;
       case CMD.UI_SET: {
-        const id = a[0], val = a[1], key = ["palette", "font", "monitor", "filter", "click", "clickLevel", "countin", "preview", "chordAdd"][id];
-        const rc = a.length !== 2 || !key ? 1 : !(st.uiCaps & (id>=4?16:1 << id)) ? 2 : val >= (id === 0 ? st.palettes.length : id === 2 || (id>=4 && id<=6) ? 3 : 2) ? 1 : 0;
+        const id = a[0], val = a[1], key = ["palette", "font", "monitor", "filter", "click", "clickLevel", "countin", "preview", "chordAdd", "fxLatch", "screenOff"][id];
+        const rc = a.length !== 2 || !key ? 1 : !(st.uiCaps & (id>=9?32:id>=4?16:1 << id)) ? 2 : val >= (id === 0 ? st.palettes.length : id===10 ? 5 : id === 2 || (id>=4 && id<=6) ? 3 : 2) ? 1 : 0;
         if (!rc) st[key] = val;
         b(rc || (opt.noFlash ? 3 : opt.deferSettings ? 4 : 0)); b(id ?? 127); b(val ?? 127); uiState(); break;
       }
@@ -3093,15 +3095,15 @@ function selfLoad() {
 const stepEdit = new Map(); /* index -> time of the last edit */
 
 /* parameter ids (firmware/src/core.h); used only when P_COUNT / G_COUNT match */
-const EXPECT = { pcount: 100, gcount: 27, pe0: 92 };
+const EXPECT = { pcount: 104, gcount: 27, pe0: 96 };
 /* the same layout without the MPC degree (Felucca 1.0: P_COUNT 91, P_E0 83), the chord keys too (89, 81), the FM
    operator ENVs too (69, 61) or the matrix (firmware 1.0: 57, 49) */
 const knownLayout = (info) => info.gcount === EXPECT.gcount &&
-  [[100, 92], [92, 84], [91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e);
+  [[104, 96], [100, 92], [92, 84], [91, 83], [89, 81], [69, 61], [57, 49]].some(([c, e]) => info.pcount === c && info.pe0 === e);
 const P = { LEVEL: 0, SLEN: 29 };
 const LAYOUT = (pe0) => [
   { t: "ENV", pages: [["ENV", 0, [1, 2, 3, 4]], ["ENV DEST", 0, [5, 6, 7, 8]]] },
-  { t: "LFO", pages: [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]]] },
+  { t: "LFO", pages: [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]], ...(pe0>=96 ? [["LFO 2",0,[92,93,94]]] : [])] },
   ...(pe0 >= 61 ? [{ t: "MOD", mod: 49 }] : []),   /* the matrix: P_M1SRC 49 .. P_M4AMT 60, one row per slot */
   { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]]] },
   ...(pe0 >= 81 && engName() === "PHASE" && dev.dump.p[pe0+7]===1 ? [{t: "CZ ENVELOPES", pages: [
@@ -3113,8 +3115,8 @@ const LAYOUT = (pe0) => [
     ...[0, 1, 2, 3].map((k) => [`OP${k + 1}`, 0, [61 + 5 * k, 62 + 5 * k, 63 + 5 * k, 64 + 5 * k]]),
     ["OP LVL", 0, [65, 70, 75, 80]]] }] : []),
   ...(pe0>=92 && engName()==="DRUM"?[{t:"DRUM LEVELS",pages:[["LANES",0,[84,85,86,87]],["LANES 2",0,[88,89,90,91]]]}]:[]),
-  { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 41, 42]], ["VOICE 2", 0, [43, 44, 39, 40]]] },
-  { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DLY", 1, [4, 5, 6, 7]], ["REVERB", 1, [24, 8, 9]], ["CHORUS", 1, [10, 11]]] },   /* G_RTYPE 24: ROOM / SPRING */
+  { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 41, 42]], ["VOICE 2", 0, [43, 44, 39, 40]], ...(pe0>=96 ? [["VOICE 3",0,[95]]] : [])] },
+  { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DLY", 1, [4, 5, 6, 7]], ["REVERB", 1, [24, 8, 9]], ["CHORUS", 1, [10, 11]]] },   /* G_RTYPE 24: ROOM / SPRING / HALL */
   { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 28]], ...(pe0 >= 83 ? [["CHORD", 0, P_CHORD]] : []),   /* CHRD VOIC 81, 82 */
     ...(pe0 >= 84 ? [["MPC", 0, [P_MPCDEG]]] : [])] },                                                 /* DEG 83 */
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]]] },
@@ -4339,10 +4341,12 @@ function renderPreferences(force = false) {
     [6, "Count-in", ["OFF","1 BAR","2 BARS"], p.state.countin],
     [7, "Note preview", ["OFF","ON"], p.state.preview],
     [8, "Chord entry", ["HOLD","ADD"], p.state.chordAdd],
+    [9, "FX latch", ["OFF","ON"], p.state.fxLatch],
+    [10, "Screen off", ["NEVER","5 MIN","15 MIN","30 MIN","60 MIN"], p.state.screenOff],
   ];
   const controls = [], recordingControls=[];
   for (const [id, key, options, value] of defs) {
-    if (!(p.state.caps & (id>=4?16:1 << id))) continue;
+    if (!(p.state.caps & (id>=9?32:id>=4?16:1 << id))) continue;
     const label=id>=4?key:t(key);
     const select = el("select", { "aria-label": label });
     select.replaceChildren(...options.map((text, i) => el("option", { value: i, text })));
