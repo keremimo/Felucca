@@ -12,8 +12,10 @@ typedef struct {
     void (*turn)(int32_t s);                            /* KNOB 1 changes it (0: none) */
     void (*act)(void);                                  /* OCT+ does it (0: OCT+ steps the value) */
     uint8_t cf;                                         /* the question it asks first (CF_*), 0 none; with act: act
-                                                         * asks it itself (after its checks), the row drawn red */
+                                                         * asks it itself (after its checks), the row drawn red;
+                                                         * SR_RED: no question, red (a destructive act) */
 } sheet_row_t;
+#define SR_RED 0xFFu
 enum { POP_NONE, POP_SHEET, POP_PICK, POP_LIST };
 #define POP_X 6                                         /* a sheet: 228 wide, its rows 20 px, 22 apart from y 28 */
 #define POP_W 228
@@ -33,6 +35,8 @@ static int name_on(void);
 static int new_on(void);
 static void menu_words(char *d, const char *s, uint32_t n);   /* ui_menu.c */
 static uint32_t slot_kind(void);                        /* ui_slots.c */
+static void step_delete_edit(void);                     /* ui_input.c */
+static int live_rec_sel(void);
 static void slot_save_sheet(void);
 
 static void pop_close(void)
@@ -124,7 +128,114 @@ static const sheet_row_t SHEET_SONG[] = {
     {"Insert section", 0, 0, ps_insert, 0}, {"Duplicate section", 0, 0, ps_dup, 0}, {"Delete section", 0, 0, 0, CF_DEL_ROW},
     {"Take jam", ps_jam_v, 0, ps_jam, 0}, {"Clear song", 0, 0, 0, CF_CLEAR_SONG}};
 
-/* the page's sheet: 0 none, 1 the sound's, 2 the song's */
+/* the pattern's (NOTES, the drum grid, PATTERN, CHANCE: OCT+ held; TOOLS' Clear pattern lives here) */
+static const sheet_row_t SHEET_PATTERN[] = {{"Clear pattern", 0, 0, 0, CF_CLEAR_SEQ}, {"Clear motion", 0, 0, 0, CF_CLEAR_MOTION}};
+
+/* the step's: NOTES' note at the cursor (KNOB 1 its length, velocity, chance), the drum grid's hit of the lane there */
+static void st_cap(uint32_t c, char *b)                 /* NOTES' column c as its chip shows it (draw_columns) */
+{
+    lrow_t rw;
+    char lb[12];
+    uint16_t vc;
+    rw.page = cur_page()->title;
+    rw.slot = (uint8_t)c;
+    list_cap(&rw, lb, b, &vc);
+}
+static step_t *st_at(void)                              /* the note's step (else the cursor's) */
+{
+    uint32_t s = grid_on() ? NSTEP : notes_manual_start(TSEL);
+    return &TSEL->step[s < NSTEP ? s : ui.cursor];
+}
+static int st_free(void)                                /* (a step edit now: not while a song plays, not recording) */
+{
+    if (chain_busy()) { ui_message("STOP TO EDIT"); return 0; }
+    if (live_rec_sel()) { ui_message("STOP RECORDING"); return 0; }
+    return 1;
+}
+static void nt_len_v(char *b)                          /* "3 steps" */
+{
+    uint32_t n;
+    st_cap(2u, b);
+    n = str_len(b);
+    if (n && n < 9u && ((b[0] >= '0' && b[0] <= '9') || b[0] == '<') && b[n - 1] >= '0' && b[n - 1] <= '9')
+        str_cpy(b + n, str_eq(b, "1") ? " step" : " steps", 8);
+}
+static void nt_len(int32_t s) { edit_param(2u, s > 0 ? 1 : -1); }
+static void nt_vel_v(char *b) { st_cap(3u, b); }
+static void nt_vel(int32_t s) { edit_param(3u, s); }
+static void nt_chance_v(char *b)
+{
+    fmt_int(b, (int32_t)step_chance(st_at()));
+    str_cpy(b + str_len(b), " %", 3);
+}
+static void nt_chance(int32_t s)
+{
+    step_t *st = st_at();
+    if (st_free())
+        step_set_chance(st, (uint32_t)clamp((int32_t)step_chance(st) + s, 0, 100));
+}
+static void nt_slide_v(char *b) { str_cpy(b, st_at()->flags & SF_SLIDE ? "On" : "Off", 8); }
+static void nt_slide(void)
+{
+    if (!st_free())
+        return;
+    fm1_irq_off();
+    st_at()->flags ^= SF_SLIDE;
+    fm1_irq_on();
+}
+static void nt_delete(void)
+{
+    if (st_free())
+        step_delete_edit();
+}
+static const sheet_row_t SHEET_NOTE[] = {{"Length", nt_len_v, nt_len, 0, 0}, {"Velocity", nt_vel_v, nt_vel, 0, 0},
+    {"Chance", nt_chance_v, nt_chance, 0, 0}, {"Slide", nt_slide_v, 0, nt_slide, 0}, {"Delete note", 0, 0, nt_delete, SR_RED}};
+static const sheet_row_t SHEET_REC_NOTE[] = {{"Length", nt_len_v, nt_len, 0, 0}, {"Velocity", nt_vel_v, nt_vel, 0, 0},
+    {"Delete note", 0, 0, nt_delete, SR_RED}};
+static int ht_acc_on(void) { return (step_accents(&seq_steps(TSEL)[ui.cursor]) >> ui.lane) & 1u; }
+static void ht_acc_v(char *b) { str_cpy(b, ht_acc_on() ? "On" : "Off", 8); }
+static void ht_acc(void) { edit_param(3u, ht_acc_on() ? -1 : 1); }
+static void ht_clear(void) { edit_param(2u, -1); }
+static const sheet_row_t SHEET_HIT[] = {{"Accent", ht_acc_v, 0, ht_acc, 0}, {"Chance", nt_chance_v, nt_chance, 0, 0},
+    {"Clear hit", 0, 0, ht_clear, SR_RED}};
+
+/* OCT+ on NOTES / the drum grid: an empty place gets a note (the last one played) / the lane's hit; on a note or a
+ * hit: its sheet. 0: not such a page */
+static int step_enter(void)
+{
+    char t[24], sub[12];
+    uint32_t chosen, start;
+    if (ui.home || ui.layer || ui.menu || cur_page()->graph != GR_ROLL)
+        return 0;
+    str_cpy(sub, "step ", sizeof sub);
+    fmt_int(sub + 5, (int32_t)ui.cursor + 1);
+    if (grid_on()) {
+        if (!((step_lanes(&seq_steps(TSEL)[ui.cursor]) >> ui.lane) & 1u)) {
+            edit_param(2u, 1);                          /* (the grid's HIT: its checks) */
+            return 1;
+        }
+        str_cpy(t, drum_lane_abbr(TSEL, ui.lane), sizeof t);   /* "SD \xB7 step 5" */
+        str_cpy(t + str_len(t), " \xB7 ", 4);
+        str_cpy(t + str_len(t), sub, sizeof t - str_len(t));
+        sheet_open(t, "", SHEET_HIT, NELEM(SHEET_HIT));
+        return 1;
+    }
+    chosen = notes_selected(TSEL);
+    start = notes_manual_start(TSEL);
+    if (chosen >= RECORD_MAX && !(start < NSTEP && TSEL->step[start].n)) {
+        edit_param(1u, 0);                              /* (NOTES' PITCH on an empty step: the last note there) */
+        return 1;
+    }
+    str_cpy(t, "Note ", sizeof t);
+    st_cap(1u, t + 5);
+    if (chosen < RECORD_MAX)
+        sheet_open(t, sub, SHEET_REC_NOTE, NELEM(SHEET_REC_NOTE));
+    else
+        sheet_open(t, sub, SHEET_NOTE, NELEM(SHEET_NOTE));
+    return 1;
+}
+
+/* the page's sheet: 0 none, 1 the sound's, 2 the song's, 3 the pattern's */
 static uint32_t page_sheet(void)
 {
     uint32_t fam;
@@ -134,6 +245,8 @@ static uint32_t page_sheet(void)
         return 1;
     if (cur_page()->graph == GR_SONG)
         return 2;
+    if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS || cur_page()->graph == GR_CHANCE)
+        return 3;
     fam = cur_page()->fam;
     return fam == FAM_EDIT || fam == FAM_ENV || fam == FAM_LFO || fam == FAM_FX ? 1u : 0u;
 }
@@ -150,9 +263,30 @@ static void page_sheet_open(void)
         str_cpy(nm + str_len(nm), chain_config.count == 1u ? " section" : " sections", 10);
         sheet_open("Song", nm, SHEET_SONG, NELEM(SHEET_SONG));
         break;
+    case 3:
+        str_cpy(nm, "T1", sizeof nm);
+        nm[1] = (char)('1' + song.sel % NTRK);
+        sheet_open("Pattern", nm, SHEET_PATTERN, NELEM(SHEET_PATTERN));
+        break;
     default:
         break;
     }
+}
+
+/* a clearing row with nothing there to clear (or a song playing): says so instead of asking; 0 = ask */
+static int cf_refused(uint32_t cf)
+{
+    int edit = cf == CF_DEL_ROW || cf == CF_CLEAR_SONG || cf == CF_CLEAR_SEQ || cf == CF_CLEAR_MOTION;
+    if (edit && chain_busy())
+        ui_message("STOP TO EDIT");
+    else if (cf == CF_DEL_ROW && ui.song_row >= chain_config.count)
+        ui_message("NOTHING TO DELETE");
+    else if ((cf == CF_CLEAR_SONG && !chain_config.count) || (cf == CF_CLEAR_SEQ && seq_is_empty(TSEL)) ||
+             (cf == CF_CLEAR_MOTION && !motion_count(TSEL)))
+        ui_message("NOTHING TO CLEAR");
+    else
+        return 0;
+    return 1;
 }
 
 /* KNOB 2 the row, KNOB 1 its value; OCT+ does it (its question first), OCT- closes (oct: bit 0 OCT-, bit 1 OCT+) */
@@ -170,7 +304,7 @@ static void sheet_input(int32_t k1, int32_t k2, uint32_t oct)
         pop_close();
         if (r->act)
             r->act();
-        else if (r->cf)
+        else if (r->cf && !cf_refused(r->cf))
             confirm_open(r->cf, r->cf == CF_DEL_ROW ? ui.song_row : song.sel);
         else if (r->turn)
             r->turn(1);

@@ -398,7 +398,7 @@ static void eng(uint32_t e) { set_engine_of(TSEL, e); }
  * OP LEVEL pages and the algorithm charts, exist only there: fm4_screen) */
 #define E_FM (MELODEE_FM4 ? ENGI_DIGITAL : ENGI_FM6)
 
-enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_PRESETS_CAT, S_PRESETS_PENDING, S_PRESETS_RECENT, S_USER, S_PROJECT, S_PROJECT_BOOT, S_TEMPO, S_TOOLS,
+enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_PRESETS_CAT, S_PRESETS_PENDING, S_PRESETS_RECENT, S_USER, S_PROJECT, S_PROJECT_BOOT, S_TEMPO,
        S_SONG_EMPTY, S_SONG, S_STEP, S_PATTERN, S_CHANCE, S_MOTION, S_DRUM, S_MIXER, S_MIXER_PAN,
        S_ENV, S_ENVDEST, S_LFO, S_MOD, S_FX, S_SLICER, S_DLY, S_SCL, S_CHORD, S_CHORD_WIDE, S_CHORD_OFF, S_CHORD_KIT, S_ARP, S_VOICE, S_GLOBAL, S_SYSTEM,
        S_EDIT_ANALOG, S_EDIT_DIGITAL, S_OP_ENV, S_EDIT_WHEEL, S_EDIT_PHYS,
@@ -421,9 +421,9 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_REF_STAGE_HELD, S_REF_STAGE_RELEASED, S_REF_STAGE_CUTOFF, S_REF_STAGE_DRUM, S_REF_BROWSER, S_REF_PATTERNS, S_REF_SONG,
        S_REF_ENV, S_REF_LFO, S_REF_EDIT_OSC, S_REF_FX, S_REF_DLY, S_REF_MIXER, S_REF_NOTES, S_REF_SETTINGS, S_REF_DIALOG,
        S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6,
-       S_REF_SCL_LIST, S_REF_SHEET_PROJECT, S_COUNT };
+       S_REF_SCL_LIST, S_REF_SHEET_PROJECT, S_REF_SHEET_NOTE, S_REF_SHEET_HIT, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
-    "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
+    "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
     "voice", "global", "system", "edit_analog", MELODEE_FM4 ? "edit_digital" : "edit_fm6", "op_env", "edit_wheel",
     "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "fm6_freq", "fm6_eg", "fm6_peg", "fm6_store", "cz1_env", "confirm_seq", "confirm_project", "confirm_user",
@@ -441,7 +441,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
     "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long",
     "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "stage_env", "patterns", "patterns_stopped", "project_new", "new_key", "new_roles",
-    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_fx", "ref_dly", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project"};
+    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_fx", "ref_dly", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_sections_p5", "ref_map_p5", "ref_map_fm6", "ref_scl_list", "ref_sheet_project", "ref_sheet_note", "ref_sheet_hit"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -741,6 +741,22 @@ static void ref_scene(int s)
         settings_boot = 1; song.g[G_SLOT] = 1; ui.frame++; go_title("PROJECT"); slot_enter(); pop.sel = 1;
         ui.msg_t = 0;
         break;
+    case S_REF_SHEET_NOTE:                           /* (R6) NOTES: the note at step 5 (G#3, 3 steps), its sheet */
+        ref_scene(S_REF_NOTES); song.playing = 0; ui.hot_t = 0; cursor_set(4); step_enter(); pop.sel = 1;
+        break;
+    case S_REF_SHEET_HIT: {                          /* (R6) the drum grid: SD at step 5 (accent, 75 %), its sheet */
+        static const char *const G[4] = {"1000100010001000", "0000100000001000", "0000000000000001", "1010101010101010"};
+        uint32_t l, i;
+        song.playing = 0; song.sel = 3; set_engine_of(&trk[3], ENGI_DRUM); trk[3].engine = ENGI_DRUM;
+        track_defaults_steps(&trk[3]); trk[3].p[P_SLEN] = 32;
+        for (l = 0; l < 4u; l++)
+            for (i = 0; i < 16u; i++)
+                if (G[l][i] == '1') grid_hit(&trk[3], i, l, 1);
+        grid_acc(&trk[3], 4, 1, 1);
+        step_set_chance(&trk[3].step[4], 75);
+        go_title("NOTES"); ui.lane = 1; cursor_set(4); step_enter(); pop.sel = 1;
+        break;
+    }
     case S_REF_SHEET_SONG:                           /* (R6) the song's sheet over SONG */
         ref_scene(S_REF_SONG); page_sheet_open();
         break;
@@ -776,7 +792,7 @@ static void setup(int s)
         return;
     }
     state();
-    if (s >= S_REF_STAGE_HELD && s <= S_REF_SHEET_PROJECT) {
+    if (s >= S_REF_STAGE_HELD && s <= S_REF_SHEET_HIT) {
         ref_scene(s);
         return;
     }
@@ -818,7 +834,6 @@ static void setup(int s)
         song.playing = 0; project_save(0); project_save_as(1, "LIVE SET"); template_save(); settings_boot = 2;
         song.g[G_SLOT] = PROJ_TMPL; ui.frame++; go_page(GR_SLOTS); ui.act = 3; ui.hot_col = 1; ui.hot_t = 30;
         break;
-    case S_TOOLS: go_page(GR_TOOLS); ui.act = 1; break;
     case S_SONG_EMPTY: song.playing = 0; go_page(GR_SONG); break;
     case S_SONG:
         song.playing = 0; project_save(0); project_save(1);

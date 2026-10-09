@@ -1106,34 +1106,22 @@ static int slice_page_ok(void) { return 0; }
 static int slice_page_on(void) { return 0; }
 
 /* ---------------------------------------------------- action pages --- */
-/* Pages whose purpose is an action (SAVE > USER, PROJECT, TOOLS, EDIT > SLICES): the knobs pick,
- * OCT+ does it, OCT- cancels the picked action or goes HOME (ui_input.c). There OCT- / OCT+ do not
- * shift the octave */
-static int go_id(uint32_t id) { return id == G_LOAD || id == G_SAVE || id == G_CLRSEQ || id == G_INITSND; }
-
+/* Pages whose purpose is an action (MOTION, SONG, EDIT > SLICES, CZ TOOLS): the knobs pick, OCT+ does it, OCT- cancels
+ * the picked action or goes HOME (ui_input.c). The slot pages (PROJECT, USER, the STOREs: ui_slots.c) do their
+ * actions from a slot's sheet, through act_do too */
 static uint32_t act_cols(void)                   /* the columns that are actions, a bit each; 0 = not such a page */
 {
     const page_t *pg = cur_page();
-    uint32_t c, m = 0;
-    if (ui.home || pg->graph == GR_SLOTS || pg->graph == GR_USER || pg->graph == GR_FMSTORE || pg->scope == SC_P5STORE)
-        return 0;                                /* (the slot pages: a slot's sheet, ui_slots.c) */
+    if (ui.home)
+        return 0;
     if (pg->graph == GR_MOTION) return 8u;
-    if (pg->graph == GR_TOOLS) return 15u;
     if (pg->graph == GR_SONG)
         return 1u | (jam.n ? 8u : 0u);           /* PLAY / STOP (also the PLAY button); TAKE JAM */
-    if (pg->graph == GR_USER)
-        return 14u;                              /* LOAD ERASE SAVE */
     if (pg->graph == GR_SLICES)
         return slice_page_ok() ? 12u : 0u;       /* SPLIT JOIN (a SLICE track only) */
-    if (pg->graph == GR_FMSTORE)
-        return 14u;                              /* STORE SEND INIT */
     if (pg->graph == GR_CZTOOLS)
         return 15u;                              /* NAME 1>2 2>1 COMP */
-    if (pg->scope == SC_GLOBAL)
-        for (c = 0; c < 4u; c++)
-            if (go_id(pg->id[c]) && !(ui.proj_new && pg->id[c] == G_SAVE))   /* (NEW: LOAD makes it, no SAVE) */
-                m |= 1u << c;
-    return m;
+    return 0;
 }
 
 /* the action OCT+ does: its column + 1, 0 = none picked yet */
@@ -1145,61 +1133,28 @@ static uint32_t act_col(void)
 
 static const char *act_name(uint32_t c)          /* column c's action (the footer hint) */
 {
-    static const char *const UP_GO[3] = {"LOAD", "ERASE", "SAVE"};
-    uint32_t id = cur_page()->id[c & 3u];
     if (cur_page()->graph == GR_MOTION) return "CLEAR";
-    if (cur_page()->graph == GR_TOOLS) {
-        static const char *const actions[] = {"CLEAR", "INIT", "DELETE", "CLEAR"};
-        return actions[c & 3u];
-    }
     if (cur_page()->graph == GR_SONG)
         return c == 3u ? "TAKE" : song.playing || chain_busy() ? "STOP" : "PLAY";
-    if (cur_page()->graph == GR_USER)
-        return UP_GO[(c + 2u) % 3u];
     if (cur_page()->graph == GR_SLICES)
         return c == 3u ? "JOIN" : "SPLIT";
-    if (cur_page()->graph == GR_FMSTORE || cur_page()->scope==SC_P5STORE)
-        return c == 1u ? "STORE" : c == 2u ? "SEND" : "INIT";
-    if (cur_page()->graph == GR_CZTOOLS)
-        return CZ_ACTIONS[c & 3u].label;
-    return id == G_CLRSEQ ? "CLEAR" : id == G_INITSND ? "INIT" : id == G_LOAD ? (ui.proj_new ? "NEW" : "LOAD") : "SAVE";
+    return CZ_ACTIONS[c & 3u].label;             /* (CZ TOOLS) */
 }
 
-/* the picked action would do something now (OCT+ blinks): a used slot, stopped for
- * a flash write, steps to clear */
+/* the picked action would do something now (OCT+ blinks) */
 static int act_ready(void)
 {
-    uint32_t c = act_col(), id;
+    uint32_t c = act_col();
     if (!c--)
         return 0;
     if (cur_page()->graph == GR_MOTION) return !chain_busy() && motion_count(TSEL);
-    if (cur_page()->graph == GR_TOOLS)                  /* one case per column: CLEAR PAT, INIT, DELETE ROW, CLEAR SONG */
-        return !chain_busy() && (c == 0u ? !seq_is_empty(TSEL) || motion_count(TSEL) : c == 1u ? 1 :
-                                 c == 2u ? ui.song_row < chain_config.count : chain_config.count != 0u);
     if (cur_page()->graph == GR_SONG)
         return c == 3u ? jam.n && !chain_busy() : song.playing || chain_busy() || chain_config.count;
-    if (cur_page()->graph == GR_USER)
-        return c == 3u ? !song.playing : user_used(ui.uslot % user_limit()) && (c == 1u || !song.playing);
 #if MELODEE_SLICE
     if (cur_page()->graph == GR_SLICES)
         return slice_act_ready(c);
 #endif
-    if (cur_page()->graph == GR_FMSTORE || cur_page()->scope==SC_P5STORE)
-        return c != 1u || !song.playing;             /* STORE writes flash: stopped */
-    if (cur_page()->graph == GR_CZTOOLS)
-        return !chain_busy();
-    id = cur_page()->id[c & 3u];
-    if (id == G_LOAD && ui.proj_new)
-        return !transport_busy();
-    if (id == G_LOAD && song.g[G_SLOT] == PROJ_TMPL)
-        return template_used();
-    if (id == G_LOAD)
-        return project_used((uint32_t)song.g[G_SLOT] - 1u);
-    if (id == G_SAVE)
-        return !song.playing;
-    if (id == G_CLRSEQ)
-        return !seq_is_empty(TSEL);
-    return 1;
+    return !chain_busy();                        /* (CZ TOOLS) */
 }
 
 #include "seq_edit.c"                             /* SEQ > STEP: a note's length, its move, its deletion */

@@ -679,12 +679,6 @@ static void draw_columns(void)
         draw_act_column(3, "CLEAR", T_MID, ICON_X_MOTION_DEL);
         return;
     }
-    if (cur_page()->graph == GR_TOOLS) {
-        static const char *const labels[] = {"PAT", "SOUND", "ROW", "SONG"};
-        static const uint8_t icons[] = {ICON_AUTO, ICON_AUTO, ICON_X_SONG, ICON_X_SONG};   /* ROW, SONG: the song's */
-        for (c = 0; c < 4u; c++) draw_act_column(c, labels[c], VAL(c), icons[c]);
-        return;
-    }
     if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV MUTE of the selected track */
         const track_t *t = TSEL;
         uint32_t lvl = trk_level(song.sel);

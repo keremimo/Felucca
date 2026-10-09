@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the UI (firmware/src/ui*.c with the sound sources of hostsim.c;
  * the display and the HAL are stubs, the buttons and knobs are driven through them):
- *   SOUNDS     a sound load (PRESETS knob / page, TOOLS INIT, user preset) changes the sound only: the
+ *   SOUNDS     a sound load (PRESETS knob / page, Init sound, user preset) changes the sound only: the
  *              steps, LEN DIV SWING GATE, ARP, SCL, the SLICER and the mix stay the track's. Power-on:
  *              every sequencer empty.
  *   PATTERNS   SEQ > PATTERNS: KNOB 1 PAT (factory patterns, then user presets that hold one), OCT+
@@ -14,8 +14,8 @@
  *              cursor step. With the ARP on, the arp's notes are recorded, not the keys.
  *   MIDI IN    GLO > SYSTEM ROUT: CH1-4 / SEL, note-offs follow their note-ons.
  *   SAVE       refused while playing ("STOP TO SAVE"); a used slot asks OVERWRITE? (OCT+ / OCT-).
- *   ACTIONS    PATTERNS, USER, PROJECT, TOOLS: the knobs pick, OCT+ does it, OCT- cancels or goes
- *              HOME, on release, never both together; the OCT LEDs (OCT- lit, OCT+ blinks).
+ *   ACTIONS    OCT- / OCT+ Esc / Enter off Stage, on release, never both together; the sheets (USER, PROJECT:
+ *              a slot's; the pattern's: Clear pattern, TOOLS gone); the OCT LEDs (OCT- lit, OCT+ blinks).
  *   TRACKS     the PRESETS knob does nothing there; KNOB 1 is MUTE.
  *   GRID       SEQ > STEP on a DRUM track: white keys toggle the selected lane's steps of the page, black
  *              keys 1..8 select the lane (and only they play), 9 held = ACC, 10 / 11 the page; KNOB 1..4 STEP
@@ -341,14 +341,14 @@ static int test_sound_loads(void)
     bad += check("a load after the undo: its own copy; the mix (LEVEL) is never swapped", same_sound(t, &before) && t->p[P_LEVEL] == 50);
     press(B_SAVE);
     bad += check("SAVE tap opens the SAVE pages (on release)", !ui.home && cur_page()->fam == FAM_SAVE);
-    /* TOOLS INIT, user preset load: the sound only, undoable; one copy for all tracks */
+    /* Init sound (set_engine), user preset load: the sound only, undoable; one copy for all tracks */
     ui_power_on();
     my_steps(&trk[1]);
     trk[1].p[P_SLCR] = SL_STUT;
     before = trk[1];
     track_select(1);
-    set_engine(trk[1].eng_req);                   /* TOOLS INIT */
-    bad += check("TOOLS INIT: the sound only (steps and SLICER kept), a copy of T2", undo.trk == 2u &&
+    set_engine(trk[1].eng_req);                   /* Init sound */
+    bad += check("Init sound: the sound only (steps and SLICER kept), a copy of T2", undo.trk == 2u &&
                  !memcmp(trk[1].step, before.step, sizeof before.step) && trk[1].p[P_SLCR] == SL_STUT);
     track_select(0);
     my_steps(&trk[0]);
@@ -726,13 +726,13 @@ static uint32_t oct_leds_seen(int all)            /* over 1 s: the OCT LED bits 
 static int test_actions(void)
 {
     int bad = 0;
+    uint32_t i, found = 0;
     track_t *t = &trk[0];
     ui_power_on();
     press(B_OCTUP);
     bad += check("HOME: OCT+ shifts the octave (lit)", song.octave == 1 && oct_leds() == 2u);
     my_steps(t);
-    go_title("TOOLS");
-    turn(EN_K1, 3);                               /* CLEAR picked */
+    go_title("PATTERN");                          /* (a page off Stage) */
     fm1_in.buttons |= 1u << panel.btn[B_OCTUP];   /* both together (the UPDATE MODE hold): nothing */
     host_pressed |= 1u << panel.btn[B_OCTUP];
     frame();
@@ -743,49 +743,38 @@ static int test_actions(void)
     frame();
     fm1_in.buttons &= ~(1u << panel.btn[B_OCTDN]);
     frame();
-    bad += check("OCT- + OCT+ together on TOOLS: nothing cleared, no HOME, no octave change", !seq_is_empty(t) && !ui.home &&
-                 song.octave == 1);
+    bad += check("OCT- + OCT+ together off Stage: no sheet, no HOME, no octave change", !pop.on && !ui.home && song.octave == 1);
     go_home();
-    fm1_in.buttons |= 1u << panel.btn[B_OCTUP];   /* pressed on HOME, let go on TOOLS: the octave, nothing done */
+    fm1_in.buttons |= 1u << panel.btn[B_OCTUP];   /* pressed on HOME, let go on PATTERN: the octave, nothing there */
     host_pressed |= 1u << panel.btn[B_OCTUP];
     frame();
-    go_title("TOOLS");
+    go_title("PATTERN");
     fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]);
     frame();
-    bad += check("a press that began elsewhere does nothing there", !seq_is_empty(t) && song.octave == 2 && !ui.home);
+    bad += check("a press that began elsewhere does nothing there", !pop.on && song.octave == 2 && !ui.home);
     press(B_OCTDN);
-    bad += check("TOOLS: OCT- goes HOME (the octave stays)", ui.home && song.octave == 2);
-    /* TOOLS: CLRSQ and INIT are picked, not done, by their knobs */
+    bad += check("PATTERN: OCT- goes HOME (the octave stays)", ui.home && song.octave == 2);
+    /* TOOLS is gone: Clear pattern in the pattern's sheet, Init sound in the sound's */
+    for (i = 0; i < NPAGES; i++)
+        found |= str_eq(PAGES[i].title, "TOOLS");
+    bad += check("no TOOLS page", !found);
     my_steps(t);
-    go_title("TOOLS");
-    bad += check("TOOLS: nothing picked, OCT+ dark", act_cols() == 15u && act_col() == 0u && oct_leds_seen(0) == 1u);
-    turn(EN_K1, 3);
-    bad += check("KNOB 1 picks CLEAR, the steps stay; OCT+ blinks", ui.act == 1u && !seq_is_empty(t) && oct_leds_seen(0) == 3u);
-    {
-        char a[16], b[16];
-        foot_hint(a, b);
-        bad += check("..the footer: OCT+ CLEAR / OCT- CANCEL", str_eq(a, "OCT+ CLEAR") && str_eq(b, "OCT- CANCEL"));
-    }
-    turn(EN_K1, -1);
-    bad += check("KNOB 1 left drops it", ui.act == 0u);
-    turn(EN_K1, 1);
-    press(B_OCTDN);
-    bad += check("OCT- cancels the pick (still on TOOLS)", ui.act == 0u && !ui.home && !seq_is_empty(t));
-    turn(EN_K1, 1);
+    go_title("PATTERN");
     press(B_OCTUP);
-    bad += check("TOOLS CLEAR first asks confirmation", ui.confirm == CF_CLEAR_SEQ && !seq_is_empty(t));
+    bad += check("PATTERN: OCT+ the pattern's sheet (Clear pattern, Clear motion)", pop.on == POP_SHEET &&
+                 pop.rows == SHEET_PATTERN && !seq_is_empty(t));
+    sheet_do("Clear pattern");
+    bad += check("Clear pattern first asks", ui.confirm == CF_CLEAR_SEQ && !seq_is_empty(t));
     press(B_OCTUP);
-    bad += check("OCT+ clears the pattern, the pick dropped", seq_is_empty(t) && msg_is("PATTERN CLEARED") && ui.act == 0u);
-    turn(EN_K1, 1);
-    bad += check("nothing to clear: OCT+ dark", oct_leds_seen(0) == 1u);
-    turn(EN_K2, 1);
+    bad += check("OCT+ clears the pattern", seq_is_empty(t) && msg_is("PATTERN CLEARED"));
+    go_title("EDIT 1");
     t->p[P_E0] = (int16_t)(t->p[P_E0] + 1);
+    sheet_do("Init sound");
+    bad += check("the sound's sheet: Init sound first asks", ui.confirm == CF_INIT_SOUND);
     press(B_OCTUP);
-    bad += check("TOOLS INIT first asks confirmation", ui.confirm == CF_INIT_SOUND);
-    press(B_OCTUP);
-    bad += check("KNOB 2 INIT, OCT+: SOUND INIT", msg_is("SOUND INIT") && ui.act == 0u);
+    bad += check("OCT+: SOUND INIT", msg_is("SOUND INIT"));
     press(B_OCTDN);
-    bad += check("OCT- with nothing picked: HOME", ui.home);
+    bad += check("OCT- on a sound page: HOME", ui.home);
     /* the dialogs and the menu */
     open_family(FAM_SEQ);
     my_steps(t);
@@ -799,7 +788,8 @@ static int test_actions(void)
     fm1_in.buttons &= ~(1u << panel.btn[B_OCTUP]);
     frame();
     bad += check("..OCT+ let go: cleared", ui.confirm == CF_NONE && seq_is_empty(t));
-    bad += check("back on SEQ: OCT- lit (Esc), OCT+ dark (nothing to enter), not the octave", oct_leds() == 1u && song.octave);
+    bad += check("back on SEQ (NOTES): OCT- lit (Esc), OCT+ lit (a note, its sheet), not the octave",
+                 oct_leds() == 3u && song.octave);
     return bad;
 }
 
@@ -1683,6 +1673,52 @@ static void chain_screens(const char *dir)
 }
 
 /* PATTERNS and SONG (ui_patterns.c): a row's letter is its set of patterns; a pattern's bars follow LEN and DIV */
+/* NOTES / the drum grid (ui_popup.c step_enter): OCT+ on an empty place puts a note / the lane's hit there, on one
+ * its sheet; OCT+ held: the pattern's sheet */
+static int test_step_sheets(void)
+{
+    int bad = 0;
+    track_t *t;
+    ui_power_on();
+    t = TSEL;
+    track_defaults_steps(t);
+    t->p[P_SLEN] = 16;
+    go_title("NOTES"); cursor_set(4); frame();
+    last_note = 62;
+    press(B_OCTUP);
+    bad += check("NOTES: OCT+ on an empty step places the last note played, no sheet", t->step[4].n == 1u &&
+                 t->step[4].note[0] == 62u && !pop.on && song.octave == 0);
+    press(B_OCTUP);
+    bad += check("..OCT+ on the note: its sheet (Length, Velocity, Chance, Slide, Delete note)", pop.on == POP_SHEET &&
+                 pop.rows == SHEET_NOTE && !memcmp(pop.title, "Note ", 5));
+    turn(EN_K1, 1);
+    bad += check("..KNOB 1 on Length: 2 steps", step_note_length(t, 4) == 2u && pop.on == POP_SHEET);
+    turn(EN_K2, 1); turn(EN_K2, 1); turn(EN_K1, -10);
+    bad += check("..Chance: 90 %", step_chance(&t->step[4]) == 90u);
+    sheet_do("Slide");
+    bad += check("..Slide: on, the sheet closed", (t->step[4].flags & SF_SLIDE) && !pop.on);
+    sheet_do("Delete note");
+    bad += check("..Delete note: gone", !step_on(&t->step[4]));
+    hold(B_OCTUP);
+    bad += check("NOTES: OCT+ held: the pattern's sheet", pop.on == POP_SHEET && pop.rows == SHEET_PATTERN);
+    press(B_OCTDN);
+    ui_power_on();
+    track_select(3); frame();                           /* T4 DRUM: the grid */
+    t = TSEL;
+    track_defaults_steps(t);
+    go_title("NOTES"); cursor_set(2); ui.lane = 1; frame();
+    press(B_OCTUP);
+    bad += check("drum grid: OCT+ on an empty place sets the lane's hit", grid_on() &&
+                 ((step_lanes(&seq_steps(t)[2]) >> 1) & 1u) && !pop.on);
+    press(B_OCTUP);
+    bad += check("..OCT+ on the hit: its sheet (Accent, Chance, Clear hit)", pop.on == POP_SHEET && pop.rows == SHEET_HIT);
+    press(B_OCTUP);                                     /* (Accent: on) */
+    bad += check("..Accent on", (step_accents(&seq_steps(t)[2]) >> 1) & 1u);
+    sheet_do("Clear hit");
+    bad += check("..Clear hit: the lane empty there", !((step_lanes(&seq_steps(t)[2]) >> 1) & 1u));
+    return bad;
+}
+
 /* ENV / LFO on the engines with envelopes and LFOs of their own (ui.c native_titles): their pages, the track's ADSR
  * and ENV DEST hidden; LFO goes on to the track LFO. OCT- on a sound page: Stage; on SCALES: SCL */
 static int test_native_env_lfo(void)
@@ -1929,11 +1965,12 @@ static int test_chain(void)
     bad += check("SONG unused K4 cannot accidentally add or clear rows", chain_config.count == old_count);
     for (k = chain_config.count; k < CHAIN_ROWS; k++) { turn(EN_K1, 1); turn(EN_K2, 1); }
     bad += check("SONG append row stays bounded at 16", chain_config.count == CHAIN_ROWS && chain_valid(&chain_config));
-    go_title("TOOLS"); turn(EN_K4, 1); press(B_OCTUP);
-    bad += check("CLEAR SONG requires explicit confirmation", ui.confirm == CF_CLEAR_SONG && chain_config.count == CHAIN_ROWS);
+    go_title("SONG"); hold(B_OCTUP); sheet_do("Clear song");
+    bad += check("Clear song (the song's sheet) requires explicit confirmation", ui.confirm == CF_CLEAR_SONG &&
+                 chain_config.count == CHAIN_ROWS);
     press(B_OCTDN);
     bad += check("cancel preserves the full song", chain_config.count == CHAIN_ROWS);
-    turn(EN_K4, 1); press(B_OCTUP); press(B_OCTUP);
+    hold(B_OCTUP); sheet_do("Clear song"); press(B_OCTUP);
     bad += check("confirmed CLEAR SONG keeps musical steps", !chain_config.count && !ui.song_row);
     return bad;
 }
@@ -3616,27 +3653,23 @@ static int test_bughunt_ui(void)
         bad += check("ALGORITHM ignored with a layer's button held (OCT- puts back all); then T2",
                      ok && song.sel == 1u);
     }
-    /* 6: TOOLS: each column its own ready check; nothing to do says so (not STOP TO EDIT) */
+    /* 6: the sheets' clearing rows: nothing there says so (not a question, not STOP TO EDIT) */
     ui_power_on();
-    go_title("TOOLS"); frame();
     chain_defaults(&chain_config);
     pattern_init();                      /* no song rows */
-    turn(EN_K1 + 2, 1);                                 /* DELETE ROW */
-    press(B_OCTUP);
+    go_title("SONG"); frame();
+    hold(B_OCTUP); sheet_do("Delete section");
     ok = !ui.confirm && msg_is("NOTHING TO DELETE") && text_w(&AF_S, ui.msg) <= 236 - 106;   /* (fits the header) */
-    turn(EN_K1 + 3, 1);                                 /* CLEAR SONG */
-    press(B_OCTUP);
+    hold(B_OCTUP); sheet_do("Clear song");
     ok &= !ui.confirm && msg_is("NOTHING TO CLEAR");
     track_defaults_steps(TSEL);
     chain_config.count = 1; chain_config.row[0].slot = 0; chain_config.row[0].repeat = 1;
-    turn(EN_K1, 1);                                     /* CLEAR PAT on an empty track, the song with a row */
-    ok &= !act_ready();
-    press(B_OCTUP);
+    go_title("PATTERN"); frame();
+    sheet_do("Clear pattern");                          /* an empty track, the song with a row */
     ok &= !ui.confirm && msg_is("NOTHING TO CLEAR");
-    turn(EN_K1 + 3, 1);
-    ok &= act_ready();
-    press(B_OCTUP);
-    bad += check("TOOLS: DELETE ROW / CLEAR SONG / CLEAR PAT with nothing there: NOTHING TO ..; a song: its dialog",
+    go_title("SONG"); frame();
+    hold(B_OCTUP); sheet_do("Clear song");
+    bad += check("the sheets' Delete section / Clear song / Clear pattern with nothing there: NOTHING TO ..; a song: its dialog",
                  ok && ui.confirm == CF_CLEAR_SONG);
     /* 7: REC works in the layers, as PLAY: it arms the track (PLAY starts); the layer stays, no page */
     ok = 1;
@@ -4623,6 +4656,7 @@ int main(void)
     bad += test_song_view();
     bad += test_popups();
     bad += test_native_env_lfo();
+    bad += test_step_sheets();
     bad += test_bughunt_ui();
     bad += test_bughunt_ui2();
     bad += test_piano_roll();

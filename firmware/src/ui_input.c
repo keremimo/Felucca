@@ -919,16 +919,6 @@ static void act_do(void)
         confirm_open(CF_CLEAR_MOTION, song.sel);
         return;
     }
-    if (cur_page()->graph == GR_TOOLS) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (!act_ready()) {                               /* nothing there to clear or delete */
-            ui_message(c == 2u ? "NOTHING TO DELETE" : "NOTHING TO CLEAR");
-            return;
-        }
-        confirm_open(c == 0u ? CF_CLEAR_SEQ : c == 1u ? CF_INIT_SOUND :
-                     c == 2u ? CF_DEL_ROW : CF_CLEAR_SONG, c == 2u ? ui.song_row : song.sel);
-        return;
-    }
     if (cur_page()->graph == GR_SONG && c == 3u) {      /* TAKE JAM: over a song with rows, the dialog first */
         if (chain_busy()) ui_message("STOP TO EDIT");
         else if (chain_config.count) confirm_open(CF_TAKE_JAM, 0);
@@ -1844,6 +1834,8 @@ static void ui_input(void)
     } else if (oct_nav() && !ui.layer && (oct & 2u)) {  /* any other page: OCT+ Enter (a slot's sheet, the page's), */
         if (slot_kind())
             slot_enter();
+        else if (step_enter())
+            ;
         else if (page_sheet())
             page_sheet_open();
     } else if (oct_nav() && !ui.layer && (oct & 1u)) {  /* OCT- Esc: SCALES back to SCL's list, else Stage */

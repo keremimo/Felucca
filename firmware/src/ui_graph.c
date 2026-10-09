@@ -1388,10 +1388,6 @@ static void draw_graph(void)
             cv_oy = 0;
             graph_mod(t, c);
             break;
-        case GR_TOOLS:
-            cv_oy = 0;
-            panel_note("TURN TO PICK", "[OCT+] CONFIRM", 0);
-            break;
 #if MELODEE_SLICE
         case GR_SLICES:
             cv_oy = 0;

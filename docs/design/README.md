@@ -61,7 +61,11 @@ One way to move on every screen with something to move through (Kerem, 2026-10-1
 - **OCT+ Enter, OCT- Esc** everywhere but Stage (Kerem, 2026-10-10: the octave is Stage's alone; the sound pages,
   NOTES and drum STEP, recording live included, navigate too). Esc closes the innermost thing first: a question (No),
   a popup, an action picked, a sub-screen (SCALES: back to SCL, About, a name, a pending browse), and only then goes
-  to Stage. Enter: a list row's list, the action picked, a sound page's sheet; NOTES / drum STEP: to come (R6 3b).
+  to Stage. Enter: a list row's list, a slot's sheet (PROJECT, USER, the STOREs), the action picked, a sound page's
+  sheet; NOTES: an empty step gets the last note played, a note opens its sheet (Length, Velocity, Chance, Slide,
+  Delete note); the drum grid: an empty place gets the lane's hit, a hit opens its sheet (Accent, Chance, Clear hit:
+  hits have no velocity of their own). OCT+ held on NOTES, PATTERN, CHANCE: the pattern's sheet (Clear pattern,
+  Clear motion). A clearing row with nothing there says so instead of asking.
 - **SELECT** turns the pages, as before.
 - **Direct pages stay direct**: one knob per track where speed matters (Stage, MIXER, PATTERNS, NEW SONG's roles);
   the sound pages' four knobs edit their four values. PATTERNS: OCT- clears what is queued.
@@ -70,8 +74,7 @@ One way to move on every screen with something to move through (Kerem, 2026-10-1
 |---|---|---|---|---|---|
 | Browser | list (category) | sound | FAV / engine | keep | back (revert) |
 | Settings | value | row | - | open / step | close |
-| PROJECT, USER, STORE | action | slot | - | do it | unpick, then Stage |
-| TOOLS | tile across | tile down | - | do it | unpick, then Stage |
+| PROJECT, USER, STORE | slot | slot | - | the slot's sheet | Stage |
 | SONG | section | track | pattern / repeats | play / stop | Stage |
 | MOD | source | route | destination / amount | - | Stage |
 | NOTES | step | pitch | length / velocity | place a note | Stage |
@@ -86,8 +89,10 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
 
 - **Action sheet**: OCT+ on an item opens what can be done with it (KNOB 2 the row, KNOB 1 a row's value, OCT+ does
   it, OCT- closes); OCT+ held opens the page's own (a ⋯ in the header says there are some). A destructive row asks the
-  question first. TOOLS' actions move into these (Clear pattern: NOTES / PATTERN; Init sound: the sound pages;
-  Delete section, Clear song: SONG); PROJECT / USER / FM6 STORE and MOTION lose their action chips.
+  question first. TOOLS is gone, its actions in these (Clear pattern: NOTES / PATTERN; Init sound: the sound pages;
+  Delete section, Clear song: SONG); PROJECT / USER / FM6 STORE / P5 STORE are slot lists (no chips), a slot's sheet:
+  Load, Save here, Rename, Boot, Erase (PROJECT; Erase asks); the STOREs: Save here, Send, Init sound. SAVE opens
+  USER with its slot's sheet on Save here (SAVE, OCT+, OCT+ as before). MOTION loses its chips too.
 - **Picker**: a knob whose value is a list (wave, MOD source / destination, chord, delay division) shows the list
   around its value while it turns, gone ST_KNOB_MS after the last turn. SCALES keeps its own list page (Kerem: the
   list is intuitive), no picker.
