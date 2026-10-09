@@ -3,8 +3,9 @@
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 """Target-side cost estimate of the hot DSP code, from the pi32v2 objdump listing tools/build.py writes
 (build/melodee.dis). For each engine's render function and the audio ISR: the instructions
-inside loops (every address range closed by a backward branch: the per-sample loops and what they
-contain), and the hardware divides and calls in them. cost = the loop instructions, each weighted 4 per
+inside natural control-flow loops (their heads dominate their backedges), and the hardware divides
+and calls in them. Unknown control flow retains the conservative backward-span estimate.
+cost = the loop instructions, each weighted 4 per
 level of nesting (an inner loop runs several times per sample) and 1 + 8 for a divide (many cycles). A static count, not a cycle count: it changes only when the compiled code changes,
 so it is exact run to run, and it catches a render loop that grew (more work per sample, a new divide,
 something not inlined any more). Compared with tests/target_budget.txt at +10 %. The host
@@ -33,7 +34,7 @@ FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_re
 OPTIONAL = {"digital_render": 12, "digital_render_legacy": 333, "digital_render_custom": 558}
 # The FM6 operator kernel may be extracted from its renderer. Keep the original
 # combined budget, so moving work into a helper cannot weaken the existing guard.
-EXTRACTED = {"fm6_render": ("fm6_run", "fm6_run_into")}
+EXTRACTED = {"fm6_render": ("fm6_run", "fm6_run_into", "fm6_output", "fm6_join")}
 KERNEL_NAMES = {n for names in EXTRACTED.values() for n in names}
 TOL = 0.10                      # exact (no noise): small edits pass, a grown render loop does not
 DIV_W = 8                       # a divide weighs 1 + 8 instructions
@@ -65,20 +66,98 @@ def functions(path):
     return out
 
 
+def loop_members(insns):
+    """A backward jump closes a loop only if its head dominates its tail.
+
+    Compiler layout may put an alternative branch after its merge point. Such
+    backward jumps do not repeat work and must not add loop nesting. Unknown
+    indirect branches retain the old conservative estimate for that function.
+    """
+    index = {addr: i for i, (addr, _) in enumerate(insns)}
+    successors = [set() for _ in insns]
+    predecessors = [set() for _ in insns]
+    unknown = False
+    def conservative():
+        heads = {}
+        for addr, text in insns:
+            branch = TARGET.search(text)
+            if branch:
+                head = int(branch.group(1), 16)
+                if insns[0][0] <= head < addr:
+                    heads[head] = max(heads.get(head, addr), addr)
+        return [{i for i, (addr, _) in enumerate(insns) if head <= addr <= tail}
+                for head, tail in heads.items()]
+    for i, (addr, text) in enumerate(insns):
+        branch = TARGET.search(text)
+        if branch:
+            target = int(branch.group(1), 16)
+            if target in index:
+                successors[i].add(index[target])
+            else:
+                unknown = True
+        elif re.search(r"\bgoto\b", text):
+            unknown = True
+        returns = text.startswith(("{pc,", "pc =", "rts"))
+        if i + 1 < len(insns) and not text.startswith("goto ") and not returns:
+            successors[i].add(i + 1)
+        for target in successors[i]: predecessors[target].add(i)
+    if unknown:
+        return conservative()
+    reachable = {0}
+    pending = [0]
+    while pending:
+        for target in successors[pending.pop()] - reachable:
+            reachable.add(target)
+            pending.append(target)
+    dominators = {i: set(reachable) for i in reachable}
+    dominators[0] = {0}
+    changed = True
+    while changed:
+        changed = False
+        for i in sorted(reachable - {0}):
+            parents = predecessors[i] & reachable
+            value = {i} | set.intersection(*(dominators[p] for p in parents))
+            if value != dominators[i]:
+                dominators[i] = value
+                changed = True
+    edges = {(tail, head) for tail in reachable for head in successors[tail]
+             if head in dominators[tail]}
+    # A reducible control-flow graph is acyclic after its natural backedges
+    # are removed. Keep the old estimate for irreducible loops as well.
+    degree = {i: len({p for p in predecessors[i] & reachable if (p, i) not in edges})
+              for i in reachable}
+    pending = [i for i, d in degree.items() if not d]
+    visited = 0
+    while pending:
+        node = pending.pop()
+        visited += 1
+        for target in successors[node]:
+            if (node, target) in edges: continue
+            degree[target] -= 1
+            if not degree[target]: pending.append(target)
+    if visited != len(reachable): return conservative()
+    loops = {}
+    for tail, head in edges:
+        members = {head, tail}
+        pending = [tail] if head != tail else []
+        while pending:
+            for parent in predecessors[pending.pop()] & reachable:
+                if parent not in members:
+                    members.add(parent)
+                    pending.append(parent)
+        loops.setdefault(head, set()).update(members)
+    return list(loops.values())
+
+
 def cost(insns):
-    """loops: one span per loop head (the farthest backward branch to it); an instruction inside d
-    spans weighs NEST ** (d - 1) (an inner loop runs several times per pass of the outer one)"""
-    lo = insns[0][0]
-    heads = {}
-    for a, t in insns:
-        m = TARGET.search(t)
-        if m and lo <= int(m.group(1), 16) < a:
-            h = int(m.group(1), 16)
-            heads[h] = max(heads.get(h, a), a)
+    """One natural loop per head; an instruction in d loops weighs NEST ** (d - 1).
+    Loop members can lie after their latch in the compiler's physical layout.
+    """
+    loops = loop_members(insns)
     n = divs = calls = 0
     w = 0
-    for a, t in insns:
-        d = min(sum(1 for h, e in heads.items() if h <= a <= e), MAXD)
+    for i, (a, t) in enumerate(insns):
+        d = min(sum(i in members for members in loops), MAXD)
         if not d:
             continue
         k = NEST ** (d - 1)

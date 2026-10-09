@@ -107,6 +107,7 @@ run "audio worker: stalled jobs and wrapping deadlines" "$OUT/audio_worker_test"
 $CC -o "$OUT/cache_ram_test" tests/cache_ram_test.c
 run "cache RAM startup, memory faults and safe fallback" "$OUT/cache_ram_test"
 run "audio diagnostics schema compatibility" python3 tests/usb_audio_stats_test.py
+run "target budget loop detection" python3 tests/target_budget_test.py
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/engine_retirement_test" tests/engine_retirement_test.c -lm
 run "retired synth identities, project/user patch preservation and favorites" "$OUT/engine_retirement_test"
 $CC -DMELODEE_LEGACY_EXTRAS=1 -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/performance_test" tests/performance_test.c -lm
