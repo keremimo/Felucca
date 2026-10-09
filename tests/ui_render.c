@@ -627,11 +627,16 @@ static void ref_scene(int s)
     p5_patch_of(&trk[1])->raw[P5_ENV_FILTER] = 105; p5_patch_of(&trk[1])->raw[P5_RELEASE_AMP] = 40;
     song.playing = 1; song.g[G_BPM] = 124; song.sel = 1;
     song.batt_raw = 600; usb.config = 0;               /* (the mockups show no battery) */
+    for (k = 0; k < SCOPE_N; k++) {                     /* the mockups' waveform: three partials (let go: quieter) */
+        double a = k * 2.0 * 3.14159265 / 75.0, g = s == S_REF_STAGE_RELEASED ? 0.04 : 1.0;
+        scope_buf[k] = (int16_t)(g * 12000.0 * (0.55 * sin(a) + 0.25 * sin(a * 2.0 + 0.6) + 0.15 * sin(a * 3.05)));
+    }
+    scope_w = 0;
     switch (s) {
     case S_REF_STAGE_HELD: case S_REF_STAGE_RELEASED: case S_REF_STAGE_CUTOFF:
         go_home();
         input_on(TSEL, 57, 100); input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); input_on(TSEL, 67, 100);
-        if (s != S_REF_STAGE_HELD) { input_off(TSEL, 57); input_off(TSEL, 60); input_off(TSEL, 64); input_off(TSEL, 67); }
+        if (s == S_REF_STAGE_RELEASED) { input_off(TSEL, 57); input_off(TSEL, 60); input_off(TSEL, 64); input_off(TSEL, 67); }
         if (s == S_REF_STAGE_CUTOFF) { ui.hot_col = 0; ui.hot_t = 30; }
         break;
     case S_REF_STAGE_DRUM:

@@ -337,6 +337,21 @@ static void cv_disc(int32_t cx, int32_t cy, int32_t d, uint16_t c, int ring)
 }
 static void cv_circle(int32_t cx, int32_t cy, int32_t d, uint16_t c, uint16_t under) { (void)under; cv_disc(cx, cy, d, c, 0); }
 static void cv_ring(int32_t cx, int32_t cy, int32_t d, uint16_t c) { cv_disc(cx, cy, d, c, 1); }
+/* column x from y a to y b (1/16 px, either order) 2 px thick, its ends anti-aliased, blended over the canvas: a
+ * smooth trace drawn a column at a time (Stage's waveform, docs/design) */
+static void cv_vspan_aa(int32_t x, int32_t a, int32_t b, uint16_t c)
+{
+    int32_t lo = a < b ? a : b, hi = (a < b ? b : a) + 32, y;
+    if ((uint32_t)x >= cv_w)
+        return;
+    for (y = lo >> 4; y <= (hi - 1) >> 4; y++) {
+        int32_t py = y + cv_oy, top = y * 16, cov = (hi < top + 16 ? hi : top + 16) - (lo > top ? lo : top);
+        uint16_t *p;
+        if ((uint32_t)py >= cv_h || cov <= 0) continue;
+        p = &cv_px[(uint32_t)py * cv_w + (uint32_t)x];
+        *p = swap16(mix565(swap16(*p), c, (uint32_t)cov * 2u));
+    }
+}
 /* a 1 px dashed outline, 3 on, 2 off (a pattern waiting: the design's dashed chip), its corners rounded (r) and solid */
 static void cv_dashed(int32_t x, int32_t y, int32_t w, int32_t h, int32_t r, uint16_t c)
 {

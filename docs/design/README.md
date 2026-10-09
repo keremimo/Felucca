@@ -13,7 +13,7 @@ The redesign is built from the proposal's mockups, screen by screen, and checked
 
 | Screens | Mockup | Baseline (0.13 + phases 1-5) | Target |
 |---|---|---|---|
-| stage_held, stage_released, stage_cutoff, stage_drum | `stage_note_overlay` | 57-62 | 85 |
+| stage_held, stage_released, stage_cutoff, stage_drum | `stage_note_overlay` | 57-62 | 85 (R2: 86-92) |
 | browser | `concept_screens` (2) | 48 | 80 |
 | patterns | `concept_screens` (3) | 48 | 85 |
 | song | `concept_screens` (4) | 38 | 80 |

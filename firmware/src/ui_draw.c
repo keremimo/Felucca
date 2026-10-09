@@ -149,13 +149,15 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
  * (the selected one in text, one armed in REC's red, the others dim), the octave shift or the song row; at the right a
  * chip in the track's colour naming where you are (Stage: the engine; a page: its title), or a message in its place
  * (a layer: its name); a battery glyph only while it runs low */
+static void sound_name(const track_t *t, char *b);
 static void head_chip_text(char *b)
 {
     const page_t *pg = cur_page();
     uint32_t e = TSEL->eng_req % NENGINES;
-    if (ui.home) {
+    if (ui.home) {                                      /* Stage: the engine (a kit: its name, "909 KIT") */
         if (browse_pending()) { uint32_t kk, s = browse_shown(&kk); e = src_engine(s, kk); }
-        str_cpy(b, ENGINES[eng_idx(e)]->name, 16);
+        if (ENGINES[eng_idx(e)] == &ENG_DRUM && !browse_pending()) sound_name(TSEL, b);
+        else str_cpy(b, ENGINES[eng_idx(e)]->name, 16);
     } else {
         const char *t = pg->scope == SC_ENGINE ? ENGINES[e]->page_title[pg->id[0] != P_E0] : pg->title;
         str_cpy(b, t, 16);
