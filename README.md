@@ -361,10 +361,12 @@ Prophet's filters, envelopes, oscillators, sync and Poly-Mod now keep fractional
 state until the final PCM conversion. Its SSI/Curtis models still require audio
 calibration; the FPU conversion does not establish hardware fidelity.
 
-- **PROPHET**: Sequential Prophet-5 Rev 4 programs, five voices per track: oscillators A and B (saw,
+- **PROPHET**: Sequential Prophet-5 Rev 4 programs, eight voices per track with the default
+  dual-core build (five if CPU1 is unavailable or disabled): oscillators A and B (saw,
   pulse, B triangle, low-frequency and keyboard switches), hard sync, Poly-Mod, LFO and noise wheel
   modulation, the SSI (Rev 1/2) or Curtis (Rev 3) four-pole filter, filter and amplifier envelopes,
-  Vintage, glide and unison. Each voice uses three of the shared voice slots
+  Vintage, glide and unison. Each voice uses two of the shared voice slots with CPU1 online,
+  or three with serial rendering
 - **FM6**: classic 6-operator FM (Dexed-based): 32 algorithms, a full patch per track edited in the
   web editor or on the device; operator frequency, levels, envelopes and scaling, pitch envelope,
   LFO, STORE and DX7 SysEx; an algorithm chart on screen. The main knobs control MLVL, MRAT,

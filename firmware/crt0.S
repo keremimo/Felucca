@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
+#include "src/build_options.h"
 /* FM-1 standalone app entry. The SPL maps app.bin
  * at XIP 0x02000120 and jumps to its first byte with r0 = boot-parameter block
  * (0x01C7FE08, inside the vector table we are about to own). The SPL expects

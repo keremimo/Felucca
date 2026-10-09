@@ -7,9 +7,7 @@
 /* build.py: MELODEE_<NAME>=0 / 1 in the environment overrides these. Elsewhere: MELODEE_SLICE, MELODEE_FM4
  * (core.h: the SLICE engine, the DIGITAL engine), MELODEE_ICONS (icons.c, the parameter icons; on by default),
  * MELODEE_OTA_RAMONLY (ota.c). */
-#ifndef MELODEE_DUAL_CORE
-#define MELODEE_DUAL_CORE 0     /* experimental paired FM6/Prophet kernels; enable after target validation */
-#endif
+#include "build_options.h"      /* defaults shared with crt0.S */
 #ifndef MELODEE_CACHE_RAM
 #define MELODEE_CACHE_RAM 0     /* seven data-cache ways as RAM; opt in after device validation */
 #endif

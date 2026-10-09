@@ -49,7 +49,7 @@ string `v0.11.1`; the package is `build/melodee-0.11.1.fwsc`, and `build/release
 release ships: the package, the app (`melodee-0.11.1-app.bin`), `SHA256SUMS`, `LICENSE`, `LICENSING.md` and
 `LICENSES/` (the package contains Apache-2.0 SDK files, so the licence texts travel with it).
 
-Build options (environment, `0` or `1`; defaults in `firmware/src/melodee.c`, `core.h` and `icons.c`):
+Build options (environment, `0` or `1`; defaults in `firmware/src/build_options.h`, `melodee.c`, `core.h` and `icons.c`):
 
 | Flag | Default | |
 | --- | --- | --- |
@@ -58,6 +58,7 @@ Build options (environment, `0` or `1`; defaults in `firmware/src/melodee.c`, `c
 | `MELODEE_USB_AUDIO` | 1 | USB audio: "Melodee Out" plays the computer through the FM-1, "Melodee In" records the four tracks (16 / 24 bit, 44.1 kHz) |
 | `MELODEE_CDC` | 0 (1 without USB audio) | USB serial console; it shares EP2 / EP3 with USB audio, so `MELODEE_USB_AUDIO=0` |
 | `MELODEE_UART` | 1 | TRS MIDI IN |
+| `MELODEE_DUAL_CORE` | 1 | paired FM6/Prophet rendering on CPU1; `0` builds serial-only firmware |
 | `MELODEE_SLICE` | 1 | the SLICE engine |
 | `MELODEE_ICONS` | 1 | parameter icons on the knob cards |
 | `MELODEE_FM4` | 0 | the retired DIGITAL engine (4-operator FM) instead of its FM6 conversion |
@@ -163,7 +164,7 @@ faulty/aliased banks and rollback, but cannot prove physical cache behavior.
 Verify boot, sustained audio/MIDI/USB activity, persistence and update entry
 before enabling this option by default.
 
-## Experimental second-core FM6/Prophet build
+## Second-core FM6/Prophet rendering
 
 The first experimental hardware install bootlooped with `DBG_MSG=0x400`
 (`c1_pc_limit_err_r`) during CPU1's ready handshake. This identifies a CPU1
@@ -203,9 +204,11 @@ Host suite, golden renders, concurrent PCM/state comparison, address/thread
 sanitizers and both serial/dual-core builds passed. The startup correction also
 passed the target budget check; the serial package remained byte-identical.
 
-`MELODEE_DUAL_CORE=1 ./build.sh` enables a bare-metal CPU1 worker. The default
-remains `0` until CPU1 startup, cache visibility and musical operation have been
-verified on an FM-1. There is no async runtime or RTOS dependency.
+`./build.sh` enables a bare-metal CPU1 worker by default. Use
+`MELODEE_DUAL_CORE=0 ./build.sh` for serial-only firmware. Application and
+assembly startup share this default in `firmware/src/build_options.h`.
+There is no async runtime or RTOS dependency. Sustained musical load and
+battery impact still need device measurements.
 
 CPU0 prepares a voice's controls and envelopes. CPU1 calculates its planned FM6
 operators or Prophet oscillator/filter samples into private buffers while CPU0
@@ -217,7 +220,7 @@ An isolated voice stays on CPU0. Other engines, effects, MIDI, USB and the scree
 retain their existing execution paths. This is a targeted synth optimization;
 it does not double all firmware throughput.
 
-With an online CPU1, Prophet's experimental polyphony cap is eight and each voice
+With an online CPU1, Prophet's polyphony cap is eight and each voice
 costs two of the existing sixteen shared budget units. Eight Prophet voices fill
 that budget; notes on other tracks still steal voices. CPU1 startup failure keeps
 the five-voice cap and three-unit charge. Native unison retains the patch's count
