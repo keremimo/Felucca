@@ -1000,7 +1000,7 @@ static uint32_t graph_signature(void)
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
     if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm, levels, FB) */
         h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + fm6_fn[(t - trk) % NTRK][FN_ENGINE] * 40503u;
-    if (pg->graph == GR_STEPS || pg->graph == GR_ROLL || pg->graph == GR_CHANCE) {
+    if (pg->graph == GR_STEPS || pg->graph == GR_ROLL || pg->graph == GR_DRUMHIT || pg->graph == GR_CHANCE) {
         uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
         if (pg->graph != GR_STEPS && ph / 16u != ui.bank)
             ph = 0xFFFFu;                            /* the roll shows the cursor's bank only */
@@ -1566,6 +1566,7 @@ static void draw_graph(void)
         case GR_STEPS:
             graph_steps(t, c);
             break;
+        case GR_DRUMHIT:
         case GR_ROLL:
             cv_oy = 0;
             if (grid_on()) graph_grid(t, c);

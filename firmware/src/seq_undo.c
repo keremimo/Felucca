@@ -111,7 +111,7 @@ static void step_history_end(void)
         return;
     }
     if (step_history.has_removed || memcmp(step_history.live, TSEL->step, sizeof step_history.live)) {
-        if (ui.home || cur_page()->scope != SC_STEP) {  /* a pattern load, a clear, the editor: not a STEP edit */
+        if (ui.home || (cur_page()->scope != SC_STEP && cur_page()->scope != SC_DRUMHIT)) {  /* a pattern load, a clear, the editor: not a STEP edit */
             step_history_clear();
             fm1_irq_on();
             return;

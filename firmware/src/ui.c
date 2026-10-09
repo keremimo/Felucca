@@ -81,6 +81,7 @@ static uint8_t sync_reload;                  /* engine / preset / project / user
 
 static struct {
     uint8_t home;
+    uint8_t drum_sound;
     uint8_t page;                /* index into PAGES */
     uint8_t fam_last[FAM_COUNT]; /* last page used per family */
     uint8_t bank;                /* SEQ: 16-step bank (follows the cursor) */
@@ -150,6 +151,7 @@ enum { CF_NONE, CF_CLEAR_SEQ, CF_CLEAR_TRK, CF_OVR_PROJ, CF_OVR_USER, CF_LOAD_PA
                                    * USER ERASE */
 
 static const page_t *page_over;   /* a quick layer's own four knobs (ui_layer.c), while it edits or draws them */
+static uint32_t drum_hit_selected(void);
 static const page_t *cur_page(void) { return page_over ? page_over : &PAGES[ui.page]; }
 
 /* the quick layers (ui_layer.c): a button held, the keys and KNOB 1..4 are its shortcuts, its map over the page */
@@ -163,6 +165,7 @@ static uint32_t layer_btn(void);
  * a SLICE track's (ui_slice.c) */
 static int page_visible(uint32_t i)
 {
+    if(PAGES[i].scope==SC_DRUM || PAGES[i].scope==SC_DRUMHIT)return drum_track(TSEL);
     if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
         return drum_track(TSEL);
     if(TSEL->eng_req==ENGI_CZ && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
@@ -282,7 +285,7 @@ static void step_clear(step_t *st)
  * steps: the grid shows a step's notes on their lanes (eng_drum.c step_lanes) and an edit makes the lane its
  * own (grid_own). Live recording on a DRUM track writes hits (seq.c rec_note) */
 static int notes_have_recording(const track_t *t);
-static int grid_on(void) { return !ui.home && !ui.menu && !ui.confirm && cur_page()->graph == GR_ROLL && drum_track(TSEL) && (!notes_have_recording(TSEL) || (song.playing && (song.rec & (1u << song.sel)))); }   /* (STEP only: CHANCE is SC_STEP too) */
+static int grid_on(void) { return !ui.home && !ui.menu && !ui.confirm && (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_DRUMHIT) && drum_track(TSEL) && (cur_page()->scope==SC_DRUMHIT || !notes_have_recording(TSEL) || (song.playing && (song.rec & (1u << song.sel)))); }   /* (STEP only: CHANCE is SC_STEP too) */
 
 /* black key place p (seq.c key_place) held, 0 = not */
 static int black_held(uint32_t p)
@@ -356,6 +359,7 @@ static void grid_acc(track_t *t, uint32_t i, uint32_t l, uint32_t on)
 
 /* SEQ cursor: wraps inside the pattern length, the bank follows, a step entry ends */
 static void notes_preview(void);
+static uint32_t drum_hit_selected(void);
 static void cursor_set(int32_t c)
 {
     int32_t len = TSEL->p[P_SLEN] > 0 ? TSEL->p[P_SLEN] : 1;
@@ -482,6 +486,7 @@ static struct {
     uint8_t fm6[FP_SIZE + 1u];   /* the track's complete patch */
     cz_patch_t cz;
     p5_patch_t p5;
+    drum_patch_t drum;
     int16_t p[P_COUNT];
     step_t step[NSTEP];
     motion_store_t motion_backup; /* one track only, swaps with the shared event pool on undo */
@@ -511,6 +516,7 @@ static uint32_t track_sig(const track_t *t)      /* the sound (an FM6 track's pa
     h = fnv(h, fm6_patch[k], sizeof fm6_patch[k]); /* (a patch the editor sent between two loads) */
     h = fnv(h, cz_patch[k].raw, CZ_BYTES);
     h = fnv(h,p5_patch_of(&trk[k]),sizeof(p5_patch_t));
+    h = fnv(h,&drum_patch[k],sizeof(drum_patch_t));
     for (uint32_t j = 0; j < motion.count; j++)
         if ((motion.event[j].place >> 6) == k) h = fnv(h, &motion.event[j], sizeof motion.event[j]);
     return h ^ ((motion.on >> k) & 1u);
@@ -580,6 +586,7 @@ static void load_begin(track_t *t, uint32_t what)
     memcpy(undo.fm6, fm6_patch[i], FP_SIZE);
     undo.cz = cz_patch[i];
     undo.p5 = *p5_patch_of(&trk[i]);
+    undo.drum=drum_patch[i];
     undo.pat = pat_sig[i];
     undo.patn = pat_last[i];
     motion_snapshot_track(t, &undo.motion_backup);
@@ -675,6 +682,7 @@ static void undo_swap(void)
         memcpy(v, fm6_patch[tr], FP_SIZE);
         fm6_set_patch(tr, undo.fm6);
         memcpy(undo.fm6, v, FP_SIZE);
+        {drum_patch_t dp=drum_patch[tr];drum_patch[tr]=undo.drum;undo.drum=dp;}
         { p5_patch_t pp=*p5_patch_of(t);p5_patch[tr]=undo.p5;undo.p5=pp;p5_ready[tr]=1; }
         { cz_patch_t cp = cz_patch[tr]; cz_patch[tr] = undo.cz; undo.cz = cp; cz_track_accept(t); }
 
@@ -884,6 +892,7 @@ static void apply_preset_to(track_t *t, uint32_t pi)
     }
     pi = preset_orig(e, pi % e->npresets);
     t->preset = (uint8_t)pi;
+    memset(&drum_patch[t-trk],0,sizeof(drum_patch_t));
     for (i = 0; i < P_E0; i++)                        /* the rest of the sound to its defaults: a preset */
         if (!param_kept(i))                           /* sounds the same after any edit */
             t->p[i] = TP[i].def;

@@ -184,7 +184,7 @@ static int legacy_recording_migration(void)
     memcpy(legacy,proj_wire_u.raw,8u);
     frozen_project92(legacy+8u,proj_wire_u.raw+8u,PROJ_REC_OFF-PROJ_PARAM_EXTRA+152u*8u);
     memcpy(legacy+8u+PROJ_STORE_V12-16u,proj_wire_u.raw+8u+PROJ_STORE_SIZE-16u,12u);
-    memcpy(legacy+8u+PROJ_STORE_V12,proj_wire_u.raw+8u+PROJ_STORE_SIZE,BANK_SIZE_F-8u-PROJ_STORE_V12-4u);
+    frozen_bank_tail(legacy+8u+PROJ_STORE_V12,proj_wire_u.raw+8u+PROJ_STORE_SIZE,BANK_SIZE_F-8u-PROJ_STORE_V12-4u);
     uint32_t magic=PROJ_MAGIC_V12,size=PROJ_STORE_V12,sum;
     memcpy(legacy+8,&magic,4);memcpy(legacy+12,&size,4);
     sum=proj_hash(legacy+8,size-4u);memcpy(legacy+8u+size-4u,&sum,4);

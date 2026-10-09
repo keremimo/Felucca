@@ -486,7 +486,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_str(d->unit, 8);
         if (d->fmt == F_ENUM && d->names)                  /* the full SCL catalogue fits the 1024-byte reply */
             for (i = 0; i <= (uint32_t)(d->max - d->min) && i < 96u; i++)
-                ed_str(d->names[i], 8);
+                ed_str(d->names[i+d->min], 8);
         break;
     case ED_STEP_GET:
     case ED_STEP_SET: {

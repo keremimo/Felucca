@@ -602,11 +602,13 @@ static void fm6_plan(fm6_voice_t *s, const int32_t *lv, uint32_t alg, uint32_t e
     }
 }
 
-/* Scratch belongs to the caller: paired voices must never share operator buses. */
+/* Scratch belongs to the caller: paired voices must never share operator buses.
+ * Keep the operator kernel separate: surrounding engine additions otherwise
+ * change this old compiler's register allocation and loop layout. */
 #if MELODEE_DUAL_CORE
-static void fm6_run_into(fm6_voice_t *s, uint32_t n, int32_t bus[2][CTL], int32_t *sum)
+static __attribute__((noinline)) void fm6_run_into(fm6_voice_t *s, uint32_t n, int32_t bus[2][CTL], int32_t *sum)
 #else
-static void fm6_run(fm6_voice_t *s, uint32_t n)
+static __attribute__((noinline)) void fm6_run(fm6_voice_t *s, uint32_t n)
 #endif
 {
     uint32_t k, eng = s->eng;

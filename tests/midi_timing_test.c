@@ -277,7 +277,7 @@ static int old_formats_and_overdub_test(void)
         step_t st; bank_step_unpack(&st, bytes);
         bytes[3] = (bytes[3] & 15u) | ((st.n + 5u * st.time) << 4);
     }
-    memmove(proj_wire_u.raw + 8u + PROJ_STORE_V11, proj_wire_u.raw + 8u + PROJ_STORE_SIZE,
+    frozen_bank_tail(proj_wire_u.raw + 8u + PROJ_STORE_V11, proj_wire_u.raw + 8u + PROJ_STORE_SIZE,
             BANK_SIZE_E - 8u - PROJ_STORE_V11 - 4u);
     memcpy(proj_wire_u.raw + 8u, legacy, sizeof legacy);
     magic = BANK_MAGIC_D; size = BANK_SIZE_E;

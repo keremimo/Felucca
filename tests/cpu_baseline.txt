@@ -79,3 +79,4 @@ cpu/mix/idle_drums 478
 cpu/mix/3parts_full_drums 1561
 cpu/DRUM/00_808_KIT 1181
 cpu/CZ-1/00_INIT_TONE 1741
+cpu/DRUM/01_909_KIT 1745

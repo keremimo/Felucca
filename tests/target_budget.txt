@@ -52,3 +52,13 @@ rev_room 218
 rev_spring 126
 cz_native_render 529
 cz_native_wave 0
+drum_source 262
+drum_limit 22
+drum_color 19
+dr_metal_tune 7
+d9_render_bd 224
+d9_render_sd 280
+d9_render_tom 3064
+d9_render_rim 4383
+d9_render_clap 1047
+d9_render_smp 1444
