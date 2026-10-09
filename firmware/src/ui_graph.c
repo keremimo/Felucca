@@ -1481,7 +1481,7 @@ static void graph_scope(uint16_t c, int32_t top, int32_t h)
 }
 
 /* Each arrangement row selects one bank per track. graph_y, graph_h: the panel's place (ui_pages.c: under its rings) */
-static int32_t graph_y = Y_GRAPH, graph_h = H_GRAPH;
+static int32_t graph_y = Y_GRAPH, graph_h = H_GRAPH, graph_oy = GOY;   /* (graph_oy: the 100 px scale's top) */
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -1499,7 +1499,7 @@ static void draw_graph(void)
     cv_begin(240, (uint32_t)graph_h, T_BG);
     cv_rrect(3, 0, 234, graph_h, 5, T_SURF, T_BG);   /* the panel */
     cv_bg = T_SURF;                                  /* (text drawn with cv_text lands on it) */
-    cv_oy = GOY;                                     /* graphs on a 100 px scale */
+    cv_oy = graph_oy;                                /* graphs on a 100 px scale */
     if (ui.home) {                                   /* (Stage draws its own panel: ui_stage.c) */
         cv_oy = 0;
         graph_scope(c, 0, H_GRAPH);

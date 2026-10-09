@@ -35,6 +35,9 @@ enum { PV_NONE, PV_CURVE, PV_RINGS, PV_FADERS, PV_MIXER, PV_NOTES };
 #define PV_CHIP_H 18
 
 static struct { uint32_t panel, sound; int32_t slice0; } pv;
+static int32_t pv_tab_h;                                /* an engine in sections: its tabs under the header (rows 18 ..
+                                                         * 33): the rings 10 rows lower and as much shorter */
+#define PV_TAB_RING 10
 static struct { int16_t x0, y0, x1, y1; } pv_box[6];   /* the labels on a panel (pv_text) */
 static uint32_t pv_nbox;
 
@@ -89,27 +92,27 @@ static void pv_ring(uint32_t c, const char *label, const char *val, const char *
                     int hot)
 {
     uint16_t bg = hot ? T_LIFT : T_BG, lc = vc == T_DIM ? T_DIM : T_THEME;
-    cv_begin(58, PV_RING_H, T_BG);
+    int32_t h = pv_tab_h ? PV_RING_H - PV_TAB_RING : PV_RING_H, cy = pv_tab_h ? 32 : 36, vy = pv_tab_h ? 50 : 55;
+    cv_begin(58, (uint32_t)h, T_BG);                    /* (under tabs: the cell 10 rows shorter, the ring closer) */
     if (hot) {
-        cv_rrect(0, 0, 58, PV_RING_H - 2, 8, T_THEME, T_BG);
-        cv_rrect(1, 1, 56, PV_RING_H - 4, 7, bg, T_THEME);
+        cv_rrect(0, 0, 58, h - 2, 8, T_THEME, T_BG);
+        cv_rrect(1, 1, 56, h - 4, 7, bg, T_THEME);
     }
     if (label[0] || val[0]) {
         cv_text_c(29, 2, &AF_X, label, lc, bg);
         if (ratio >= 0) {
             int32_t r = ratio > 1000 ? 1000 : ratio, a1 = -KA_END + r * 2 * KA_END / 1000, k = (r * 32 + 500) / 1000;
-            knob_arc(29 - KNOB_RING_R, 36 - KNOB_RING_R, KNOB_RING_R, KNOB_RING_COV, KNOB_RING_ANG, -KA_END, a1, T_LINE,
+            knob_arc(29 - KNOB_RING_R, cy - KNOB_RING_R, KNOB_RING_R, KNOB_RING_COV, KNOB_RING_ANG, -KA_END, a1, T_LINE,
                      lc, bg);
-            cv_disc(29 + PV_DOT[k][0], 36 + PV_DOT[k][1], 8, bg, 0);
-            cv_disc(29 + PV_DOT[k][0], 36 + PV_DOT[k][1], 6, T_TEXT, 0);
+            cv_disc(29 + PV_DOT[k][0], cy + PV_DOT[k][1], 8, bg, 0);
+            cv_disc(29 + PV_DOT[k][0], cy + PV_DOT[k][1], 6, T_TEXT, 0);
         } else {                                        /* (a list of names: the ring alone) */
-            knob_arc(29 - KNOB_RING_R, 36 - KNOB_RING_R, KNOB_RING_R, KNOB_RING_COV, KNOB_RING_ANG, -KA_END,
-                     -KA_END - 1,
-                     T_LINE, lc, bg);
+            knob_arc(29 - KNOB_RING_R, cy - KNOB_RING_R, KNOB_RING_R, KNOB_RING_COV, KNOB_RING_ANG, -KA_END,
+                     -KA_END - 1, T_LINE, lc, bg);
         }
-        pv_value_c(c, 29, 55, val, unit, vc, bg, 54);
+        pv_value_c(c, 29, vy, val, unit, vc, bg, 54);
     }
-    cv_blit((uint32_t)(1 + 60 * (int32_t)c), PV_RING_Y);
+    cv_blit((uint32_t)(1 + 60 * (int32_t)c), (uint32_t)(PV_RING_Y + (pv_tab_h ? PV_TAB_RING : 0)));
 }
 /* CS_FADER: a send: its label, the fader (6 px, filled to its value in the track's colour, a cap), its value */
 static void pv_fader(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
@@ -460,7 +463,7 @@ static uint32_t pv_pic(int32_t *cut, int32_t *res)
         const param_desc_t *d = page_desc(pg, c, &vp);
         if (!d || !vp)
             continue;
-        if (d->fmt == F_CUTOFF) *cut = *vp;
+        if (d->fmt == F_CUTOFF || str_eq(d->label, "CUTOFF")) *cut = *vp;   /* (the Prophet's: by its label) */
         else if (str_eq(d->label, "RES") || str_eq(d->label, "RESO")) *res = *vp;
     }
     return *cut >= 0 ? 3u : 0u;
@@ -481,14 +484,19 @@ static void pv_picture(void)
     if (!ui.force && sig == pv.panel)
         return;
     pv.panel = sig;
-    cv_begin(240, PV_PIC_H, T_BG);
-    cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, PV_PIC_H, 6, T_PANEL, T_BG);
-    cv_bg = T_PANEL;
-    if (pic == 1u) pv_osc();
-    else if (pic == 2u) pv_echo();
-    else if (pic == 3u) pv_filter(cut, res);
-    else stage_wave(T_THEME, 8, PV_PIC_H - 16);
-    cv_blit(0, PV_PIC_Y);
+    {
+        int32_t dy = 0;                                 /* (the picture whole under tabs too: the rings shorter) */
+        cv_begin(240, (uint32_t)(PV_PIC_H - dy), T_BG);
+        cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, PV_PIC_H - dy, 6, T_PANEL, T_BG);
+        cv_bg = T_PANEL;
+        cv_oy = -dy / 2;                                /* (under the tabs: the picture's middle) */
+        if (pic == 1u) pv_osc();
+        else if (pic == 2u) pv_echo();
+        else if (pic == 3u) pv_filter(cut, res);
+        else stage_wave(T_THEME, 8 + dy / 2, PV_PIC_H - 16 - dy);
+        cv_oy = 0;
+        cv_blit(0, (uint32_t)(PV_PIC_Y + dy));
+    }
 }
 
 /* ---------------------------------------------------------- MIXER --- */
@@ -648,12 +656,17 @@ static void pv_draw(void)
             pv_strip(k);
         return;
     }
+    pv_tab_h = kind == PV_RINGS && sec_on() ? SEC_TAB_H : 0;
     if (kind != PV_CURVE) {                             /* RINGS, FADERS */
         if (ui.force) {                                 /* (the parts then cover what they draw) */
             lcd_fill(0, H_HEAD, 240, PV_SOUND_Y - H_HEAD, T_BG);
             ui.graph_sig = 0;
         }
         draw_head();
+        if (pv_tab_h) {                                 /* an engine in sections: its tabs, the page noted */
+            sec_note();
+            sec_tabs();
+        }
         col_style = kind == PV_RINGS ? CS_RING : CS_FADER;
         draw_columns();
         col_style = CS_CARD;

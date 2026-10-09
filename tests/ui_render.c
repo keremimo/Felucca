@@ -420,7 +420,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_STAGE_DRUM, S_STAGE_CZ, S_STAGE_P5, S_STAGE_QUEUED, S_STAGE_BROWSE, S_STAGE_STOPPED, S_STAGE_FILTER, S_STAGE_ENV, S_PATGRID, S_PATGRID_STOPPED, S_PROJECT_NEW, S_NEW_KEY, S_NEW_ROLES,
        S_REF_STAGE_HELD, S_REF_STAGE_RELEASED, S_REF_STAGE_CUTOFF, S_REF_STAGE_DRUM, S_REF_BROWSER, S_REF_PATTERNS, S_REF_SONG,
        S_REF_ENV, S_REF_LFO, S_REF_EDIT_OSC, S_REF_FX, S_REF_DLY, S_REF_MIXER, S_REF_NOTES, S_REF_SETTINGS, S_REF_DIALOG,
-       S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_COUNT };
+       S_REF_SHEET_SOUND, S_REF_SHEET_SONG, S_REF_PICKER_WAVE, S_REF_SECTIONS_P5, S_REF_MAP_P5, S_REF_MAP_FM6, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "phrases", "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
@@ -440,7 +440,7 @@ static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "h
     "mock_home", "mock_presets", "mock_seq", "mock_drum", "mock_mixer", "mock_dialog", "mock_menu", "native_fm_user", "native_cz_user",
     "notes_slide", "notes_mixed", "notes_chord", "notes_empty", "notes_raw", "notes_zoom", "notes_loop", "notes_drum", "notes_dense", "notes_rec", "notes_erase", "notes_drum_rec", "notes_drum_erase", "scl_micro", "scl_micro_layer", "scl_micro_chord", "scale_picker_edo", "scale_picker_historical", "scale_picker_favorites", "scale_picker_empty", "scale_settings_favorite", "menu_click", "menu_click_level", "menu_countin", "menu_preview", "menu_add", "drum_sound_808", "drum_sound_909", "drum_mix_909", "drum_hit_909", "drum_hit_free", "drum_hit_long",
     "stage_drum", "stage_cz", "stage_p5", "stage_queued", "stage_browse", "stage_stopped", "stage_filter", "stage_env", "patterns", "patterns_stopped", "project_new", "new_key", "new_roles",
-    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_fx", "ref_dly", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave"};
+    "ref_stage_held", "ref_stage_released", "ref_stage_cutoff", "ref_stage_drum", "ref_browser", "ref_patterns", "ref_song", "ref_env", "ref_lfo", "ref_edit_osc", "ref_fx", "ref_dly", "ref_mixer", "ref_notes", "ref_settings", "ref_dialog", "ref_sheet_sound", "ref_sheet_song", "ref_picker_wave", "ref_sections_p5", "ref_map_p5", "ref_map_fm6"};
 
 /* the scenes of the UI design screens: the state the UI-redesign
  * prototype drew them from (its setup(): two pattern tracks, the drum pattern on track 4, a synthetic scope),
@@ -719,6 +719,15 @@ static void ref_scene(int s)
         }
         if (s != S_REF_EDIT_OSC && s != S_REF_FX && s != S_REF_NOTES) { ui.hot_col = s == S_REF_ENV ? 2 : s == S_REF_LFO ? 0 : 1; ui.hot_t = 30; }
         break;
+    case S_REF_SECTIONS_P5: case S_REF_MAP_P5:       /* (R7) Prophet's FILTER (CUTOFF just turned), its map */
+        song.playing = 0; go_title("P5 FILTER");
+        if (s == S_REF_MAP_P5) smap_open();
+        else { ui.hot_col = 0; ui.hot_t = 30; }
+        break;
+    case S_REF_MAP_FM6:                              /* (R7) FM6's map from OP3 EG RATE */
+        set_engine_of(&trk[1], ENGI_FM6); trk[1].engine = ENGI_FM6; song.playing = 0;
+        fm6_opsel = 2; go_title("EG RATE"); smap_open();
+        break;
     case S_REF_SHEET_SOUND:                          /* (R6) the sound's sheet over its first EDIT page */
         song.playing = 0; ui.home = 0; ui.page = (uint8_t)page_first(FAM_EDIT); page_entered(); page_sheet_open();
         break;
@@ -757,7 +766,7 @@ static void setup(int s)
         return;
     }
     state();
-    if (s >= S_REF_STAGE_HELD && s <= S_REF_PICKER_WAVE) {
+    if (s >= S_REF_STAGE_HELD && s <= S_REF_MAP_FM6) {
         ref_scene(s);
         return;
     }

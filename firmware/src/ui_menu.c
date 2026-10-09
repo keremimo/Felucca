@@ -200,17 +200,24 @@ static void menu_head(void)
 #define MENU_ROW 22
 #define MENU_RH 20
 #define MENU_SPLIT 137
-/* "AUDIO CLICK" -> "Audio click" (USB, FX, MIDI stay capitals) */
+/* "AUDIO CLICK" -> "Audio click", "P5 OSC A" -> "Osc A" (acronyms and a letter alone stay capitals) */
 static void menu_words(char *d, const char *s, uint32_t n)
 {
-    uint32_t i, w = 0;
+    static const char *const AC[] = {"USB", "FX", "MIDI", "LFO", "EG", "FM", "OP", "PW", "DCW", "DCA", "DCO"};
+    uint32_t i, w = 0, a;
     str_cpy(d, s, n);
     for (i = 0; d[i]; i++) {
         int first = !i, ac = 0;
-        if (d[i] == ' ' || d[i] == '+' || d[i] == '-') { w = i + 1u; continue; }
-        if (i == w)                                     /* a word: an acronym stays */
-            ac = !memcmp(d + w, "USB", 3) || !memcmp(d + w, "FX", 2) || !memcmp(d + w, "MIDI", 4);
-        if (ac) { while (d[i + 1] && d[i + 1] != ' ') i++; continue; }
+        if (d[i] == ' ' || d[i] == '+' || d[i] == '-' || d[i] == '/') { w = i + 1u; continue; }
+        if (i == w) {                                   /* a word: an acronym, a letter alone stay */
+            for (a = 0; a < NELEM(AC) && !ac; a++) {
+                uint32_t l = str_len(AC[a]);
+                ac = !memcmp(d + w, AC[a], l) && (!d[w + l] || d[w + l] == ' ' || d[w + l] == '/' || (d[w + l] >= '0' &&
+                     d[w + l] <= '9'));
+            }
+            ac |= !d[i + 1] || d[i + 1] == ' ';
+        }
+        if (ac) { while (d[i + 1] && d[i + 1] != ' ' && d[i + 1] != '/') i++; continue; }
         if (!first && d[i] >= 'A' && d[i] <= 'Z') d[i] = (char)(d[i] + 32);
     }
 }

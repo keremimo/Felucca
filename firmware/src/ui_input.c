@@ -1367,6 +1367,14 @@ static void page_tap(uint32_t b)
 {
     uint32_t f;
     if (b == B_EDIT && ui.erase_gesture) return;
+    if (b == B_EDIT && smap.on) {                       /* the map open: EDIT closes it */
+        smap_close();
+        return;
+    }
+    if (b == B_EDIT && sec_on()) {                      /* an EDIT page of an engine in sections: its map */
+        smap_open();
+        return;
+    }
     if(b==B_EDIT && !ui.home && cur_page()->scope==SC_DRUMHIT){drum_hit_delete();return;}
     if (b == B_GLO) {
         open_global();                                  /* MIXER -> GLOBAL -> SYSTEM -> MIXER */
@@ -1496,7 +1504,7 @@ static void ui_input(void)
     if (octup != BT_NONE || !((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u))
         oct_deferred = 0;
     oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || new_on() || layer_set_open() ||
-                   step_oct_context() || pop.on == POP_SHEET);
+                   step_oct_context() || pop.on == POP_SHEET || smap.on);
     uint32_t lay, knob_layer, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
     seq_erase_update(pressed);
@@ -1684,6 +1692,19 @@ static void ui_input(void)
         enc_drop();
         return;
     }
+    if (smap.on) {                                      /* the map: KNOB 1 / 2, OCT+ / OCT- (ui_sections.c); EDIT */
+        int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);   /* closes it too (page_tap) */
+        smap_input(k1, k2, oct);
+        if (lytap)
+            layer_tap(lytap);
+        b = ui.pg_down & ~fm1_in.buttons;
+        ui.pg_down &= (uint16_t)~b;
+        for (id = 0; b; id++, b >>= 1)
+            if (b & 1u)
+                page_tap(panel_btn_of(id));
+        enc_drop();
+        return;
+    }
     if (pop.on == POP_SHEET) {                          /* an action sheet: KNOB 1 / 2, OCT+ / OCT- (ui_popup.c) */
         int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);
         sheet_input(k1, k2, oct);
@@ -1847,6 +1868,9 @@ static void ui_input(void)
     } else if (s && !ui.home && cur_page()->graph == GR_ROLL && !grid_on()) {
         ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + s, 0, 4);
         ui.force = 1;
+    } else if (s && sec_on()) {                         /* an engine in sections: the next / previous one (FM6's
+                                                         * operators are sections: ui_sections.c) */
+        sec_turn(s);
     } else if (s && !ui.home && cur_page()->scope == SC_FMOP) {   /* FM6's operator pages: the operator */
         fm6_opsel = (uint8_t)clamp((int32_t)fm6_opsel + (s > 0 ? 1 : -1), 0, 5);
         ui.force = 1;

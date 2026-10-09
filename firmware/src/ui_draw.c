@@ -149,6 +149,11 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
  * (the selected one in text, one armed in REC's red, the others dim), the octave shift or the song row; at the right a
  * chip in the track's colour naming where you are (Stage: the engine; a page: its title), or a message in its place
  * (a layer: its name); a battery glyph only while it runs low */
+static uint32_t page_sheet(void);                       /* ui_popup.c */
+static int sec_on(void);                                /* ui_sections.c */
+static uint32_t sec_of(uint32_t i);
+static void sec_chip(uint32_t i, char *b, uint32_t n);
+static int sec_map_on(void);
 static void sound_name(const track_t *t, char *b);
 static void head_chip_text(char *b)
 {
@@ -158,20 +163,24 @@ static void head_chip_text(char *b)
         if (browse_pending()) { uint32_t kk, s = browse_shown(&kk); e = src_engine(s, kk); }
         if (ENGINES[eng_idx(e)] == &ENG_DRUM && !browse_pending()) sound_name(TSEL, b);
         else str_cpy(b, ENGINES[eng_idx(e)]->name, 16);
+    } else if (sec_map_on()) {                          /* the map: the engine */
+        str_cpy(b, ENGINES[e]->name, 16);
+    } else if (pg->scope != SC_ENGINE && sec_on()) {   /* an engine in sections: the page's name in its section */
+        sec_chip(ui.page, b, 16);
     } else {
         const char *t = pg->scope == SC_ENGINE ? ENGINES[e]->page_title[pg->id[0] != P_E0] : pg->title;
         str_cpy(b, t, 16);
     }
 }
-static uint32_t page_sheet(void);                       /* ui_popup.c */
 /* the page's place in its family: a dot a page, the page's a pill in the track's colour (no room: "3/12") */
 static void head_pages(int32_t x1)                     /* (x1: where the chip, or the battery, starts) */
 {
     const page_t *pg = cur_page();
-    uint32_t i, n = 0, k = 0;
+    uint32_t i, n = 0, k = 0, sc = sec_on() ? sec_of(ui.page) + 1u : 0u;
     int32_t x = 96;
-    for (i = 0; i < NPAGES; i++)
-        if (PAGES[i].fam == pg->fam && page_visible(i)) {
+    for (i = 0; i < NPAGES; i++)                        /* (an engine in sections: the section's pages) */
+        if (PAGES[i].fam == pg->fam && page_visible(i) &&
+            (!sc || (PAGES[i].scope == SC_FMOP ? PAGES[ui.page].scope == SC_FMOP : sec_of(i) + 1u == sc))) {
             if (i == ui.page)
                 k = n;
             n++;
@@ -620,15 +629,18 @@ static void draw_foot(void)
     cv_blit(0, Y_FOOT);
 }
 /* the EDIT layer's cards (ui_layer.c): ENG (the engine), No. (its sounds: KNOB 2's list), FAV, an empty card */
-static void engine_columns(void)
+#include "ui_sections.c"                                /* the EDIT pages in sections, the map */
+static void engine_columns(void)                        /* EDIT held: KNOB 1 the section, 2 the sound, 3 FAV */
 {
-    uint32_t total, cur = eng_list_pos(&total), e = TSEL->eng_req % NENGINES;
-    char val[8], u[8];
+    uint32_t total, cur = eng_list_pos(&total), k;
+    char val[8], u[8], sn[16];
     fmt_int(val, (int32_t)cur + 1);
     str_cpy(u, "/", 8);
     fmt_int(u + 1, (int32_t)total);
-    draw_column(0, "ENG", ENGINES[e]->name, "", VAL(0u), (int32_t)eng_rank(e) * 1000 / (NENG_SHOWN > 1 ? NENG_SHOWN - 1 : 1),
-                engine_icon(ENGINES[e]->name));
+    sec_build();
+    k = !ui.home && cur_page()->fam == FAM_EDIT ? sec_of(ui.page) : 0u;
+    str_cpy(sn, sec.n ? sec.name[k] : "-", sizeof sn);
+    draw_column(0, "SECTION", sn, "", VAL(0u), sec.n > 1u ? (int32_t)(k * 1000u / (sec.n - 1u)) : -1, ICON_NONE);
     draw_column(1, "No.", val, u, VAL(1u), total > 1u ? (int32_t)(cur * 1000u / (total - 1u)) : 0, ICON_NONE);
     draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
@@ -1106,6 +1118,13 @@ static void ui_draw(void)
             ui.force = 0;
         }
         draw_head();                                    /* recording remains visible over confirmations */
+        return;
+    }
+    if (smap.on && (ui.home || cur_page()->fam != FAM_EDIT || ui.layer))
+        smap.on = 0;
+    if (smap.on) {                                      /* an engine's map (ui_sections.c) */
+        smap_draw();
+        ui.force = 0;
         return;
     }
     pick_poll();

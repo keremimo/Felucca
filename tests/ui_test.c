@@ -118,6 +118,7 @@ static void ui_power_on(void)
     memset(&nm, 0, sizeof nm);                    /* NAME closed, no project name */
     memset(&nw, 0, sizeof nw);                    /* NEW SONG closed */
     memset(&pop, 0, sizeof pop);                  /* no popup (ui_popup.c) */
+    smap.on = 0; sec.ok = 0;                      /* no map, the sections built again (ui_sections.c) */
     oct_eat = oct_deferred = 0;
     proj_name[0] = 0;
     proj_cur = PROJ_NO_SLOT;
@@ -1778,6 +1779,23 @@ static int test_popups(void)
     bad += check("POPUPS: another knob turning closes it", !pop.on);
     turn(EN_K1, 1); press(B_OCTDN);
     bad += check("POPUPS: OCT- closes the picker, no octave", !pop.on && song.octave == o + 1);
+    {   /* sections (ui_sections.c): PRESETS the next section and back to the page last used; EDIT: the map */
+        uint32_t f;
+        ui_power_on(); set_engine_of(TSEL, ENGI_PROPHET); go_title("P5 FLT ENV"); frame();
+        f = ui.page;
+        turn(EN_PRESET, 1);
+        o = str_eq(sec.name[sec_of(ui.page)], "Amp");
+        turn(EN_PRESET, -1);
+        bad += check("SECTIONS: PRESETS the next section (Filter -> Amp), back: the page last used in it (FLT ENV)",
+                     o && ui.page == f);
+        press(B_EDIT);
+        o = smap.on && smap.row == sec_of(ui.page);
+        turn(EN_K2, 1); turn(EN_K1, 0); press(B_OCTUP);
+        bad += check("SECTIONS: EDIT on an EDIT page: the map; KNOB 2 a row down, OCT+ opens its page",
+                     o && !smap.on && str_eq(sec.name[sec_of(ui.page)], "Amp"));
+        press(B_EDIT); press(B_EDIT);
+        bad += check("SECTIONS: EDIT again closes the map", !smap.on);
+    }
     go_page(GR_SONG); frame();
     hold(B_OCTUP);
     bad += check("POPUPS: SONG, OCT+ held: the song's sheet (no play)", pop.on == POP_SHEET && !song.playing);
@@ -2511,13 +2529,14 @@ static int test_name(void)
 }
 
 /* the EDIT cycle (no ENGINE page: engines are the EDIT layer's) and its memory */
-static int engine_cycle(const char *const *want, uint32_t n)   /* EDIT tapped from HOME, then n - 1 times more */
-{
+static int engine_cycle(const char *const *want, uint32_t n)   /* EDIT tapped from HOME, then SELECT n - 1 times */
+{                                                                 /* (EDIT again: the map, ui_sections.c) */
     uint32_t i;
     int ok = 1;
     go_home(); frame();
     for (i = 0; i < n; i++) {
-        press(B_EDIT);
+        if (i) turn(EN_SELECT, 1);
+        else press(B_EDIT);
         ok &= str_eq(cur_page()->title, want[i]);
     }
     return ok;
@@ -3390,62 +3409,51 @@ static int test_quick_layers(void)
     btn_up(B_SCL); frame();
     bad += check("  OCT- in SCL: ROOT and SCL as the layer opened", ok && TSEL->p[P_ROOT] == 7 && TSEL->p[P_SCALE] == 2);
 
-    /* EDIT: the engines from F3 (NENGINES of them), sound loads with UNDO, INIT with the dialog */
+    /* EDIT: the sound's sections on the white keys, FM6's operators on the first six black keys, then INIT FAV UNDO
+     * STORE (ui_layer.c, ui_sections.c); KNOB 1 the section, 2 the sound, 3 FAV; the engine only in the browser */
     ui_power_on();
-    set_engine_of(TSEL, 0); go_home(); frame();
-    my_steps(TSEL); TSEL->p[P_SLCR] = SL_STUT; song.playing = 1;
+    set_engine_of(TSEL, ENGI_PROPHET); go_home(); frame();
+    my_steps(TSEL); song.playing = 1;
     before = *TSEL;
-    sync_reload = 0;
-    lay_combo(B_EDIT, white(eng_rank(2)));             /* (the keys: the engines one can pick, engines.c eng_vis) */
-    ok = TSEL->eng_req == 2u && TSEL->preset == 0u && ui.layer == LAYER_EDIT && sync_reload && !gates();
-    key_up(white(eng_rank(2))); frame();
-    key_down(white(1)); key_up(white(1)); frame();
-    ok &= TSEL->eng_req == ENGI_FM6;                    /* (G3: FM6, second in ENGINE_ORDER) */
-    key_down(white(NENG_SHOWN - 1u)); key_up(white(NENG_SHOWN - 1u)); frame();
-    ok &= TSEL->eng_req == ENGI_DRUM;                   /* (the last key: DRUM) */
-    ok &= !memcmp(TSEL->step, before.step, sizeof before.step) && TSEL->p[P_SLEN] == before.p[P_SLEN] &&
-          TSEL->p[P_SLCR] == SL_STUT;
+    sec_build();
+    for (k = 0; k < 16u && !str_eq(sec.name[ly_white_sec(k) % SEC_MAX], "Filter"); k++)
+        ;
+    lay_combo(B_EDIT, white(k));                        /* (Prophet: Sound Osc Mixer Filter ..) */
+    ok = k < 16u && ui.layer == LAYER_EDIT && !ui.home && cur_page()->fam == FAM_EDIT &&
+         str_eq(sec.name[sec_of(ui.page)], "Filter");
+    key_up(white(k)); frame();
+    ok &= TSEL->eng_req == ENGI_PROPHET && !memcmp(TSEL->step, before.step, sizeof before.step);
     btn_up(B_EDIT); frame();
-    bad += check("EDIT + white key n: the n-th engine shown (FM6 2nd, DRUM last), while playing; steps, LEN, SLICER stay", ok);
-    hold(B_SAVE);
-    bad += check("  SAVE held: UNDO back to before the layer's loads, the steps untouched",
-                 TSEL->eng_req == 0u && TSEL->preset == before.preset && !memcmp(TSEL->step, before.step, sizeof before.step));
-    a = 0;
-    ok = 1;
-    btn_down(B_EDIT); frames(480);
-    for (i = 0; i < LY_INIT; i++) {
-        key_down(white(i)); key_up(white(i)); frame();
-        a += i < NENG_SHOWN ? TSEL->eng_req == eng_vis(i) : 0u;
-        ok &= eng_ok(TSEL->eng_req);
-    }
-    btn_up(B_EDIT); frame();
-    bad += check("  every engine one can pick has its white key from F3 (NENG_SHOWN, not a fixed count; never DIGITAL)",
-                 ok && a == NENG_SHOWN);
-    set_engine_of(TSEL, 0);
-    lay_combo(B_EDIT, white(eng_rank(3))); key_up(white(eng_rank(3))); frame();
-    turn(EN_K2, 1);
-    ok = TSEL->eng_req == 3u && TSEL->preset == 1u;
-    turn(EN_K3, 1);
-    ok &= preset_favorite();
-    oct_back();
-    ok &= TSEL->eng_req == 0u && !memcmp(TSEL->step, before.step, sizeof before.step);
-    btn_up(B_EDIT); frame();
-    bad += check("  KNOB 2: the engine's next sound, KNOB 3 FAV; OCT-: the sound as the layer opened", ok && ui.home);
+    bad += check("EDIT + white key n: the sound's n-th section (Prophet: Filter), the sound and steps untouched", ok);
     btn_down(B_EDIT); frame(); turn(EN_K1, 1);
-    ok = TSEL->eng_req == eng_step(0, 1);
+    ok = str_eq(sec.name[sec_of(ui.page)], "Amp");
     btn_up(B_EDIT); frame();
-    bad += check("  KNOB 1: the next engine", ok);
+    bad += check("  KNOB 1: the next section", ok);
+    set_engine_of(TSEL, ENGI_FM6); go_home(); frame();
+    lay_combo(B_EDIT, black(3)); key_up(black(3)); frame();
+    ok = !ui.home && cur_page()->scope == SC_FMOP && fm6_opsel == 3u;
+    sec_build();
+    for (k = 0; k < 16u && !str_eq(sec.name[ly_white_sec(k) % SEC_MAX], "Algo"); k++)
+        ;
+    key_down(white(k)); key_up(white(k)); frame();
+    ok &= str_eq(sec.name[sec_of(ui.page)], "Algo");
+    btn_up(B_EDIT); frame();
+    bad += check("  FM6: the first six black keys OP1 .. OP6 (OP4: its pages), the white keys the rest (Algo)", ok);
+    lay_combo(B_EDIT, black(LY_ACT + 1u)); key_up(black(LY_ACT + 1u)); frame();
+    ok = preset_favorite();
+    turn(EN_K3, -1);
+    ok &= !preset_favorite();
+    btn_up(B_EDIT); frame();
+    bad += check("  the 8th black key: FAV on; KNOB 3: off", ok);
     song.playing = 0;
-    lay_combo(B_EDIT, white(LY_INIT));
+    lay_combo(B_EDIT, black(LY_ACT));
     ok = ui.confirm == CF_INIT_SOUND;
     frame();
     ok &= !ui.layer;
-    key_up(white(LY_INIT)); btn_up(B_EDIT); frame();
-    ok &= ui.home && ui.confirm == CF_INIT_SOUND;
-    TSEL->p[P_E0] = (int16_t)(TSEL->p[P_E0] + 5);
-    press(B_OCTUP);
-    bad += check("EDIT + the key after the engines: INITIALIZE SOUND? dialog (closes the layer, no tap); OCT+ inits", ok && !ui.confirm &&
-                 msg_is("SOUND INIT") && TSEL->p[P_E0] == ENGINES[eng_step(0, 1)]->presets[0].e[0]);
+    key_up(black(LY_ACT)); btn_up(B_EDIT); frame();
+    ok &= ui.confirm == CF_INIT_SOUND;
+    press(B_OCTDN);
+    bad += check("EDIT + the 7th black key: INITIALIZE SOUND? dialog (closes the layer, no tap)", ok && !ui.confirm);
 
     /* no layer in the menu or a dialog: GLO + a key plays */
     ui_power_on(); hold(B_HOME);
@@ -3510,12 +3518,12 @@ static int test_bughunt_ui(void)
         bad += check("UNDO of a sound load on FM6: the track's edited patch back; REDO: the load's",
                      ok && memcmp(mine, next, FP_SIZE) && !memcmp(next, fm6_patch[1], FP_SIZE));
         hold(B_SAVE); frame();                          /* (the edited patch again) */
-        btn_down(B_EDIT); frames(500);                  /* EDIT layer: another engine, then OCT- */
-        turn(EN_K1, 1);
-        ok = ui.layer == LAYER_EDIT && TSEL->eng_req != ENGI_FM6;
+        btn_down(B_EDIT); frames(500);                  /* EDIT layer: the next sound (KNOB 2), then OCT- */
+        turn(EN_K2, 1);
+        ok = ui.layer == LAYER_EDIT && memcmp(mine, fm6_patch[1], FP_SIZE);
         oct_back();
         btn_up(B_EDIT); frame();
-        bad += check("  the EDIT layer's OCT- after an engine pick: FM6 with the track's edited patch",
+        bad += check("  the EDIT layer's OCT- after a sound load: FM6 with the track's edited patch",
                      ok && TSEL->eng_req == ENGI_FM6 && !memcmp(mine, fm6_patch[1], FP_SIZE));
     }
     {   /* 2b: a patch the editor sends between two preset loads is a new starting point: UNDO brings it back */
@@ -3979,15 +3987,16 @@ static int test_bughunt_ui2(void)
         }
         bad += check("piano roll: the C-1 label stays inside the panel (every palette)", !out);
     }
-    {   /* 7. EDIT: INIT is drawn in the cell after the engines, and that cell's white key is the one that inits */
-        uint32_t p, ok = LY_INIT == NENG_SHOWN && LY_INIT < 16u;      /* (layer_edit: INIT in cell NENG_SHOWN) */
-        for (p = NENG_SHOWN; p < 16u; p++) {
-            ui_power_on(); go_home(); frame();
-            btn_down(B_EDIT); key_down(white(p)); frame(); frames(50);
-            ok &= (ui.confirm == CF_INIT_SOUND) == (p == LY_INIT);
-            key_up(white(p)); btn_up(B_EDIT); frame();
+    {   /* 7. EDIT: only the 7th black key inits (the six before it: operators or nothing) */
+        uint32_t p, ok = 1;
+        for (p = 0; p < LY_ACT + 1u; p++) {
+            ui_power_on(); set_engine_of(TSEL, ENGI_PROPHET); go_home(); frame();
+            btn_down(B_EDIT); key_down(black(p)); frame(); frames(50);
+            ok &= (ui.confirm == CF_INIT_SOUND) == (p == LY_ACT);
+            key_up(black(p)); btn_up(B_EDIT); frame();
+            if (ui.confirm) press(B_OCTDN);
         }
-        bad += check("EDIT: INIT's map cell (after the engines) and its key agree", ok);
+        bad += check("EDIT: INIT on the 7th black key only", ok);
     }
     return bad;
 }
