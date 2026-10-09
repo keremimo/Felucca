@@ -268,9 +268,9 @@ static int ed_flash_stop(void)
     if (!transport_busy())
         return 0;
     transport_req = 2;
-    while ((song.playing || chain_busy()) && fm1_ms - t0 < 100u)          /* the audio ISR stops it at its next block */
+    while ((song.playing || seq_counting() || chain_busy()) && fm1_ms - t0 < 100u)          /* the audio ISR stops it at its next block */
         fm1_wdt_feed();
-    return song.playing || chain_busy();
+    return song.playing || seq_counting() || chain_busy();
 }
 
 #include "editor_preferences.c"
@@ -333,6 +333,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     const param_desc_t *d;
     if (!ed_args_ok(cmd, a, na))
         return;
+    if(cmd==ED_SET || (cmd==ED_TRACK_PARAM && na==4u) || cmd==ED_FM6_PUT || cmd==ED_CZ_PUT || (cmd==95u && na && a[0]>=1u && a[0]<=3u))momentary_restore();
     ed_begin(cmd);
     if(ed_prophet_handle(cmd,a,na)){ed_send();return;}
 

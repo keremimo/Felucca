@@ -641,12 +641,12 @@ from an experimental firmware is not a SONG or preference capability.
 Command 33 remains SONG. Older editors can ignore the additional INFO bytes.
 
 `uiCaps`: bit 0 palette, bit 1 font weight (retired: firmware since the 1.0 UI has one
-weight and no longer sets it), bit 2 reserved for a MIDI monitor, bit 3 favorites. This build
-advertises 9 (palette and favorites).
+weight and no longer sets it), bit 2 reserved for a MIDI monitor, bit 3 favorites, bit 4 recording preferences. This build
+advertises 25 (palette, favorites and recording preferences).
 
 | cmd | Request args | Reply args |
 | --- | --- | --- |
-| 34 UI_STATE | none | caps, palette, font, monitor, filter, favoriteSig u28, bankSig u28 |
+| 34 UI_STATE | none | caps, palette, font, monitor, filter, favoriteSig u28, bankSig u28, [click, clickLevel, countin, preview, chordAdd] |
 | 35 UI_SET | id, value | rc, id, value, UI_STATE payload |
 | 36 UI_PALETTES | none | count, count × name string |
 | 37 FAV_GET | engine, start v14, count 1..32 | rc; on success: engine, start v14, count, count × on/off |
@@ -654,7 +654,11 @@ advertises 9 (palette and favorites).
 
 UI_SET ids: 0 palette (0..count-1, the order of UI_PALETTES: MONO GREEN AMBER ICE VIOLET ROSE PAPER
 HI-CON), 1 font (retired: rc 2), 2 reserved, 3 preset filter (0 all, 1 favorites). Unsupported state
-fields are 127.
+fields are 127. With capability bit 4, UI_STATE appends five bytes after its
+13-byte prefix. UI_SET ids 4 click (0 OFF, 1 REC, 2 ON), 5 click level (0 LOW,
+1 MID, 2 HIGH), 6 count-in (0 OFF, 1 BAR, 2 BARS), 7 note preview (0/1), and
+8 chord entry (0 HOLD, 1 ADD) all share capability bit 4. Older clients may
+ignore the suffix; newer clients require both the bit and the full suffix.
 Both u28 signatures are four least-significant-first 7-bit bytes; compare them
 to refresh changed favorites and user slots. Factory references use stable
 engine/preset ids; engine NENGINES denotes a user slot. An empty user slot
@@ -939,3 +943,14 @@ The worker is idle whenever the main-loop handler takes this snapshot.
 `core1_jobs` includes both FM6 and Prophet sample jobs; `fm6_pairs` continues to
 count only FM6 pairs. For Prophet measurements, combine worker jobs with the
 schema-3 voice counts and audio timing counters.
+
+### Recording/performance data extension
+
+P_COUNT is 100 and P_E0 is 92. Common IDs 84–91 are drum lane levels
+(KICK, SNARE, CLAP, HATCL, HATOP, TOM, RIM, BELL), range 0–127, default 127.
+FUN15 magic `0x46554E3F`, size 12936, moves the FUN14 FM6/CZ/note/Prophet
+tail offsets by 32 bytes. FBKI magic `0x494B4246`, size 27784, embeds FUN15
+at offset 8. TPLD magic `0x444C5054` adds 64 bytes of track parameters to TPLC.
+FUN14/FBKH/TPLC and earlier data remain readable, with missing lane levels
+initialized to 127. Settings retain PER5 and its template boundary; a
+`0x5250` high-word tag in the unused zoom word identifies recording preferences.

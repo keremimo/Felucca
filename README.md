@@ -186,8 +186,8 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - **Held:** FX, GLO, SCL and EDIT open their quick layers; SAVE is undo, HOME the menu, SEQ the song,
   REC the MIXER.
   When editing synth steps, SCL and EDIT use the editing controls below instead; FX keeps its layer
-- PLAY starts and stops all four tracks; REC arms the selected track, on every page (and starts the
-  transport when it is stopped); **REC + PLAY** arms it and starts recording in one gesture
+- PLAY starts and stops all four tracks; REC arms or disarms the selected track without starting the
+  transport; **REC + PLAY** arms it and starts recording in one gesture
 - OCT− / OCT+ shift the octave (both: reset). On action pages, in dialogs and the menu, OCT+ does it
   and OCT− goes back. During synth step editing, OCT− / OCT+ move the step cursor
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
@@ -467,3 +467,5 @@ trademarks of their respective owners. Melodee is not affiliated with or endorse
 
 Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments\
 Modifications Copyright (C) 2026 Kerem Kilic (Ellic Studio)
+
+See [Recording and performance controls](docs/RECORDING_PERFORMANCE.md) for count-in, metronome, drum levels, temporary knob edits, additive chords and MIDI parameter control.

@@ -212,11 +212,22 @@ static void drum_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const 
         g = 4096 + drv * 3 * 4096 / 127;
         mk = (int32_t)((19661u << 15) / (uint32_t)softclip((19661 * g) >> 12));
     }
+    int32_t lv = clamp(p[P_LN0 + ((uint32_t)v->s[0] & (DV_NLANE - 1u))], 0, 127);
+    /* Fold lane gain into the block's amplitude ramp: no extra per-sample multiply. */
+    vmod_t lane_mod;
+    if (lv != 127) {
+        int32_t lane_gain = lv * lv * 32767 / (127 * 127);
+        lane_mod = *m;
+        lane_mod.amp0 = mulq15(m->amp0, lane_gain);
+        lane_mod.amp1 = mulq15(m->amp1, lane_gain);
+        m = &lane_mod;
+    }
     for (i = 0; i < n; i++) {                            /* x1.25 and the knee below, in 32 bits */
         int32_t s = y[i];
         if (g)
             s = (softclip((s * g) >> 12) * mk) >> 15;
-        out[i] += voice_amp(soft_knee(s + (s >> 2), 24000), m, i) << 1;
+        s = voice_amp(soft_knee(s + (s >> 2), 24000), m, i);
+        out[i] += s << 1;
     }
 }
 

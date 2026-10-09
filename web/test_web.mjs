@@ -180,7 +180,7 @@ async function editorMock() {
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
   ok(info.nengines === 20 && info.engines[14] === "-" && info.engines[1] === "-" && info.engines[12] === "FM6" && info.engines[13] === "-"
- && info.engines[5] === "VOICE" && info.engines[6] === "-" && info.engines[7] === "-" && info.engines[8] === "-" && info.engines[9] === "-" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === 92 && info.pe0 === 84 && info.engines[4] === "-",
+ && info.engines[5] === "VOICE" && info.engines[6] === "-" && info.engines[7] === "-" && info.engines[8] === "-" && info.engines[9] === "-" && info.engines[10] === "DRUM" && info.engines[11] === "NOISE" && info.pcount === 100 && info.pe0 === 92 && info.engines[4] === "-",
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
@@ -248,8 +248,15 @@ async function editorMock() {
   const cut = E.parse[E.CMD.NAMES]([15, 4, 65, 0, 66, 0, 67]);   /* 0.11: CZ-1's names overran the 600-byte reply */
   ok(cut.names.join() === "A,B,PRESET 3,PRESET 4" && !cut.titles.length, "editor: a NAMES reply cut short keeps its whole names");
   let prefs = await E.readDevicePreferences(rq, info, names);
-  ok(info.uiCaps === 9 && prefs.palettes.length === 8 && prefs.palettes[0] === "MONO" && prefs.palettes.includes("HI-CON"),
+  ok(info.uiCaps === 25 && prefs.palettes.length === 8 && prefs.palettes[0] === "MONO" && prefs.palettes.includes("HI-CON"),
      "editor: preference capabilities (palette, favorites) and palette names");
+  for(const [id,key,value] of [[4,"click",2],[5,"clickLevel",0],[6,"countin",2],[7,"preview",1],[8,"chordAdd",1]]) {
+    const changed=E.parse[E.CMD.UI_SET](await rq(E.req.uiSet(id,value)));
+    ok(changed.rc===0 && changed[key]===value,`recording preference ${key} round trip`);
+    const invalid=E.parse[E.CMD.UI_SET](await rq(E.req.uiSet(id,id<=6?3:2)));
+    ok(invalid.rc===1 && invalid[key]===value,`recording preference ${key} rejects invalid values`);
+  }
+  ok(!(E.parse[E.CMD.UI_STATE]([25,0,127,127,0,0,0,0,0,0,0,0,0]).caps&16),"recording preferences require a complete state suffix");
   const pal = E.parse[E.CMD.UI_SET](await rq(E.req.uiSet(0, 2)));
   ok(pal.rc === 0 && pal.palette === 2, "editor: display preference 0 (palette) round trip");
   ok(E.parse[E.CMD.UI_SET](await rq(E.req.uiSet(0, 8))).rc === 1, "editor: out-of-range palette refused");
@@ -433,9 +440,9 @@ async function editorFm4() {
     const fw = JSON.parse(readFileSync(dj, "utf8")).FM4;
     let bad = 0;
     for (const c of fw.cases) {
-      const r = E.FM4.convert(c.p, 84);
+      const r = E.FM4.convert(c.p, 92);
       if (r.preset !== c.preset || !eq(r.p, c.out) || !eq(Array.from(r.voice), c.voice)) {
-        if (bad++ < 3) console.log("  FM4: E", js(c.p.slice(84)), "voice", js(Array.from(r.voice).map((x, i) => (x !== c.voice[i] ? `${i}:${x}/${c.voice[i]}` : "")).filter(Boolean)));
+        if (bad++ < 3) console.log("  FM4: E", js(c.p.slice(92)), "voice", js(Array.from(r.voice).map((x, i) => (x !== c.voice[i] ? `${i}:${x}/${c.voice[i]}` : "")).filter(Boolean)));
       }
     }
     ok(fw.cases.length === 48 && !bad, `DIGITAL -> FM6: the editor's conversion == the firmware's (${fw.cases.length} sounds, ${bad} differ)`);
@@ -475,20 +482,20 @@ async function editorFm4() {
   const base = Array.from({ length: 92 }, (_, i) => (i < 84 ? pdesc[i].def : 0));
   const pad = E.FM4.presetValues(base.slice(), 5, 84);
   pad[61] = 20; pad[64] = 100;                      /* op 1 ATK, LVL: an OP ENV edit */
-  const keys89 = [...keys.slice(0, 81), ...keys.slice(84)], keys69 = [...keys.slice(0, 61), ...keys.slice(84)];
+  const keys89 = [...keys.slice(0, 81), ...keys.slice(92)], keys69 = [...keys.slice(0, 61), ...keys.slice(92)];
   const p89 = [...pad.slice(0, 81), ...pad.slice(84)], p69 = [...pad.slice(0, 61), ...pad.slice(84)];
   const engines = info.engines.map((n, i) => (i === 1 ? "DIGITAL" : n));   /* (the files' firmware had DIGITAL) */
   const file = (pc, labels, p) => ({ format: "felucca-library", version: 1, kind: "library", pCount: pc, pE0: pc - 8, paramLabels: labels,
     engines, patches: [{ name: "OLD PAD", engine: 1, engineName: "DIGITAL", params: p, pattern: null, tags: [] }] });
   const ctx = { keys, engines: info.engines, pe0: info.pe0 };
-  const r91 = E.readLibraryFile(file(92, keys, pad), ctx).patches[0];
+  const r91 = E.readLibraryFile(file(92, [...keys.slice(0,84),...keys.slice(92)], pad), ctx).patches[0];
   const r89 = E.readLibraryFile(file(89, keys89, p89), ctx).patches[0];
   const r69 = E.readLibraryFile(file(69, keys69, p69), ctx).patches[0];
   const one = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 1, engineName: "DIGITAL", p: p89 }, ctx).patches[0];
   const conv = (p) => E.FM4.convert(p, 84);
   const flat = pad.slice(); for (let i = 61; i <= 80; i++) flat[i] = i % 5 === 3 || i % 5 === 0 ? 127 : 0;   /* (61: ATK) */
   const isFm6 = (r, p) => r && r.engine === 12 && r.engineName === "FM6" && eq(r.fm6, E.FM6.pack(conv(p).voice)) &&
-    eq(r.p.map((v) => v ?? 0), conv(p).p.map((v) => v ?? 0));
+    eq([...r.p.slice(0,84),...r.p.slice(92)].map(v=>v??0), conv(p).p.map(v=>v??0));
   ok(isFm6(r91, pad), "library file: a DIGITAL patch (92 parameters) imports as FM6 with the converted patch");
   ok(isFm6(r89, pad.map((v, i) => (i >= 81 && i <= 83 ? null : v))) && isFm6(one, pad.map((v, i) => (i >= 81 && i <= 83 ? null : v))),
     "library file: .. of 89 parameters (labelled, and a single-patch file): the OP ENV edit carried");
@@ -510,12 +517,12 @@ async function editorFm4() {
     const entry = () => [{ id: "a", name: "OLD PAD", engine: 1, engineName: "DIGITAL", p: pad.slice(), pattern: null, tags: ["x"],
       created: "2026-01-01T00:00:00.000Z", modified: "2026-01-01T00:00:00.000Z" },
       { id: "b", name: "BASS", engine: 0, engineName: info.engines[0], p: base.slice(), pattern: null, tags: [] }];
-    L.set(entry(), { keys, engines });
+    L.set(entry(), { keys:[...keys.slice(0,84),...keys.slice(92)], engines });
     await L.libAdopt(dv);
     const [a1, b1] = L.lib();
-    ok(isFm6(a1, pad) && a1.id === "a" && eq(a1.fm4, pad) && a1.tags.join() === "x" && b1.engine === 0 &&
+    ok(isFm6(a1, pad) && a1.id === "a" && eq([...a1.fm4.slice(0,84),...a1.fm4.slice(92)], pad) && a1.tags.join() === "x" && b1.engine === 0 &&
       L.written().includes(a1), "library: libAdopt on a device without DIGITAL converts its DIGITAL sounds to FM6");
-    L.set(entry(), { keys, engines: info.engines });       /* (adopted before: the layout is the device's already) */
+    L.set(entry().map(p=>({...p,p:[...p.p.slice(0,84),...Array(8).fill(null),...p.p.slice(84)]})), { keys, engines: info.engines });       /* (adopted before: the layout is the device's already) */
     await L.libAdopt(dv);
     ok(isFm6(L.lib()[0], pad) && L.written().length === 1, "library: .. also when the layout is unchanged (only those written)");
   }
@@ -524,7 +531,7 @@ async function editorFm4() {
   const u = await E.bank.get(rq, info, 9);
   await rq(E.req.upLoad(9));
   d = E.parse[C.DUMP](await rq(E.req.dump()), info);
-  ok(rc === 0 && u.engine === 1 && eq(u.p, pad) && d.engine === 12 && eq(await fm6Of(), r91.fm6),
+  ok(rc === 0 && u.engine === 1 && eq([...u.p.slice(0,84),...u.p.slice(92)], pad) && d.engine === 12 && eq(await fm6Of(), r91.fm6),
     "device slot of a DIGITAL sound (engine 1, its values kept): UP_LOAD plays the converted FM6 patch");
   done();
 }
@@ -636,7 +643,7 @@ async function editorLibrarian() {
   const ctx = { keys, engines: info.engines, firmware: info.version, pe0: info.pe0 };
   const pts = [cap, { ...bass, engineName: info.engines[bass.engine], tags: ["bass", "device"] }];
   const file = JSON.parse(JSON.stringify(E.libraryFile("library", pts, ctx)));
-  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 92 && file.paramLabels.length === 92 && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" && file.paramLabels[83] === "DEG" && file.engines.length === 20,
+  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 100 && file.paramLabels.length === 100 && file.paramLabels[81] === "CHRD" && file.paramLabels[82] === "VOIC" && file.paramLabels[83] === "DEG" && file.engines.length === 20,
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
   const oldKeys = keys.slice(); oldKeys[8] = "FX";
@@ -651,7 +658,7 @@ async function editorLibrarian() {
   const eng2 = ["PHASE", "ANALOG", "SAMPLE"];
   const fut = E.readLibraryFile(file, { keys: keys2, engines: eng2 });
   const p0 = fut.patches[0].p;
-  ok(fut.patches.length === 2 && p0.length === 93 && p0[5] === null && p0[6] === cap.p[5] && p0[92] === cap.p[91]
+  ok(fut.patches.length === 2 && p0.length === 101 && p0[5] === null && p0[6] === cap.p[5] && p0[100] === cap.p[99]
     && fut.patches[0].engine === 1 && fut.patches[1].engine === 0, "library file: other ids / engine order mapped by label and name");
   const lost = E.readLibraryFile({ ...file, patches: [{ ...file.patches[0], engineName: "WAVETABLE" }] }, ctx);
   ok(lost.patches.length === 0 && lost.skipped === 1, "library file: a patch for an unknown engine is skipped");
@@ -659,32 +666,32 @@ async function editorLibrarian() {
   ok(bankFile.kind === "bank" && bankFile.patches[0].slot === 10 && E.readLibraryFile(bankFile, ctx).patches[0].slot === 10, "library file: bank export keeps slot numbers");
   {   /* files from the 69-parameter firmware (P_E0 61): the engine's 8 land on E0..E7 (84..91), FM op ENV, the
          chord keys and the MPC degree stay unset */
-    const p69 = [...cap.p.slice(0, 61), ...cap.p.slice(84, 92)];
+    const p69 = [...cap.p.slice(0, 61), ...cap.p.slice(92, 100)];
     const sp = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: cap.engine, engineName: info.engines[cap.engine], p: p69 }, ctx).patches[0].p;
-    const keys69 = [...keys.slice(0, 61), ...keys.slice(84)];
+    const keys69 = [...keys.slice(0, 61), ...keys.slice(92)];
     const lp = E.readLibraryFile({ ...file, pCount: 69, paramLabels: keys69, patches: [{ ...file.patches[0], params: p69 }] }, ctx).patches[0].p;
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p69 }] }, ctx).patches[0].p;
-    const good = (q) => q.length === 92 && eq(q.slice(0, 61), cap.p.slice(0, 61)) && eq(q.slice(84), cap.p.slice(84)) && q.slice(61, 84).every((v) => v === null);
-    ok(good(sp) && good(lp) && good(nk), "library file: 69-parameter files (patch, labelled, unlabelled) map the engine's 8 to 84..91");
+    const good = (q) => q.length === 100 && eq(q.slice(0, 61), cap.p.slice(0, 61)) && eq(q.slice(92), cap.p.slice(92)) && q.slice(61, 92).every((v) => v === null);
+    ok(good(sp) && good(lp) && good(nk), "library file: 69-parameter files (patch, labelled, unlabelled) map the engine's 8 to 92..99");
   }
   {   /* files from the 89-parameter firmware (P_E0 81, before the chord keys): the engine's 8 land on 84..91, the FM
          op ENV in place, CHRD VOIC DEG unset (left as the track has them) */
-    const p89 = [...cap.p.slice(0, 81), ...cap.p.slice(84, 92)];
-    const keys89 = [...keys.slice(0, 81), ...keys.slice(84)];
+    const p89 = [...cap.p.slice(0, 81), ...cap.p.slice(92, 100)];
+    const keys89 = [...keys.slice(0, 81), ...keys.slice(92)];
     const sp = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: cap.engine, engineName: info.engines[cap.engine], p: p89 }, ctx).patches[0].p;
     const lp = E.readLibraryFile({ ...file, pCount: 89, pE0: 81, paramLabels: keys89, patches: [{ ...file.patches[0], params: p89 }] }, ctx).patches[0].p;
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p89 }] }, ctx).patches[0].p;
-    const good = (q) => q.length === 92 && eq(q.slice(0, 81), cap.p.slice(0, 81)) && q[81] === null && q[82] === null && q[83] === null && eq(q.slice(84), cap.p.slice(84));
+    const good = (q) => q.length === 100 && eq(q.slice(0, 81), cap.p.slice(0, 81)) && q[81] === null && q[82] === null && q[83] === null && eq(q.slice(92), cap.p.slice(92));
     ok(keys89[81] === "E0" && good(sp) && good(lp) && good(nk),
-      "library file: 89-parameter files (patch, labelled, unlabelled) map the engine's 8 to 84..91, the chord keys unset");
+      "library file: 89-parameter files (patch, labelled, unlabelled) map the engine's 8 to 92..99, the chord keys unset");
   }
   {   /* files from Felucca 1.0 (91 parameters, P_E0 83, before the MPC degree): E0..E7 on 84..91, DEG unset */
-    const p91 = [...cap.p.slice(0, 83), ...cap.p.slice(84, 92)];
-    const keys91 = [...keys.slice(0, 83), ...keys.slice(84)];
+    const p91 = [...cap.p.slice(0, 83), ...cap.p.slice(92, 100)];
+    const keys91 = [...keys.slice(0, 83), ...keys.slice(92)];
     const lp = E.readLibraryFile({ ...file, pCount: 91, pE0: 83, paramLabels: keys91, patches: [{ ...file.patches[0], params: p91 }] }, ctx).patches[0].p;
     const nk = E.readLibraryFile({ ...file, paramLabels: undefined, patches: [{ ...file.patches[0], params: p91 }] }, ctx).patches[0].p;
-    const good = (q) => q.length === 92 && eq(q.slice(0, 83), cap.p.slice(0, 83)) && q[83] === null && eq(q.slice(84), cap.p.slice(84));
-    ok(keys91[83] === "E0" && good(lp) && good(nk), "library file: Felucca 1.0 files (91 parameters) map the engine's 8 to 84..91, DEG unset");
+    const good = (q) => q.length === 100 && eq(q.slice(0, 83), cap.p.slice(0, 83)) && q[83] === null && eq(q.slice(92), cap.p.slice(92));
+    ok(keys91[83] === "E0" && good(lp) && good(nk), "library file: Felucca 1.0 files (91 parameters) map the engine's 8 to 92..99, DEG unset");
   }
   const old = E.readLibraryFile({ format: "felucca-patch", version: 1, engine: 0, preset: 4, engineName: "ANALOG", presetName: "ACID", p: d2.p, steps: E.stepsFromPattern(cap.pattern) }, ctx);
   ok(old.patches.length === 1 && eq(old.patches[0].p, d2.p) && js(old.patches[0].pattern) === js(cap.pattern), "library file: reads the old \"Save to file\" format");
@@ -752,7 +759,7 @@ async function editorLive() {
   const dump = E.parse[C.DUMP](await pend, info);
   const ch = ev.pushes.find((f) => f.cmd === C.CHANGED);
   const cv = ch && E.parse[C.CHANGED](ch.a);
-  ok(dump.p.length === 92 && ch && ch.pending === C.DUMP && cv.scope === 0 && cv.id === 9 && cv.value === kn.value && !ev.unknown.length,
+  ok(dump.p.length === 100 && ch && ch.pending === C.DUMP && cv.scope === 0 && cv.id === 9 && cv.value === kn.value && !ev.unknown.length,
     "live: CHANGED while DUMP waits -> push handler, reply still matched");
   const rl = m.sim.reload();
   m.sim.step(3);

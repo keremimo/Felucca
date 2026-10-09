@@ -2,10 +2,10 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Optional device preferences, advertised in INFO. No preset format changes. The font weight
  * (ED_UI_FONT) is gone: one weight; UI_SET of it answers rc 2 (not supported), UI_STATE 127. */
-enum { ED_UI_PALETTE = 1, ED_UI_FONT = 2, ED_UI_MONITOR = 4, ED_UI_FAVORITES = 8 };
+enum { ED_UI_PALETTE = 1, ED_UI_FONT = 2, ED_UI_MONITOR = 4, ED_UI_FAVORITES = 8, ED_UI_RECORDING = 16 };
 static uint32_t ed_ui_caps(void)
 {
-    uint32_t caps = ED_UI_PALETTE;
+    uint32_t caps = ED_UI_PALETTE | ED_UI_RECORDING;
 #ifdef MELODEE_MONITOR
     caps |= ED_UI_MONITOR;
 #endif
@@ -42,6 +42,7 @@ static void ed_ui_state(void)
     for(uint32_t bank=0;bank<5u;bank++){if(!p5_meta_ready[bank])p5_user_bank(bank);sig=(sig^p5_meta[bank].favorites)*16777619u;}
     ed_u28(sig);
     ed_u28(up_gen);
+    ed_b(settings_click);ed_b(settings_click_level);ed_b(settings_countin);ed_b(settings_preview);ed_b(settings_chord_add);
 }
 /* Writes use the same flash path as the panel. rc 3 means applied in RAM,
  * but not saved (absent flash or a failed write); rc 4 means queued until STOP.
@@ -53,6 +54,7 @@ static uint32_t ed_ui_save(void)
 #if MELODEE_FLASH
     if (!flash_ok || persist_pending == 2u) return 3;
     if (persist_pending == 1u) return 4;
+    persist_t current;settings_export(&current);if(current.zoom!=persist_saved.zoom)return 3;
     if (palette_from_stored(persist_saved.palette) != settings.palette) return 3;
 #ifdef MELODEE_MONITOR
     if (persist_saved.monitor != settings.monitor) return 3;
@@ -67,10 +69,15 @@ static uint32_t ed_ui_save(void)
 }
 static uint32_t ed_ui_set(const uint8_t *a, uint32_t n)
 {
-    if (n != 2u || a[0] > 3u) return 1;
-    if (!(ed_ui_caps() & (1u << a[0]))) return 2;
-    if (a[1] >= (a[0] == 0 ? NPALETTES : a[0] == 2 ? 3u : 2u)) return 1;
+    if (n != 2u || a[0] > 8u) return 1;
+    if (!(ed_ui_caps() & (a[0]>=4u?ED_UI_RECORDING:1u << a[0]))) return 2;
+    if (a[1] >= (a[0] == 0 ? NPALETTES : a[0] == 2 || (a[0]>=4 && a[0]<=6) ? 3u : 2u)) return 1;
     switch (a[0]) {
+    case 4:settings_click=a[1];break;
+    case 5:settings_click_level=a[1];break;
+    case 6:settings_countin=a[1];break;
+    case 7:settings_preview=a[1];break;
+    case 8:settings_chord_add=a[1];break;
     case 0:
         settings.palette = a[1]; palette_set(a[1]); break;
 #ifdef MELODEE_MONITOR

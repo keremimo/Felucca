@@ -7,6 +7,7 @@ static uint32_t timing_now;
 #define MIDI_TICKS_PER_MS 24000u
 #define MIDI_CONTROL_NO_MAIN 1
 #include "midi_control_test.c"
+#include "frozen_project.h"
 
 static void timing_reset(uint32_t source, uint32_t start)
 {
@@ -267,8 +268,7 @@ static int old_formats_and_overdub_test(void)
     /* Build the frozen 92-parameter FUN10/FBKD layout, not today's
      * payload with an old magic. Its banks use n+5*time metadata. */
     uint8_t legacy[PROJ_STORE_V11]; memset(legacy, 0, sizeof legacy);
-    memcpy(legacy, proj_wire_u.raw + 8u, 68u); legacy[66] = 92;
-    memcpy(legacy + 68u, proj_wire_u.raw + 8u + 68u, PROJ_REC_OFF - 68u);
+    frozen_project92(legacy,proj_wire_u.raw+8u,PROJ_REC_OFF-PROJ_PARAM_EXTRA);
     uint32_t magic = PROJ_MAGIC_V10, size = PROJ_STORE_V11, sum;
     memcpy(legacy, &magic, 4); memcpy(legacy + 4u, &size, 4);
     sum = proj_hash(legacy, sizeof legacy - 4u); memcpy(legacy + sizeof legacy - 4u, &sum, 4);

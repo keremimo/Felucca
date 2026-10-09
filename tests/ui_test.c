@@ -9,7 +9,7 @@
  *              LOAD; over the user's steps the REPLACE? dialog (OCT- / OCT+); the PRESETS hint.
  *   UNDO       a load keeps a copy of the track; SAVE held swaps back what the loads changed (again:
  *              redo); browsing keeps the copy from before the first load; power-on and projects: none.
- *   REC        a tap on every screen arms the selected track and starts PLAY, without navigation.
+ *   REC        a tap on every screen arms/disarms the selected track; PLAY starts recording, without navigation.
  *              Long REC never clears. On STEP, armed and playing: keys do not write the
  *              cursor step. With the ARP on, the arp's notes are recorded, not the keys.
  *   MIDI IN    GLO > SYSTEM ROUT: CH1-4 / SEL, note-offs follow their note-ons.
@@ -466,9 +466,9 @@ static int test_rec(void)
         track_select(2);
         open_family(FAMS[k]);
         press(B_REC);
-        bad += check(k == 0 ? "REC on TRACKS: arms the selected track, PLAY starts" :
-                     k == 1 ? "REC on SEQ: arms the selected track, PLAY starts" : "REC on ARP: arms the selected track, PLAY starts",
-                     song.rec == 4u && transport_req == 1u);
+        bad += check(k == 0 ? "REC on TRACKS: arms the selected track without starting PLAY" :
+                     k == 1 ? "REC on SEQ: arms the selected track without starting PLAY" : "REC on ARP: arms the selected track without starting PLAY",
+                     song.rec == 4u && transport_req == 0u);
         song.playing = 1;
         transport_req = 0;
         press(B_REC);
@@ -479,7 +479,7 @@ static int test_rec(void)
     }
     ui_power_on();
     press(B_REC);
-    bad += check("REC on HOME records without changing the screen", ui.home && song.rec == 1u && transport_req == 1u);
+    bad += check("REC on HOME arms without changing the screen or starting PLAY", ui.home && song.rec == 1u && transport_req == 0u);
     /* STEP page: armed + playing -> the keys record live only */
     ui_power_on();
     open_family(FAM_SEQ);
@@ -1653,7 +1653,7 @@ static int test_product_ux(void)
         press(B_REC);
         if (PAGES[i].graph == GR_SONG)
             ok &= song.rec == 0 && !transport_req && msg_is("[SEQ] TO RECORD");
-        else ok &= song.rec == 1 && transport_req == 1 && ui.page == i && !ui.home;
+        else ok &= song.rec == 1 && transport_req == 0 && ui.page == i && !ui.home;
     }
     bad += check("REC stays on every page, SONG stopped asks for pattern recording", ok);
     ui_power_on(); hold(B_HOME); press(B_REC);
@@ -2640,7 +2640,7 @@ static int test_rec_gestures(void)
     bad += check("REC held: the MIXER, nothing armed", !ui.home && cur_page()->fam == FAM_TRK && !song.rec && !transport_req);
     go_home();
     press(B_REC);
-    bad += check("REC tapped: armed and starting, as ever", (song.rec & 1u) && transport_req == 1u && ui.home);
+    bad += check("REC tapped: armed, transport remains stopped", (song.rec & 1u) && transport_req == 0u && ui.home);
     stop_transport();
     transport_req = 0;
     song.rec = 0;
@@ -3358,12 +3358,12 @@ static int test_bughunt_ui(void)
             ui_power_on();
             btn_down(LB[i]); frame();
             press(B_REC);
-            ok &= song.rec == 1u && transport_req == 1u && ui.layer != 0u;
+            ok &= song.rec == 1u && transport_req == 0u && ui.layer != 0u;
             btn_up(LB[i]); frame();
             ok &= ui.home;
         }
     }
-    bad += check("REC in every layer: arms the track and starts PLAY; the layer stays, no page", ok);
+    bad += check("REC in every layer: arms the track without starting PLAY; the layer stays, no page", ok);
     /* 8: the OCT- LED lit in the SET layers (OCT- = UNDO), OCT+ dark; FX (HOLD): the octave as usual */
     ok = 1;
     {

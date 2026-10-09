@@ -160,6 +160,8 @@ static uint32_t layer_btn(void);
  * a SLICE track's (ui_slice.c) */
 static int page_visible(uint32_t i)
 {
+    if (PAGES[i].scope == SC_TRACK && PAGES[i].id[0] >= P_LN0 && PAGES[i].id[0] <= P_LN7)
+        return drum_track(TSEL);
     if(TSEL->eng_req==ENGI_CZ && PAGES[i].fam==FAM_EDIT && (PAGES[i].id[0]==P_E0 || PAGES[i].id[0]==P_E4))return 0;
     if (PAGES[i].scope == SC_GLOBAL && PAGES[i].id[0] == G_DTIME) return 0;
     if (PAGES[i].scope == SC_CZ)
@@ -211,7 +213,7 @@ static int transport_busy(void)
 {
     int busy;
     fm1_irq_off();
-    busy = song.playing || chain_busy() || transport_req == 1u;
+    busy = song.playing || seq_counting() || chain_busy() || transport_req == 1u;
     fm1_irq_on();
     return busy;
 }
@@ -351,6 +353,7 @@ static void grid_acc(track_t *t, uint32_t i, uint32_t l, uint32_t on)
 }
 
 /* SEQ cursor: wraps inside the pattern length, the bank follows, a step entry ends */
+static void notes_preview(void);
 static void cursor_set(int32_t c)
 {
     int32_t len = TSEL->p[P_SLEN] > 0 ? TSEL->p[P_SLEN] : 1;
@@ -359,6 +362,7 @@ static void cursor_set(int32_t c)
     ui.entry_open = 0;
     ui.note_pick = 0;
     ui.note_slot = 0;
+    notes_preview();
 }
 
 static void cursor_fix(void)                           /* LEN got shorter: onto the last step */
@@ -510,8 +514,49 @@ static uint32_t track_sig(const track_t *t)      /* the sound (an FM6 track's pa
     return h ^ ((motion.on >> k) & 1u);
 }
 
+static const param_desc_t *home_param(uint32_t k,int16_t **vp);
+static int scale_shared(uint32_t id);
+static struct {
+    uint8_t active, track, count, native;
+    int16_t *ptr[P_COUNT+G_COUNT], value[P_COUNT+G_COUNT];
+    uint8_t fm[FP_SIZE+1u], fn[FM6_NFN], on;
+    cz_patch_t cz; p5_patch_t p5;
+    int16_t p5_voice,p5_prio,p5_detune,p5_alloc;
+} momentary;
+static void momentary_restore(void)
+{
+    if(!momentary.active)return;
+    uint32_t tr=momentary.track;fm1_irq_off();
+    if(momentary.native==1){fm6_put_patch(tr,momentary.fm,0);memcpy(fm6_fn[tr],momentary.fn,FM6_NFN);fm6_on[tr]=momentary.on;}
+    else if(momentary.native==2)cz_patch[tr]=momentary.cz;
+    else if(momentary.native==3){p5_patch[tr]=momentary.p5;trk[tr].p[P_VOICE]=momentary.p5_voice;trk[tr].p[P_PRIO]=momentary.p5_prio;trk[tr].p[P_DETUNE]=momentary.p5_detune;trk[tr].p[P_ALLOC]=momentary.p5_alloc;}
+    for(uint32_t i=0;i<momentary.count;i++)*momentary.ptr[i]=momentary.value[i];
+    momentary.active=momentary.count=momentary.native=0;fm1_irq_on();ui.force=1;
+}
+static void momentary_take(uint32_t slot)
+{
+    const page_t *pg=cur_page();int16_t *vp;const param_desc_t *d;
+    if(!(fm1_in.buttons&(1u<<panel.btn[B_LFO])) || (!ui.home && (pg->graph==GR_FMSTORE || pg->graph==GR_CZTOOLS)))return;
+    if(ui.home)d=home_param(slot,&vp);else d=page_desc(pg,slot,&vp);
+    if(!d || !vp || d->max==d->min)return;
+    uint32_t native=!ui.home?(pg->scope==SC_FM6 || pg->scope==SC_FMOP?1:pg->scope==SC_CZ1?2:pg->scope==SC_P5?3:0):0;
+    if(!native && !ui.home && pg->scope!=SC_TRACK && pg->scope!=SC_ENGINE &&
+       !(pg->scope==SC_GLOBAL && (pg->id[slot]<=G_SWING || (pg->id[slot]>=G_DTIME && pg->id[slot]<=G_CDEPTH))))return;
+    if(!native && !ui.home && pg->scope==SC_TRACK && scale_shared((uint32_t)(vp-TSEL->p)))return;
+    if(!momentary.active){momentary.track=song.sel;momentary.active=1;}
+    if(native && !momentary.native){
+        uint32_t tr=song.sel;fm1_irq_off();momentary.native=(uint8_t)native;
+        memcpy(momentary.fm,fm6_patch[tr],sizeof momentary.fm);memcpy(momentary.fn,fm6_fn[tr],FM6_NFN);momentary.on=fm6_on[tr];
+        momentary.cz=cz_patch[tr];momentary.p5=*p5_patch_of(TSEL);
+        momentary.p5_voice=TSEL->p[P_VOICE];momentary.p5_prio=TSEL->p[P_PRIO];momentary.p5_detune=TSEL->p[P_DETUNE];momentary.p5_alloc=TSEL->p[P_ALLOC];fm1_irq_on();
+    }
+    if(!native){uint32_t i;for(i=0;i<momentary.count && momentary.ptr[i]!=vp;i++);
+        if(i==momentary.count && i<P_COUNT+G_COUNT){momentary.ptr[i]=vp;momentary.value[i]=*vp;momentary.count++;}}
+    ui.pg_down&=(uint16_t)~(1u<<panel.btn[B_LFO]);
+}
 static void load_begin(track_t *t, uint32_t what)
 {
+    momentary_restore();
     uint32_t i = trk_index(t);
     if (undo_depth++)
         return;
@@ -1098,6 +1143,7 @@ static void track_select(uint32_t i)
 {
     if (i >= NTRK || i == song.sel)
         return;
+    momentary_restore();
     song.sel = (uint8_t)i;
     ui.entry_open = 0;
     seq_midi_reset();                            /* (MIDI notes held for the other track enter nothing here) */

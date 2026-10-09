@@ -899,6 +899,10 @@ static void draw_confirm(void)
 static void ui_draw(void)
 {
     ui.frame++;
+    if(seq_counting()) { char text[24]="COUNT IN ";fmt_int(text+9,(int32_t)cin_left);
+        ui_message(text); }
+    else if(!memcmp(ui.msg,"COUNT IN ",9))ui.msg_t=0;
+
     if (ui.uboot) {
         draw_uboot();
         draw_head();

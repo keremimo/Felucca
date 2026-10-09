@@ -102,7 +102,7 @@ static int up_cz_raw(const up_rec_t *r,uint8_t *raw)
 static int up_bank_shape(uint32_t len,uint32_t rsize){return (len==sizeof(up_bank_t) && rsize==sizeof(up_rec_t)) || (len==UP_BANK_LEGACY_SIZE && rsize==192u);}
 static int up_valid(const up_rec_t *r)
 {
-    if (r->used == UP_USED && (up_native_cz(r) || up_legacy_cz(r))) { uint8_t raw[CZ_BYTES];return r->np==P_COUNT && r->name[0] && up_cz_raw(r,raw); }
+    if (r->used == UP_USED && (up_native_cz(r) || up_legacy_cz(r))) { uint8_t raw[CZ_BYTES];return (up_legacy_cz(r)?r->np==92u:(r->np==92u || r->np==P_COUNT)) && r->name[0] && up_cz_raw(r,raw); }
     if (!(r->used == UP_USED && r->ver >= 1u && r->ver <= UP_VER_GRID && r->engine < USER_GENERAL &&
           r->np >= 8u && r->np <= (r->ver >= 4u ? UP_PMAX * 2u : UP_PMAX) && r->name[0])) return 0;
     /* Pre-1.0 Melodee reused UPB1/version 1, but its MPC/chord ids and engine 9 mean different things.
@@ -444,6 +444,7 @@ static void up_set_name(up_rec_t *r, uint32_t k, const char *name)
 /* the selected part's sound -> slot k; name 0 or "": the automatic name (up_auto_name); up_put's result */
 static int up_store(uint32_t k, const char *name)
 {
+    momentary_restore();
     if (k >= UP_SLOTS || TSEL->eng_req == ENGI_PROPHET) return 1;
     up_rec_t r;
     uint32_t i;

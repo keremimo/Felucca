@@ -514,8 +514,10 @@ static void rec_release(track_t *t, uint32_t note)
         return;                                     /* not one of them, or others still held */
 }
 
+static void countin_note(track_t *t,uint32_t note,uint32_t vel);
 static void input_on(track_t *t, uint32_t note, uint32_t vel)
 {
+    countin_note(t,note,vel);
     last_note = (uint8_t)note;
     live_note_on(t, note);
     if (rec_on(t) && !t->p[P_AMODE])               /* (ARP on: arp_tick records its notes) */
@@ -639,6 +641,47 @@ static void keyboard_block(void)
     kb_prev = cur;
 }
 
+#include "click.c"
+static volatile uint32_t cin_left;
+static uint32_t cin_pos, cin_total;
+static uint8_t cin_note[NTRK][8],cin_vel[NTRK][8],cin_n[NTRK];
+static void countin_note(track_t *t,uint32_t note,uint32_t vel)
+{
+    if(cin_left!=1u || cin_pos<beat_samples()/2u)return;
+    uint32_t tr=trk_index(t),i;for(i=0;i<cin_n[tr] && cin_note[tr][i]!=note;i++);
+    if(i<8u){cin_note[tr][i]=note;cin_vel[tr][i]=vel;if(i==cin_n[tr])cin_n[tr]++;}
+}
+static int seq_counting(void) { return cin_left != 0; }
+static int click_wanted(void) { return settings_click == CLICK_ON || (settings_click == CLICK_REC && song.rec); }
+/* Preview has its own bounded lifetime and never enters the recording or MIDI-out paths. */
+static volatile uint8_t audition_request;
+static uint8_t audition_track, audition_count, audition_notes[12], audition_vel[12];
+static uint8_t audition_active, audition_owner, audition_n, audition_played[12];
+static uint32_t audition_left;
+static void audition_stop(void)
+{
+    track_t *t = &trk[audition_owner % NTRK];
+    for (uint32_t i=0;i<audition_n;i++) {
+        uint32_t note=audition_played[i];
+        if (!(live_held[trk_index(t)][note>>5] & (1u<<(note&31u))) && t->arp_note!=note && !recording_owns(t,note)) trk_note_off(t,note);
+    }
+    audition_active=audition_n=0;
+}
+static __attribute__((noinline)) void audition_tick(uint32_t n)
+{
+    if (song.playing || seq_counting()) { audition_request=0; if(audition_active)audition_stop(); return; }
+    if (audition_request) {
+        audition_stop(); audition_owner=audition_track; audition_left=FS/6u;
+        track_t *t=&trk[audition_owner % NTRK];
+        for(uint32_t i=0;i<audition_count;i++) {
+            uint32_t note=audition_notes[i];
+            if ((live_held[trk_index(t)][note>>5] & (1u<<(note&31u))) || t->arp_note==note) continue;
+            audition_played[audition_n++]=(uint8_t)note; trk_note_on(t,note,audition_vel[i]);
+        }
+        audition_active=1; audition_request=0;
+    }
+    if(audition_active) { if(n>=audition_left)audition_stop(); else audition_left-=n; }
+}
 /* -------------------------------------------------------- sequencer --- */
 static void seq_start(void)
 {
@@ -658,6 +701,7 @@ static void seq_start(void)
     song.tick = 0;
     beat_pos = 0; beat_n = 0;                      /* the ARP LED's beat from the top too */
     song.playing = 1;
+    if (click_wanted()) click_req=2;
     slicer_start();                                /* slicer.c: its step 0 with the sequencer's */
     perf_start();                                  /* perform.c: its 1/16 grid too */
 }
@@ -678,6 +722,7 @@ static void seq_release(track_t *t)
 
 static void seq_stop(void)
 {
+    cin_left=0; click_req=0; clk.env=0; audition_request=0; if(audition_active)audition_stop();
     uint32_t i;
     seq_erase_request = 0;
     seq_erase_transport++;
@@ -869,6 +914,7 @@ static void seq_advance(uint32_t n)
     while (beat_pos >= beat) {
         beat_pos -= beat;
         beat_n = (beat_n + 1u) & 3u;
+        if(song.playing && click_wanted())click_req=beat_n?1:2;
     }
 }
 
@@ -902,8 +948,9 @@ static void events_block(uint32_t n)
     if (transport_req == 1u) {
         if (clock_mode)
             midi_clock_transport(0xFAu, fm1_ms);
-        else
-            seq_start();
+        else if(settings_countin && song.rec && !chain.armed && !chain.running) {
+            seq_stop(); memset(cin_n,0,sizeof cin_n);cin_total=cin_left=settings_countin*4u; cin_pos=0; click_req=2;
+        } else seq_start();
         transport_req = 0;
     } else if (transport_req == 2u) {
         seq_stop();
@@ -957,6 +1004,7 @@ static void events_block(uint32_t n)
         t->armp = t->p[P_AMODE];
         t->aholdp = t->p[P_AHOLD];
     }
+    audition_tick(n);
     keyboard_block();
     while (mi_r != mi_w) {                            /* USB-MIDI (and TRS) in */
         uint32_t at = mi_r % MQ, pkt = midi_in_q[at], status = (pkt >> 8) & 0xFFu;
@@ -998,7 +1046,24 @@ static void events_block(uint32_t n)
             for (i = 0; i < NPART; i++)
                 arp_step(&trk[i], 0, (uint32_t)((uint64_t)n * MIDI_BEAT_UNITS / beat_samples()));
     } else {
-        seq_advance(n);
+        uint32_t left=n;
+        if(cin_left) {
+            uint32_t beat=beat_samples();if(cin_pos>=beat)cin_pos=beat-1u;
+            while(cin_left && left) {
+                uint32_t take=beat-cin_pos; if(take>left)take=left;
+                cin_pos+=take; left-=take;
+                if(cin_pos>=beat) {
+                    cin_pos=0; cin_left--;
+                    if(cin_left)click_req=((cin_total-cin_left)&3u)?1:2;
+                    else { seq_start(); seq_advance(0);
+                        for(uint32_t tr=0;tr<NTRK;tr++)if(rec_on(&trk[tr]) && !trk[tr].p[P_AMODE])
+                          for(uint32_t i=0;i<cin_n[tr];i++) { uint32_t note=cin_note[tr][i];
+                            if(live_held[tr][note>>5]&(1u<<(note&31u)))rec_note(&trk[tr],note,cin_vel[tr][i]); }
+                        if(!click_wanted())click_req=2; }
+                }
+            }
+        }
+        if(left)seq_advance(left);
     }
     if (song.playing)
         song.tick++;

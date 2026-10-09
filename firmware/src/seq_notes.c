@@ -61,6 +61,7 @@ static void notes_cycle(int32_t delta)
         delta += delta > 0 ? -1 : 1;
     }
     ui.note_pick = (uint16_t)(chosen + 1u);
+    notes_preview();
 }
 static uint32_t notes_span(void) { return 16u >> ui.note_zoom; }
 static uint32_t notes_base(void) { return ui.cursor / notes_span() * notes_span(); }
@@ -153,4 +154,23 @@ static void notes_jog(int32_t delta)
         }
         delta -= dir;
     }
+    notes_preview();
+}
+
+static void notes_preview(void)
+{
+    if(!settings_preview || song.playing || seq_counting() || ui.home || ui.menu || ui.layer || ui.entry_open) return;
+    const page_t *pg=cur_page(); if(pg->graph!=GR_ROLL && pg->graph!=GR_STEPS) return;
+    uint8_t nn[12],vv[12];uint32_t count=0,chosen=notes_selected(TSEL);
+    if(chosen<RECORD_MAX) { nn[count]=recording[chosen].note;vv[count++]=recording[chosen].vel; }
+    else {
+        uint32_t at=step_note_start(TSEL,ui.cursor);
+        if(at<NSTEP) { const step_t *st=&TSEL->step[at];
+            if(pg->graph==GR_ROLL && st->n) { nn[count]=st->note[notes_manual_slot(st)];vv[count++]=st->vel?st->vel:96; }
+            else for(uint32_t i=0;i<st->n;i++){nn[count]=st->note[i];vv[count++]=st->vel?st->vel:96;}
+            if(drum_track(TSEL))for(uint32_t i=0;i<NLANE;i++)if(step_lanes(st)&(1u<<i)){nn[count]=DRUM_LANE_NOTE[i];vv[count++]=(step_accents(st)&(1u<<i))?127:96;}
+        }
+    }
+    fm1_irq_off(); audition_track=song.sel;audition_count=(uint8_t)count;
+    memcpy(audition_notes,nn,count);memcpy(audition_vel,vv,count);audition_request=1;fm1_irq_on();
 }

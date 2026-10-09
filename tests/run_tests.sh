@@ -160,6 +160,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "motion, whole-step chance, FUN7 migration, song restore and ARP repeat" "$OUT/motion_test"
     $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/pattern_test" tests/pattern_test.c -lm
     run "32 pattern banks: chords, ties, independent loop switching, copy and persistence" "$OUT/pattern_test"
+    $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/performance_tools_test" tests/performance_tools_test.c -lm
+    run "recording/performance tools and legacy migrations" "$OUT/performance_tools_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_control_test" tests/midi_control_test.c -lm
     run "USB/TRS clock, bend, sustain, ownership and panic recovery" "$OUT/midi_control_test"
     $CC -O1 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_timing_test" tests/midi_timing_test.c -lm

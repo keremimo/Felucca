@@ -32,7 +32,7 @@ static int motion_param(uint32_t id)
      * changes never become automation. FX sends and continuous mix are safe. */
     return id != P_RECQ && id != P_DLY && id < P_COUNT && (id <= P_REL || (id >= P_ED_FLT && id <= P_LD_AMP) ||
         (id >= P_DIST && id <= P_REV) || id == P_GLIDE || id == P_PAN ||
-        id == P_DETUNE || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || id >= P_E0);   /* (not the chord keys) */
+        id == P_DETUNE || (id >= P_LN0 && id <= P_LN7) || (id >= P_FM1_ATK && id <= P_FM4_LEVEL) || id >= P_E0);   /* (not the chord keys) */
 }
 static int motion_valid(const motion_store_t *m)
 {

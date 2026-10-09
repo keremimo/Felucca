@@ -34,6 +34,8 @@ static int16_t drumch_cell;
 /* SAVE > PROJECT KNOB 2, BOOT: the project power-on loads (OFF, A..D; OFF or an empty slot: the template, if one is
  * saved). A device setting kept with the settings (ext.boot), not the project's: the column shows boot_cell */
 static uint8_t settings_boot;
+/* Device recording preferences: defaults preserve existing behavior. */
+#include "recording_preferences.h"
 static int16_t boot_cell;
 static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};             /* SL_OFF .. SL_STUT (slicer.c) */
 static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
@@ -118,6 +120,14 @@ static void fm6_freq_text(char *val, const char **unit, int coarse)
 }
 
 static const param_desc_t TP[P_COUNT] = {
+    [P_LN0] = PD("KICK", F_PCT, 0, 127, 127),
+    [P_LN1] = PD("SNARE", F_PCT, 0, 127, 127),
+    [P_LN2] = PD("CLAP", F_PCT, 0, 127, 127),
+    [P_LN3] = PD("HATCL", F_PCT, 0, 127, 127),
+    [P_LN4] = PD("HATOP", F_PCT, 0, 127, 127),
+    [P_LN5] = PD("TOM", F_PCT, 0, 127, 127),
+    [P_LN6] = PD("RIM", F_PCT, 0, 127, 127),
+    [P_LN7] = PD("BELL", F_PCT, 0, 127, 127),
     [P_LEVEL] = PD("LVL", F_DB, 0, 127, 104),
     [P_ATK] = PD("ATK", F_TIME, 0, 127, 10),
     [P_DEC] = PD("DEC", F_TIME, 0, 127, 70),
@@ -498,6 +508,8 @@ static const page_t PAGES[] = {
     {"OP3 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM3_ATK, P_FM3_DEC, P_FM3_SUS, P_FM3_REL}},
     {"OP4 ENV", FAM_EDIT, SC_TRACK, GR_ADSR, {P_FM4_ATK, P_FM4_DEC, P_FM4_SUS, P_FM4_REL}},
     {"OP LEVEL", FAM_EDIT, SC_TRACK, GR_NONE, {P_FM1_LEVEL, P_FM2_LEVEL, P_FM3_LEVEL, P_FM4_LEVEL}},
+    {"LANES", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN0, P_LN1, P_LN2, P_LN3}},
+    {"LANES 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_LN4, P_LN5, P_LN6, P_LN7}},
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
     {"VOICE 2", FAM_EDIT, SC_TRACK, GR_NONE, {P_ALLOC, P_DETUNE, P_PAN, P_MUTE}},
     {"GLOBAL", FAM_GLO, SC_GLOBAL, GR_NONE, {G_A4, 0xFF, G_CLOCK, G_TUNE}},      /* A4 device reference; CLK/TUNE kept (GLO_KEPT) */

@@ -181,7 +181,8 @@ static int legacy_recording_migration(void)
     recorded_note_t saved = recording[0]; t->p[P_RECQ] = 6;
     project_capture(&proj_scratch); bank_pack(proj_wire_u.raw,&proj_scratch,1);
     static uint8_t legacy[BANK_SIZE_F];
-    memcpy(legacy,proj_wire_u.raw,8u + PROJ_REC_OFF + 152u * 8u);
+    memcpy(legacy,proj_wire_u.raw,8u);
+    frozen_project92(legacy+8u,proj_wire_u.raw+8u,PROJ_REC_OFF-PROJ_PARAM_EXTRA+152u*8u);
     memcpy(legacy+8u+PROJ_STORE_V12-16u,proj_wire_u.raw+8u+PROJ_STORE_SIZE-16u,12u);
     memcpy(legacy+8u+PROJ_STORE_V12,proj_wire_u.raw+8u+PROJ_STORE_SIZE,BANK_SIZE_F-8u-PROJ_STORE_V12-4u);
     uint32_t magic=PROJ_MAGIC_V12,size=PROJ_STORE_V12,sum;

@@ -9,12 +9,12 @@ enum { MI_COLOR, MI_LOWCUT, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB,
 #endif
-       MI_PANEL, MI_ABOUT, MI_BACK, MI_COUNT };
+       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_PANEL, MI_ABOUT, MI_BACK, MI_COUNT };
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "SPEAKER", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO",
 #endif
-                                              "CALIBRATION", "ABOUT", "BACK"};
+                                              "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY", "CALIBRATION", "ABOUT", "BACK"};
 #if MELODEE_USB_AUDIO
 /* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
 static const char *const MI_USB_NAME[4] = {"IN+OUT", "IN", "OUT", "OFF"};
@@ -187,11 +187,13 @@ static void menu_head(void)
  * with INK; a 16 px icon, the name (S), the value (M) at the right, centred in the row (MENU_DY); COLOR shows the
  * palette's five colours. Drawn in two bands (the canvas holds 124 rows), split between two rows */
 #if MELODEE_USB_AUDIO
+#define MENU_VISIBLE 8u
 #define MENU_Y0 28
 #define MENU_ROW 22
 #define MENU_RH 20
 #define MENU_SPLIT 137
 #else
+#define MENU_VISIBLE 7u
 #define MENU_Y0 28
 #define MENU_ROW 25
 #define MENU_RH 23
@@ -205,7 +207,7 @@ static void draw_menu(void)
 #if MELODEE_USB_AUDIO
                                            ICON_X_USB,
 #endif
-                                           ICON_X_DOCTOR, ICON_X_INFO, ICON_X_BACK};
+                                           ICON_X_TIMER, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_DOCTOR, ICON_X_INFO, ICON_X_BACK};
     uint32_t i, pass, sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u +
                             settings_hold * 3511u + settings_lights * 6151u +
 #if MELODEE_USB_AUDIO
@@ -241,8 +243,9 @@ static void draw_menu(void)
         int32_t top = pass ? MENU_SPLIT : H_HEAD;
         cv_begin(240, (uint32_t)(pass ? 240 - MENU_SPLIT : MENU_SPLIT - H_HEAD), T_BG);
         cv_oy = -top;                                 /* drawn in screen rows */
-        for (i = 0; i < MI_COUNT; i++) {
-            int32_t y = MENU_Y0 + (int32_t)i * MENU_ROW, yt;
+        uint32_t first=ui.menu_sel>=MENU_VISIBLE?ui.menu_sel-MENU_VISIBLE+1u:0u;
+        for (i = first; i < first+MENU_VISIBLE && i<MI_COUNT; i++) {
+            int32_t y = MENU_Y0 + (int32_t)(i-first) * MENU_ROW, yt;
             int sel = i == ui.menu_sel;
             uint16_t bg = sel ? T_THEME : T_SURF, fg = sel ? T_INK : T_TEXT, val = sel ? T_INK : T_THEME;
             if (y + MENU_RH <= top || y >= top + (int32_t)cv_h)
@@ -251,6 +254,13 @@ static void draw_menu(void)
             yt = y + MENU_DY;
             cv_icon_on(12, yt + 4, 16, ICO[i], sel ? T_INK : T_MID, bg);
             cv_text_on(36, yt + 5, &AF_S, MI_NAME[i], fg, bg);
+            if(i>=MI_CLICK && i<=MI_ADD){
+                const char *value=i==MI_CLICK?(const char *const[]){"OFF","REC","ON"}[settings_click%3u]:
+                  i==MI_CLICK_LEVEL?(const char *const[]){"LOW","MID","HIGH"}[settings_click_level%3u]:
+                  i==MI_COUNTIN?(const char *const[]){"OFF","1 BAR","2 BARS"}[settings_countin%3u]:
+                  i==MI_PREVIEW?(settings_preview?"ON":"OFF"):(settings_chord_add?"ADD":"HOLD");
+                cv_text_r(228,yt+3,&AF_M,value,val,bg);
+            }
             if (i == MI_LIGHTS)
                 cv_text_r(228, yt + 3, &AF_M, LIGHTS_NAME[settings_lights % LIGHTS_N], val, bg);
             if (i == MI_LOWCUT)
@@ -345,6 +355,13 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         uint32_t v = settings_hold % 4u;
         settings_hold = (uint8_t)(s > 0 ? (v < 3u ? v + 1u : 3u) : s < 0 ? (v ? v - 1u : 0u) : (v + 1u) % 4u);
         ok = 0;
+    }
+    if((s || ok) && ui.menu==1 && ui.menu_sel>=MI_CLICK && ui.menu_sel<=MI_ADD){
+        uint32_t id=ui.menu_sel-MI_CLICK,top=id<3?2:1;
+        uint32_t value=id==0?settings_click:id==1?settings_click_level:id==2?settings_countin:id==3?settings_preview:settings_chord_add;
+        value=s>0?(value<top?value+1:value):s<0?(value?value-1:0):(value+1)%(top+1);
+        if(id==0)settings_click=value;else if(id==1)settings_click_level=value;else if(id==2)settings_countin=value;else if(id==3)settings_preview=value;else settings_chord_add=value;
+        ok=0;ui.force=1;
     }
     if (ok && ui.menu == 1) {
         switch (ui.menu_sel) {

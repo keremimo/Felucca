@@ -1,6 +1,10 @@
 # MELODEE target cost budget (tests/target_budget.py): instructions in the loops of each
 # function in build/melodee.dis, x4 per nesting level, divides x9. The check allows +10 %.
 # Rewritten by BUDGET_UPDATE=1.
+# Optional recording paths are checked separately from the audio interrupt.
+midi_parameter 80
+audition_tick 129
+click_render 30
 analog_render 585
 phase_render 127
 lofi_render 123

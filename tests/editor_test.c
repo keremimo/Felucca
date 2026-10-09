@@ -115,7 +115,7 @@ static int preferences(void)
     bad += check("INFO explicitly tags display capabilities after SONG without changing command 33",
         ED_SONG == 33 && ED_UI_STATE == 34 && ED_FAV_SET == 38 &&
         host_wire[n - 41] == 0 && host_wire[n - 40] == 0x55 &&
-        host_wire[n - 39] == 1 && host_wire[n - 38] == 9 &&
+        host_wire[n - 39] == 1 && host_wire[n - 38] == 25 &&
         host_wire[n - 37] == 0x4d && host_wire[n - 36] == 1 &&
         host_wire[n - 35] == MOTION_MAX && host_wire[n - 34] == 1 &&
         host_wire[n - 33] == 0x42 && host_wire[n - 32] == 1 && host_wire[n - 31] == 3 &&
@@ -129,7 +129,7 @@ static int preferences(void)
     bad += check("out-of-range palette leaves the display unchanged", host_wire[5] == 1 && settings.palette == 7);
     a[0] = 1; a[1] = 1; request(ED_UI_SET, a, 2);
     bad += check("the retired font weight is not supported (rc 2), UI_STATE says 127",
-        host_wire[5] == 2 && host_wire[8] == 9 && host_wire[10] == 127);
+        host_wire[5] == 2 && host_wire[8] == 25 && host_wire[10] == 127);
     a[0] = 2; request(ED_UI_SET, a, 2);
     bad += check("unsupported preference is reported without applying it", host_wire[5] == 2);
     a[0] = ENGI_DRUM; a[1] = 0; a[2] = 64; a[3] = 1;
@@ -451,14 +451,15 @@ static void legacy_cz_fixture(uint8_t *p)
     for(uint32_t l=0;l<2;l++){p[LCZ_LBASE(l)+LCZ_LEVEL]=15;p[LCZ_LBASE(l)+LCZ_KW]=5;
         for(uint32_t e=0;e<3;e++){uint32_t b=LCZ_EBASE(l,e);for(uint32_t j=0;j<8;j++)p[b+j]=99;p[b+8]=e?99:0;p[b+16]=0;p[b+17]=1;}}
 }
+#include "frozen_project.h"
 static int cz_legacy_saved_sounds(void)
 {
     int bad=0;reset();cz_init();uint8_t tone[LCZ_PACKED],native[CZ_BYTES];legacy_cz_fixture(tone);
     bad+=check("earlier next CZ tone becomes documented native wire bytes",cz_legacy_tone(native,tone,sizeof tone) && native[18]==5 && native[19]==83 && native[128]=='M');
     project_t q,r;project_capture(&q);project_store_t packed;proj_pack(&packed,&q);
-    uint8_t legacy[PROJ_LEGACY_CZ];memset(legacy,0,sizeof legacy);memcpy(legacy,packed.raw,PROJ_CZ_OFF);
+    uint8_t legacy[PROJ_LEGACY_CZ];memset(legacy,0,sizeof legacy);frozen_project92(legacy,packed.raw,PROJ_CZ_OFF-PROJ_PARAM_EXTRA);
     uint32_t magic=0x46554E42u,size=sizeof legacy,sum;memcpy(legacy,&magic,4);memcpy(legacy+4,&size,4);
-    for(uint32_t k=0;k<NTRK;k++){memcpy(legacy+PROJ_CZ_OFF+k*LCZ_PACKED,tone,LCZ_PACKED);legacy[68u+k*(P_COUNT+2u+NSTEP*9u)+P_COUNT]=14;}
+    for(uint32_t k=0;k<NTRK;k++){memcpy(legacy+PROJ_CZ_OFF-PROJ_PARAM_EXTRA+k*LCZ_PACKED,tone,LCZ_PACKED);legacy[68u+k*(92u+2u+NSTEP*9u)+92u]=14;}
     sum=proj_hash(legacy,sizeof legacy-4);memcpy(legacy+sizeof legacy-4,&sum,4);
     bad+=check("earlier next FUNB project migrates CZ engine and full envelopes",proj_import_any(&r,legacy,sizeof legacy) && r.t[0].engine==ENGI_CZ && r.t[0].p[P_E7]==CZ_NATIVE && !memcmp(r.cz[0].raw,native,CZ_BYTES));
     uint8_t full[BANK_STORE_SIZE];bank_pack(full,&q,0);uint32_t oldExtra=BANK_EXTRA_OFF;
@@ -466,13 +467,13 @@ static int cz_legacy_saved_sounds(void)
     memcpy(full+8u,legacy,sizeof legacy);magic=0x434B4246u;size=BANK_SIZE_CZ_NEXT;memcpy(full,&magic,4);memcpy(full+4,&size,4);sum=proj_hash(full,size-4u);memcpy(full+size-4u,&sum,4);
     bad+=check("earlier next FBKC pattern bank validates without losing timing",bank_valid(full,size));bank_upgrade(full);
     bad+=check("normalized CZ pattern bank upgrades to native project format",bank_valid(full,BANK_STORE_SIZE) && proj_scratch.t[0].engine==ENGI_CZ && !memcmp(proj_scratch.cz[0].raw,native,CZ_BYTES));
-    uint8_t tpl[TMPL_CZ_NEXT];memset(tpl,0,sizeof tpl);memcpy(tpl,&tmpl,TMPL_SIZE6-8u);
-    for(uint32_t k=0;k<NTRK;k++){memcpy(tpl+TMPL_SIZE6-8u+k*LCZ_PACKED,tone,LCZ_PACKED);tpl[(2u*G_COUNT+2u)+k*sizeof(tmpl.t[0])]=14;}
+    uint8_t tpl[TMPL_CZ_NEXT];memset(tpl,0,sizeof tpl);frozen_template92(tpl,(const uint8_t *)&tmpl,TMPL_SIZE6-8u);
+    for(uint32_t k=0;k<NTRK;k++){memcpy(tpl+TMPL_SIZE6-8u+k*LCZ_PACKED,tone,LCZ_PACKED);tpl[(2u*G_COUNT+2u)+k*(2u+92u*2u)]=14;}
     size=sizeof tpl;magic=0x394C5054u;memcpy(tpl+size-8,&size,4);memcpy(tpl+size-4,&magic,4);
     bad+=check("earlier next TPL9 template migrates native CZ tone",tmpl_take(tpl,sizeof tpl) && tmpl.t[0].engine==ENGI_CZ && !memcmp(tmpl.cz[0].raw,native,CZ_BYTES));
-    up_rec_t rec;memset(&rec,0,sizeof rec);rec.used=UP_USED;rec.engine=14;rec.ver=7;rec.np=P_COUNT;memcpy(rec.name,"OLD CZ",6);
+    up_rec_t rec;memset(&rec,0,sizeof rec);rec.used=UP_USED;rec.engine=14;rec.ver=7;rec.np=92u;memcpy(rec.name,"OLD CZ",6);
     uint32_t pos=0;for(uint32_t k=0;k<LCZ_PACKED;k++){uint32_t w=up_legacy_width(k);for(uint32_t j=0;j<w;j++,pos++){uint32_t at=pos>>3;uint8_t *p=at<144?rec.packed+at:rec.cz_extra+at-144;*p|=((tone[k]>>j)&1u)<<(pos&7);}}
-    for(uint32_t k=0;k<P_COUNT;k++){uint32_t val=(uint32_t)(TP[k].def-LCZ_PRESET_MIN[k]);if(k==P_REV)val=77;for(uint32_t j=0;j<LCZ_PRESET_WIDTH[k];j++,pos++){uint32_t at=pos>>3;uint8_t *p=at<144?rec.packed+at:rec.cz_extra+at-144;*p|=((val>>j)&1u)<<(pos&7);}}
+    for(uint32_t k=0;k<92u;k++){uint32_t val=(uint32_t)(TP[k<84u?k:k+8u].def-LCZ_PRESET_MIN[k]);if(k==P_REV)val=77;for(uint32_t j=0;j<LCZ_PRESET_WIDTH[k];j++,pos++){uint32_t at=pos>>3;uint8_t *p=at<144?rec.packed+at:rec.cz_extra+at-144;*p|=((val>>j)&1u)<<(pos&7);}}
     uint8_t converted[CZ_BYTES];int16_t values[P_COUNT];up_values(&rec,values);
     bad+=check("earlier next CZ preset retains native tone and effect settings",up_valid(&rec) && up_cz_raw(&rec,converted) && !memcmp(converted,native,CZ_BYTES) && values[P_REV]==77 && values[P_E7]==CZ_NATIVE);
     return bad;
