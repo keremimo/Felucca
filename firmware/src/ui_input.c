@@ -1850,7 +1850,8 @@ static void ui_input(void)
             ui.hot_t = 40;
         }
         momentary_take(k);
-        if (ui.home) {                                  /* Stage: the selected track's engine's four, as its pages */
+        if (ui.home) {                                  /* Stage: the selected track's engine's four, as its pages; they drop in */
+            stage_knob_touch();
             page_over = stage_page();
             edit_param(k, s);
             page_over = 0;

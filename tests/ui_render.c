@@ -592,6 +592,8 @@ static uint32_t preset_named(uint32_t e, const char *n)
         if (!strcmp(ENGINES[e]->presets[k].name, n)) return k;
     return 0;
 }
+/* Stage's knobs out (a knob just turned), dropped in all the way */
+static void stage_out(void) { stage.knob_ms = fm1_ms | 1u; stage.out = 1; stage.drop = 0; }
 static void ref_steps(track_t *t, const char *on, uint32_t note, int hits)
 {
     uint32_t i;
@@ -625,7 +627,7 @@ static void ref_scene(int s)
     }
     p5_patch_of(&trk[1])->raw[P5_CUTOFF] = 79; p5_patch_of(&trk[1])->raw[P5_RESONANCE] = 38;
     p5_patch_of(&trk[1])->raw[P5_ENV_FILTER] = 105; p5_patch_of(&trk[1])->raw[P5_RELEASE_AMP] = 40;
-    song.playing = 1; song.g[G_BPM] = 124; song.sel = 1;
+    song.playing = 1; song.g[G_BPM] = 124; song.sel = 1; trk[1].pattern_next = 2;   /* (P3 waiting for the bar) */
     song.batt_raw = 600; usb.config = 0;               /* (the mockups show no battery) */
     for (k = 0; k < SCOPE_N; k++) {                     /* the mockups' waveform: three partials (let go: quieter) */
         double a = k * 2.0 * 3.14159265 / 75.0, g = s == S_REF_STAGE_RELEASED ? 0.04 : 1.0;
@@ -637,7 +639,7 @@ static void ref_scene(int s)
         go_home();
         input_on(TSEL, 57, 100); input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); input_on(TSEL, 67, 100);
         if (s == S_REF_STAGE_RELEASED) { input_off(TSEL, 57); input_off(TSEL, 60); input_off(TSEL, 64); input_off(TSEL, 67); }
-        if (s == S_REF_STAGE_CUTOFF) { ui.hot_col = 0; ui.hot_t = 30; }
+        if (s == S_REF_STAGE_CUTOFF) { ui.hot_col = 0; ui.hot_t = 30; stage_out(); }
         break;
     case S_REF_STAGE_DRUM:
         song.sel = 0; go_home(); drum_flash[0] = 2u | 8u; break;
@@ -679,6 +681,7 @@ static void ref_scene(int s)
 static void setup(int s)
 {
     memset(kb_chn, 0, sizeof kb_chn);               /* no key held (roll_playing holds one) */
+    memset(&stage, 0, sizeof stage);                /* (Stage's knobs in) */
     if (s >= S_MOCK_HOME && s <= S_MOCK_MENU) {
         mock_state(s);
         return;
@@ -801,17 +804,17 @@ static void setup(int s)
     case S_STAGE_DRUM:
         drum(0); go_home(); trk[3].seq_idx = 9; drum_flash[3] = 1u | 8u | 32u; break;
     case S_STAGE_CZ:
-        eng(ENGI_CZ); apply_preset(3); go_home(); ui.hot_col = 2; ui.hot_t = 30;
+        eng(ENGI_CZ); apply_preset(3); go_home(); ui.hot_col = 2; ui.hot_t = 30; stage_out();
         input_on(TSEL, 48, 100); input_on(TSEL, 55, 100); input_on(TSEL, 64, 100); break;
     case S_STAGE_P5:
         eng(ENGI_PROPHET); go_home(); input_on(TSEL, 62, 100); input_on(TSEL, 65, 100); input_on(TSEL, 69, 100);
-        input_on(TSEL, 72, 100); ui.hot_col = 0; ui.hot_t = 30; break;   /* (CUTOFF turning: the filter's curve) */
+        input_on(TSEL, 72, 100); ui.hot_col = 0; ui.hot_t = 30; stage_out(); break;   /* (CUTOFF turning: the filter's curve) */
     case S_STAGE_FILTER:                                 /* ANALOG's RES turning, a chord held: the curve behind it */
-        go_home(); TSEL->p[P_E5] = 100; ui.hot_col = 1; ui.hot_t = 30;
+        go_home(); TSEL->p[P_E5] = 100; ui.hot_col = 1; ui.hot_t = 30; stage_out();
         input_on(TSEL, 57, 100); input_on(TSEL, 60, 100); input_on(TSEL, 64, 100); break;
     case S_STAGE_ENV:                                    /* ANALOG's REL turning: the envelope */
         go_home(); TSEL->p[P_ATK] = 20; TSEL->p[P_DEC] = 50; TSEL->p[P_SUS] = 80; TSEL->p[P_REL] = 90;
-        ui.hot_col = 3; ui.hot_t = 30; break;
+        ui.hot_col = 3; ui.hot_t = 30; stage_out(); break;
     case S_STAGE_QUEUED:
         go_home(); trk[1].pattern_next = 2; trk[2].p[P_MUTE] = 1; song.rec = 2u; fm1_ms = 0; break;
     case S_STAGE_BROWSE:

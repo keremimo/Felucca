@@ -240,6 +240,7 @@ static void draw_frame(int stage)
  * and value in the accent. ratio: 0..1000 for the gauge, -1 = no gauge. icon: ICON_* (icons.c), ICON_AUTO = by label;
  * a label too long to share the card with its icon goes without it.
  * vc: the value's colour (T_THEME, T_DIM inactive, T_ACCENT the knob just turned) */
+static uint8_t stage_drop_rows;                         /* Stage's knobs dropping in: the cards' bottom rows only, 0 all */
 static void draw_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc,
                         int32_t ratio, uint32_t icon)
 {
@@ -333,7 +334,10 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         }
     }
     cv_oy = 0;
-    cv_blit((uint32_t)CARD_X(c), Y_LABEL + (strip ? ROLL_Y : 0));
+    if (stage_drop_rows && !strip)                      /* (rows r0 .. under the header: Y_LABEL - r0 wraps, + r0 back) */
+        cv_blit_from((uint32_t)CARD_X(c), Y_LABEL - (uint32_t)(COL_H - stage_drop_rows), COL_H - stage_drop_rows);
+    else
+        cv_blit((uint32_t)CARD_X(c), Y_LABEL + (strip ? ROLL_Y : 0));
 }
 
 /* an action's column (act_cols): picked, the OCT+ keycap (accent while it would do something); else "--" */
@@ -591,10 +595,8 @@ static void draw_columns(void)
     uint32_t c;
     char val[12];
     const char *unit;
-    if (ui.home) {                                      /* Stage: the selected track's engine's four */
-        stage_columns();
+    if (ui.home)                                        /* Stage: its knobs drop in when turned (ui_stage.c stage_knobs) */
         return;
-    }
     if (cur_page()->graph == GR_PATGRID) {              /* PATTERNS: a track's each */
         patgrid_columns();
         return;

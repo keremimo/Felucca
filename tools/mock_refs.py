@@ -37,10 +37,15 @@ def main():
             page = os.path.join(tmp, f + ".html")
             open(page, "w").write(PAGE.format(font=FONT.replace('"', "%22"), svg=svg))
             png = os.path.join(REF, f[:-4] + ".png")
-            subprocess.run([a.chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars",
-                            "--force-device-scale-factor=1", "--window-size=240,240", "--virtual-time-budget=2000",
-                            f"--screenshot={png}", "file://" + page],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            for attempt in range(3):                   # (headless Chrome now and then exits 2: again)
+                rc = subprocess.run([a.chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars",
+                                     "--force-device-scale-factor=1", "--window-size=240,240",
+                                     "--virtual-time-budget=2000", f"--screenshot={png}", "file://" + page],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+                if not rc:
+                    break
+            else:
+                sys.exit(f"mock_refs: Chrome failed on {f}")
             print("mock_refs:", os.path.relpath(png, ROOT))
 
 
