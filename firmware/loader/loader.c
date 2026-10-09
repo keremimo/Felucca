@@ -16,8 +16,8 @@
 #define RING_PUBLISH() __asm__ volatile("" ::: "memory")
 #include "fm1_time.h"
 #include "fm1_sys.h"
-/* the loader may write the app area and erase update records; never the head */
-#define FL_RANGE_OK(off, n) (FL_IN(off, n, 0x4000u, 0x89000u) || FL_IN(off, n, 0x93000u, 0xFC000u))
+/* the loader may write the app area, move the Prophet banks up (0x93000..) and erase update records; never the head */
+#define FL_RANGE_OK(off, n) (FL_IN(off, n, 0x4000u, 0x93000u) || FL_IN(off, n, 0x93000u, 0xFC000u))
 #include "fm1_flash.h"
 #include "../src/libc.c"
 #include "../src/usb.c"

@@ -260,7 +260,7 @@ int main(void)
         v5.t[0].p[P_LEVEL] = 900;                                  /* out of range */
         v5.t[0].step[0] = (step10_t){{255, 128, 160, 200}, 255, 255, 0, 96, 255, 5};
         v5.sum = proj_hash(&v5, sizeof v5 - 4u);
-        st_save(OBJ_PROJECT0 + 3u, &v5, sizeof v5);
+        st_save(OBJ_BANK0 + 3u, &v5, sizeof v5);                 /* (an old record in a project slot) */
         memset(proj_slot[3].raw, 0, 4);
         project_load(3);
         bad += check("FUN5 load bounds steps and masks lane accents", trk[0].step[0].n == 4u &&

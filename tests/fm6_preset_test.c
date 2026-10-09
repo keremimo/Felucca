@@ -78,10 +78,13 @@ int main(void)
     native_put(ENGI_FM6,63,0);native_put(ENGI_CZ,0,0);reboot_presets();
     bad+=check("migration markers prevent erased legacy sounds from reappearing",!native_used(ENGI_FM6,63) && !native_used(ENGI_CZ,0));
     int layout=1;
+    /* (the legacy projects are retired: the Prophet banks took their place when the app area grew) */
+    #define RETIRED(o) st_retired(o)
     for(uint32_t a=0;a<OBJ_COUNT;a++)for(uint32_t ac=0;ac<2;ac++){
         uint32_t lo=st_sector(a,ac),len=st_banked(a)?5u*ST_SECTOR:ST_SECTOR;
-        layout &= !(lo<0xE5000u && lo+len>0xE0000u);
-        for(uint32_t b=a+1;b<OBJ_COUNT;b++)for(uint32_t bc=0;bc<2;bc++){uint32_t blo=st_sector(b,bc),blen=st_banked(b)?5u*ST_SECTOR:ST_SECTOR;layout &=lo+len<=blo || blo+blen<=lo;}
+        if(RETIRED(a))continue;
+        layout &= !(lo<0xE5000u && lo+len>0xE0000u) && lo>=0x93000u;   /* (above the app area) */
+        for(uint32_t b=a+1;b<OBJ_COUNT;b++)for(uint32_t bc=0;bc<2;bc++){uint32_t blo=st_sector(b,bc),blen=st_banked(b)?5u*ST_SECTOR:ST_SECTOR;if(RETIRED(b))continue;layout &=lo+len<=blo || blo+blen<=lo;}
     }
     bad+=check("native storage stays separate from projects, general presets and OTA",layout);
     bad+=bank_import();

@@ -17,7 +17,8 @@ int main(int argc,char **argv)
     reset();up_boot();
     p5_patch_init(&p);for(uint32_t i=88;i<133;i++)p.raw[i]=(uint8_t)(i*179u);
     int all=1;for(uint32_t slot=0;slot<128;slot++){p.raw[65]=(uint8_t)('A'+slot%26);all &= !native_put(ENGI_PROPHET,slot,(const uint8_t *)&p);}
-    bad+=check("all 128 native slots fit without changing historical object IDs",all && OBJ_P5BANK0==OBJ_NATIVEFM0+2 && st_sector(OBJ_P5BANK0,0)==0x89000 && st_sector(OBJ_P5BANK0+4,1)==0x92000);
+    bad+=check("all 128 native slots fit without changing historical object IDs",all && OBJ_P5BANK0==OBJ_NATIVEFM0+2 && st_sector(OBJ_P5BANK0,0)==0x93000 && st_sector(OBJ_P5BANK0+4,1)==0x9C000 &&
+                 OBJ_P5BANK0==25u);   /* (ldr_core.c LDR_P5_OBJ0: the loader moves them from 0x89000) */
     p5_user_reset();bad+=check("P128 survives reboot with all opaque bytes and wire metadata",!p5_user_get(127,&q)&&!memcmp(&p,&q,sizeof p));
     uint32_t before=erases;bad+=check("slot 129 is rejected before any erase",native_put(ENGI_PROPHET,128,(const uint8_t *)&p)==1&&erases==before);
     q=p;q.raw[17]=13;fail_after=2;bad+=check("interrupted native save reports failure and rolls RAM back",native_put(ENGI_PROPHET,127,(const uint8_t *)&q)==2&&!memcmp(native_raw(ENGI_PROPHET,127),&p,sizeof p));fail_after=-1;p5_user_reset();

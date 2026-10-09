@@ -845,8 +845,7 @@ static int proj_read_slot(uint32_t slot)
     proj_wire_gen++;
 #if MELODEE_FLASH
     if (flash_ok) {
-        n = st_load(OBJ_BANK0 + slot, proj_wire_u.raw, sizeof proj_wire_u.raw);
-        if (n < 0) n = st_load(OBJ_PROJECT0 + slot, proj_wire_u.raw, sizeof proj_wire_u.raw);
+        n = st_load(OBJ_BANK0 + slot, proj_wire_u.raw, sizeof proj_wire_u.raw);   /* (the legacy objects: retired) */
     }
 #else
     if (bank_valid(proj_bank_slot[slot], BANK_STORE_SIZE) &&
