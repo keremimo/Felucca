@@ -16,7 +16,8 @@ wheel_block 102
 phys_render 61
 drum_render 72
 noise_render 259
-fm6_render 4138
+# Native fp32 kernel; the pre-port next binary costs 15160 with FPU decoding.
+fm6_render 5284
 px_modal_block 111
 px_modal_run 192
 px_memb_block 106
@@ -62,3 +63,7 @@ d9_render_tom 3064
 d9_render_rim 4383
 d9_render_clap 1047
 d9_render_smp 1444
+
+# Native fp32 Prophet kernels, r3 + fprev1 disassembly.
+p5_samples 1075
+p5_mod_samples 105

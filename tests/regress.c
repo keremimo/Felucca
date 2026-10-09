@@ -1205,7 +1205,11 @@ int main(int argc, char **argv)
         const job_t *j = &J[i];
         const char *want = kv_get(cpu, nc, j->name);
         int own = j->e < NENGINES && idle_base > 0;
-        double b = want ? atof(want) - (own ? idle_base : 0) : 0, ipc = fmax(0, j->r.ipc - (own ? idle_base : 0));
+        /* Short native percussion can finish before measurement and cost
+         * less than the recorded idle mix. Clamp both sides consistently:
+         * a negative incremental baseline cannot be a valid CPU budget. */
+        double b = want ? fmax(0, atof(want) - (own ? idle_base : 0)) : 0;
+        double ipc = fmax(0, j->r.ipc - (own ? idle_base : 0));
         if (j->crashed) {
             printf("regress: CRASH  %s\n", j->name);
             crash++;
@@ -1222,7 +1226,7 @@ int main(int argc, char **argv)
             printf("regress: CPU %s: %.0f instructions / sample, no baseline (BUDGET_UPDATE=1 adds it)\n", j->name, ipc);
         else if (ipc > b * (1 + CPU_TOL) && ipc > b + CPU_SLACK) {
             printf("regress: CPU OVER BUDGET  %s: %.0f instructions / sample%s, baseline %.0f (+%.0f %%, limit +%.0f %%)\n",
-                   j->name, ipc, own ? " over the idle mix" : "", b, (ipc / b - 1) * 100, CPU_TOL * 100);
+                   j->name, ipc, own ? " over the idle mix" : "", b, b > 0 ? (ipc / b - 1) * 100 : 0, CPU_TOL * 100);
             c_fail++;
         } else if (ipc < b * (1 - CPU_TOL) && ipc < b - CPU_SLACK) {
             printf("regress: CPU note  %s: %.0f instructions / sample, baseline %.0f (%.0f %%): faster? "

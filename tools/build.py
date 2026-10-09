@@ -157,7 +157,7 @@ def build_loader():
     tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", src / "loader.ld",
        LDR / "crt0_ldr.o", LDR / "loader.o", "-o", elf)
     _, dis, hdr, syms = tc_all(("common/bin/objcopy", "-O", "binary", "-j", ".text", elf, LDR / "loader.bin"),
-                               ("common/bin/objdump", "-d", elf),
+                               ("common/bin/objdump", "-d", "-mcpu=r3", "-mattr=+fprev1", elf),
                                ("common/bin/objdump", "-h", elf),
                                ("common/bin/objdump", "-t", elf))
     (LDR / "loader.dis").write_text(dis)
@@ -218,8 +218,8 @@ def build_app():
                                ("common/bin/objcopy", "-O", "binary", "-j", ".dsp_tables", elf, OUT / "dsptables.bin"),
                                ("common/bin/objcopy", "-O", "binary", "-j", ".ram_text", elf, OUT / "ramtext.bin"),
                                ("common/bin/objdump", "-t", elf),
-                               ("common/bin/objdump", "-d", elf),
-                               ("common/bin/objdump", "-d", "-j", ".ram_text", elf))
+                               ("common/bin/objdump", "-d", "-mcpu=r3", "-mattr=+fprev1", elf),
+                               ("common/bin/objdump", "-d", "-mcpu=r3", "-mattr=+fprev1", "-j", ".ram_text", elf))
     (OUT / "melodee.dis").write_text(dis)
 
     def symv(name):

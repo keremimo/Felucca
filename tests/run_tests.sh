@@ -74,9 +74,9 @@
 # FM6 (tests/fm6_test.c): the 6-operator FM engine (src/eng_fm6.c, src/fm6_core.c) against the DX7: the 32 algorithms
 #                   against its diagrams, pitch, levels, envelopes, modulation; no DC / clipping over the factory
 #                   patches, the macros (neutral at 0, their directions), factory presets, pack / unpack and the SysEx layouts,
-#                   Dexed's 16 voices, the cost per voice; demos in build/fm6_demo/. tests/fm6_ams_test.c: the AMS share
-#                   as Dexed's doubles figure it. With DEXED_SRC (a Dexed checkout's Source/): tests/fm6_parity.sh
-#                   --quick renders scores through Dexed's own code and FM6 and compares them sample by sample.
+#                   Dexed's 16 voices, the cost per voice; demos in build/fm6_demo/. tests/fm6_ams_test.c: the fp32 AMS share
+#                   against Dexed's double reference. With DEXED_SRC (a Dexed checkout's Source/): tests/fm6_parity.sh
+#                   --quick renders scores through Dexed's own code and FM6 and reports sample differences (strict parity predates the fp32 port).
 # Change baseline entries only for reviewed, intentional differences in sound or cost;
 # retain every unaffected golden / CPU / target entry. VERBOSE=1: every render.
 set -e
@@ -143,6 +143,8 @@ run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" bui
 
 if [ -f build/gen/melodee_tables.h ]; then
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/synth_fpu_test" tests/synth_fpu_test.c -lm
+    run "native fp32: independent numerical references, exact pitch, quiet signals and fractional envelopes" "$OUT/synth_fpu_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/prophet_test" tests/prophet_test.c -lm
     run "Prophet native frames, five voices, filters, sync and Poly-Mod" "$OUT/prophet_test"
     if [ -d "build/prophet5/Prophet-5+10-Factory-Programs-ReadMe1.03" ]; then
@@ -281,9 +283,9 @@ if [ -f build/gen/melodee_tables.h ]; then
     mkdir -p build/fm6_demo
     run "FM6: the DX7's algorithms, pitch, levels, envelopes, modulation; DC, clipping, macros, patches, voices, cost, demos" "$OUT/fm6_test" build/fm6_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_ams_test" tests/fm6_ams_test.c -lm
-    run "FM6: AMS as Dexed's doubles figure it, every modulation" "$OUT/fm6_ams_test"
+    run "FM6: native fp32 AMS against the double reference, every modulation" "$OUT/fm6_ams_test"
     if [ -n "${DEXED_SRC:-}" ]; then
-        run "FM6 vs Dexed: sample-exact renders (DEXED_SRC)" sh tests/fm6_parity.sh --quick
+        run "FM6 vs Dexed: informational fp32 render comparison (DEXED_SRC)" sh tests/fm6_parity.sh --quick --diagnostic
     else
         echo "== FM6 vs Dexed: skipped (DEXED_SRC=<dexed>/Source to run tests/fm6_parity.sh)"
     fi
@@ -291,6 +293,8 @@ if [ -f build/gen/melodee_tables.h ]; then
 else
     echo "== skip hostsim (run ./build.sh once)"
 fi
+
+run "target budget: FPU decoding guard" python3 tests/target_budget_test.py
 
 run "regression: target cost of the render loops (pi32v2 disassembly)" python3 tests/target_budget.py \
     build/melodee.dis tests/target_budget.txt

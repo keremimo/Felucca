@@ -138,7 +138,7 @@ that used SAMPLE, GRAIN or SLICE need another sound; a track with the custom dru
 Melodee 0.10 is built on Felucca 1.0: its screen design, quick layers, sequencer and file formats.
 On top of Felucca 1.0 it adds:
 
-- **FM6** renders DX7 voices sample for sample as Dexed, with up to 16 voices, operator pages on the
+- **FM6** plays DX7 voices using Dexed's algorithms and envelope rules, with up to 16 voices, operator pages on the
   device and DX7 SysEx import. Each track keeps its own function settings (MODERN / MARK I / OPL,
   pitch bend, portamento and controllers), saved with the project
 - **KIT 808** on the DRUM engine: TR-808 circuit models on the eight lanes
@@ -351,6 +351,15 @@ Going back to older firmware cannot access these new native FM6 slots or U33–U
 ## Engines
 
 In the order the device lists them:
+
+CZ-1, FM6 and Prophet use the FM-1's native single-precision FPU for continuous
+signal arithmetic. Patch bytes and precise integer phase counters remain intact.
+CZ-1 evaluates the chip's phase functions continuously; FM6 retains the MARK I
+and OPL ROM quantization, with float buses, gains and feedback. Float rounding
+and fractional feedback mean FM6 is no longer sample-exact against Dexed.
+Prophet's filters, envelopes, oscillators, sync and Poly-Mod now keep fractional
+state until the final PCM conversion. Its SSI/Curtis models still require audio
+calibration; the FPU conversion does not establish hardware fidelity.
 
 - **PROPHET**: Sequential Prophet-5 Rev 4 programs, five voices per track: oscillators A and B (saw,
   pulse, B triangle, low-frequency and keyboard switches), hard sync, Poly-Mod, LFO and noise wheel

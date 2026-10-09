@@ -30,9 +30,11 @@ Projects and templates store both the native tone and all ordinary controls.
 FUN10 / FBKD / TPLA add native tones and continue to read deployed FUN8/FBK9/TPL6 and earlier formats.
 Native tone names remain 16 bytes even though the preset browser shows 12.
 
-Playback uses 11-bit phase functions and logarithmic amplitude derived from
-the uPD933 model, with chip-rate envelopes adjusted from 40 kHz to the current
-audio/control clock. DCO, DCW and DCA use their separate numerical domains.
+Playback evaluates the uPD933 model's phase functions continuously using
+native fp32 arithmetic. Its logarithmic amplitude law and chip-rate envelope
+rules are retained, with rates adjusted from 40 kHz to the current audio/control
+clock. DCO (semitones), DCW (phase units) and DCA (0..127) have separate domains.
+Fractional phase, envelope time and amplitude are preserved until PCM output.
 The output includes DC removal and headroom for asymmetric carriers.
 
 This is documented-behavior implementation, not measured audio parity. The
