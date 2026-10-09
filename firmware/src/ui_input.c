@@ -183,12 +183,51 @@ static void ui_leds(void)
 }
 
 /* ---------------------------------------------------------- input --- */
+/* Knob acceleration, after Felucca 1.4 (#52): each decoded detent is one step, and a fast turn of a wide value (range
+ * above 32; a list of names passes 0) moves it 2..4 steps a detent, up to 8 over a range above 64. MENU > KNOB ACCEL
+ * OFF (PREF_ACCEL_OFF) keeps every detent one step. The main loop reads the knobs many times a frame (main.c), so a read
+ * holds one detent as a rule: the speed is the time per detent, ACC_RATE / ms -> 25 ms x2, 16 ms x3, 12 ms x4,
+ * 10 ms x5 .. 6 ms or less x8. Only the longer of this read's and the previous read's time counts, and only while the
+ * turn goes on (both under ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a single quick
+ * detent (a bounce) and a reversal are one step per detent, and the sign is always the detents'. *fast (if asked): this
+ * detent followed the previous one within ACC_GAP ms, in the same direction (the browser waits for such a turn to rest).
+ * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per detent (127 slow) */
+#define ACC_GAP 40u
+#define ACC_RATE 50u
+static int32_t accel_by(uint32_t role, int32_t s, uint32_t cap, uint32_t *fast)
+{
+    uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role % NE], up = s > 0, pi = st >> 25, a, i, m = 1;
+    if (fast)
+        *fast = 0;
+    if ((PREF_BITS & PREF_ACCEL_OFF) || !s)
+        return s;
+    a = (uint32_t)(s < 0 ? -s : s);
+    i = ((now - st) & 0xFFFFFFu) / a;                   /* ms per detent of this read */
+    if (!st || ((st >> 24) & 1u) != up || i >= ACC_GAP) {
+        i = 127u;                                       /* a new turn, or reversed */
+    } else {
+        if (fast)
+            *fast = 1;
+        if (pi < ACC_GAP) {
+            m = ACC_RATE / (i > pi ? i : pi ? pi : 1u);
+            m = m < 1u ? 1u : m > cap ? cap : m;
+        }
+    }
+    ui.enc_t[role % NE] = now | up << 24 | (i ? i : 1u) << 25;
+    return s * (int32_t)m;
+}
 static int32_t accel(uint32_t role, int32_t s, int32_t range)
 {
-    /* Predictable hardware response: each decoded detent is one value step.
-     * Fast turns retain their full signed detent count without time acceleration. */
-    (void)role; (void)range;
-    return s;
+    return range <= 32 ? s : accel_by(role, s, range > 64 ? 8u : 4u, 0);
+}
+static int32_t desc_range(const param_desc_t *d)     /* (a list of names: no acceleration) */
+{
+    return d->fmt == F_ENUM ? 0 : d->max - d->min;
+}
+/* a list of total entries (the sounds, the scales, the user slots): up to x16 over 256 entries */
+static int32_t list_accel(uint32_t role, int32_t s, uint32_t total, uint32_t *fast)
+{
+    return accel_by(role, s, total > 256u ? 16u : total > 64u ? 8u : total > 16u ? 4u : 1u, fast);
 }
 
 /* MIXER page: KNOB 1 LEVEL, 2 PAN, 3 REV send, 4 MUTE of the selected track (right = ON, left = OFF: the
@@ -551,24 +590,30 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     }
     if (pg->graph == GR_SCALE_PICKER) {
-        scale_picker_edit(slot, steps);
+        scale_picker_edit(slot, slot == 1u ? list_accel(EN_K1 + slot, steps, scale_picker_count(), 0) : steps);
         return;
     }
     if (scale_settings_page(pg) && slot == 1u) {
         scale_picker_mark(steps > 0);
         return;
     }
-    if (pg->graph == GR_BROWSE) {                         /* KNOB 1: one preset, KNOB 2: the next / previous engine */
+    if (pg->graph == GR_BROWSE) {   /* KNOB 1 browses (as PRESETS), 2 the next / previous engine, 3 FAV, 4 LIST */
         if (slot == 0u) {
-            preset_step(steps);
-        } else if (slot == 1u) {
+            browse_turn(EN_K1, steps);
+            return;
+        }
+        browse_commit();                                  /* (the others act on the sound shown: load it first) */
+        if (slot == 1u) {
             select_engine(eng_step(TSEL->eng_req, steps));
         } else if (slot == 2u) {
             preset_mark(steps > 0);
-        } else if (slot == 3u && favorites.filter != (uint32_t)(steps > 0)) {
-            favorites.filter = steps > 0;
-            ui.force = 1;
-            settings_save();
+        } else if (slot == 3u) {                          /* ALL FAV RECENT, the categories (no wrap) */
+            uint32_t m = (uint32_t)clamp((int32_t)list_mode() + (steps > 0 ? 1 : -1), 0, (int32_t)LM_N - 1);
+            if (m != list_mode()) {
+                list_set(m);
+                ui.force = 1;
+                settings_save();
+            }
         }
         return;
     }
@@ -586,7 +631,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
     if (pg->graph == GR_USER) {                           /* KNOB 1 the slot */
         if (slot == 0u)
-            ui.uslot = (uint8_t)clamp((int32_t)ui.uslot + steps, 0, user_limit() - 1);
+            ui.uslot = (uint8_t)clamp((int32_t)ui.uslot + list_accel(EN_K1, steps, user_limit(), 0), 0, user_limit() - 1);
         return;
     }
     if (pg->graph == GR_PATS) {                          /* KNOB 1 the pattern */
@@ -601,7 +646,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     d = page_desc(pg, slot, &vp);
     if (!d || !vp || d->max == d->min)
         return;
-    v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max));
+    v = enum_step(d, *vp, clamp(*vp + accel(EN_K1 + slot, steps, desc_range(d)), d->min, d->max));
     *vp = (int16_t)v;
     if(pg->scope==SC_P5){fm1_irq_off();p5_edit_value(TSEL,pg->id[slot],v-(pg->id[slot]==P5_BEND?1:0));fm1_irq_on();return;}
     if(pg->scope==SC_P5STORE){p5_store_slot=(int16_t)v;return;}
@@ -1249,6 +1294,9 @@ static void ui_input(void)
 {
     uint32_t pressed = fm1_input_edges(0), notes = fm1_input_note_edges(), now = fm1_ticks(), id, b, k;
     if (scr_input(pressed, notes)) return;
+    if (notes)
+        browse_commit();                              /* a key played while browsing: hear the sound shown */
+    browse_poll();
     layer_lock_input(pressed);
     if(momentary.active && (pressed&(1u<<panel.btn[B_OCTUP]))){
         momentary.active=momentary.count=momentary.native=0;pressed&=~(1u<<panel.btn[B_OCTUP]);ui_message("KEPT");
@@ -1558,12 +1606,12 @@ static void ui_input(void)
     s = panel_enc(EN_PRESET);
     if (s) step_edit_combo();
     if (s && !ui.home && cur_page()->graph == GR_SCALE_PICKER) {
-        scale_picker_step(s);
+        scale_picker_step(list_accel(EN_PRESET, s, scale_picker_count(), 0));
     } else if (s && (ui.home || cur_page()->graph == GR_BROWSE)) {
         /* PRESETS browses the selected part's sounds (all engines, then user presets) on HOME and the
          * PRESETS page only (never the steps); elsewhere (TRACKS too, where one records) a stray turn
          * would throw away the sound being edited */
-        preset_step(s);                                  /* past the factory ones: user presets */
+        browse_turn(EN_PRESET, s);                       /* past the factory ones: user presets */
     } else if (s && !ui.home && cur_page()->graph == GR_ROLL && !grid_on()) {
         ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + s, 0, 4);
         ui.force = 1;
@@ -1611,7 +1659,7 @@ static void ui_input(void)
         if (ui.home) {
             int16_t *vp;
             const param_desc_t *d = home_param(k, &vp);
-            *vp = (int16_t)enum_step(d, *vp, clamp(*vp + accel(EN_K1 + k, s, d->max - d->min), d->min, d->max));
+            *vp = (int16_t)enum_step(d, *vp, clamp(*vp + accel(EN_K1 + k, s, desc_range(d)), d->min, d->max));
             if(!momentary.active)motion_capture(TSEL, (uint32_t)(vp - TSEL->p), *vp);
         } else {
             edit_param(k, s);

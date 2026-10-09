@@ -398,7 +398,7 @@ static void eng(uint32_t e) { set_engine_of(TSEL, e); }
  * OP LEVEL pages and the algorithm charts, exist only there: fm4_screen) */
 #define E_FM (MELODEE_FM4 ? ENGI_DIGITAL : ENGI_FM6)
 
-enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_USER, S_PHRASES, S_PROJECT, S_PROJECT_BOOT, S_TEMPO, S_TOOLS,
+enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_PRESETS_CAT, S_PRESETS_PENDING, S_PRESETS_RECENT, S_USER, S_PHRASES, S_PROJECT, S_PROJECT_BOOT, S_TEMPO, S_TOOLS,
        S_SONG_EMPTY, S_SONG, S_STEP, S_PATTERN, S_CHANCE, S_MOTION, S_DRUM, S_MIXER, S_MIXER_PAN,
        S_ENV, S_ENVDEST, S_LFO, S_MOD, S_FX, S_SLICER, S_DLY, S_SCL, S_CHORD, S_CHORD_WIDE, S_CHORD_OFF, S_CHORD_KIT, S_ARP, S_VOICE, S_GLOBAL, S_SYSTEM,
        S_EDIT_ANALOG, S_EDIT_DIGITAL, S_OP_ENV, S_EDIT_WHEEL, S_EDIT_PHYS,
@@ -417,7 +417,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_ROLL_EMPTY, S_ROLL_ACID, S_ROLL_CHORDS, S_ROLL_TIES, S_ROLL_LEN32, S_ROLL_HIGH, S_ROLL_LOW, S_ROLL_WIDE, S_ROLL_PLAYING,
        S_MOCK_HOME, S_MOCK_PRESETS, S_MOCK_SEQ, S_MOCK_DRUM, S_MOCK_MIXER, S_MOCK_DIALOG, S_MOCK_MENU, S_NATIVE_FM_USER, S_NATIVE_CZ_USER,
        S_NOTES_SLIDE, S_NOTES_MIXED, S_NOTES_CHORD, S_NOTES_EMPTY, S_NOTES_RAW, S_NOTES_ZOOM, S_NOTES_LOOP, S_NOTES_DRUM, S_NOTES_DENSE, S_NOTES_REC, S_NOTES_ERASE, S_NOTES_DRUM_REC, S_NOTES_DRUM_ERASE, S_SCL_MICRO, S_SCL_MICRO_LAYER, S_SCL_MICRO_CHORD, S_SCALE_PICKER_EDO, S_SCALE_PICKER_HIST, S_SCALE_PICKER_FAV, S_SCALE_PICKER_EMPTY, S_SCALE_SETTINGS_FAV, S_MENU_CLICK, S_MENU_CLICK_LEVEL, S_MENU_COUNTIN, S_MENU_PREVIEW, S_MENU_ADD, S_DRUM_SOUND_808, S_DRUM_SOUND_909, S_DRUM_MIX_909, S_DRUM_HIT_909, S_DRUM_HIT_FREE, S_DRUM_HIT_LONG, S_COUNT };
-static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "user",
+static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
     "phrases", "project", "project_boot", "tempo", "tools", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
     "voice", "global", "system", "edit_analog", MELODEE_FM4 ? "edit_digital" : "edit_fm6", "op_env", "edit_wheel",
@@ -610,6 +610,13 @@ static void setup(int s)
     case S_MESSAGE_KEY: ui_message("[SAVE] HOLD TO UNDO"); break;            /* a message with a keycap */
     case S_PRESETS: favorite_set(0, 4, 1); favorite_set(0, 5, 1); go_page(GR_BROWSE); break;
     case S_PRESETS_NOFAV: favorites.filter = 1; go_page(GR_BROWSE); break;
+    case S_PRESETS_CAT: list_set(LM_CAT + 5u); eng(ENGI_PROPHET); go_page(GR_BROWSE); break;   /* STRING */
+    case S_PRESETS_PENDING: {                                               /* a fast turn, still moving */
+        uint32_t total;
+        eng(ENGI_CZ); go_page(GR_BROWSE); brw.on = 1; brw.trk = song.sel; brw.mode = (uint8_t)list_mode();
+        brw.n = (uint16_t)(list_cur(&total) + 9u); brw.t = fm1_ms; break;
+    }
+    case S_PRESETS_RECENT: list_set(LM_RECENT); go_page(GR_BROWSE); break;
     case S_USER: song.playing = 0; up_store(3, "MY LONG BASS NAME"); up_store(4, "PAD"); ui.uslot = 3; go_page(GR_USER); break;
     case S_PHRASES: go_page(GR_PATS); break;
     case S_PROJECT: song.playing = 0; project_save(1); song.g[G_SLOT] = 2; go_page(GR_SLOTS); ui.act = 4; break;

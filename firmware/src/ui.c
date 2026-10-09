@@ -59,6 +59,10 @@ static uint32_t user_of(const track_t *t)    /* user preset slot its sound came 
 }
 static uint32_t up_gen;                      /* bumped on every user bank change (redraws) */
 #include "favorites.c"
+/* MENU's two-valued settings in a byte no engine uses (favorites.factory[15][30], saved with the settings): bit 0 FX
+ * LATCH (settings_persist.c settings_latch), bit 1 KNOB ACCEL OFF (ui_input.c accel_by; clear in older settings = ON) */
+#define PREF_BITS (favorites.factory[15][30])
+#define PREF_ACCEL_OFF 2u
 
 static uint8_t sync_reload;                  /* engine / preset / project / user preset loaded: editor RELOAD push */
 
@@ -962,71 +966,8 @@ static void select_engine(uint32_t e)
     ui.force = 1;
 }
 
-/* the presets of every engine (in ENGINE_ORDER), then the used user presets, as one list (the PRESETS knob and the
- * PRESETS page browse it) */
-static uint32_t preset_all_pos(uint32_t *total)          /* list index of the selected track's preset */
-{
-    uint32_t n = 0, cur = 0, e, r;
-    uint32_t u=user_of(TSEL);
-    for (r = 0; r < NENG_SHOWN; r++) {                  /* (engines.c ENGINE_ORDER) */
-        const engine_t *en = ENGINES[e = eng_vis(r)];
-        if (e == TSEL->eng_req)
-            cur = n + preset_rank(en, preset_orig(en, TSEL->preset % (en->npresets ? en->npresets : 1u)));
-        n += preset_shown(e);
-        if(native_limit(e)){
-            if(e==TSEL->eng_req && TSEL->user_native && u<USER_NONE)cur=n+native_rank(e,u);
-            n+=native_count(e);
-        }
-    }
-    if (!TSEL->user_native && u < UP_SLOTS)cur=n+up_rank(u);
-    *total=n+up_count();
-    return cur;
-}
+#include "browse.c"                     /* the PRESETS list: LIST, categories, RECENT, browsing */
 
-/* list index n (< total) -> engine, *k its preset; NENGINES = user preset, *k its slot */
-static uint32_t preset_all_at(uint32_t n, uint32_t *k)
-{
-    uint32_t e, i, r;
-    for(r=0;r<NENG_SHOWN;r++){
-        e=eng_vis(r);
-        if(n<preset_shown(e)){
-            for(i=0;preset_orig(ENGINES[e],i)!=i || n--;i++);
-            *k=i;return e;
-        }
-        n-=preset_shown(e);
-        uint32_t count=native_count(e);
-        if(n<count){*k=native_nth(e,n);return e==ENGI_PROPHET?USER_NATIVE_P5:e==ENGI_FM6?USER_NATIVE_FM:USER_NATIVE_CZ;}
-        n-=count;
-    }
-    for(i=0;i<UP_SLOTS;i++)if(up_used(i) && !n--){*k=i;return USER_GENERAL;}
-    *k=UP_SLOTS;return USER_GENERAL;
-}
-
-static uint32_t preset_pos(uint32_t *total)
-{
-    uint32_t all, current = preset_all_pos(&all), n = 0, pos = 0xFFFFFFFFu;
-    if (!favorites.filter) { *total = all; return current; }
-    for (uint32_t i = 0; i < all; i++) {
-        uint32_t k, e = preset_all_at(i, &k);
-        if (!favorite_has(e, k)) continue;
-        if (i == current) pos = n;
-        n++;
-    }
-    *total = n;
-    return pos == 0xFFFFFFFFu ? n : pos; /* current sound need not be a favorite */
-}
-static uint32_t preset_at(uint32_t n, uint32_t *k)
-{
-    uint32_t all;
-    if (!favorites.filter) return preset_all_at(n, k);
-    preset_all_pos(&all);
-    for (uint32_t i = 0; i < all; i++) {
-        uint32_t e = preset_all_at(i, k);
-        if (favorite_has(e, *k) && !n--) return e;
-    }
-    *k = UP_SLOTS;
-    return USER_GENERAL;
-}
 static int preset_favorite(void)
 {
     uint32_t k = user_of(TSEL);
@@ -1077,6 +1018,7 @@ static void preset_go(uint32_t n)                    /* load list index n into t
             select_engine(e);
         apply_preset(k);
     }
+    recent_loaded();
     preset_hinted();
 }
 
@@ -1108,7 +1050,7 @@ static void eng_list_step(int32_t direction)         /* the next / previous soun
         apply_preset(n);
     } else {
         n -= np;
-        if(n<native_count(e)){native_load(e,native_nth(e,n),song.sel);preset_hinted();return;}
+        if(n<native_count(e)){native_load(e,native_nth(e,n),song.sel);recent_loaded();preset_hinted();return;}
         n-=native_count(e);
         for (k = 0; k < UP_SLOTS; k++)
             if (up_used(k) && up_engine(k) == e && !n--) {
@@ -1116,24 +1058,17 @@ static void eng_list_step(int32_t direction)         /* the next / previous soun
                 break;
             }
     }
+    recent_loaded();
     preset_hinted();
 }
 
-static void preset_step(int32_t direction)
-{
-    uint32_t total, cur = preset_pos(&total);
-    if (!total) { ui_message("NO FAVORITES"); return; }
-    preset_go(cur >= total ? (direction > 0 ? 0 : total - 1) :
-              (cur + (direction > 0 ? 1u : total - 1u)) % total);
-}
-
-/* Seven display rows. Favorites use a bounded window, not a repeating carousel.
- * Return total for an empty row; a non-favorite current sound shows the start. */
+/* Seven display rows. ALL is a carousel; FAV, RECENT and a category use a bounded window.
+ * Return total for an empty row; a current sound not in the list shows the start. */
 static uint32_t preset_visible(uint32_t cur, uint32_t total, uint32_t row)
 {
     uint32_t first, last;
     if (!total || row >= 7u) return total;
-    if (!favorites.filter)
+    if (list_mode() == LM_ALL)
         return (cur + total * 4u + row - 3u) % total;
     first = cur < total && cur > 3u ? cur - 3u : 0u;
     last = total > 7u ? total - 7u : 0u;
@@ -1154,6 +1089,7 @@ static void track_select(uint32_t i)
 {
     if (i >= NTRK || i == song.sel)
         return;
+    browse_commit();                             /* (a sound still pending loads into the track it was meant for) */
     momentary_restore();
     song.sel = (uint8_t)i;
     ui.entry_open = 0;

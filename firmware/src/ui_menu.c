@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Melodee menu (HOME held): COLOR, SPEAKER (LOWCUT), HOLD (the layer threshold), LIGHTS (the keys' and buttons'
- * glow: ui_input.c ui_leds), USB AUDIO (the devices the host gets: IN+OUT, OUT, IN or OFF; usb.c ua_off_set),
+ * glow: ui_input.c ui_leds), KNOB ACCEL (ui_input.c accel_by), USB AUDIO (the devices the host gets: IN+OUT, OUT, IN or OFF; usb.c ua_off_set),
  * CALIBRATION (the setup screen: HARDWARE CALIBRATION), ABOUT.
  * PRESETS scrolls from ABOUT through all credits. ui.menu: 1 list, 2 information. */
 /* ------------------------------------------------------------ menu --- */
@@ -9,12 +9,14 @@ enum { MI_COLOR, MI_LOWCUT, MI_HOLD, MI_LIGHTS,
 #if MELODEE_USB_AUDIO
        MI_USB,
 #endif
-       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_LATCH, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_BACK, MI_COUNT };
+       MI_CLICK, MI_CLICK_LEVEL, MI_COUNTIN, MI_PREVIEW, MI_ADD, MI_LATCH, MI_ACCEL, MI_SCREEN, MI_PANEL, MI_ABOUT, MI_BACK,
+       MI_COUNT };
 static const char *const MI_NAME[MI_COUNT] = {"COLOR", "SPEAKER", "HOLD", "LIGHTS",
 #if MELODEE_USB_AUDIO
                                               "USB AUDIO",
 #endif
-                                              "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY", "FX LATCH", "SCREEN OFF", "CALIBRATION", "ABOUT", "BACK"};
+                                              "AUDIO CLICK", "CLICK LEVEL", "COUNT-IN", "NOTE PREVIEW", "CHORD ENTRY", "FX LATCH",
+                                              "KNOB ACCEL", "SCREEN OFF", "CALIBRATION", "ABOUT", "BACK"};
 #if MELODEE_USB_AUDIO
 /* USB AUDIO's four settings, as ua_off_want (UA_OFF_OUT | UA_OFF_IN) */
 static const char *const MI_USB_NAME[4] = {"IN+OUT", "IN", "OUT", "OFF"};
@@ -213,7 +215,7 @@ static void draw_menu(void)
 #if MELODEE_USB_AUDIO
                                            ICON_X_USB,
 #endif
-                                           ICON_X_TIMER, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_TIMER, ICON_X_TIMER, ICON_X_DOCTOR, ICON_X_INFO, ICON_X_BACK};
+                                           ICON_X_TIMER, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_SPEAKER, ICON_X_TIMER, ICON_X_TIMER, ICON_X_TIMER, ICON_X_TIMER, ICON_X_DOCTOR, ICON_X_INFO, ICON_X_BACK};
     uint32_t i, pass, sig = ui.menu * 7u + ui.menu_sel * 131u + settings.palette * 1009u + settings.lowcut * 7919u +
                             settings_hold * 3511u + settings_lights * 6151u +
 #if MELODEE_USB_AUDIO
@@ -268,6 +270,7 @@ static void draw_menu(void)
                 cv_text_r(228,yt+3,&AF_M,value,val,bg);
             }
             if (i==MI_LATCH) cv_text_r(228,yt+3,&AF_M,settings_latch?"ON":"OFF",val,bg);
+            if (i==MI_ACCEL) cv_text_r(228,yt+3,&AF_M,PREF_BITS&PREF_ACCEL_OFF?"OFF":"ON",val,bg);
             if (i==MI_SCREEN) cv_text_r(228,yt+3,&AF_M,(const char *const[]){"NEVER","5 MIN","15 MIN","30 MIN","60 MIN"}[scr_get()],val,bg);
             if (i == MI_LIGHTS)
                 cv_text_r(228, yt + 3, &AF_M, LIGHTS_NAME[settings_lights % LIGHTS_N], val, bg);
@@ -370,6 +373,11 @@ static void menu_input(uint32_t oct)                  /* oct: ui_input.c oct_tap
         value=s>0?(value<top?value+1:value):s<0?(value?value-1:0):(value+1)%(top+1);
         if(id==0)settings_click=value;else if(id==1)settings_click_level=value;else if(id==2)settings_countin=value;else if(id==3)settings_preview=value;else settings_chord_add=value;
         ok=0;ui.force=1;
+    }
+    if ((s || ok) && ui.menu==1 && ui.menu_sel==MI_ACCEL) {   /* KNOB 1 right ON, left OFF; OCT+ toggles */
+        uint32_t on = s > 0 ? 1u : s < 0 ? 0u : !!(PREF_BITS & PREF_ACCEL_OFF);
+        PREF_BITS = (uint8_t)(on ? PREF_BITS & ~PREF_ACCEL_OFF : PREF_BITS | PREF_ACCEL_OFF);
+        ui.force=1; ok=0;
     }
     if ((s || ok) && ui.menu==1 && (ui.menu_sel==MI_LATCH || ui.menu_sel==MI_SCREEN)) {
         uint32_t value=ui.menu_sel==MI_LATCH?settings_latch:scr_get(), top=ui.menu_sel==MI_LATCH?1u:4u;

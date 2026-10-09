@@ -384,6 +384,13 @@ static void draw_foot(void)
     const char *ename = e->name;
     int32_t x;
     sound_name(t, pn);
+    if (browse_pending()) {                            /* browsing: the sound the list shows, not yet loaded */
+        uint32_t k, src = browse_shown(&k);
+        char tag[6];
+        entry_label(src, k, tag, pn);
+        e = ENGINES[src_engine(src, k)];
+        ename = e->name;
+    }
     if (ui.home) {
         str_cpy(ti, "HOME", sizeof ti);
     } else {                                           /* page title + number in its family: "ENV DEST 2/2" */
@@ -623,17 +630,17 @@ static void draw_columns(void)
         draw_column(3, "QNT", val, unit, VAL(3u), -1, ICON_AUTO);
         return;
     }
-    if (cur_page()->graph == GR_BROWSE) {
-        uint32_t total, cur = preset_pos(&total);
+    if (cur_page()->graph == GR_BROWSE) {              /* the sound shown: the pending one while browsing */
+        uint32_t total, cur = preset_pos(&total), k, src = browse_shown(&k), eng = src_engine(src, k);
         char u[8];
         if (cur < total) fmt_int(val, (int32_t)cur + 1);
         else str_cpy(val, "--", 8);
         str_cpy(u, "/", 8);
         fmt_int(u + 1, (int32_t)total);
         draw_column(0, "No.", val, u, VAL(0u), -1, ICON_NONE);
-        draw_column(1, "ENG", TSEL->eng_req==ENGI_PROPHET?"P5":ENGINES[TSEL->eng_req]->name, "", VAL(1u), -1, engine_icon(ENGINES[TSEL->eng_req]->name));
-        draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
-        draw_column(3, "LIST", favorites.filter ? "FAV" : "ALL", "", VAL(3u), -1, ICON_X_FOLDER);
+        draw_column(1, "ENG", eng == ENGI_PROPHET ? "P5" : ENGINES[eng]->name, "", VAL(1u), -1, engine_icon(ENGINES[eng]->name));
+        draw_column(2, "FAV", favorite_has(src, k) ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
+        draw_column(3, "LIST", list_name(list_mode()), "", VAL(3u), -1, ICON_X_FOLDER);
         return;
     }
     if (cur_page()->graph == GR_PATS) {                  /* PAT, then LOAD (a GO button) */

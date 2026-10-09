@@ -118,6 +118,9 @@ static void ui_power_on(void)
     proj_name[0] = 0;
     proj_cur = PROJ_NO_SLOT;
     memset(&favorites, 0, sizeof favorites);
+    memset(&brw, 0, sizeof brw);                  /* the browser: nothing pending, LIST ALL, RECENT empty */
+    list_recent = 0;
+    recent_n = 0;
     memset(&undo, 0, sizeof undo);
     memset(pat_last, 0, sizeof pat_last);
     memset(proj_slot, 0, sizeof proj_slot);
@@ -202,7 +205,8 @@ static void turn(uint32_t role, int32_t s)
 {
     host_enc[panel.enc[role]] += s * panel.dir[role];
     frame();
-    host_ticks += 200000u;                        /* (no knob acceleration between the turns) */
+    host_ticks += 200000u;                        /* (no knob acceleration between the turns: */
+    fm1_ms += 200u;                               /* each one a slow detent, loaded at once) */
 }
 static void stop_transport(void) { transport_req = 0; song.playing = 0; }
 static int16_t stored_param(uint32_t slot, uint32_t track, uint32_t id)
@@ -1096,6 +1100,165 @@ static int test_screen(void)
     bad += check("UPDATE MODE countdown drawn over the menu", ui.force == 0);
     ui.uboot = 0;
     ui.menu = 0;
+    return bad;
+}
+
+/* the sound browser (src/browse.c): a category per factory preset, LIST's ALL FAV RECENT and categories, the slots'
+ * categories from their names, knob acceleration (as Felucca 1.4), the pending place of a fast turn (loaded when the
+ * knob rests, a key is played or the track changes), RECENT, and undo back to the sound before browsing */
+static uint32_t find_preset(uint32_t e, const char *name)
+{
+    uint32_t k;
+    for (k = 0; k < ENGINES[e]->npresets; k++)
+        if (str_eq(ENGINES[e]->presets[k].name, name))
+            return k;
+    return 0xFFFFu;
+}
+static void spin(uint32_t role, int32_t dir, uint32_t n)   /* a fast turn: a detent a frame (16 ms) */
+{
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        host_enc[panel.enc[role]] += dir * panel.dir[role];
+        frame();
+    }
+}
+static void rest(void)                                     /* the knob left alone for a while */
+{
+    uint32_t i;
+    for (i = 0; i < 10u; i++)
+        frame();
+}
+static int test_browser(void)
+{
+    int bad = 0, ok = 1;
+    uint32_t i, e, k, c, total, all, sum, src, first, want, f1, f2, f3;
+    track_t before;
+    ui_power_on();
+    PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
+    list_set(LM_ALL);
+    for (e = 0; e < NENGINES; e++)
+        if (PRESET_CAT[e] && PRESET_CAT[e][0]) {
+            ok &= str_len(PRESET_CAT[e]) == ENGINES[e]->npresets;
+            for (k = 0; k < ENGINES[e]->npresets && PRESET_CAT[e][k]; k++)
+                ok &= (c = preset_cat(e, k)) >= 1u && c < CAT_N && CAT_LETTER[c] == PRESET_CAT[e][k];
+        }
+    for (i = 0; i < NENG_SHOWN; i++)
+        ok &= (PRESET_CAT[eng_vis(i)] && PRESET_CAT[eng_vis(i)][0]) || eng_vis(i) == ENGI_DRUM || eng_vis(i) == 11u;
+    bad += check("BROWSE: a category letter for each factory preset of every engine shown", ok);
+    bad += check("BROWSE: factory categories (Prophet, FM6, CZ-1, the kits)",
+                 preset_cat(ENGI_PROPHET, find_preset(ENGI_PROPHET, "Fat Poly Bass")) == CAT_BASS &&
+                 preset_cat(ENGI_PROPHET, find_preset(ENGI_PROPHET, "Pluckity Duck")) == CAT_PLUCK &&
+                 preset_cat(ENGI_PROPHET, find_preset(ENGI_PROPHET, "Vintage Wurly")) == CAT_KEYS &&
+                 preset_cat(ENGI_PROPHET, find_preset(ENGI_PROPHET, "Choral Voices")) == CAT_PAD &&
+                 preset_cat(ENGI_FM6, find_preset(ENGI_FM6, "STEEL DRUM")) == CAT_BELL &&
+                 preset_cat(ENGI_CZ, find_preset(ENGI_CZ, "METALLIC")) == CAT_BELL &&
+                 preset_cat(ENGI_CZ, find_preset(ENGI_CZ, "SAXOPHONE")) == CAT_WIND &&
+                 preset_cat(ENGI_DRUM, find_preset(ENGI_DRUM, "909 KIT")) == CAT_DRUM);
+    bad += check("BROWSE: a slot's category from its name: a factory sound's of its engine, else its words",
+                 cat_guess(ENGI_PROPHET, "Fat Poly Bas") == CAT_BASS &&
+                 cat_guess(ENGI_PROPHET, "PICKLE PINCHER") == preset_cat(ENGI_PROPHET, find_preset(ENGI_PROPHET, "Pickle Pincher")) &&
+                 cat_guess(ENGI_FM6, "E.PIANO 1") == CAT_KEYS && cat_guess(ENGI_FM6, "SYN-BASS 3") == CAT_BASS &&
+                 cat_guess(ENGI_FM6, "PLUCKITY") == CAT_PLUCK && cat_guess(ENGI_FM6, "EPIC LEAD") == CAT_LEAD &&
+                 cat_guess(ENGI_FM6, "TUBULAR BEL") == CAT_BELL && cat_guess(ENGI_CZ, "STRINGS 9") == CAT_STRING &&
+                 cat_guess(ENGI_DRUM, "ANYTHING") == CAT_DRUM && cat_guess(ENGI_FM6, "MY SOUND") == CAT_OTHER);
+    preset_all_pos(&all);
+    for (i = 0, sum = 0; i < NELEM(CAT_ORDER); i++) {
+        list_set(LM_CAT + i);
+        preset_pos(&total);
+        sum += total;
+        ok = total > 0u;
+    }
+    bad += check("BROWSE: every sound is in exactly one category (their lists add up to ALL)", sum == all && ok);
+    up_store(5, "SUB BASS 2");
+    list_set(LM_CAT);                                      /* BASS */
+    preset_pos(&total);
+    for (i = 0, ok = 0; i < total; i++)
+        ok |= preset_at(i, &k) == USER_GENERAL && k == 5u;
+    bad += check("BROWSE: a user preset joins the category of its name", ok);
+    up_put(5, 0);
+
+    go_page(GR_BROWSE);
+    list_set(LM_ALL);
+    for (i = 0; i < LM_N + 2u; i++)
+        turn(EN_K4, 1);
+    bad += check("LIST (KNOB 4): ALL FAV RECENT, the categories, stopping at OTHER", list_mode() == LM_N - 1u &&
+                 str_eq(list_name(list_mode()), "OTHER"));
+    for (i = 0; i < LM_N; i++)
+        turn(EN_K4, -1);
+    turn(EN_K4, 1);
+    turn(EN_K4, 1);
+    turn(EN_K4, 1);
+    bad += check("LIST: a category is kept with the settings in its byte, FAV stays favorites.filter",
+                 list_mode() == LM_CAT && list_lcat == CAT_BASS && !favorites.filter && !list_recent);
+    turn(EN_K1, 1);
+    cur_entry(&src, &k);
+    bad += check("LIST BASS: KNOB 1 loads the next bass", entry_cat(src, k) == CAT_BASS);
+
+    PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
+    memset(ui.enc_t, 0, sizeof ui.enc_t);
+    fm1_ms = 100000u;
+    ok = accel_by(EN_K1, 1, 8u, &f1) == 1 && !f1;
+    fm1_ms += 10u; ok &= accel_by(EN_K1, 1, 8u, &f2) == 1 && f2;
+    fm1_ms += 10u; ok &= accel_by(EN_K1, 1, 8u, 0) == 5;
+    fm1_ms += 6u; ok &= accel_by(EN_K1, 1, 8u, 0) == 5;
+    fm1_ms += 6u; ok &= accel_by(EN_K1, 1, 8u, 0) == 8;
+    fm1_ms += 6u; ok &= accel_by(EN_K1, 3, 8u, 0) == 24;
+    fm1_ms += 6u; ok &= accel_by(EN_K1, -1, 8u, &f3) == -1 && !f3;
+    fm1_ms += 300u; ok &= accel_by(EN_K1, -1, 8u, &f1) == -1 && !f1;
+    bad += check("ACCEL: one step a detent, then x5 at 10 ms, x8 at 6 ms (capped); a reversal and a pause start over", ok);
+    ok = accel(EN_K2, 5, 20) == 5 && desc_range(&(param_desc_t){"X", F_ENUM, 0, 99, 0, 0, 0}) == 0;
+    PREF_BITS |= PREF_ACCEL_OFF;
+    fm1_ms += 6u; ok &= accel_by(EN_K1, -1, 8u, 0) == -1;
+    fm1_ms += 6u; ok &= accel_by(EN_K1, -1, 8u, &f1) == -1 && !f1;
+    PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
+    bad += check("ACCEL: narrow values and lists of names keep a step a detent; MENU KNOB ACCEL OFF: always", ok);
+
+    ui_power_on();
+    PREF_BITS &= (uint8_t)~PREF_ACCEL_OFF;
+    list_set(LM_ALL);
+    recent_n = 0;
+    set_engine_of(TSEL, ENGI_PROPHET);
+    my_steps(TSEL);
+    ui.home = 1;
+    fm1_ms += 1000u;
+    rest();
+    before = *TSEL;
+    first = list_cur(&total);
+    spin(EN_PRESET, 1, 12);
+    want = first + 1u + 1u + 10u * 3u;                     /* a slow first detent, then 16 ms a detent: x3 */
+    bad += check("BROWSE: a fast turn loads its first detent only, the list moves on (x3 at 16 ms a detent)",
+                 browse_pending() && preset_pos(&total) == want && list_cur(&total) == first + 1u &&
+                 !memcmp(TSEL->step, before.step, sizeof before.step));
+    e = browse_shown(&k);
+    bad += check("BROWSE: HOME's footer and the PRESETS page show the pending sound",
+                 e == preset_at(want, &c) && k == c);
+    rest();
+    bad += check("BROWSE: it loads when the knob rests (120 ms)", !brw.on && list_cur(&total) == want &&
+                 !memcmp(TSEL->step, before.step, sizeof before.step));
+    undo_swap();
+    bad += check("BROWSE: SAVE held (undo) brings back the sound from before browsing",
+                 TSEL->eng_req == before.eng_req && TSEL->preset == before.preset && list_cur(&total) == first);
+    undo_swap();
+    spin(EN_PRESET, 1, 6);
+    want = preset_pos(&total);
+    fm1_in.notes |= 1u << 3; host_notes |= 1u << 3; frame();
+    fm1_in.notes &= ~(1u << 3); frame();
+    bad += check("BROWSE: a key played while browsing loads the pending sound at once", !brw.on && list_cur(&total) == want);
+    rest();
+    spin(EN_PRESET, -1, 6);
+    want = preset_pos(&total);
+    turn(EN_ALGO, 1);
+    bad += check("BROWSE: changing the track loads the pending sound into the track it was meant for",
+                 song.sel == 1u && !brw.on && (song.sel = 0, list_cur(&total) == want));
+    rest();
+    list_set(LM_RECENT);
+    preset_pos(&total);
+    cur_entry(&src, &k);
+    bad += check("RECENT: the sounds browsed, newest first", total >= 3u && preset_at(0, &c) == src && c == k);
+    e = recent[0];
+    turn(EN_PRESET, 1);
+    bad += check("RECENT: browsing it loads the next one and keeps the order", recent[0] == e && preset_pos(&total) == 1u);
+    list_set(LM_ALL);
     return bad;
 }
 
@@ -4032,6 +4195,7 @@ int main(void)
     bad += test_grid();
     bad += test_screen();
     bad += test_favorites();
+    bad += test_browser();
     bad += test_display_preferences();
     bad += test_information();
     bad += test_chain();

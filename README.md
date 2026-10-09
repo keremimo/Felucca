@@ -190,7 +190,8 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
   GLO, SCL and EDIT also support double-press locking
 - **Quick layers:** hold FX, GLO, SCL or EDIT for shortcuts on the keys and knobs; one-step undo
   (SAVE held); REC on every page; OCT+ confirms, OCT- goes back
-- **Presets:** factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
+- **Presets:** browse by category (BASS, LEAD, PAD, KEYS, ORGAN, STRING, BRASS, WIND, PLUCK, BELL, DRUM, FX), favourites or
+  RECENT, with knob acceleration; factory presets, 64 general slots, 64 native FM6 slots, 128 native CZ-1 slots, 128 native Prophet slots and 4 projects, named on the device;
   a startup project and a template for new projects; compatible upstream projects from earlier versions load
 - **Screen:** flat UI with Inter Tight and Fukiai icons, 8 palettes including grayscale and high contrast;
   HOME shows the played notes and recognized chords above the live waveform, retaining the last voicing after release
@@ -229,6 +230,21 @@ user presets saved by earlier Melodee versions are not imported, and the user sa
 - Save a sound: stop, tap SAVE, pick a slot with KNOB 1, then OCT+ and OCT+ again (name it with the keys)
 - **SAVE + REC** saves the project back to the slot it was loaded from or last saved to (`SAVED B`), stopping
   the transport first; a new project opens SAVE > PROJECT on a free slot
+
+### Browsing sounds
+
+Turn **PRESETS** (on HOME, or KNOB 1 on SAVE > PRESETS) to browse every sound: each engine's factory presets in
+engine order, its native user slots, then the general user presets. **KNOB 4 LIST** narrows the list to **FAV**,
+**RECENT** (the sounds you browsed since power-on, newest first) or one category: **BASS LEAD PAD KEYS ORGAN STRING
+BRASS WIND PLUCK BELL DRUM FX OTHER**. Every factory sound, the Prophet, CZ-1 and FM6 libraries included, has a
+category; native and user slots take the category of a factory sound with the same name, otherwise the words in
+their name (BASS, PIANO, STRINGS, ...). The chosen category is kept with the device settings.
+
+Knobs accelerate: a slow turn moves one step a detent, a fast one up to 8 steps on wide values and up to 16 entries
+in long lists, so the end of a 400-sound list is a flick away. Lists of names (waveforms, modes) never accelerate.
+MENU > **KNOB ACCEL** OFF keeps every detent one step. While the list moves fast, the screen follows at once and the
+sound loads when the knob rests, so a flick does not load every sound it passes; playing a key or changing the track
+loads it at once. Hold **SAVE** to return to the sound you had before browsing.
 
 ### Patterns and songs
 

@@ -975,6 +975,8 @@ static uint32_t graph_signature(void)
         for (i = 0; i < 4u; i++) h ^= (uint32_t)graph_project_used(i) << (24u + i);
         h += graph_pname_sig;
     }
+    if (pg->graph == GR_BROWSE)                      /* LIST, the place pending, the favourites */
+        h ^= list_mode() * 131071u + (browse_pending() ? brw.n + 1u : 0u) * 524287u + (uint32_t)favorites.filter * 8191u;
     if (pg->graph == GR_MOD)
         h ^= (mod_ui_slot + 1u) * 40503u;
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* FM6's pages: the patch, switches, functions, bank */
@@ -1098,12 +1100,35 @@ static void graph_scale_picker(void)
     }
 }
 
+/* a list entry's tag and name, as the browser shows them: "P5" "It's a Proph", "F012" (native), "U07" (user preset) */
+static void entry_label(uint32_t e, uint32_t k, char *tag, char *nm)
+{
+    if (e == USER_NATIVE_P5 || e == USER_NATIVE_FM || e == USER_NATIVE_CZ) {
+        uint32_t eng = src_engine(e, k);
+        tag[0] = eng == ENGI_PROPHET ? 'P' : eng == ENGI_FM6 ? 'F' : 'Z';
+        tag[1] = (char)('0' + (k + 1u) / 100u);
+        tag[2] = (char)('0' + (k + 1u) / 10u % 10u);
+        tag[3] = (char)('0' + (k + 1u) % 10u);
+        tag[4] = 0;
+        native_name(eng, k, nm);
+    } else if (e == USER_GENERAL) {
+        up_slot_label(tag, k);
+        up_name(k, nm);
+    } else {
+        str_cpy(tag, eng_abbr(ENGINES[e % NENGINES]->name), 6);
+        str_cpy(nm, ENGINES[e % NENGINES]->presets[k].name, 13);
+    }
+}
 static void graph_browse(void)
 {
-    uint32_t total, cur = preset_pos(&total), e, k;
+    uint32_t total, cur = preset_pos(&total), e, k, m = list_mode();
+    int pending = browse_pending();
     int32_t row;
     if (!total) {
-        panel_note("NO FAVORITES", "LIST ALL TO ADD SOUNDS", 0);
+        if (m == LM_FAV)
+            panel_note("NO FAVORITES", "LIST ALL TO ADD SOUNDS", 0);
+        else
+            panel_note(m == LM_RECENT ? "NO RECENT SOUNDS" : "NO SOUNDS IN LIST", 0, 0);
         return;
     }
     for (row = -3; row <= 3; row++) {
@@ -1111,20 +1136,10 @@ static void graph_browse(void)
         char tag[6], nm[13], pt[4], pn[13];
         uint32_t index = preset_visible(cur, total, (uint32_t)(row + 3));
         int sel = index == cur;
-        int32_t hint = sel ? preset_pat_hint() : -1;    /* the suggested pattern */
+        int32_t hint = sel && !pending ? preset_pat_hint() : -1;    /* the suggested pattern (of a loaded sound) */
         if (index >= total) continue;
         e = preset_at(index, &k);
-        if(e==USER_NATIVE_P5 || e==USER_NATIVE_FM || e==USER_NATIVE_CZ){
-            uint32_t eng=e==USER_NATIVE_P5?ENGI_PROPHET:e==USER_NATIVE_FM?ENGI_FM6:ENGI_CZ;
-            tag[0]=eng==ENGI_PROPHET?'P':eng==ENGI_FM6?'F':'Z';tag[1]=(char)('0'+(k+1u)/100u);tag[2]=(char)('0'+(k+1u)/10u%10u);tag[3]=(char)('0'+(k+1u)%10u);tag[4]=0;
-            native_name(eng,k,nm);
-        } else if (e == USER_GENERAL) {                             /* user preset: "U07" and its name */
-            up_slot_label(tag, k);
-            up_name(k, nm);
-        } else {
-            str_cpy(tag, eng_abbr(ENGINES[e]->name), sizeof tag);
-            str_cpy(nm, ENGINES[e]->presets[k].name, sizeof nm);
-        }
+        entry_label(e, k, tag, nm);
         if (hint >= 0) {
             pat_label((uint32_t)hint, pt, pn);
             x1 = 206 - text_w(&AF_S, pt) - 6;
