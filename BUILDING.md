@@ -142,8 +142,21 @@ starts, recovery needs [FM-1-transporter](https://github.com/kurogedelic/FM-1-tr
 ## Experimental second-core FM6/Prophet build
 
 The first experimental hardware install bootlooped with `DBG_MSG=0x400`
-(`c1_pc_limit_err_r`) during CPU1's ready handshake. It was recovered to the
-serial build over ROM USB, with a full-flash verification confirming unchanged
+(`c1_pc_limit_err_r`) during CPU1's ready handshake. This identifies a CPU1
+instruction-fetch range violation. CPU0's captured execution trace was in the
+startup handshake, before normal audio rendering. The likely trigger was
+enabling application PC-range guards before releasing CPU1: CPU1 first executes
+mask-ROM bootstrap code, outside the permitted application RAM/XIP ranges,
+before jumping to the entry mailbox. The saved PC fields were unreliable, so
+the exact faulting CPU1 instruction was not established. The fault record and
+successful corrected starts support this startup-order diagnosis.
+
+The fault handler reset the chip, which retried the same startup sequence.
+The boot guard counts restarts that occur before 30 seconds of successful
+operation and enters ROM recovery after two failed boots. This explains why
+the application MIDI port disappeared and ROM USB recovery became necessary.
+It was recovered to the serial build over ROM USB, with a full-flash verification
+confirming unchanged
 bootloader and saved-data regions. The startup fix defers application PC-range
 guards until CPU1 has completed its ROM bootstrap (or has been stopped after a
 handshake timeout). Stack, write and bus guards retain their early activation.
@@ -153,6 +166,12 @@ the diagnostic samples observed up to three active voices. Eight-voice hardware
 load, worst-case patches, musical operation and speedup against the serial build
 remain unverified. The first image is a known failed build and must not be
 installed again.
+
+The failed package has SHA-256
+`e0cfb18c63ff1fdfd4c0ed9af49bb02ef191ec84413d3dfca3424482eb1b9d24`.
+Its failure occurred during startup; it does not establish an eight-voice
+rendering overload. A later reflash of the corrected package also booted with
+CPU1 online and no worker timeouts in the idle diagnostic checks.
 
 The successfully installed package has SHA-256
 `2c22bdbeec420f2fee90d747a928277bd0f7c096ebe43b1ffcec92fb575a1318`.
