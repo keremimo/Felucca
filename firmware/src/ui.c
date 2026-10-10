@@ -327,7 +327,7 @@ static void step_clear(step_t *st)
  * steps: the grid shows a step's notes on their lanes (eng_drum.c step_lanes) and an edit makes the lane its
  * own (grid_own). Live recording on a DRUM track writes hits (seq.c rec_note) */
 static int notes_have_recording(const track_t *t);
-static int grid_on(void) { return !ui.home && !ui.menu && !ui.confirm && (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_DRUMHIT) && drum_track(TSEL) && (cur_page()->scope==SC_DRUMHIT || !notes_have_recording(TSEL) || (song.playing && (song.rec & (1u << song.sel)))); }   /* (STEP only: CHANCE is SC_STEP too) */
+static int grid_on(void) { return !ui.home && !ui.menu && !ui.confirm && (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_DRUMHIT) && drum_track(TSEL) && (cur_page()->scope==SC_DRUMHIT || !notes_have_recording(TSEL) || (song.playing && (song.rec & (1u << song.sel)))); }   /* (NOTES, DRUM HIT) */
 
 /* black key place p (seq.c key_place) held, 0 = not */
 static int black_held(uint32_t p)
@@ -501,7 +501,7 @@ static void open_family(uint32_t fam)
     ui.home = 0;
     page_entered();
     if (fam == FAM_SAVE && cur_page()->graph == GR_USER)
-        slot_save_sheet();                       /* SAVE: the slot's sheet, on Save here (ui_slots.c) */
+        slot_save_sheet();                       /* SAVE: USER; OCT+ then its slot's sheet on Save here (ui_slots.c) */
 }
 
 /* GLO always enters the mixer from another family. Subsequent taps visit the

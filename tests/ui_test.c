@@ -72,9 +72,11 @@ static void lcd_sync(void) {}
 #define SCOPE_N 512u                              /* audio.c: the HOME oscilloscope */
 static int16_t scope_buf[SCOPE_N];
 static uint32_t scope_w;
+static uint64_t host_sent;                        /* pixels sent to the LCD (tests/ui_render.c) */
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 {
     uint32_t i, j;
+    host_sent += (uint64_t)w * h;
     for (j = 0; j < h && y + j < 240u; j++)
         for (i = 0; i < w && x + i < 240u; i++) host_screen[(y + j) * 240u + x + i] = p[j * w + i];
 }
@@ -599,31 +601,34 @@ static int test_midi(void)
 
 static int test_save(void)
 {
-    int bad = 0;
+    int bad = 0, ok;
     uint32_t i;
     ui_power_on();
     trk[0].p[P_E0] = 5;
     press(B_SAVE);
-    bad += check("SAVE opens USER, its slot's sheet on Save here, without writing a slot",
-                 !ui.home && cur_page()->graph == GR_USER && pop.on == POP_SHEET && str_eq(pop.rows[pop.sel].label, "Save here") &&
-                 !up_used(0));
+    bad += check("SAVE opens USER on its slot, no sheet popped up, without writing a slot",
+                 !ui.home && cur_page()->graph == GR_USER && !pop.on && !up_used(0));
     press(B_OCTUP);
-    bad += check("SAVE then OCT+ opens NAME (the automatic name), writes nothing yet",
+    bad += check("..OCT+: the slot's sheet, on Save here", pop.on == POP_SHEET && str_eq(pop.rows[pop.sel].label, "Save here"));
+    press(B_OCTUP);
+    bad += check("..OCT+ again opens NAME (the automatic name), writes nothing yet",
                  name_on() && nm.kind == NK_USER_SAVE && str_eq(nm.s, nm.ph) && nm.cur == nm.len && !up_used(0));
     press(B_OCTUP);
     {
         char nmb[16], au[16];
         up_name(0, nmb);
         up_auto_name(au, trk[0].eng_req, 0);
-        bad += check("..OCT+ again stores the edited sound with that name (SAVE, OCT+, OCT+)",
+        bad += check("..OCT+ again stores the edited sound with that name (SAVE, OCT+, OCT+, OCT+)",
                      !name_on() && up_used(0) && up_value(up_rec(0), P_E0) == 5 && ui.act == 0u && str_eq(nmb, au));
     }
     press(B_SAVE);
     bad += check("SAVE again still cycles to PROJECT", cur_page()->graph == GR_SLOTS);
     go_home();
     press(B_SAVE);
-    bad += check("SAVE from HOME returns directly to USER (its sheet, Save here), even after visiting PROJECT",
-                 cur_page()->graph == GR_USER && pop.on == POP_SHEET && str_eq(pop.rows[pop.sel].label, "Save here"));
+    ok = cur_page()->graph == GR_USER && !pop.on;
+    press(B_OCTUP);
+    bad += check("SAVE from HOME returns directly to USER (OCT+: its sheet, on Save here), even after visiting PROJECT",
+                 ok && pop.on == POP_SHEET && str_eq(pop.rows[pop.sel].label, "Save here"));
     press(B_OCTUP);
     bad += check("direct SAVE still asks before overwriting an occupied slot",
                  ui.confirm == CF_OVR_USER && up_value(up_rec(0), P_E0) == 5);
@@ -2082,10 +2087,11 @@ static int test_product_ux(void)
             ok &= !page_visible(i);
     bad += check("DIGITAL retired: engine 1 asked for loads FM6; the OP ENV / OP LEVEL pages never show", ok);
 #endif
-    ui_power_on(); go_page(GR_CHANCE); turn(EN_K2, -35);
-    bad += check("CHANCE is per step and starts at backward-compatible 100 percent", step_chance(&TSEL->step[0]) == 65 && step_chance(&TSEL->step[1]) == 100);
-    turn(EN_K2, -1000); ok = step_chance(&TSEL->step[0]) == 0;
-    turn(EN_K2, 1000); ok &= step_chance(&TSEL->step[0]) == 100;
+    ui_power_on(); track_defaults_steps(TSEL); go_title("NOTES"); cursor_set(0); frame();
+    press(B_OCTUP); press(B_OCTUP); turn(EN_K2, 1); turn(EN_K2, 1); turn(EN_K1, -35);   /* (a note placed; its sheet: Chance) */
+    bad += check("CHANCE (the note's sheet) is per step and starts at backward-compatible 100 percent", step_chance(&TSEL->step[0]) == 65 && step_chance(&TSEL->step[1]) == 100);
+    turn(EN_K1, -1000); ok = step_chance(&TSEL->step[0]) == 0;
+    turn(EN_K1, 1000); ok &= step_chance(&TSEL->step[0]) == 100;
     bad += check("CHANCE controls clamp to 0..100 without changing adjacent steps", ok);
     ui_power_on(); song.rec = 1; seq_start(); go_home();
     int16_t baseline = TSEL->p[P_E0]; turn(EN_K1, 1);
@@ -2939,10 +2945,10 @@ static int test_tempo_select(void)
     go_title("NOTES");
     cursor_set(4);
     turn(EN_SELECT, 1);
-    ok = str_eq(cur_page()->title, "NOTES") && ui.cursor == 5u;
+    ok = !str_eq(cur_page()->title, "NOTES") && ui.cursor == 4u;
     turn(EN_SELECT, -1);
     turn(EN_K1, 3);
-    bad += check("SELECT on NOTES stays in the editor; KNOB 1 moves through steps",
+    bad += check("SELECT on NOTES turns the page (and back); KNOB 1 moves through the steps",
                  ok && ui.cursor == 7u && str_eq(cur_page()->title, "NOTES"));
     go_title("TEMPO");
     turn(EN_K1, 4);
@@ -3667,32 +3673,6 @@ static int test_bughunt_ui(void)
                  ok && !ui.confirm && !up_used(1));
     sheet_do("Erase");
     bad += check("  an empty slot: no dialog, EMPTY SLOT", !ui.confirm && msg_is("EMPTY SLOT"));
-    {   /* 4: CHANCE is not STEP: no grid, no key entry, no EDIT clear (its knobs only) */
-        uint32_t before;
-        step_t s0;
-        ui_power_on();
-        track_select(3); frame();                       /* T4 DRUM */
-        go_page(GR_CHANCE); frame();
-        before = lane_steps(TSEL, ui.lane);
-        tap_key(white(2));
-        bad += check("CHANCE on a DRUM track: no grid (title, LEDs), a white key toggles no hit",
-                     drum_track(TSEL) && !grid_on() && !keys_mode() && lane_steps(TSEL, ui.lane) == before);
-        ui_power_on(); go_page(GR_CHANCE); frame();
-        my_steps(TSEL);
-        s0 = TSEL->step[0];
-        tap_key(white(5)); frame();
-        ok = !memcmp(&s0, &TSEL->step[0], sizeof s0) && ui.cursor == 0u;
-        press(B_EDIT);
-        ok &= !memcmp(&s0, &TSEL->step[0], sizeof s0) && !msg_is("STEP CLEARED");
-        ui_power_on(); go_page(GR_CHANCE); frame();
-        s0 = TSEL->step[0];
-        turn(EN_K2, -10);                               /* (100 % by default) */
-        bad += check("CHANCE on a melodic track: a key writes no step, EDIT clears none; KNOB 2 the chance",
-                     ok && step_chance(&TSEL->step[0]) != step_chance(&s0));
-        ui_power_on(); go_page(GR_ROLL); frame();
-        tap_key(white(5)); frame();
-        bad += check("  STEP still: a key writes the cursor step", step_on(&TSEL->step[0]) || TSEL->step[0].n);
-    }
     {   /* 5: ALGORITHM does nothing while a layer's button is held (as PRESETS); after it, the track again */
         int16_t r0;
         ui_power_on();
@@ -3843,6 +3823,12 @@ static int test_chord_page(void)
 /* the STEP page's piano roll (ui_graph.c graph_roll), read back from the screen: per column the rows whose centre
  * pixel (the bar's middle, x + 6) is a bar colour, against the notes the step sounds (its own; a TIE: the note
  * before's; a REST: none) */
+static int32_t pr_note(const step_t *st, uint32_t j)   /* the step's note j (0..3), then its lane hits (-1: none) */
+{
+    if (j < 4u)
+        return j < st->n ? st->note[j] : -1;
+    return (st->hit >> (j - 4u)) & 1u ? DRUM_LANE_NOTE[j - 4u] : -1;
+}
 static int pr_is_bar(uint32_t x, uint32_t y)
 {
     uint16_t c = swap16(host_screen[y * 240u + x]);

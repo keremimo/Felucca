@@ -15,7 +15,6 @@ static const list_t LISTS[] = {
     {"MPC", LP_NONE, 1, {{"MPC", 0}}},
     {"VOICE", LP_NONE, 9, {{"VOICE", 0}, {"VOICE", 1}, {"VOICE", 2}, {"VOICE", 3}, {"VOICE 2", 0}, {"VOICE 2", 1},
                            {"VOICE 2", 2}, {"VOICE 2", 3}, {"VOICE 3", 0}}},
-    {"TIMING", LP_NONE, 1, {{"TIMING", 0}}},
     {"ENV DEST", LP_NONE, 3, {{"ENV DEST", 0}, {"ENV DEST", 1}, {"ENV DEST", 2}}},
     {"LFO DEST", LP_NONE, 4, {{"LFO DEST", 0}, {"LFO DEST", 1}, {"LFO DEST", 2}, {"LFO DEST", 3}}},
     {"LFO 2", LP_GRAPH, 3, {{"LFO 2", 0}, {"LFO 2", 1}, {"LFO 2", 2}}},
@@ -70,7 +69,7 @@ static const list_t *list_on(void)                      /* the page shown is a l
 
 /* a knob's short label in full words (a list has the room) */
 static const struct { const char *k, *w; } LIST_WORDS[] = {
-    {"QNT", "Quantise"}, {"TRN", "Transpose"}, {"FAV", "Favourite"}, {"VCE", "Voice"}, {"GLD", "Glide"},
+    {"QNT", "Quantize"}, {"TRN", "Transpose"}, {"FAV", "Favourite"}, {"VCE", "Voice"}, {"GLD", "Glide"},
     {"GLMOD", "Glide mode"}, {"PRIO", "Priority"}, {"ALLOC", "Allocation"}, {"DTUNE", "Detune"}, {"SPRD", "Spread"},
     {"CHRD", "Chord"}, {"VOIC", "Voicing"}, {"SWG", "Swing"}, {"PROB", "Probability"}, {"ORD", "Order"},
     {"POL", "Polarity"}, {"TRIG", "Trigger"}, {"PIT", "Pitch"}, {"FLT", "Filter"}, {"SHP", "Shape"}, {"AMP", "Level"},

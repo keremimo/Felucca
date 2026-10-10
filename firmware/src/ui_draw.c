@@ -556,7 +556,7 @@ static void draw_foot(void)
         cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
     } else if (pg->graph == GR_ROLL && !ui.home && !grid_on()) {
         char detail[24];
-        str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : "SEL NOTE  PRE ZOOM", sizeof detail);
+        str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : "K1 NOTE  PRE ZOOM", sizeof detail);
         cv_text_on(8, 2, &AF_S, detail, T_THEME, T_BG);
         fmt_int(detail, (int32_t)notes_span());
         str_cpy(detail + str_len(detail), " ST", 4);
@@ -572,7 +572,7 @@ static void draw_foot(void)
         if (black_held(GK_ACC))
             cv_text_r(232, 2, &AF_S, "ACCENT", T_ACCENT, T_BG);
         else if(pg->scope==SC_DRUMHIT)
-            cv_text_r(232,2,&AF_S,"SEL HIT / KEYS STEP",T_MID,T_BG);
+            cv_text_r(232,2,&AF_S,"K1 HIT / KEYS STEP",T_MID,T_BG);
         else
             cv_key_hint(232 - kh_w(KC_KEYS, "STEPS"), 2, KC_KEYS, "STEPS", 1, T_BG);   /* the keys are the steps */
     } else {
@@ -612,7 +612,7 @@ static void draw_foot(void)
     if (MELODEE_ICONS)                                /* row 2: engine icon + name, sound, page */
         x += cv_icon_on(x, 20, 12, engine_icon(ename), T_MID, T_BG) + 5;
     x = cv_text_fit(x, 19, &AF_S, ename, T_THEME, T_BG, 80);
-    {   /* the page title at the right, its icon before it (MIXER, PHRASES, SONG, CHANCE, MOTION) */
+    {   /* the page title at the right, its icon before it (MIXER, SONG, MOTION) */
         uint32_t pi = ui.home ? ICON_NONE : page_icon(pg);
         int32_t tx = 232 - text_w(&AF_S, ti) - (pi != ICON_NONE ? 16 : 0);
         cv_free_text(x + 10, 19, &AF_S, pn, T_TEXT, T_BG, tx - 12 - (x + 10));
@@ -666,15 +666,6 @@ static void draw_columns(void)
     const char *unit;
     if (ui.home)                                        /* Stage: its knobs drop in when turned (ui_stage.c stage_knobs) */
         return;
-    if (cur_page()->graph == GR_CHANCE) {
-        fmt_int(val, (int32_t)ui.cursor + 1);
-        draw_column(0, "STEP", val, "", VAL(0u), -1, ICON_AUTO);
-        fmt_int(val, (int32_t)step_chance(&TSEL->step[ui.cursor]));
-        draw_column(1, "CHANCE", val, "%", VAL(1u), -1, ICON_PROB);   /* the die */
-        draw_column(2, "", "", "", T_THEME, -1, ICON_NONE);
-        draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
-        return;
-    }
     if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV MUTE of the selected track */
         const track_t *t = TSEL;
         uint32_t lvl = trk_level(song.sel);

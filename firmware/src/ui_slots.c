@@ -7,7 +7,8 @@ enum { SK_NONE, SK_PROJECT, SK_USER, SK_FM6, SK_P5 };
 #define SL_Y0 22                                        /* the rows from y 22: 22 px, the card 46 */
 #define SL_ROW 22
 #define SL_CARD 46
-static struct { uint32_t sig; uint8_t first; } slv;
+static struct { uint32_t sig; uint8_t first, save_page; } slv;   /* save_page: USER reached by SAVE (+1): its sheet on
+                                                                  * Save here */
 static void name_rename(void);                          /* ui_name.c */
 static void act_do(void);                               /* ui_input.c */
 
@@ -142,13 +143,15 @@ static void slot_enter(void)
         sheet_open(t, used ? "used" : "empty", SHEET_USER, NELEM(SHEET_USER));
     else
         sheet_open(t, used ? "used" : "empty", SHEET_STORE, NELEM(SHEET_STORE));
+    if (k == SK_USER && slv.save_page == ui.page + 1u)  /* (reached by SAVE: on Save here) */
+        pop.sel = 1;
+    slv.save_page = 0;
 }
-/* the sound sheet's Save as user..: SAVE > USER, its slot's sheet on Save here */
+/* SAVE, the sound sheet's Save as user..: SAVE > USER shown, nothing popped up (Kerem, 2026-10-10); its slot's sheet,
+ * when OCT+ opens it, on Save here */
 static void slot_save_sheet(void)
 {
-    slot_enter();
-    if (pop.on == POP_SHEET && pop.rows == SHEET_USER)
-        pop.sel = 1;
+    slv.save_page = (uint8_t)(ui.page + 1u);
 }
 
 /* ----------------------------------------------------------- drawing --- */

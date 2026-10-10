@@ -399,7 +399,7 @@ static void eng(uint32_t e) { set_engine_of(TSEL, e); }
 #define E_FM (MELODEE_FM4 ? ENGI_DIGITAL : ENGI_FM6)
 
 enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_WIDE, S_HOME_RELEASED, S_HOME_FM6, S_MESSAGE, S_MESSAGE_KEY, S_PRESETS, S_PRESETS_NOFAV, S_PRESETS_CAT, S_PRESETS_PENDING, S_PRESETS_RECENT, S_USER, S_PROJECT, S_PROJECT_BOOT, S_TEMPO,
-       S_SONG_EMPTY, S_SONG, S_STEP, S_PATTERN, S_CHANCE, S_MOTION, S_DRUM, S_MIXER, S_MIXER_PAN,
+       S_SONG_EMPTY, S_SONG, S_STEP, S_PATTERN, S_MOTION, S_DRUM, S_MIXER, S_MIXER_PAN,
        S_ENV, S_ENVDEST, S_LFO, S_MOD, S_FX, S_SLICER, S_DLY, S_SCL, S_CHORD, S_CHORD_WIDE, S_CHORD_OFF, S_CHORD_KIT, S_ARP, S_VOICE, S_GLOBAL, S_SYSTEM,
        S_EDIT_ANALOG, S_EDIT_DIGITAL, S_OP_ENV, S_EDIT_WHEEL, S_EDIT_PHYS,
        S_ALG1, S_ALG2, S_ALG3, S_ALG4, S_ALG5, S_ALG6, S_ALG7, S_ALG8, S_OP_LEVEL,
@@ -425,7 +425,7 @@ enum { S_HOME, S_HOME_IDLE, S_HOME_NOTE, S_HOME_CHORD, S_HOME_INVERSION, S_HOME_
        S_REF_SHEET_MOTION, S_REF_MOD, S_REF_PICKER_MOD, S_REF_ARP, S_REF_PATTERN,
        S_REF_SLICER, S_REF_FMEG, S_REF_GRID, S_REF_SCALES, S_COUNT };
 static const char *const S_NAME[S_COUNT] = {"home", "home_idle", "home_note", "home_chord", "home_inversion", "home_wide", "home_released", "home_fm6", "message", "message_key", "presets", "presets_nofav", "presets_cat", "presets_pending", "presets_recent", "user",
-    "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "chance", "motion", "drum",
+    "project", "project_boot", "tempo", "song_empty", "song", "step", "pattern", "motion", "drum",
     "mixer", "mixer_pan", "env", "env_dest", "lfo", "mod", "fx", "slicer", "dly", "scl", "chord", "chord_wide", "chord_off", "chord_kit", "arp",
     "voice", "global", "system", "edit_analog", MELODEE_FM4 ? "edit_digital" : "edit_fm6", "op_env", "edit_wheel",
     "edit_phys", "alg_1", "alg_2", "alg_3", "alg_4", "alg_5", "alg_6", "alg_7", "alg_8", "op_level", "fm6_alg_01", "fm6_alg_05", "fm6_alg_22", "fm6_alg_32", "fm6_freq", "fm6_eg", "fm6_peg", "fm6_store", "cz1_env", "confirm_seq", "confirm_project", "confirm_user",
@@ -1016,7 +1016,6 @@ static void setup(int s)
         break;
     }
     case S_PATTERN: go_title("PATTERN"); ui.cursor = 3; break;
-    case S_CHANCE: go_page(GR_CHANCE); step_set_chance(&TSEL->step[0], 65); break;
     case S_MOTION: go_page(GR_MOTION); break;
     case S_DRUM: drum(0); go_page(GR_ROLL); ui.cursor = 4; ui.lane = 1; trk[3].seq_idx = 9; break;
     case S_MIXER:
@@ -1549,6 +1548,46 @@ int main(int argc, char **argv)
             }
         }
         roll_cost();
+        {   /* playing, the playhead alone moving (NOTES, the drum grid, PATTERN): only its columns are sent, and the
+             * screen is what a full redraw draws */
+            static const int P[] = {S_ROLL_PLAYING, S_DRUM, S_PATTERN};
+            static uint16_t got[240 * 240];
+            for (k = 0; k < 3u; k++) {
+                track_t *t;
+                uint32_t period, mv, nmv = 40u, same = 1, len;
+                uint64_t sent = 0, full;
+                setup(P[k]); pal(1); song.playing = 1;
+                t = TSEL;
+                t->seq_pos = 0;
+                draw(P[k]);
+                host_sent = 0; ui.force = 1; ui_draw(); ui.force = 0; full = host_sent;
+                period = seq_div_samples((uint32_t)t->p[P_SDIV]);
+                len = step_pattern_len(t);
+                for (mv = 0; mv < nmv; mv++) {          /* a quarter step a frame: 10 steps */
+                    t->seq_pos += period / 4u;
+                    while (t->seq_pos >= step_samples(t, period, t->seq_idx)) {
+                        t->seq_pos -= step_samples(t, period, t->seq_idx);
+                        t->seq_idx = (uint16_t)((t->seq_idx + 1u) % len);
+                    }
+                    nscr = npend = 0; ui.frame++;
+                    host_sent = 0; ui_draw(); sent += host_sent;
+                    memcpy(got, host_screen, sizeof got);
+                    ui.force = 1; ui_draw(); ui.force = 0;
+                    if (memcmp(got, host_screen, sizeof got)) {
+                        same = 0;
+                        break;
+                    }
+                }
+                fprintf(rep, "  %s playing: the playhead alone moved, %.0f px sent a frame (a full redraw %llu)%s\n", S_NAME[P[k]],
+                        (double)sent / nmv, (unsigned long long)full, same ? "" : "  -- NOT AS A FULL REDRAW");
+                if (!same || sent / nmv > full / 8u) {
+                    fprintf(stderr, "ui_render: %s playing: %s\n", S_NAME[P[k]], !same ? "the playhead's columns differ from a full redraw" :
+                            "the playhead sends too much");
+                    nfind++;
+                }
+                song.playing = 0;
+            }
+        }
     }
     if (audf) fclose(audf);
     fprintf(rep, "\n%u lint findings, %u ellipsised free texts, %u MONO pixels off gray; %u column values swept; "

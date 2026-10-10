@@ -124,8 +124,8 @@ static int test_entry_history(void)
     bad += check("editor changes invalidate history", t->step[0].note[0] == 99 && msg_is("NOTHING TO UNDO"));
     turn(EN_K2, 1); t->p[P_SLEN] = 8; frame(); history_key(B_OCTDN);
     bad += check("pattern-length changes invalidate history", msg_is("NOTHING TO UNDO"));
-    go_page(GR_CHANCE); frame(); turn(EN_K2, -30); hold(B_SAVE);
-    bad += check("CHANCE edits share manual step undo", step_chance(&t->step[ui.cursor]) == 100);
+    cursor_set(0); frame(); press(B_OCTUP); turn(EN_K2, 1); turn(EN_K2, 1); turn(EN_K1, -30); press(B_OCTDN); hold(B_SAVE);
+    bad += check("CHANCE edits (the note's sheet) share manual step undo", step_chance(&t->step[0]) == 100);
     return bad;
 }
 
@@ -224,10 +224,10 @@ static int test_step_modifiers(void)
     bad += check("final SELECT detent on MIDI release sets length before advancing", step_note_length(t, 4) == 3 && ui.cursor == 7);
     turn(EN_SELECT, 1);
     {
-        int paged = cur_page()->graph == GR_ROLL && ui.cursor == 0;
+        int paged = cur_page()->graph != GR_ROLL && ui.cursor == 7;
         turn(EN_SELECT, -1); turn(EN_K1, 1);
-        bad += check("SELECT jogs between notes in place; KNOB 1 reaches empty steps (BPM untouched)",
-                     paged && cur_page()->graph == GR_ROLL && ui.cursor == 5 && song.g[G_BPM] == bpm);
+        bad += check("SELECT turns the page, not the notes; KNOB 1 reaches empty steps (BPM untouched)",
+                     paged && cur_page()->graph == GR_ROLL && ui.cursor == 8 && song.g[G_BPM] == bpm);
     }
     cursor_set(4); frame(); step_t before[NSTEP]; memcpy(before, t->step, sizeof before);
     turn(EN_PRESET, 10);

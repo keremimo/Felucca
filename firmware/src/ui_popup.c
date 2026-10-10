@@ -67,7 +67,7 @@ static void ps_save(void)
     ui.home = 0;
     ui.page = (uint8_t)i;
     page_entered();
-    slot_save_sheet();                                  /* (its slot's sheet, on Save here) */
+    slot_save_sheet();                                  /* (OCT+ then: its slot's sheet on Save here) */
 }
 static void ps_fav_v(char *b) { str_cpy(b, preset_favorite() ? "On" : "Off", 8); }
 static void ps_fav(void) { preset_mark(!preset_favorite()); }
@@ -128,7 +128,7 @@ static const sheet_row_t SHEET_SONG[] = {
     {"Insert section", 0, 0, ps_insert, 0}, {"Duplicate section", 0, 0, ps_dup, 0}, {"Delete section", 0, 0, 0, CF_DEL_ROW},
     {"Take jam", ps_jam_v, 0, ps_jam, 0}, {"Clear song", 0, 0, 0, CF_CLEAR_SONG}};
 
-/* the pattern's (NOTES, the drum grid, PATTERN, CHANCE: OCT+ held; TOOLS' Clear pattern lives here) */
+/* the pattern's (NOTES, the drum grid, PATTERN: OCT+ held; TOOLS' Clear pattern lives here) */
 static const sheet_row_t SHEET_PATTERN[] = {{"Clear pattern", 0, 0, 0, CF_CLEAR_SEQ}, {"Clear motion", 0, 0, 0, CF_CLEAR_MOTION}};
 
 /* the step's: NOTES' note at the cursor (KNOB 1 its length, velocity, chance), the drum grid's hit of the lane there */
@@ -245,7 +245,7 @@ static uint32_t page_sheet(void)
         return 1;
     if (cur_page()->graph == GR_SONG)
         return 2;
-    if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS || cur_page()->graph == GR_CHANCE)
+    if (cur_page()->graph == GR_ROLL || cur_page()->graph == GR_STEPS)
         return 3;
     fam = cur_page()->fam;
     return fam == FAM_EDIT || fam == FAM_ENV || fam == FAM_LFO || fam == FAM_FX ? 1u : 0u;

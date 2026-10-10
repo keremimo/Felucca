@@ -427,7 +427,7 @@ enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK,   /* SC_TRK: the TRACKS 
        SC_FM6, SC_FMOP, SC_CZ, SC_CZ1, SC_P5, SC_P5STORE, SC_DRUM, SC_DRUMHIT };                         /* FM6: its patch, functions; operator fm6_opsel;
                                                                   * CZ1: a native CZ-1 tone (cz_edit.h) */
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
-       GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_CHANCE, GR_MOTION, GR_CHORD, GR_SLICES,
+       GR_SLCR, GR_MOD, GR_PATS, GR_SONG, GR_MOTION, GR_CHORD, GR_SLICES,
        GR_FMEG, GR_FMPEG, GR_FMSTORE, GR_CZTOOLS, GR_SCALE_PICKER, GR_DRUMHIT, GR_PATGRID }; /* NOTES shares GR_ROLL for steps and recorded events */
 
 typedef struct {
@@ -445,9 +445,10 @@ typedef struct {
     {t " L5-8", FAM_EDIT, SC_CZ1, GR_NONE, {LCZ_EBASE(l, e) + 12, LCZ_EBASE(l, e) + 13, LCZ_EBASE(l, e) + 14, LCZ_EBASE(l, e) + 15}}, \
     {t " POINT", FAM_EDIT, SC_CZ1, GR_NONE, {LCZ_EBASE(l, e) + 16, LCZ_EBASE(l, e) + 17, 0xFF, 0xFF}}
 
+#define G_TRK_RECQ 0xFEu                                 /* a global page's column that is the selected track's P_RECQ */
 static const page_t PAGES[] = {
     {"ENV", FAM_ENV, SC_TRACK, GR_ADSR, {P_ATK, P_DEC, P_SUS, P_REL}},
-    {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* the former fourth slot is now SEQ TIMING */
+    {"ENV DEST", FAM_ENV, SC_TRACK, GR_NONE, {P_ED_FLT, P_ED_PIT, P_ED_SHP, 0xFF}},   /* the former fourth slot: SEQ > TEMPO's QNT */
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
     {"LFO 2", FAM_LFO, SC_TRACK, GR_LFO, {P_LSYNC, P_LTRIG, P_LPOL, 0xFF}},
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
@@ -537,14 +538,13 @@ static const page_t PAGES[] = {
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
     {"NOTES", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
-    {"TEMPO", FAM_SEQ, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, 0xFF, 0xFF}},        /* the project's: saved with it */
+    {"TEMPO", FAM_SEQ, SC_GLOBAL, GR_NONE, {G_BPM, G_SWING, G_TRK_RECQ, 0xFF}},   /* the project's: saved with it; QNT: the
+                                                                                  * selected track's (TIMING's, folded in) */
     {"MIXER", FAM_TRK, SC_TRK, GR_TRK, {0, 1, 2, 3}},   /* GLO button; LEVEL PAN REV MUTE */
     {"PATTERNS", FAM_SEQ, SC_GLOBAL, GR_PATGRID, {0xFF, 0xFF, 0xFF, 0xFF}},   /* the 4 x 8 grid: KNOB k track k's (ui_stage.c) */
     {"SONG", FAM_SEQ, SC_GLOBAL, GR_SONG, {0xFF, 0xFF, 0xFF, 0xFF}},
-    {"CHANCE", FAM_SEQ, SC_STEP, GR_CHANCE, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"MOTION", FAM_SEQ, SC_TRACK, GR_MOTION, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"DRUM HIT",FAM_SEQ,SC_DRUMHIT,GR_DRUMHIT,{0,1,2,3}},
-    {"TIMING", FAM_SEQ, SC_TRACK, GR_NONE, {P_RECQ, 0xFF, 0xFF, 0xFF}},
 };
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 static uint8_t mod_ui_slot;      /* the MOD page: the matrix slot (0..3) KNOB 2..4 edit */
@@ -634,6 +634,10 @@ static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **
     if (pg->scope == SC_STEP || pg->scope == SC_TRK) {
         *valp = 0;
         return 0;
+    }
+    if (id == G_TRK_RECQ) {                          /* (TEMPO's QNT: the selected track's recording quantise) */
+        *valp = &TSEL->p[P_RECQ];
+        return track_desc(TSEL, P_RECQ);
     }
     if (pg->scope == SC_GLOBAL && id == G_BOOT) {
         boot_cell = settings_boot;                       /* (a copy: ui_input.c edit_param writes it back) */

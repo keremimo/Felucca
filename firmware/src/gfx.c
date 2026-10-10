@@ -228,6 +228,35 @@ static void cv_blit_from(uint32_t x, uint32_t y, uint32_t r0)
     }
 }
 
+/* canvas columns c0 .. c0+w-1 only, to screen (x + c0, y): gathered into the small canvas and sent alone (a playhead
+ * moved over a big view: a few hundred bytes on the SPI, not the view). Too wide for it: the whole canvas */
+static void cv_blit_cols(uint32_t x, uint32_t y, uint32_t c0, uint32_t w)
+{
+    uint32_t r, i, n;
+    if (c0 >= cv_w)
+        return;
+    if (w > cv_w - c0)
+        w = cv_w - c0;
+    if (cv_px == cv_alt || w * cv_h > CV_ALT_MAX) {
+        cv_blit(x, y);
+        return;
+    }
+    GFX_HOOK_BLIT(x, y, 0u);
+    if (cv_flight == cv_alt) {
+        lcd_sync();
+        cv_flight = 0;
+    }
+    for (r = 0; r < cv_h; r++)
+        for (i = 0; i < w; i++)
+            cv_alt[r * w + i] = cv_px[r * cv_w + c0 + i];
+    n = w * cv_h;
+    if (cv_dim)
+        for (i = 0; i < n; i++)
+            cv_alt[i] = swap16(mix565(T_BG, swap16(cv_alt[i]), 9u));
+    lcd_blit(x + c0, y, w, cv_h, cv_alt);
+    cv_flight = cv_alt;
+}
+
 static inline void cv_pset(int32_t x, int32_t y, uint16_t c)
 {
     y += cv_oy;

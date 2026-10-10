@@ -9,7 +9,7 @@
  * a dot at the arc's end) over what the page shapes: ANALOG's oscillator, the delay's echoes on the beat, a filter's
  * response (a page with a cutoff), FM6's algorithm (its chart), else the sound itself (the scope, smooth, live).
  * FADERS (FX): the four sends as faders.
- * NOTES (SEQ > STEP, CHANCE; a melodic track): the roll the whole height (PR_TOP, PR_H: ui_graph.c, in two slices),
+ * NOTES (SEQ > STEP; a melodic track): the roll the whole height (PR_TOP, PR_H: ui_graph.c, in two slices),
  * the knobs as chips under it (the one turning filled).
  * MIXER: Stage's columns as channel strips: the sound, its level (a ring, dB in it) and meter, PAN and REV, MUTE,
  * armed;
@@ -41,7 +41,8 @@ static int32_t pv_chip_y = PV_CHIP_Y;                   /* (MOD: its chips at th
 static int32_t pv_strip_y = PV_STRIP_Y;                 /* (the GLO layer: its levels at the top) */
 static uint16_t pv_strip_tc[4];                         /* a strip's label colour (0: the track's) */
 
-static struct { uint32_t panel, sound; int32_t slice0; } pv;
+static struct { uint32_t panel, sound; int32_t slice0, gplay, pplay; } pv;   /* gplay, pplay: the step playing drawn
+                                                                               * (drum grid, PATTERN; -1 none) */
 static int32_t pv_tab_h;                                /* an engine in sections: its tabs under the header (rows 18 ..
                                                          * 33): the rings 10 rows lower and as much shorter */
 #define PV_TAB_RING 10
@@ -64,7 +65,7 @@ static uint32_t pv_kind(void)
         return PV_FADERS;
     if (pg->graph == GR_TRK)
         return PV_MIXER;
-    if ((pg->graph == GR_ROLL || pg->graph == GR_CHANCE) && !drum_track(TSEL))
+    if (pg->graph == GR_ROLL && !drum_track(TSEL))
         return PV_NOTES;
     if (pg->graph == GR_MOD)
         return PV_MOD;
@@ -162,7 +163,7 @@ static const int8_t PV_DOT[33][2] = {
 static const struct { const char *k, *w; } PV_LABEL[] = {
     {"OCT", "OCTAVES"}, {"LEN", "LENGTH"}, {"DIV", "DIVISION"}, {"SWG", "SWING"}, {"SLCR", "SLICER"}, {"PAT", "PATTERN"},
     {"DTN", "DETUNE"}, {"NOIS", "NOISE"}, {"CUT", "CUTOFF"}, {"DRV", "DRIVE"}, {"ATK", "ATTACK"}, {"DEC", "DECAY"},
-    {"SUS", "SUSTAIN"}, {"REL", "RELEASE"}, {"FDBK", "FEEDBACK"}, {"DPTH", "DEPTH"}, {"VOIC", "VOICING"}};
+    {"SUS", "SUSTAIN"}, {"REL", "RELEASE"}, {"FDBK", "FEEDBACK"}, {"DPTH", "DEPTH"}, {"VOIC", "VOICING"}, {"QNT", "QUANTIZE"}};
 static void pv_words(const char *label, const char *val, const char *unit, char *lb, char *v, char *u)
 {
     uint32_t i, word = val[0] >= 'A' && val[0] <= 'Z' && val[1];
@@ -339,6 +340,20 @@ static void pv_panel(int32_t y, int32_t h, void (*fn)(int32_t h))
         cv_oy = 0;
         cv_blit(PV_PANEL_X, (uint32_t)(y + top));
     }
+}
+/* a canvas drawn (at x 0, row y) for its playhead alone: sent only where it was and is, columns from .. from+w-1 and
+ * to .. to+w-1 (-1: none; close together: one span) */
+static void pv_cols(uint32_t y, int32_t from, int32_t to, int32_t w)
+{
+    if (from >= 0 && to >= 0 && from < to + w + 8 && to < from + w + 8) {
+        int32_t a = from < to ? from : to, b = from < to ? to : from;
+        cv_blit_cols(0, y, (uint32_t)a, (uint32_t)(b - a + w));
+        return;
+    }
+    if (from >= 0)
+        cv_blit_cols(0, y, (uint32_t)from, (uint32_t)w);
+    if (to >= 0)
+        cv_blit_cols(0, y, (uint32_t)to, (uint32_t)w);
 }
 /* a label on a panel: below the labels already on it that it would cover (pv.nbox: a panel's), moved up off a slice's
  * seam, drawn in the slice that holds it */
@@ -522,13 +537,22 @@ static void pv_curve(int32_t h)
 /* the drum grid (mock/r6_pages STEP): the eight lanes down the panel, 16 steps of the page across; a hit a cell in the
  * track's colour (an accent in text), an empty step a dot (every fourth brighter); the lane picked a band, its name in
  * the track's colour, the cursor a frame on it; the step playing marked over the lanes */
+static int32_t pv_grid_play(void)                       /* the step playing on the page shown, -1 */
+{
+    uint32_t idx = TSEL->seq_idx;
+    return song.playing && idx < (uint32_t)TSEL->p[P_SLEN] && idx / 16u == ui.bank ? (int32_t)(idx % 16u) : -1;
+}
+static void pv_grid_mark(void)                          /* (rows 3 .. 5, over the lanes) */
+{
+    if (pv.gplay >= 0)
+        cv_rect(34 + pv.gplay * 12 + pv.gplay / 4 * 2, 3, 10, 3, T_TEXT);
+}
 static void pv_grid(int32_t h)
 {
     const track_t *t = TSEL;
     uint32_t l, i, len = (uint32_t)t->p[P_SLEN], base = ui.bank * 16u;
     (void)h;
-    if (song.playing && t->seq_idx < len && t->seq_idx / 16u == ui.bank)
-        cv_rect(34 + (int32_t)(t->seq_idx % 16u) * 12 + (int32_t)(t->seq_idx % 16u / 4u) * 2, 3, 10, 3, T_TEXT);
+    pv_grid_mark();
     for (l = 0; l < NLANE; l++) {
         int32_t y = 10 + (int32_t)l * 20;
         int sel = l == ui.lane;
@@ -686,12 +710,13 @@ static void pv_arp(void)
 }
 /* PATTERN (mock/r6_pages PATTERN): the 64 steps as dots, four rows of 16: a note or a hit the track's colour, a rest
  * a line, past LEN dimmer still; the step playing white; LEN of 64 as the bar under them */
+#define PV_STEP_X(s) (22 + (int32_t)((s) % 16u) * 12 + (int32_t)((s) % 16u / 4u) * 4)   /* a step's dot (7 px) */
 static void pv_steps(void)
 {
     const track_t *t = TSEL;
-    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), s, ph = song.playing ? t->seq_idx % len : 0xFFu;
+    uint32_t len = (uint32_t)clamp(t->p[P_SLEN], 1, NSTEP), s, ph = pv.pplay >= 0 ? (uint32_t)pv.pplay : 0xFFu;
     for (s = 0; s < NSTEP; s++) {
-        int32_t col = (int32_t)(s % 16u), x = 22 + col * 12 + col / 4 * 4, y = 16 + (int32_t)(s / 16u) * 18;
+        int32_t x = PV_STEP_X(s), y = 16 + (int32_t)(s / 16u) * 18;
         uint16_t c = s == ph ? T_TEXT : s >= len ? ux_mix(T_PANEL, T_LINE, 50) :
                      step_on(&seq_steps(t)[s]) ? T_THEME : T_LINE;
         cv_disc(x, y, s == ph || (s < len && step_on(&seq_steps(t)[s])) ? 7 : 5, c, 0);
@@ -750,9 +775,11 @@ static void pv_picture(void)
 {
     int32_t cut, res;
     uint32_t pic = pv_pic(&cut, &res), sig = pv_curve_sig() ^ pic * 131u ^ (uint32_t)(cut + 1) * 7919u, i;
+    int32_t pp = pic == 6u && song.playing ? (int32_t)(TSEL->seq_idx % (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP)) : -1,
+            from = pv.pplay, cols;
     sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
-    if (pic >= 5u) {                                    /* ARP, PATTERN, SLICER: the keys, steps, playhead */
-        sig ^= steps_hash(TSEL) + (song.playing ? TSEL->seq_idx + 1u + sl[song.sel].idx * 257u : 0u) * 2246822519u;
+    if (pic >= 5u) {                                    /* ARP, PATTERN, SLICER: the keys, steps, the SLICER's step */
+        sig ^= steps_hash(TSEL) + (song.playing ? 1u + sl[song.sel].idx * 257u : 0u) * 2246822519u;
         for (i = 0; i < TSEL->nheld && i < 16u; i++)
             sig = (sig ^ TSEL->held[i]) * 16777619u;
         sig ^= TSEL->nheld * 131u + (uint32_t)TSEL->p[P_SLPAT] * 977u + (uint32_t)TSEL->p[P_SLCR] * 7u;
@@ -765,9 +792,11 @@ static void pv_picture(void)
         graph_h = H_GRAPH;
         return;
     }
-    if (!ui.force && sig == pv.panel)
+    if (!ui.force && sig == pv.panel && pp == pv.pplay)
         return;
+    cols = !ui.force && sig == pv.panel;                /* PATTERN: the step playing alone moved (pv_cols) */
     pv.panel = sig;
+    pv.pplay = pp;
     {
         int32_t dy = 0;                                 /* (the picture whole under tabs too: the rings shorter) */
         cv_begin(240, (uint32_t)(PV_PIC_H - dy), T_BG);
@@ -782,7 +811,11 @@ static void pv_picture(void)
         else if (pic == 3u) pv_filter(cut, res);
         else stage_wave(T_THEME, 8 + dy / 2, PV_PIC_H - 16 - dy);
         cv_oy = 0;
-        cv_blit(0, (uint32_t)(PV_PIC_Y + dy));
+        if (cols)
+            pv_cols((uint32_t)(PV_PIC_Y + dy), from >= 0 ? PV_STEP_X((uint32_t)from) - 5 : -1,
+                    pp >= 0 ? PV_STEP_X((uint32_t)pp) - 5 : -1, 11);
+        else
+            cv_blit(0, (uint32_t)(PV_PIC_Y + dy));
     }
 }
 
@@ -904,6 +937,7 @@ static void pv_strip(uint32_t k)
 static void pv_draw(void)
 {
     uint32_t kind = pv_kind(), sig;
+    int32_t px;
     if (kind == PV_NOTES) {
         if (ui.force) {
             lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
@@ -914,10 +948,13 @@ static void pv_draw(void)
         draw_columns();
         col_style = CS_CARD;
         pv_sound();
-        sig = graph_signature();
-        if (ui.force || sig != ui.graph_sig) {          /* the roll, in two slices (its labels may cross the seam) */
-            int32_t top;
+        sig = graph_sig(0);
+        px = notes_play_x(TSEL);
+        if (ui.force || sig != ui.graph_sig || px != proll.play) {   /* the roll, in two slices (its labels may cross
+                                                                      * the seam); the playhead alone: its columns */
+            int32_t top, from = proll.play, cols = !ui.force && sig == ui.graph_sig;
             ui.graph_sig = sig;
+            proll.play = px;
             for (top = 0; top < PR_H; top += H_GRAPH) {
                 int32_t sh = PR_H - top < H_GRAPH ? PR_H - top : H_GRAPH;
                 cv_begin(240, (uint32_t)sh, T_BG);
@@ -925,11 +962,13 @@ static void pv_draw(void)
                 cv_rrect(PV_PANEL_X, 0, PV_PANEL_W, PR_H, 6, T_PANEL, T_BG);
                 cv_bg = T_PANEL;
                 cv_scroll = 1;
-                if (cur_page()->graph == GR_CHANCE) graph_roll(TSEL, T_THEME);
-                else graph_recorded_notes(TSEL, T_THEME);
+                graph_recorded_notes(TSEL, T_THEME);
                 cv_scroll = 0;
                 cv_oy = 0;
-                cv_blit(0, (uint32_t)(PR_TOP + top));
+                if (cols)
+                    pv_cols((uint32_t)(PR_TOP + top), from, px, 1);
+                else
+                    cv_blit(0, (uint32_t)(PR_TOP + top));
             }
         }
         return;
@@ -942,10 +981,19 @@ static void pv_draw(void)
         draw_columns();
         col_style = CS_CARD;
         pv_sound();
-        sig = graph_signature();
+        sig = graph_sig(0);
+        px = pv_grid_play();
         if (ui.force || sig != ui.graph_sig) {
             ui.graph_sig = sig;
+            pv.gplay = px;
             pv_panel(PV_GRID_Y, PV_GRID_H, pv_grid);
+        } else if (px != pv.gplay) {                    /* the step playing alone: the panel's top rows, its mark */
+            pv.gplay = px;
+            cv_begin(PV_PANEL_W, 10, T_BG);
+            cv_rrect(0, 0, PV_PANEL_W, PV_GRID_H, 6, T_PANEL, T_BG);
+            cv_bg = T_PANEL;
+            pv_grid_mark();
+            cv_blit(PV_PANEL_X, PV_GRID_Y);
         }
         return;
     }

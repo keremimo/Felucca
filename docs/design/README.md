@@ -73,9 +73,10 @@ One way to move on every screen with something to move through (Kerem, 2026-10-1
   to Stage. Enter: a list row's list, a slot's sheet (PROJECT, USER, the STOREs), the action picked, a sound page's
   sheet; NOTES: an empty step gets the last note played, a note opens its sheet (Length, Velocity, Chance, Slide,
   Delete note); the drum grid: an empty place gets the lane's hit, a hit opens its sheet (Accent, Chance, Clear hit:
-  hits have no velocity of their own). OCT+ held on NOTES, PATTERN, CHANCE: the pattern's sheet (Clear pattern,
+  hits have no velocity of their own). OCT+ held on NOTES, PATTERN: the pattern's sheet (Clear pattern,
   Clear motion). A clearing row with nothing there says so instead of asking.
-- **SELECT** turns the pages, as before.
+- **SELECT** turns the pages, as before, NOTES too (Kerem, 2026-10-10): there KNOB 1 alone moves, the steps one by
+  one (empty ones too) and a step's notes one at a time (a chord's, a take's), back onto the step before's last note.
 - **Direct pages stay direct**: one knob per track where speed matters (Stage, MIXER, PATTERNS, NEW SONG's roles);
   the sound pages' four knobs edit their four values. PATTERNS: OCT- clears what is queued.
 
@@ -102,7 +103,7 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   question first. TOOLS is gone, its actions in these (Clear pattern: NOTES / PATTERN; Init sound: the sound pages;
   Delete section, Clear song: SONG); PROJECT / USER / FM6 STORE / P5 STORE are slot lists (no chips), a slot's sheet:
   Load, Save here, Rename, Boot, Erase (PROJECT; Erase asks); the STOREs: Save here, Send, Init sound. SAVE opens
-  USER with its slot's sheet on Save here (SAVE, OCT+, OCT+ as before). MOTION: no chips, its lanes (a parameter each,
+  USER on its slot, no sheet popped up (Kerem, 2026-10-10); OCT+ its sheet, on Save here (SAVE, OCT+, OCT+, OCT+). MOTION: no chips, its lanes (a parameter each,
   scaled to what it moves through, the playhead across); a lane's sheet: Play, Clear <lane>, Clear all motion. MOD:
   the four routes as rows (source -> destination, the amount's bar from the middle), the knobs' chips at the bottom.
 - **Picker**: a knob whose value is a list (wave, MOD source / destination, chord, delay division) shows the list
@@ -113,8 +114,9 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
 
 - **List pages** (set and leave): a row a setting (KNOB 2 the row, KNOB 1 its value, OCT+ a list value's full list,
   OCT- back), the page's picture under the rows where it has one. SCL (OCT+ on Scale: the SCALES list), CHORD, VOICE
-  1-3 (one list), TIMING, MPC, ENV DEST, LFO DEST, LFO 2, ARP 2, DLY 2, FM6's LFO and controller pages (a list each).
-  TEMPO, GLOBAL, SYSTEM stay knobs (BPM and TUNE are turned while playing, their digits roll).
+  1-3 (one list), MPC, ENV DEST, LFO DEST, LFO 2, ARP 2, DLY 2, FM6's LFO and controller pages (a list each).
+  TEMPO, GLOBAL, SYSTEM stay knobs (BPM and TUNE are turned while playing, their digits roll); TEMPO's third knob is
+  the selected track's Quantize (TIMING's page retired, Kerem 2026-10-10).
 - **Knob pages** (played while tweaked): four rings over the page's picture (R5): the engines' EDIT pages, ENV, LFO,
   DLY, REVERB, CHORUS, FX, SLICER, ARP, PATTERN; MIXER, Stage, PATTERNS direct.
 - **ENV / LFO follow the engine** (Kerem, 2026-10-10): the Prophet, FM6 and CZ-1 have envelopes and LFOs of their own
@@ -122,8 +124,8 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   EG LVL, PITCH EG, PITCH LV; CZ-1 each line's pitch, wave and amp envelope) and the track ADSR hides; LFO visits
   theirs first (P5 LFO, WHEEL; FM LFO; CZ VIBRATO), then the track LFO (it modulates any engine through LFO DEST
   and is the matrix's LFO) and MOD. LOFI, DRUM, SLICE keep the track's.
-- Defaults (Kerem, 2026-10-10): OCT+ (tapped, or held about 0.7 s) opens a page's own sheet; CHANCE keeps its
-  page and is in the note / hit sheets too; a picker closes ST_KNOB_MS after the last turn or on OCT-.
+- Defaults (Kerem, 2026-10-10): OCT+ (tapped, or held about 0.7 s) opens a page's own sheet; CHANCE lives in
+  the note / hit sheets (its page retired, Kerem 2026-10-10); a picker closes ST_KNOB_MS after the last turn or on OCT-.
 
 ## Sound pages, fast (R7: mock/r7_sound_nav)
 

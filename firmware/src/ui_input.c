@@ -585,10 +585,11 @@ static void drum_sound_edit(uint32_t slot,int32_t delta)
     else {int8_t *p=&drum_patch[song.sel].c[ui.drum_sound][field-1];*p=(int8_t)clamp(*p+delta,field==1?-24:-64,field==1?24:63);}
     fm1_irq_on();ui.force=1;
 }
+static void drum_hit_jog(int32_t delta);
 static void drum_hit_edit(uint32_t slot,int32_t delta)
 {
     ui.drum_sound%=drum_sound_count(TSEL);
-    if(!slot){cursor_set(ui.cursor+delta);return;}
+    if(!slot){drum_hit_jog(delta);return;}         /* KNOB 1: the hits one by one, the steps */
     if(slot==1){ui.drum_sound=(uint8_t)clamp(ui.drum_sound+delta,0,drum_sound_count(TSEL)-1);ui.lane=(uint8_t)drum_lane(drum_sound_note(TSEL,ui.drum_sound));ui.note_pick=0;ui.force=1;notes_preview();return;}
     if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
     step_history_end();step_history_finish();fm1_irq_off();step_history_sync_locked();
@@ -627,7 +628,7 @@ static void drum_hit_edit(uint32_t slot,int32_t delta)
 
 static void drum_hit_jog(int32_t delta)
 {
-    notes_jog(delta);uint32_t i=notes_selected(TSEL);
+    notes_step_jog(delta);uint32_t i=notes_selected(TSEL);
     if(i<RECORD_MAX){ui.drum_sound=(uint8_t)drum_sound_of(TSEL,recording[i].note);ui.lane=(uint8_t)drum_lane(recording[i].note);}
     notes_preview();ui.force=1;
 }
@@ -661,8 +662,11 @@ static void drum_hit_key(uint32_t accent)
 
 static void step_edit(uint32_t slot, int32_t steps)
 {
-    if (slot == 0u) {
-        if (!ui.entry_open) cursor_set(ui.cursor + steps);
+    if (slot == 0u) {                                   /* KNOB 1: the notes one by one, the steps (empty ones too) */
+        if (!ui.entry_open) {
+            if (cur_page()->graph == GR_ROLL && !grid_on()) notes_step_jog(steps);
+            else cursor_set(ui.cursor + steps);
+        }
         return;
     }
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
@@ -705,15 +709,6 @@ static void edit_param(uint32_t slot, int32_t steps)
     const page_t *pg = cur_page();
     const param_desc_t *d;
     int32_t v;
-    if (pg->graph == GR_CHANCE) {
-        if (slot == 0u) cursor_set(ui.cursor + steps);
-        else if (slot == 1u) {
-            if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-            step_t *st = &TSEL->step[ui.cursor];
-            step_set_chance(st, (uint32_t)clamp((int32_t)step_chance(st) + steps, 0, 100));
-        }
-        return;
-    }
     if (pg->graph == GR_SLOTS && slot == 0u && (ui.proj_new || (steps > 0 && song.g[G_SLOT] == PROJ_TMPL))) {
         ui.proj_new = steps > 0;                        /* past TMPL: NEW (SLOT itself stays) */
         if (!ui.proj_new && ui.act == 4u) ui.act = 0;
@@ -1024,7 +1019,7 @@ static uint32_t oct_taps(uint32_t pressed, int here)
 /* SEQ step entry, acid style: the keys pressed together (POLY: up to 4 notes, MONO:
  * the last one) become the cursor step; releasing all keys moves on. With CHRD on a key
  * writes what it sounds, as live recording does: POLY its chord, MONO the chord's root */
-static int step_page(void) { return !ui.home && (cur_page()->scope == SC_STEP || cur_page()->scope==SC_DRUMHIT); }   /* SEQ > STEP, CHANCE */
+static int step_page(void) { return !ui.home && (cur_page()->scope == SC_STEP || cur_page()->scope==SC_DRUMHIT); }   /* SEQ > NOTES, DRUM HIT */
 /* ENV / SCL / EDIT held on STEP: their note gestures (SELECT resizes, moves; EDIT + OCT-/+ undoes, redoes; EDIT tapped
  * deletes), armed and playing too. EDIT's quick layer: off the synth STEP */
 static int step_modifier_context(void)
@@ -1032,7 +1027,7 @@ static int step_modifier_context(void)
     return step_page() && (!drum_track(TSEL) || !grid_on() || (cur_page()->graph == GR_ROLL && live_rec_sel())) &&
            !ui.menu && !ui.confirm && !ui.ly && !name_on();
 }
-static uint32_t step_modifier_mask(void)                /* (EDIT: STEP only, not CHANCE) */
+static uint32_t step_modifier_mask(void)                /* (EDIT: NOTES only) */
 {
     if (grid_on() && live_rec_sel()) return 1u << panel.btn[B_EDIT];
     return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) |
@@ -1695,6 +1690,7 @@ static void ui_input(void)
         else sheet_input(k1, k2, oct);
         ui.pg_down = 0;
         enc_drop();
+        step_history_end();                             /* (a note's sheet: its CHANCE, LENGTH, ... edits undo too) */
         return;
     }
     if (lytap)                                          /* a layer's button acts on release (held: the layer) */
@@ -1861,7 +1857,7 @@ static void ui_input(void)
     } else if (song.grid) {
         if (!seq_erase_active(TSEL)) grid_keys(notes);
         else seq_midi_events(0);
-    } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* STEP (not CHANCE: its knobs only) */
+    } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* NOTES */
         if (live_rec_sel()) {                           /* armed and playing: the keys and MIDI record live, */
             ui.entry_open = 0;                          /* not into the cursor step too */
             seq_midi_events(0);
@@ -1907,11 +1903,7 @@ static void ui_input(void)
             if (pattern_request(TSEL, (uint32_t)clamp((int32_t)from + s, 0, NPAT - 1u))) ui_message("STOP SONG TO SWITCH");
             ui.force = 1;
         } else if (step_gesture(s)) {                   /* ENV / SCL / a key held: the note's length, its place */
-        } else if (!ui.home && cur_page()->graph == GR_ROLL && !grid_on()) {
-            notes_jog(s);
-        } else if(!ui.home && cur_page()->scope==SC_DRUMHIT){
-            drum_hit_jog(s);
-        } else if (!ui.home) {                          /* the section's pages (BPM: SEQ > TEMPO; the STEP cursor:
+        } else if (!ui.home) {                          /* the section's pages (BPM: SEQ > TEMPO; the notes, the hits:
                                                          * KNOB 1) */
             page_scroll(s);
         }
