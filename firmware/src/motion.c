@@ -147,6 +147,23 @@ static void motion_delete_event(track_t *t, uint32_t step, uint32_t id)
     motion.count = (uint8_t)n;
     motion_unguard(f);
 }
+/* one lane (MOTION's sheet): every event of id on the track's pattern; none left there: the track's motion off */
+static void motion_clear_param(track_t *t, uint32_t id)
+{
+    uint32_t f = motion_guard(), k = trk_index(t), i, n = 0, remaining = 0;
+    motion_restore(t);
+    for (i = 0; i < motion.count; i++)
+        if (motion_pattern[i] != t->pattern || (motion.event[i].place >> 6) != k || motion.event[i].param != id) {
+            motion_pattern[n] = motion_pattern[i]; motion.event[n++] = motion.event[i];
+        }
+    memset(motion.event + n, 0, (MOTION_MAX - n) * sizeof motion.event[0]);
+    motion.count = (uint8_t)n;
+    for (i = 0; i < n; i++) remaining |= (motion.event[i].place >> 6) == k;
+    if (!remaining) motion.on &= (uint8_t)~(1u << k);
+    motion_rebase(t);
+    motion_full = 0;
+    motion_unguard(f);
+}
 static int motion_capture(track_t *t, uint32_t id, int16_t value)
 {
     uint32_t k = trk_index(t), idx, len, period, f;

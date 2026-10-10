@@ -86,11 +86,14 @@ static int ldr_erase(uint32_t off)
     memset(nor + off, 0xFF, 0x1000);
     return 0;
 }
+static uint32_t prog_fail_after;                    /* a write that fails (the power gone): after this many */
 static int ldr_prog(uint32_t off, const void *p, uint32_t n)
 {
     const uint8_t *s = p;
     uint32_t i;
-    if (off < 0x4000u || off + n > 0x93000u || ((off & 0xFFu) + n) > 256u) bad_range++;
+    if (prog_fail_after && !--prog_fail_after) return -1;
+    /* the app area, the Prophet banks' new place above it */
+    if (off < 0x4000u || off + n > 0x9D000u || ((off & 0xFFu) + n) > 256u) bad_range++;
     for (i = 0; i < n; i++) nor[off + i] &= s[i];
     return 0;
 }
@@ -157,11 +160,25 @@ int main(int argc, char **argv)
     static uint8_t extensions[0x10000];
     for(uint32_t i=0;i<sizeof extensions;i++)extensions[i]=(i%4096u>=3840u)?0xFFu:(uint8_t)(i*31u);
     memcpy(nor+0xEA000u,extensions,sizeof extensions);
-    static uint8_t prophet_banks[0xA000];memset(prophet_banks,0xA5,sizeof prophet_banks);
-    for(uint32_t i=0;i<10u;i++)memset(prophet_banks+i*4096u+3840u,0xFF,256u);
+    /* the Prophet banks where the smaller app area left them (0x89000): each sector a storage.c commit record */
+    static uint8_t prophet_banks[0xA000];
+    for(uint32_t i=0;i<10u;i++){
+        uint8_t *s=prophet_banks+i*4096u;
+        memset(s,(uint8_t)(0xA0u+i),4096u);memset(s+3840u,0xFF,256u);
+        ota_wr32(s,0x554C4546u);ota_wr16(s+4,25u+i/2u);ota_wr16(s+6,i&1u);ota_wr32(s+8,7u);ota_wr32(s+12,100u);
+        uint32_t c=0xFFFFFFFFu;for(uint32_t k=0;k<28u;k++){c^=s[k];for(uint32_t j=0;j<8u;j++)c=(c>>1)^(0xEDB88320u&(0u-(c&1u)));}
+        ota_wr32(s+28,~c);
+    }
     memcpy(nor+0x89000,prophet_banks,sizeof prophet_banks);
+    memset(nor+0x93000,0x5A,0x8000);                   /* (the legacy projects' place they take: not erased) */
+    prog_fail_after = 2u * 16u + 5u;                   /* the power gone while the third sector is copied */
     rc = ldr_session();
-    bad += check("Prophet native banks survive firmware installation",!memcmp(nor+0x89000,prophet_banks,sizeof prophet_banks));
+    bad += check("a copy cut short: the session fails, the old banks intact", rc == -10 &&
+                 !memcmp(nor+0x89000,prophet_banks,sizeof prophet_banks));
+    prog_fail_after = 0;
+    rc = ldr_session();
+    bad += check("Prophet native banks moved above the app area (0x93000) on installation",
+                 !memcmp(nor+0x93000,prophet_banks,sizeof prophet_banks));
     bad += check("project extensions survive firmware installation",!memcmp(nor+0xEA000u,extensions,sizeof extensions));
     printf("  rc %d, %u requests, %u sector erases\n", rc, requests, erases);
     bad += check("install completes", rc == 0);
@@ -184,12 +201,12 @@ int main(int argc, char **argv)
         bad += check("foreign key / damaged app head refused, nothing erased", rc == -6 && erases == 0);
         logical[nfo + 0x4000 + 5] = save;
     }
-    {   /* A valid UFW entry with the old 0x93000 flash partition. */
+    {   /* A valid UFW entry with an older, smaller flash partition (0x89000). */
         uint8_t saved[0x400];memcpy(saved,logical,sizeof saved);uint8_t *h=logical;
         uint8_t header[64];memcpy(header,h,64);ota_jl_enc(header,64);uint32_t count=ota_rd16(header+8);
-        for(uint32_t k=0;k<count;k++){uint8_t *e=h+0x40+k*0x50u;ota_jl_enc(e,0x50);if(ota_rd16(e)==0)ota_wr32(e+12,0x93000u);ota_jl_enc(e,0x50);}
+        for(uint32_t k=0;k<count;k++){uint8_t *e=h+0x40+k*0x50u;ota_jl_enc(e,0x50);if(ota_rd16(e)==0)ota_wr32(e+12,0x89000u);ota_jl_enc(e,0x50);}
         ota_wr16(header+2,ota_crc16(h+0x40,count*0x50u,0));ota_wr16(header,ota_crc16(header+2,62,0));ota_jl_enc(header,64);memcpy(h,header,64);
-        erases=0;rc=ldr_session();bad+=check("old larger partition refused before erasing Prophet banks",rc==-3&&!erases&&!memcmp(nor+0x89000,prophet_banks,sizeof prophet_banks));
+        erases=0;rc=ldr_session();bad+=check("older smaller partition refused before erasing anything",rc==-3&&!erases&&!memcmp(nor+0x93000,prophet_banks,sizeof prophet_banks));
         memcpy(logical,saved,sizeof saved);
     }
     printf("%s\n", bad ? "LOADER TEST FAILED" : "loader test passed");

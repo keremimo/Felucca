@@ -9,7 +9,8 @@
  *   2. checks that the package's app area decrypts with THIS chip's key
  *      (taken from isd_config.ini in the device's own flash head), so a
  *      package for another key is refused before anything is erased;
- *   3. writes ONLY the app area [0x4000, 0x93000), sector by sector, skipping
+ *   3. moves the Prophet user banks from 0x89000 (below an older, smaller app area's end) to 0x93000, then
+ *      writes ONLY the app area [0x4000, 0x93000), sector by sector, skipping
  *      sectors that are already equal, and verifies each one; the flash head
  *      (SPL, isd_config) is never written;
  *   4. asks 0xF0000000 ("success"), then invalidates the update record (RAM
@@ -23,7 +24,11 @@
  *   ldr_progress(done, total)
  * plus the ota.c hooks (frames, time, idle). */
 #define LDR_APP_LO 0x4000u
-#define LDR_APP_HI 0x89000u
+#define LDR_APP_HI 0x93000u
+#define LDR_P5_OLD 0x89000u                     /* the Prophet user banks (storage.c OBJ_P5BANK0.., ten sectors: five */
+#define LDR_P5_NEW 0x93000u                     /* banks, copies A B) before and since the app area grew to 0x93000 */
+#define LDR_P5_SECTORS 10u
+#define LDR_P5_OBJ0 25u                         /* storage.c OBJ_P5BANK0 (prophet_integration_test checks it) */
 #define LDR_REC_LO 0x93000u                     /* update records live above the app ... */
 #define LDR_REC_HI 0xFC000u                     /* ... and below Melodee's globals */
 
@@ -77,6 +82,51 @@ static int ldr_chip_key(uint32_t *key)
     return -3;
 }
 
+/* storage.c's commit record (magic, type, copy, .., header CRC-32) of Prophet bank s / 2, copy s % 2 */
+static int ldr_p5_rec(const uint8_t *h, uint32_t s)
+{
+    uint32_t c = 0xFFFFFFFFu, i, j;
+    for (i = 0; i < 28u; i++)                           /* (zlib CRC-32, as st_crc32) */
+        for (c ^= h[i], j = 0; j < 8u; j++)
+            c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+    return ota_rd32(h) == 0x554C4546u && ota_rd16(h + 4) == LDR_P5_OBJ0 + s / 2u && ota_rd16(h + 6) == (s & 1u) &&
+           ota_rd32(h + 28) == ~c;
+}
+/* the Prophet user banks to their place above the app area, before the app is written over the old one: a sector
+ * whose new place holds its commit record is done (the record goes in last, so a copy cut short never has one); an
+ * old one without a record has nothing to move (never saved, or written over by an earlier session's app) */
+static int ldr_p5_move(uint8_t *sec, uint8_t *cur)
+{
+    uint32_t s, k, tries;
+    for (s = 0; s < LDR_P5_SECTORS; s++) {
+        uint32_t from = LDR_P5_OLD + s * 0x1000u, to = LDR_P5_NEW + s * 0x1000u;
+        if (ldr_fread(to, cur, 32))
+            return -8;
+        if (ldr_p5_rec(cur, s))
+            continue;
+        if (ldr_fread(from, sec, 0x1000u))
+            return -8;
+        if (!ldr_p5_rec(sec, s))
+            continue;
+        for (tries = 0; tries < 2u; tries++) {
+            if (ldr_erase(to))
+                return -9;
+            for (k = 256u; k < 0x1000u; k += 256u)      /* the body, then the page with the record */
+                if (ldr_prog(to + k, sec + k, 256))
+                    return -10;
+            if (ldr_prog(to, sec, 256))
+                return -10;
+            if (ldr_fread(to, cur, 0x1000u))
+                return -8;
+            if (ota_memeq(sec, cur, 0x1000u))
+                break;
+        }
+        if (tries == 2u)
+            return -11;
+    }
+    return 0;
+}
+
 static int ldr_session(void)
 {
     static uint8_t hdr[0x400], sec[0x1000], cur[0x1000];
@@ -95,7 +145,9 @@ static int ldr_session(void)
     ldr_sfc(sec, 32, 0, key);
     if (ota_crc16(sec + 2, 30, 0) != ota_rd16(sec))
         return -6;                                       /* package for another chip key */
-    /* 3. app area, sector by sector */
+    /* 3. the Prophet banks up, then the app area, sector by sector */
+    if ((rc = ldr_p5_move(sec, cur)) != 0)
+        return rc;
     for (s = LDR_APP_LO; s < LDR_APP_HI; s += 0x1000u) {
         for (k = 0; k < 0x1000u; k += 512u)
             if (ota_read(fl_off + s + k, sec + k, 512))

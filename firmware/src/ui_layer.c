@@ -9,10 +9,10 @@
  *              GLO + PLAY: from the top without stopping
  *   SCL  SET   any key: its note name is ROOT; KNOB 1..4 ROOT SCL CHRD VOIC (LY_SCL: the SCL page's first two,
  *              the CHORD page's two; QNT TRN stay on SCL); the LEDs show the root lit and the scale's notes blinking
- *   EDIT SET   the white keys from F3: the engines in PRESETS order (one key each, the NENG_SHOWN one can pick:
- *              engines.c eng_vis), the next white key INIT (LY_INIT: E5)
- *              (the dialog); KNOB 1 ENG, 2 No. (the engine's sounds), 3 FAV. Sound loads as on PRESETS: the steps
- *              stay, SAVE held undoes, the editor gets RELOAD; they apply while playing too
+ *   EDIT SET   the sound's sections (ui_sections.c): the white keys from F3 its sections, the black keys from F#3
+ *              FM6's operators OP1 .. OP6, then (the 7th .. 10th: LY_ACT) INIT (the dialog), FAVOURITE, UNDO, STORE;
+ *              KNOB 1 the section, 2 No. (the engine's sounds), 3 FAV. The engine is chosen in the browser (KNOB 4).
+ *              Sound loads as on PRESETS: the steps stay, SAVE held undoes, the editor gets RELOAD
  * The gesture: let go before HOLD (the menu: 0.3 .. 0.6 s) with nothing else touched: a tap, the button's page.
  * Held past HOLD alone: the map (a peek), letting go does nothing. A key, a knob or a button meanwhile: a combo,
  * the map at once, no tap. Keys pressed with the button down are the layer's (seq.c keyboard_block): silent, no
@@ -33,7 +33,7 @@ static const layer_t LAYERS[LAYER_N] = {
     {B_FX, LK_HOLD, FAM_HOME, "[FX] HOLD", {{KC_KEYS, "EFFECTS"}, {KC_K14, "MACROS"}, {0, 0}}},   /* (LET GO: the header's HOLD) */
     {B_GLO, LK_SET, FAM_HOME, "[GLO] SET", {{KC_PLAY, "RESTART"}, {KC_OCTDN, "UNDO"}, {KC_GLO, "DONE"}}},
     {B_SCL, LK_SET, FAM_SCL, "[SCL] SET", {{KC_KEYS, "ROOT"}, {KC_OCTDN, "UNDO"}, {KC_SCL, "DONE"}}},
-    {B_EDIT, LK_SET, FAM_HOME, "[EDIT] SET", {{KC_KEYS, "ENGINE"}, {KC_OCTDN, "UNDO"}, {KC_EDIT, "DONE"}}},
+    {B_EDIT, LK_SET, FAM_HOME, "[EDIT] SET", {{KC_KEYS, "SECTION"}, {KC_OCTDN, "UNDO"}, {KC_EDIT, "DONE"}}},
 };
 static const uint8_t LY_KC[LAYER_N] = {0, KC_FX, KC_GLO, KC_SCL, KC_EDIT};
 /* SCL's knobs: the key and its chord (cur_page() while the layer edits or draws them: page_over) */
@@ -41,8 +41,10 @@ static const page_t LY_SCL = {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCA
 #define LY_OPEN 2u                     /* ui.ly_t0: the map opened (no tap any more) */
 #define LY_COMBO 4u                    /* .. by a combo */
 #define LY_DEAD 8u                     /* .. pressed where there is no layer: does nothing */
-#define LY_INIT ((uint32_t)NENG_SHOWN) /* EDIT: the white key of INIT, the one after the engines (13: E5), its map cell */
-typedef char ly_init_fits[LY_INIT < 16u ? 1 : -1];   /* (a white key: F3 .. G5) */
+#define LY_ACT 6u                      /* EDIT: the black key of INIT (the 7th), FAVOURITE, UNDO, STORE after it */
+static const char *const LY_ACT_NAME[4] = {"INIT", "FAV", "UNDO", "STORE"};
+static uint32_t ly_white_sec(uint32_t p);
+static uint32_t ly_op_sec(uint32_t p);
 #define layer_seen (favorites.factory[15][31])   /* bit l: layer l opened once (a byte no engine uses) */
 
 static struct {
@@ -276,13 +278,24 @@ static void layer_key(uint32_t l, uint32_t k)
         }
     } else if (l == LAYER_SCL) {
         TSEL->p[P_ROOT] = (int16_t)((k + 5u) % 12u);    /* the key's note name (F3 = F) */
-    } else if (l == LAYER_EDIT && !key_black(k)) {
-        if (p < NENG_SHOWN && p < LY_INIT)
-            edit_load(eng_vis(p), 0);
-        else if (p == LY_INIT && chain_busy())
+    } else if (l == LAYER_EDIT) {                       /* (ui_sections.c) */
+        uint32_t sk = key_black(k) ? ly_op_sec(p) : ly_white_sec(p);
+        if (sk < sec.n) {
+            sec_go(sk);
+        } else if (key_black(k) && p == LY_ACT && chain_busy()) {
             ui_message("STOP TO EDIT");
-        else if (p == LY_INIT)
+        } else if (key_black(k) && p == LY_ACT) {
             confirm_open(CF_INIT_SOUND, song.sel);      /* (the dialog closes the layer) */
+        } else if (key_black(k) && p == LY_ACT + 1u) {
+            preset_mark(!preset_favorite());
+        } else if (key_black(k) && p == LY_ACT + 2u) {
+            undo_step(0);
+        } else if (key_black(k) && p == LY_ACT + 3u) {   /* STORE: the engine's own (a Store section), else USER */
+            for (sk = 0; sk < sec.n && !str_eq(sec.name[sk], "Store"); sk++)
+                ;
+            if (sk < sec.n) sec_go(sk);
+            else ps_save();
+        }
     }
 }
 /* each pass: the keys the layer got now; then GLO's solo: the tracks of its keys still held (perform.c) */
@@ -311,9 +324,14 @@ static void layer_knob(uint32_t k, int32_t s)
         int16_t *vp = &trk[k].p[P_LEVEL];
         *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, TP[P_LEVEL].max - TP[P_LEVEL].min), TP[P_LEVEL].min, TP[P_LEVEL].max);
         motion_capture(&trk[k], P_LEVEL, *vp);
-    } else if (l == LAYER_EDIT) {                       /* ENG, No., FAV */
-        if (k == 0u)
-            edit_load(eng_step(TSEL->eng_req, s), 0);
+    } else if (l == LAYER_EDIT) {                       /* SECTION, No., FAV */
+        if (k == 0u) {                                  /* (off the EDIT pages: the first or the last section) */
+            sec_build();
+            if (sec_on())
+                sec_turn(s);
+            else
+                sec_go(s > 0 ? 0u : sec.n ? sec.n - 1u : 0u);
+        }
         else if (k == 1u)
             edit_load(NENGINES, s);
         else if (k == 2u)
@@ -456,9 +474,10 @@ static uint32_t layer_leds(void)
         } else if (l == LAYER_SCL) {                    /* the root lit, the scale's notes blink */
             e = (k + 5u + 12u - root) % 12u;
             on = e == 0u || (((mask >> e) & 1u) && blink);
-        } else if (l == LAYER_EDIT && !b) {             /* the engine lit, the others and INIT blink */
-            on = p < NENG_SHOWN && p < LY_INIT ? eng_vis(p) == TSEL->eng_req % NENGINES || blink :
-                 p == LY_INIT && blink && !chain_busy();
+        } else if (l == LAYER_EDIT) {                   /* the section shown lit, the others and the actions blink */
+            uint32_t sk = b ? ly_op_sec(p) : ly_white_sec(p);
+            on = sk < sec.n ? (sec_on() && sk == sec_of(ui.page)) || blink : b && p >= LY_ACT && p < LY_ACT + 4u && blink &&
+                 !(p == LY_ACT && chain_busy());
         }
         m |= on << k;
     }
@@ -576,19 +595,75 @@ static void layer_scl(void)                             /* KNOB 2's scales, 4 x 
         cv_text_c(x + LC_W / 2, y + 7, &AF_S, TP[P_SCALE].names[base + i], ink, fill);
     }
 }
-static void layer_edit(void)                            /* the engines from F3, INIT next (LY_INIT), the sound under them */
-{                                                        /* (cells show the engine's icon, not the key's note) */
-    uint32_t n = NENG_SHOWN < LY_INIT ? NENG_SHOWN : LY_INIT, cells = n + 1u, i, h = cells > 12u ? 22u : 28u;
-    for (i = 0; i < cells; i++) {
-        int32_t x = LC_X(i % 4u), y = 4 + (int32_t)(h + 4u) * (int32_t)(i / 4u);
-        const engine_t *en = ENGINES[eng_vis(i) % NENGINES];
-        if (i < n)
-            lcell(x, y, (int32_t)h, 0, engine_icon(en->name), 0, h > 24u ? en->name : eng_abbr(en->name),
-                  eng_vis(i) == TSEL->eng_req % NENGINES ? LS_SEL : LS_OFF, 0);
-        else
-            lcell(x, y, (int32_t)h, 0, ICON_X_WARN, 0, "INIT", chain_busy() ? LS_DIM : LS_OFF, 0);
+/* the white keys' sections (an operator's: on the black keys), and the black keys' operators */
+static uint32_t ly_white_sec(uint32_t p)
+{
+    uint32_t k, n = 0;
+    sec_build();
+    for (k = 0; k < sec.n; k++)
+        if (!sec.op[k] && n++ == p)
+            return k;
+    return SEC_MAX;
+}
+static uint32_t ly_op_sec(uint32_t p)
+{
+    uint32_t k;
+    sec_build();
+    for (k = 0; k < sec.n && sec.op[k] != p + 1u; k++)
+        ;
+    return p < 6u && k < sec.n ? k : SEC_MAX;
+}
+/* the sections on the white keys (4 a row), the black keys' operators and actions (5 a row), the sound under them */
+static void layer_edit(void)
+{
+    uint32_t i, n = 0, cur = sec_on() ? sec_of(ui.page) : SEC_MAX, nb;
+    int32_t y = 4;
+    for (i = 0; i < SEC_MAX && ly_white_sec(i) < sec.n; i++, n++) {
+        uint32_t sk = ly_white_sec(i);
+        lcell(LC_X(i % 4u), y + 24 * (int32_t)(i / 4u), 20, 0, ICON_NONE, 0, sec.name[sk], sk == cur ? LS_SEL : LS_OFF, 0);
+    }
+    y += 24 * (int32_t)((n + 3u) / 4u);
+    nb = ly_op_sec(0) < sec.n ? 6u : 0u;                /* (FM6: its operators first) */
+    for (i = 0; i < nb + 4u; i++) {
+        int32_t x = 6 + 46 * (int32_t)(i % 5u), yy = y + 24 * (int32_t)(i / 5u);
+        uint32_t sk = i < nb ? ly_op_sec(i) : SEC_MAX, a = i - nb;
+        int st = i < nb ? (sk == cur ? LS_SEL : LS_OFF) : a == 0u && chain_busy() ? LS_DIM : LS_OFF;
+        uint16_t ink, fill = lc_fill((uint32_t)st, &ink);
+        cv_rrect(x, yy, 42, 20, 4, fill, T_SURF);
+        cv_text_c(x + 21, yy + 4, &AF_X, i < nb ? sec.name[sk] : LY_ACT_NAME[a], ink, fill);
     }
     engine_sound_row(104);
+}
+
+/* GLO held (docs/design: mock/r6_pages GLO): the keys as a keyboard: the black keys MUTE 1..4 (muted: red), the white
+ * keys SOLO 1..4 (held: the track's colour), C unmutes all, the high F taps the tempo (an outside clock: dim) */
+static void layer_glo_keys(int32_t h)
+{
+    static const char *const WL[8][2] = {{"Solo", "1"}, {"Solo", "2"}, {"Solo", "3"}, {"Solo", "4"}, {"Mute", "all"},
+                                         {"", ""}, {"", ""}, {"Tap", "tempo"}};
+    static const uint8_t BX[NTRK] = {0, 1, 2, 4};       /* black key t: between white BX and BX + 1 (F# G# A# C#) */
+    const int32_t kw = 28, x0 = 1, wy = 68, by = 24, bh = 38;
+    uint32_t i;
+    cv_text_on(8, 6, &AF_X, "Keys", T_MID, T_PANEL);
+    for (i = 0; i < 8u; i++) {
+        int32_t x = x0 + (int32_t)i * (kw + 1);
+        int on = i < NTRK && ((perf_solo >> i) & 1u), none = !WL[i][0][0], dim = i == 7u && song.g[G_CLOCK];
+        uint16_t f = on ? T_TRK(i) : none ? ux_mix(T_PANEL, T_SURF, 50) : T_SURF, ink = on ? T_INK : dim ? T_DIM : T_TEXT;
+        cv_rrect(x, wy, kw, h - wy - 6, 4, f, T_PANEL);
+        if (!none) {
+            cv_text_c(x + kw / 2, h - 36, &AF_X, WL[i][0], ink, f);
+            cv_text_c(x + kw / 2, h - 23, &AF_X, WL[i][1], ink, f);
+        }
+    }
+    for (i = 0; i < NTRK; i++) {
+        int32_t x = x0 + (int32_t)(BX[i] + 1u) * (kw + 1) - 14;
+        int m = trk[i].p[P_MUTE] != 0;
+        uint16_t f = m ? T_REC : T_LIFT;
+        char n[2] = {(char)('1' + i), 0};
+        cv_rrect(x, by, 26, bh, 4, f, T_PANEL);
+        cv_text_c(x + 13, by + bh - 28, &AF_X, "Mute", m ? T_TEXT : T_SEC, f);
+        cv_text_c(x + 13, by + bh - 15, &AF_X, n, m ? T_TEXT : T_SEC, f);
+    }
 }
 
 static void layer_cards(uint32_t l)
@@ -637,8 +712,22 @@ static void layer_cards(uint32_t l)
 
 static void draw_layer(void)
 {
-    uint32_t l = ui.layer % LAYER_N, sig = l * 7919u + ux.gen * 977u;
-    layer_cards(l);
+    uint32_t l = ui.layer % LAYER_N, sig = l * 7919u + ux.gen * 977u, c;
+    if (l == LAYER_GLO) {                               /* the four levels as strips at the top, each track's colour */
+        uint8_t cs = col_style;
+        if (ui.force)
+            lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
+        col_style = CS_STRIP;
+        pv_strip_y = 24;
+        for (c = 0; c < NTRK; c++)
+            pv_strip_tc[c] = T_TRK(c);
+        layer_cards(l);
+        memset(pv_strip_tc, 0, sizeof pv_strip_tc);
+        pv_strip_y = PV_STRIP_Y;
+        col_style = cs;
+    } else {
+        layer_cards(l);
+    }
     if (l == LAYER_FX)
         sig += (perf_kill ? 0u : perf_held | perf_latched) * 31u + perf_act * 131u + perf_avail() * 7u + (uint32_t)perf_harm_on() * 3u;
     else if (l == LAYER_GLO)
@@ -652,6 +741,13 @@ static void draw_layer(void)
         for (uint32_t p = 0; p < PF_KEYS; p++)
             sig = sig * 33u + perf_map[p];
         sig += fx_key_held() * 7919u;
+    }
+    if (l == LAYER_GLO) {                               /* (R6: levels at the top, the keys as a keyboard under them) */
+        if (ui.force || sig != ui.layer_sig) {
+            ui.layer_sig = sig;
+            pv_panel(62, 174, layer_glo_keys);
+        }
+        return;
     }
     if (ui.force || sig != ui.layer_sig) {
         ui.layer_sig = sig;

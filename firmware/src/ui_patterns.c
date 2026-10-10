@@ -6,12 +6,12 @@
  * waiting for the bar dashed, the others with something in them as three bars (their thirds' notes), empty ones an
  * outline. At the foot the song as its sections' letters (the rows with the same four patterns share one), the row
  * playing (else the one SONG picked) lit; no song yet: the rows the jam logged. KNOB k queues track k's pattern.
- * SONG: its title, its length, the jam at the right (logging while patterns play without a song; TAKE picked: OCT+);
+ * SONG: its title, its length, the jam at the right (logging while patterns play without a song; REC held: TAKE);
  * the sections as columns (their letters; four at a time around the row picked, one more to add a row), a track's
  * patterns as blocks in its colour, one pattern over sections in a row as one block; the row picked marked, the
  * selected track's block in it outlined; a song playing: its playhead. At the foot the sections and bars, the row's
- * letter and repeats, how far the song has played. KNOB 1 the row, 2 the selected track's pattern in it, 3 its
- * repeats, 4 TAKE JAM; OCT+ plays (ui_input.c).
+ * letter and repeats, how far the song has played. KNOB 1 the row, 2 the track, 3 its pattern in the row, 4 the
+ * row's repeats; OCT+ plays, REC held takes the jam (ui_input.c).
  * Each part remembers what it drew. Included by ui_draw.c */
 
 /* ------------------------------------------------------------ shared --- */
@@ -215,6 +215,15 @@ static void patterns_draw(void)
     for (k = 0; k < NTRK; k++)
         pt_row(k);
 }
+/* a pattern queued on any track (PATTERNS' OCT- clears them before it leaves) */
+static int patterns_queued(void)
+{
+    uint32_t k;
+    for (k = 0; k < NTRK; k++)
+        if (trk[k].pattern_next < NPAT)
+            return 1;
+    return 0;
+}
 /* KNOB k: track k's next pattern (stopped: at once; playing: at the end of its bar; a song plays: refused) */
 static void patgrid_edit(uint32_t k, int32_t steps)
 {
@@ -299,8 +308,6 @@ static void sg_head(void)
     }
     if (ui.msg_t) {
         cv_free_text(100, 7, &AF_X, ui.msg, T_ACCENT, T_BG, 132);
-    } else if (ui.act == 4u) {                          /* TAKE JAM picked: OCT+ */
-        cv_key_hint(232 - 64, 4, KC_OCTUP, "TAKE", !chain_busy(), T_BG);
     } else if (jam_on || jam.n) {                       /* the jam: logging (a dot), its rows */
         if (jam_on) {
             str_cpy(b, "capturing jam", sizeof b);

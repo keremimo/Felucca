@@ -50,7 +50,6 @@ static const uint8_t *ed_bk_object(uint32_t id, uint32_t *len)
         st_hdr_t h;
         uint32_t obj = OBJ_BANK0 + slot;
         int copy = st_current(obj, &h);
-        if (copy < 0) { obj = OBJ_PROJECT0 + slot; copy = st_current(obj, &h); }
         if (copy >= 0) {
             *len = h.len; ed_bk_source_obj = obj; ed_bk_source_copy = (uint32_t)copy; ed_bk_source_crc = h.crc;
             return ED_BK_FLASH_PTR(st_sector(obj, (uint32_t)copy) + ST_PAYLOAD_OFF);

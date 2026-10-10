@@ -698,7 +698,7 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
         if (v->vel > 110)                               /* accent opens the filter with the env */
             m.cutoff += (m.envq15 * 24) >> 7;
         m.shape = (64 << 8) + ((lfo * p[P_LD_SHP]) >> 7) + ((m.envq15 * p[P_ED_SHP]) >> 7);
-        if (e == &ENG_PHASE || e == &ENG_CZ)                            /* native DCA remains the matrix's ENV source */
+        if ((MELODEE_LEGACY_EXTRAS && e == ENGINES[2]) || e == &ENG_CZ)   /* native DCA remains the matrix's ENV source */
             m.envq15 = phase_env_source(t, v);
         if(e==&ENG_P5_TEST)m.envq15=p5_env_source(t,v);
         if (mod.on)                                     /* the modulation matrix (mod.c) */

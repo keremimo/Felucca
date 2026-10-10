@@ -1,0 +1,105 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--surface-1:#2a2a2e;--text-secondary:#aaa}
+body{background:#111;color:#eee;font-family:system-ui;margin:12px;width:1100px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+</style></head><body><style>
+@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500&display=swap');
+.mg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:1rem 0}
+.mc{background:var(--surface-1);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.mc svg{width:100%;max-width:300px;border-radius:8px;font-family:Rubik,system-ui,sans-serif}
+.cap{font-size:13px;color:var(--text-secondary);text-align:center}
+</style>
+<h2 class="sr-only">R5: the pages the proposal did not draw, in the redesign's language: knob rings over each page's own picture, no footer.</h2>
+<div class="mg">
+<div class="mc"><svg viewBox="0 0 240 240" id="p_edit"></svg><div class="cap">EDIT (ANALOG OSC): four rings, the oscillator it makes</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="p_env"></svg><div class="cap">ENV: the curve is the page, a value on each segment</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="p_lfo"></svg><div class="cap">LFO: two cycles, the fade in, where it goes</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="p_fx"></svg><div class="cap">FX: the four sends as faders</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="p_dly"></svg><div class="cap">DLY: the echoes on the beat grid</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="p_roll"></svg><div class="cap">NOTES: the roll full height, the step as chips</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="p_mix"></svg><div class="cap">MIXER: Stage's columns as channel strips</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="p_menu"></svg><div class="cap">Settings: the browser's list language</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="p_dlg"></svg><div class="cap">A question: a card over the page, ↶ no / ✓ yes</div></div>
+</div>
+<script>
+const C=['#FF7A5C','#FFC145','#46D9B0','#9D8CFF'],TX='#F3EEF8',MD='#9A93A8',DM='#5A5468',LN='#2E2939',SF='#221E2C',BG='#17141F',PN='#1D1926',RS='#262033',SC='#C9C2D6',REC='#FF5A6E';
+const t=(x,y,s,f,c,a,w)=>`<text x="${x}" y="${y}" font-size="${f}" fill="${c}" ${a?`text-anchor="${a}"`:''} font-weight="${w?500:400}">${s}</text>`;
+const r=(x,y,w,h,f,rx,st,dash,sw)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx==null?4:rx}" fill="${f}" ${st?`stroke="${st}" stroke-width="${sw||1}"`:''} ${dash?'stroke-dasharray="3 2"':''}/>`;
+const mix=(a,b,k)=>{const p=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));const A=p(a),B=p(b);return '#'+A.map((v,i)=>Math.round(v*k+B[i]*(1-k)).toString(16).padStart(2,'0')).join('')};
+const path=(d,c,w,fill)=>`<path d="${d}" fill="${fill||'none'}" stroke="${c}" stroke-width="${w||2}" stroke-linejoin="round" stroke-linecap="round"/>`;
+/* the header: transport, BPM, track dots, the family's pages, the page's chip */
+const head=(chip,c,sel,pages,pg)=>{let s=t(8,14,'▶',10,TX)+t(20,14,'124',11,TX,0,1)+[0,1,2,3].map(i=>`<circle cx="${54+i*8}" cy="10" r="2.5" fill="${i==sel?TX:DM}"/>`).join('');
+ if(pages)for(let i=0;i<pages;i++)s+=r(96+i*9,8.5,i==pg?12:4,4,i==pg?c:LN,2), i==pg&&(s+='');
+ const w=Math.max(46,chip.length*6.4+16);return s+r(232-w,3,w,14,c,4)+t(232-w/2,13.5,chip,9,BG,'middle',1)};
+const arc=(cx,cy,R,f,c,w,bip)=>{const L=2*Math.PI*R,a=`transform="rotate(135 ${cx} ${cy})"`;let s=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${LN}" stroke-width="${w}" stroke-dasharray="${L*.75} ${L}" ${a} stroke-linecap="round"/>`;
+ if(bip){const st=.375+Math.min(0,f)*.375,len=Math.abs(f)*.375;s+=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${c}" stroke-width="${w}" stroke-dasharray="0 ${L*st} ${L*len} ${L}" ${a} stroke-linecap="round"/>`}
+ else s+=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${c}" stroke-width="${w}" stroke-dasharray="${L*.75*f} ${L}" ${a} stroke-linecap="round"/>`;return s};
+/* four knob rings: label above, value under, the one turning lifted */
+const rings=(K,c,hot,y0)=>{let s='';K.forEach((k,i)=>{const cx=30+i*60,cy=(y0||26)+34,h=i==hot;if(h)s+=r(cx-29,(y0||26)-2,58,78,RS,8,c);
+ s+=t(cx,(y0||26)+9,k[0],8.5,c,'middle',1)+arc(cx,cy,15,k[3],c,3,k[4])+(()=>{const a=(135+(k[4]?135+k[3]*135:270*k[3]))*Math.PI/180;return `<circle cx="${(cx+15*Math.cos(a)).toFixed(1)}" cy="${(cy+15*Math.sin(a)).toFixed(1)}" r="3.2" fill="${TX}" stroke="${h?RS:BG}" stroke-width="1.5"/>`})()+t(cx,cy+34,k[1]+`<tspan font-size="9" fill="${MD}" font-weight="400">${k[2]?' '+k[2]:''}</tspan>`,14,TX,'middle',1)});return s};
+const sound=(eng,name,c)=>t(8,232,eng,8.5,c,0,1)+t(8+eng.length*6.2+6,232,name,11,SC);
+/* slim value strip (the knobs) at y */
+const strip=(K,c,y,hot)=>{let s='';K.forEach((k,i)=>{const x=4+i*58,h=i==hot;s+=r(x,y,54,30,h?mix(c,SF,.22):SF,6,h?c:null)+t(x+6,y+11,k[0],8,c,0,1)+t(x+6,y+25,k[1]+`<tspan font-size="8.5" fill="${MD}" font-weight="400">${k[2]?' '+k[2]:''}</tspan>`,12,TX,0,1)});return s};
+const c=C[1];
+/* EDIT: ANALOG OSC */
+{let s=r(0,0,240,240,BG,0)+head('OSC',c,1,5,0)+rings([['WAVE','Saw','',.2],['DETUNE','0','ct',0,1],['MIX','0','%',0],['NOISE','0','%',0]],c,-1);
+ s+=r(4,108,232,112,PN,6);let p='';for(let k=0;k<3;k++){const x0=16+k*72;p+=`M${x0} 200 L${x0+70} 128 L${x0+70} 200 `}
+ s+=path(p,c,2.5)+path('M16 200 L232 200',LN,1)+t(14,124,'one cycle',8.5,MD)+t(226,124,'Saw',11,c,'end',1);
+ s+=sound('ANALOG','Acid',c);document.getElementById('p_edit').innerHTML=s}
+/* ENV */
+{let s=r(0,0,240,240,BG,0)+head('ENV',c,1,2,0)+r(4,22,232,160,PN,6);
+ const A=[16,160],P=[30,40],D=[78,132],S=[176,132],R=[220,160];
+ s+=`<path d="M${A[0]} ${A[1]} L${P[0]} ${P[1]} Q${P[0]+10} ${D[1]-6} ${D[0]} ${D[1]} L${S[0]} ${S[1]} Q${S[0]+10} ${R[1]-2} ${R[0]} ${R[1]} Z" fill="${mix(c,PN,.14)}"/>`;
+ s+=path(`M${A[0]} ${A[1]} L${P[0]} ${P[1]}`,c,2.5)+path(`M${P[0]} ${P[1]} Q${P[0]+10} ${D[1]-6} ${D[0]} ${D[1]}`,c,2.5)+path(`M${D[0]} ${D[1]} L${S[0]} ${S[1]}`,TX,3.5)+path(`M${S[0]} ${S[1]} Q${S[0]+10} ${R[1]-2} ${R[0]} ${R[1]}`,c,2.5);
+ [[P,'1'],[D,'2'],[S,'3'],[R,'4']].forEach(([q,n],i)=>{s+=`<circle cx="${q[0]}" cy="${q[1]}" r="${i==2?5:4}" fill="${i==2?TX:c}" stroke="${PN}" stroke-width="2"/>`});
+ s+=t(36,36,'1.0 ms',9,MD)+t(54,96,'54 ms',9,MD)+t(127,124,'16 %',13,TX,'middle',1)+t(206,176,'8.8 ms',9,MD,'end');
+ s+=strip([['ATTACK','1.0','ms'],['DECAY','54','ms'],['SUSTAIN','16','%'],['RELEASE','8.8','ms']],c,188,2)+sound('ANALOG','Acid',c);
+ document.getElementById('p_env').innerHTML=s}
+/* LFO */
+{let s=r(0,0,240,240,BG,0)+head('LFO',c,1,4,0)+r(4,22,232,160,PN,6);let p='M14 102 ';for(let x=14;x<=226;x++){const f=Math.min(1,(x-14)/40);p+=`L${x} ${(102-48*f*Math.sin((x-14)/212*Math.PI*4)).toFixed(1)} `}
+ s+=path('M14 102 L226 102',LN,1)+path('M14 102 L54 54 L226 54',mix(c,PN,.35),1,'none').replace('stroke-width="1"','stroke-width="1" stroke-dasharray="2 3"')+path(p,c,2.5);
+ s+=r(150,30,78,16,mix(c,PN,.2),4)+t(189,41,'→ Cutoff',9,c,'middle',1)+t(14,41,'1.18 Hz',11,TX,0,1);
+ s+=strip([['RATE','1.18','Hz'],['WAVE','Sine',''],['PHASE','0','°'],['FADE','1.0','ms']],c,188,0)+sound('ANALOG','Acid',c);
+ document.getElementById('p_lfo').innerHTML=s}
+/* FX sends */
+{let s=r(0,0,240,240,BG,0)+head('FX',c,1,6,0);const F=[['DRIVE',.16,'16'],['CHORUS',0,'0'],['DELAY',0,'0'],['REVERB',.12,'12']];
+ F.forEach((f,i)=>{const cx=30+i*60,top=46,bot=186,y=bot-(bot-top)*f[1];s+=t(cx,36,f[0],8.5,c,'middle',1)+r(cx-3,top,6,bot-top,LN,3)+r(cx-3,y,6,bot-y,c,3)+r(cx-12,y-5,24,10,TX,4)+t(cx,208,f[2]+`<tspan font-size="9" fill="${MD}" font-weight="400"> %</tspan>`,15,f[1]?TX:DM,'middle',1)});
+ s+=sound('ANALOG','Acid',c);document.getElementById('p_fx').innerHTML=s}
+/* DLY */
+{let s=r(0,0,240,240,BG,0)+head('DELAY',c,1,6,2)+rings([['TIME','1/8','',.35],['FEEDBACK','39','%',.39],['TONE','40','%',.4],['MIX','67','%',.67]],c,1);
+ s+=r(4,108,232,112,PN,6);for(let b=0;b<=8;b++)s+=path(`M${14+b*26} 116 L${14+b*26} 210`,b%2?LN:mix(MD,PN,.35),1);
+ for(let k=0;k<8;k++){const h=88*Math.pow(.62,k)*(k?1:1),x=14+k*26;s+=r(x-3,210-h,7,h,k?mix(c,PN,Math.max(.25,1-k*.12)):TX,2)}
+ s+=t(226,126,'4 repeats',9,MD,'end')+sound('ANALOG','Acid',c);document.getElementById('p_dly').innerHTML=s}
+/* NOTES roll */
+{let s=r(0,0,240,240,BG,0)+head('NOTES',c,1,0,0)+r(4,22,232,174,PN,6);
+ for(let n=0;n<14;n++){const y=28+n*12,blk=[1,3,6,8,10].includes((13-n)%12);s+=r(8,y,12,11,blk?LN:mix(SC,PN,.5),2);if(blk)s+=r(22,y,210,12,mix(BG,PN,.5),0)}
+ for(let b=0;b<=16;b++)s+=path(`M${22+b*13} 26 L${22+b*13} 194`,b%4?mix(LN,PN,.5):LN,1);
+ const N=[[0,9,2],[2,9,1],[3,6,1],[4,4,3],[8,9,2],[10,6,1],[12,4,2],[14,2,2]];N.forEach(([st,row,len],i)=>s+=r(23+st*13,29+row*12,len*13-2,9,i==3?TX:c,3));
+ s+=r(22+7*13,26,13,168,'none',3,TX,0,1.2)+path(`M${22+5.5*13} 24 L${22+5.5*13} 196`,mix(TX,PN,.6),1.5)+t(10,40,'C4',7.5,MD)+t(10,184,'C3',7.5,MD);
+ [['Step 8/16',0],['A2',1],['Length 1',0],['Vel 127',0]].forEach((q,i)=>{const w=[56,28,52,48][i],x=[4,64,96,152][i];s+=r(x,202,w,18,i==1?c:SF,5)+t(x+w/2,214.5,q[0],9.5,i==1?BG:TX,'middle',1)});
+ s+=sound('ANALOG','Acid',c);document.getElementById('p_roll').innerHTML=s}
+/* MIXER */
+{let s=r(0,0,240,240,BG,0)+head('MIXER',c,1,0,0);const M=[['909','Kit',-6,.72,0,.4,0,1],['Pickle','Pincher',-14,.55,-.31,.12,0,0],['Glass','Keys',-24,.35,0,.0,1,0],['Brass','One',-1,.88,.2,.16,0,1]];
+ M.forEach((m,i)=>{const x=4+i*58,cc=C[i],on=i==1,mute=m[6];s+=r(x,22,54,212,on?RS:PN,6,on?cc:null)+`<rect x="${x+3}" y="22" width="48" height="3" fill="${mute?DM:cc}"/>`;
+  s+=t(x+6,40,m[0],11,mute?DM:TX,0,1)+t(x+6,53,m[1],11,mute?DM:TX,0,1);
+  s+=arc(x+27,92,18,m[3],mute?DM:cc,4)+t(x+27,96,String(m[2]),12,TX,'middle',1)+t(x+27,108,'dB',7.5,MD,'middle');
+  s+=r(x+48,72,3,44,LN,1.5)+r(x+48,116-44*m[3]*.8,3,44*m[3]*.8,mute?DM:cc,1.5);
+  s+=t(x+15,136,'PAN',7.5,MD,'middle',1)+arc(x+15,152,9,m[4],cc,2.5,1)+t(x+39,136,'REV',7.5,MD,'middle',1)+arc(x+39,152,9,m[5],cc,2.5);
+  s+=t(x+15,176,m[4]?(m[4]>0?'R':'L')+Math.round(Math.abs(m[4])*64):'C',9,SC,'middle',1)+t(x+39,176,String(Math.round(m[5]*127)),9,SC,'middle',1);
+  s+=r(x+6,190,42,16,mute?mix(MD,SF,.5):SF,5,mute?null:LN)+t(x+27,201.5,'MUTE',8.5,mute?BG:DM,'middle',1);
+  s+=m[7]?`<circle cx="${x+27}" cy="${220}" r="4" fill="${REC}"/>`:`<circle cx="${x+27}" cy="${220}" r="4" fill="none" stroke="${DM}"/>`});
+ document.getElementById('p_mix').innerHTML=s}
+/* Settings */
+{let s=r(0,0,240,240,BG,0)+t(8,17,'Settings',15,TX,0,1);
+ const L=[['Colour','Night'],['Speaker','Off'],['Hold','0.4 s'],['Lights','Mid'],['USB audio','In + Out'],['Audio click','Off'],['Click level','Mid'],['Count-in','Off'],['Knob accel','On']];
+ L.forEach((l,i)=>{const y=28+i*22,sel=i==0;if(sel)s+=r(0,y,240,20,RS,0)+r(0,y,3,20,c,0);s+=t(12,y+14,l[0],11,sel?TX:SC,0,sel)+t(228,y+14,l[1],11,sel?c:MD,'end',sel)});
+ [BG,'#F6F2EA','#000000'].forEach((q,i)=>s+=r(150+i*12,33,9,9,q,2,i==0?c:MD));
+ s+=r(4,228,232,2,LN,1)+r(4,228,26,2,c,1);document.getElementById('p_menu').innerHTML=s}
+/* dialog */
+{let s=r(0,0,240,240,BG,0)+head('PROJECT',c,1,4,2);['A','B','C','D','T'].forEach((q,i)=>s+=r(8,26+i*28,224,24,i==0?RS:PN,6)+t(18,42+i*28,q+'  '+['Night drive','—','Sketch 4','—','Template'][i],11,MD));
+ s+=`<rect x="0" y="0" width="240" height="240" fill="${BG}" opacity="0.72"/>`;
+ s+=r(16,58,208,124,SF,10,LN)+`<circle cx="120" cy="84" r="11" fill="${mix(c,SF,.2)}"/>`+t(120,89,'!',14,c,'middle',1);
+ s+=t(120,118,'Overwrite project A?',14,TX,'middle',1)+t(120,136,'Its song and patterns change',10,MD,'middle');
+ s+=r(32,150,80,22,PN,6,LN)+t(72,165,'↶  No',11,MD,'middle',1)+r(128,150,80,22,c,6)+t(168,165,'✓  Yes',11,BG,'middle',1);
+ document.getElementById('p_dlg').innerHTML=s}
+</script></body></html>

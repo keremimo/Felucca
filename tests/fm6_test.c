@@ -907,12 +907,15 @@ static void cost(void)
     check(what, worst <= FM6_COST_MAX);
 }
 
+/* the demos' phrase (16 steps; flags 1 accent, 4 tie) */
+static const uint8_t DEMO_NOTE[16] = {60, 0, 67, 0, 72, 67, 0, 64, 62, 0, 69, 0, 74, 69, 0, 67};
+static const uint8_t DEMO_FLAG[16] = {1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0};
 /* -------------------------------------------------------------- demos --- */
 static void demo(const char *dir, uint32_t pi)
 {
     static int32_t o[2 * CTL];
     const preset_t *pr = &ENG_FM6.presets[pi];
-    uint32_t pat = pr->pat ? pr->pat - 1u : 4u, step = FS / 8u, s, i, held = 0, frames = 0;
+    uint32_t step = FS / 8u, s, i, held = 0, frames = 0;
     char path[512], nm[32];
     FILE *w;
     for (i = 0; pr->name[i] && i < 31u; i++)
@@ -928,7 +931,7 @@ static void demo(const char *dir, uint32_t pi)
     host_tracks_init();
     host_preset(T, ENGI_FM6, pi);
     for (s = 0; s < 48u; s++) {                       /* three times through the pattern's 16 steps, 120 BPM 1/16 */
-        uint32_t k = s % 16u, note = PATTERNS[pat].note[k], fl = PATTERNS[pat].flags[k];
+        uint32_t k = s % 16u, note = DEMO_NOTE[k], fl = DEMO_FLAG[k];
         if (!(fl & 4u) && held) {
             trk_note_off(T, held);
             held = 0;

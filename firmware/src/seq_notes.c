@@ -119,40 +119,31 @@ static void notes_last(void)
         if (notes_in_step(TSEL, i) && (chosen == RECORD_MAX || notes_before(chosen, i))) chosen = i;
     ui.note_pick = chosen < RECORD_MAX ? (uint16_t)(chosen + 1u) : 0;
 }
-static void notes_next_interval(int dir)
-{
-    uint32_t first = ui.cursor, len = step_pattern_len(TSEL);
-    for (uint32_t n = 0; n < len; n++) {
-        cursor_set(ui.cursor + dir);
-        uint32_t at = notes_manual_start(TSEL);
-        if (notes_selected(TSEL) < RECORD_MAX || (at == ui.cursor && at < NSTEP && TSEL->step[at].n)) {
-            if (dir < 0) {
-                notes_last();
-                if (at < NSTEP && TSEL->step[at].n) ui.note_slot = TSEL->step[at].n - 1u;
-            }
-            return;
-        }
-    }
-    cursor_set((int32_t)first + dir);
-}
-static void notes_jog(int32_t delta)
+/* KNOB 1 on NOTES (SELECT turns the pages, Kerem 2026-10-10): a step's notes one by one, then the next step, an empty
+ * one too; back: the step before, on its last note. Moving never edits */
+static void notes_step_jog(int32_t delta)
 {
     delta = clamp(delta, -64, 64);
     while (delta) {
         int dir = delta > 0 ? 1 : -1;
         uint32_t chosen = notes_selected(TSEL), at = notes_manual_start(TSEL);
-        if (chosen < RECORD_MAX) {
+        delta -= dir;
+        if (chosen < RECORD_MAX) {                      /* recorded notes: the next one in this step */
             notes_cycle(dir);
-            if (notes_selected(TSEL) == chosen) {
-                notes_next_interval(dir);
-            }
+            if (notes_selected(TSEL) != chosen)
+                continue;
         } else if (at < NSTEP && TSEL->step[at].n &&
                    (dir > 0 ? ui.note_slot + 1u < TSEL->step[at].n : ui.note_slot > 0u)) {
-            ui.note_slot = (uint8_t)(ui.note_slot + dir);
-        } else {
-            notes_next_interval(dir);
+            ui.note_slot = (uint8_t)(ui.note_slot + dir);   /* a chord's next note */
+            continue;
         }
-        delta -= dir;
+        cursor_set(ui.cursor + dir);                    /* the next step */
+        if (dir < 0) {
+            at = notes_manual_start(TSEL);
+            notes_last();
+            if (at < NSTEP && TSEL->step[at].n)
+                ui.note_slot = (uint8_t)(TSEL->step[at].n - 1u);
+        }
     }
     notes_preview();
 }

@@ -6,7 +6,8 @@
 static void mark(int on)
 {
     press(B_SCL); frames(400); assert(scale_settings_page(cur_page()));
-    turn(EN_K2, on ? 1 : -1); frame();
+    turn(EN_K2, 4); frame();                       /* (SCL is a list: Favourite its 5th row, KNOB 1 its value) */
+    turn(EN_K1, on ? 1 : -1); frame();
     turn(EN_SELECT, -1); frame(); assert(cur_page()->graph == GR_SCALE_PICKER);
 }
 

@@ -27,8 +27,8 @@ import os
 import struct
 from pathlib import Path
 
-APP_SLOT = 0x83FBC
-FLASH_SIZE = 0x89000
+APP_SLOT = 0x8DFBC                                     # the app area [0x4000, 0x93000), as the official V15's;
+FLASH_SIZE = 0x93000                                   # the Prophet banks moved above it (storage.c, ldr_core.c)
 KEY = 0x980F
 # flash header: JieLi SDK defaults (burner_size 544, VID "0.01", flash_size 0xFF000,
 # fs_ver 0x10, PID "AC791N_STORY"), plain, without its CRC
@@ -148,6 +148,7 @@ def flash_image(app, key):
     cfg = entry(crc16(cfg_body), 0x20, 0x20 + len(cfg_body), 0x83, 0xFF, 1, "cfg") + cfg_body
     region = bytearray(area + cfg)
     sfc(region, 0, len(region), 0, key)
+    assert 0x4000 + len(region) <= FLASH_SIZE, "the app area overruns its partition (the Prophet banks above it)"
     f[0x4000:0x4000 + len(region)] = region
     return bytes(f)
 

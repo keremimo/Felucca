@@ -97,6 +97,7 @@ static int scr_frame(void)
         if (fm1_ms - scrn.t >= 120u) {
             scrn.st = SCR_SHOW;
             ui.force = 1;
+            gfx_forget();                               /* (the panel slept: all of it sent again) */
             return 1;
         }
         break;

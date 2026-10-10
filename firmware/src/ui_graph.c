@@ -45,11 +45,6 @@ static void graph_adsr_v(int32_t va, int32_t vd, int32_t vs, int32_t vr, int32_t
     }
 #undef EGY
 }
-static void graph_adsr(const track_t *t, uint16_t c)
-{
-    const page_t *pg = cur_page();
-    graph_adsr_v(t->p[pg->id[0]], t->p[pg->id[1]], t->p[pg->id[2]], t->p[pg->id[3]], 6, 88, c);
-}
 
 /* FM6: a DX7 envelope, four rates (a segment's width: slower is wider) and four levels, held at L3 while the key is
  * down, then R4 to L4; it starts at L4 (as the DX7's). r, l: 0..99 each. pitch: a pitch envelope (50 = the note's
@@ -123,33 +118,30 @@ static void graph_steps(const track_t *t, uint16_t c)
 }
 
 /* STEP page (a melodic track): a piano roll of the cursor's 16-step page. PR_ROWS semitone rows of PR_RH px,
- * the highest on top; on the left the C rows named (S, DIM) and a keyboard strip (white keys RAISE, black keys a
- * shorter DIM; a key held on the track: its row ACCENT). Rows in the track's scale (SCL ROOT / SCALE; CHR: the white
- * keys) are tinted LANE, a C row closes with a RAISE line; step lines GRID, every 4th RAISE. A note is a 9 x 3 bar in
+ * the highest on top; on the left a keyboard strip (a C key named on it, 9 px) (white keys RAISE, black keys a
+ * shorter DIM; a key held on the track: its row ACCENT). Rows out of the track's scale (SCL ROOT / SCALE; CHR: the
+ * black keys) are darker (QUIET), a C row closes with a RAISE line; step lines GRID, every 4th RAISE. A note is a bar in
  * its column (an accent: TEXT, the row's full height; the cursor step's notes: ACCENT), chords stacked, lane hits as
  * their notes; a TIE carries the bars of the note before through its column; a REST is empty; a slide is a TEXT
  * diagonal from the end of its bar into the next note. Notes outside the view: a 1 px mark on the edge. The cursor:
  * a TEXT column frame; the playhead: a 1 px ACCENT line. The view (proll.lo, the bottom row) fits the notes of the
  * page, else centres on the cursor's note, and follows in steps (a third of the way per frame); graph_signature()
  * holds it, so a page that does not change is not drawn again. */
-#define PR_ROWS 21                                  /* semitones shown (1.75 octaves) */
-#define PR_RH 5                                     /* px per row */
-#define PR_Y0 9                                     /* the top row (canvas y) */
-#define PR_X0 35                                    /* the first step column */
-#define PR_CW 12                                    /* px per step */
-#define PR_KX 24                                    /* the keyboard strip, 9 px */
+#define PR_TOP 22                                   /* the panel's top on the screen (ui_pages.c: NOTES) */
+#define PR_H 174                                    /* .. its rows */
+#define PR_ROWS 14                                  /* semitones shown (1.17 octaves) */
+#define PR_RH 12                                    /* px per row */
+#define PR_Y0 6                                     /* the top row (panel y) */
+#define PR_X0 22                                    /* the first step column */
+#define PR_CW 13                                    /* px per step */
+#define PR_KX 8                                     /* the keyboard strip, 12 px (black keys 7; a C key named on it) */
 static struct {
     uint8_t lo, trk, init, moving;                    /* lo: the note of the bottom row; moving: on its way */
     uint32_t frame;
+    int32_t play;                                     /* the playhead's column drawn (notes_play_x) */
 } proll;
 static const uint8_t KEY_BLACK[12] = {0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0};
 
-static int32_t pr_note(const step_t *st, uint32_t j)   /* the step's note j (0..3), then its lane hits (-1: none) */
-{
-    if (j < 4u)
-        return j < st->n ? st->note[j] : -1;
-    return (st->hit >> (j - 4u)) & 1u ? DRUM_LANE_NOTE[j - 4u] : -1;
-}
 static uint32_t pr_src(const track_t *t, uint32_t si, uint32_t len)   /* the step whose notes sound at si (NSTEP: none) */
 {
     uint32_t k;
@@ -170,118 +162,7 @@ static uint32_t pr_held(void)
             }
     return m;
 }
-/* once a frame: the view toward the page's notes (centred; once there it stays while they fit); at once on a redraw
- * forced, a gap in the frames or another track */
-static void pr_follow(const track_t *t)
-{
-    uint32_t i, j, len = (uint32_t)t->p[P_SLEN], base = ui.bank * 16u;
-    int32_t lo = 127, hi = -1, tgt, d, cur = proll.lo;
-    int snap = ui.force || !proll.init || proll.trk != song.sel || ui.frame != proll.frame + 1u;
-    if (proll.init && proll.frame == ui.frame)
-        return;
-    for (i = 0; i < 16u && base + i < len; i++) {
-        uint32_t s = pr_src(t, base + i, len);
-        for (j = 0; s < NSTEP && j < 4u + NLANE; j++) {
-            int32_t n = pr_note(&seq_steps(t)[s], j);
-            if (n < 0)
-                continue;
-            lo = n < lo ? n : lo;
-            hi = n > hi ? n : hi;
-        }
-    }
-    if (hi < 0)
-        lo = hi = last_note;
-    if (hi - lo <= PR_ROWS - 1)                     /* all fit: centred, then kept while they fit */
-        tgt = !snap && !proll.moving && lo >= cur && hi <= cur + PR_ROWS - 1 ? cur : (lo + hi + 1) / 2 - PR_ROWS / 2;
-    else {                                            /* too wide: the cursor's (lowest) note in the middle */
-        const step_t *st = &seq_steps(t)[ui.cursor];
-        tgt = (st->n ? st->note[0] : (lo + hi) / 2) - PR_ROWS / 2;
-    }
-    tgt = clamp(tgt, 0, 128 - PR_ROWS);
-    d = tgt - cur;
-    proll.lo = (uint8_t)(snap ? tgt : cur + (d / 3 ? d / 3 : d > 0 ? 1 : d < 0 ? -1 : 0));
-    proll.moving = proll.lo != tgt;
-    proll.trk = (uint8_t)song.sel;
-    proll.frame = ui.frame;
-    proll.init = 1;
-}
 static int32_t pr_row_y(int32_t n) { return PR_Y0 + ((int32_t)proll.lo + PR_ROWS - 1 - n) * PR_RH; }
-/* the bars of step s in column x: a 1 px edge mark for a note out of view; first: row y of the step's first note */
-static void pr_bars(const step_t *st, int32_t x, int32_t w, uint16_t c, int acc_all, int32_t *first)
-{
-    uint32_t j;
-    int32_t ybot = PR_Y0 + PR_ROWS * PR_RH;
-    for (j = 0; j < 4u + NLANE; j++) {
-        int32_t n = pr_note(st, j), y;
-        int acc;
-        if (n < 0)
-            continue;
-        acc = acc_all || (j >= 4u && ((st->acc >> (j - 4u)) & 1u));
-        y = pr_row_y(n);
-        if (*first < -1000)
-            *first = y;
-        if (y < PR_Y0)
-            cv_rect(x, PR_Y0, w, 1, c);
-        else if (y >= ybot)
-            cv_rect(x, ybot - 1, w, 1, c);
-        else if (acc)
-            cv_rect(x, y, w, PR_RH, c == T_ACCENT ? c : T_TEXT);
-        else
-            cv_rect(x, y + 1, w, PR_RH - 2, c);
-    }
-}
-static void graph_roll(const track_t *t, uint16_t c)
-{
-    uint32_t i, len = (uint32_t)t->p[P_SLEN], base = ui.bank * 16u, ncol, mask = scale_mask(t), held = pr_held();
-    int32_t r, ybot = PR_Y0 + PR_ROWS * PR_RH, gw;
-    char nb[8];
-    ncol = base < len ? (len - base < 16u ? len - base : 16u) : 0u;
-    gw = (int32_t)ncol * PR_CW + 1;
-    for (r = 0; r < PR_ROWS; r++) {                 /* rows: the lane, the key, the C names */
-        int32_t n = (int32_t)proll.lo + PR_ROWS - 1 - r, y = PR_Y0 + r * PR_RH;
-        uint32_t pc = (uint32_t)n % 12u;
-        int in = micro_active(t) ? ((n - 60) & 1) == 0 : mask == 0xFFFu ? !KEY_BLACK[pc] : (int)((mask >> ((uint32_t)(n - t->p[P_ROOT] + 120) % 12u)) & 1u);
-        if (in)
-            cv_rect(PR_X0, y, gw, PR_RH, T_LANE);
-        if ((held >> r) & 1u)
-            cv_rect(PR_KX, y, 9, PR_RH - 1, T_ACCENT);
-        else
-            cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[pc] ? 5 : 9, PR_RH - 1, !micro_active(t) && KEY_BLACK[pc] ? T_DIM : T_RAISE);
-        if (micro_active(t) ? ((n - 60) % (int32_t)scale_note_period(t) == 0) : pc == 0u) {
-            cv_rect(PR_X0, y + PR_RH - 1, gw, 1, T_RAISE);
-            if (micro_active(t)) str_cpy(nb, "D1", sizeof nb); else note_name(nb, (uint32_t)n);
-            cv_text_r(23, y - 5, &AF_S, nb, T_DIM, T_SURF);   /* (the widest, "C-1", inside the panel: x 3..21) */
-        }
-    }
-    for (i = 0; i <= ncol; i++)                       /* step lines, the beats brighter */
-        cv_rect(PR_X0 + (int32_t)i * PR_CW, PR_Y0, 1, ybot - PR_Y0, i % 4u ? T_GRID : T_RAISE);
-    for (i = 0; i < ncol; i++) {
-        uint32_t si = base + i;
-        int32_t x = PR_X0 + (int32_t)i * PR_CW;
-        if (si == ui.cursor)
-            cv_frame(x, PR_Y0 - 2, PR_CW + 1, ybot - PR_Y0 + 4, T_TEXT);
-        if (song.playing && si == t->seq_idx)
-            cv_rect(x + 6, PR_Y0, 1, ybot - PR_Y0, T_ACCENT);
-    }
-    for (i = 0; i < ncol; i++) {                      /* the notes */
-        uint32_t si = base + i, s = pr_src(t, si, len), nx = (si + 1u) % len;
-        const step_t *st, *ns = &seq_steps(t)[nx];
-        int32_t x = PR_X0 + (int32_t)i * PR_CW, y = -10000;
-        uint16_t col;
-        if (s == NSTEP)
-            continue;                                 /* a REST, empty, or a TIE after one */
-        st = &seq_steps(t)[s];
-        col = s == ui.cursor || si == ui.cursor ? T_ACCENT : c;
-        if (s == si)
-            pr_bars(st, x + 2, 9, col, (st->flags & SF_ACCENT) != 0u, &y);
-        else                                          /* a TIE: the bars on through the gap before */
-            pr_bars(st, x - 1, 12, col, (st->flags & SF_ACCENT) != 0u, &y);
-        if ((st->flags & SF_SLIDE) && ns->time == ST_NOTE && ns->n && y >= PR_Y0 && y < ybot) {
-            int32_t ny = clamp(pr_row_y(ns->note[0]), PR_Y0, ybot - PR_RH);
-            cv_line(x + 10, y + 2, x + 14, ny + 2, T_TEXT);   /* the slide into the next note */
-        }
-    }
-}
 /* NOTES draws original sample times on a timeline. Swing changes the grid
  * spacing; playback QNT never changes the displayed or selected take. */
 static void notes_window(const track_t *t, uint32_t period, uint32_t *a, uint32_t *b)
@@ -295,6 +176,26 @@ static int32_t notes_x(uint32_t at, uint32_t a, uint32_t b)
 {
     /* Callers clip to the visible interval before converting to pixels. */
     return PR_X0 + (int32_t)((uint64_t)(at - a) * (16 * PR_CW) / (b - a));
+}
+/* the playhead's column, -1: stopped or out of the view. The step and the samples into it read as one pair (the audio
+ * may step on between the two reads: a step back for a frame) */
+static int32_t notes_play_x(const track_t *t)
+{
+    const volatile track_t *v = t;
+    uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), a, b, idx = 0, pos = 0, k, at;
+    if (!song.playing)
+        return -1;
+    for (k = 0; k < 4u; k++) {
+        idx = v->seq_idx;
+        pos = v->seq_pos;
+        if (idx == v->seq_idx)
+            break;
+    }
+    if (pos >= 0x7FFFFFFFu)
+        return -1;
+    notes_window(t, period, &a, &b);
+    at = recording_prefix(t, period, idx) + pos;
+    return at >= a && at < b ? notes_x(at, a, b) : -1;
 }
 static void notes_follow(const track_t *t)
 {
@@ -367,13 +268,13 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
     int32_t bottom = PR_Y0 + PR_ROWS * PR_RH;
     for (int32_t row = 0; row < PR_ROWS; row++) {
         int32_t note = (int32_t)proll.lo + PR_ROWS - 1 - row, y = PR_Y0 + row * PR_RH;
-        if (micro_active(t) ? ((note - 60) & 1) == 0 : scale_mask(t) == 0xFFFu ? !KEY_BLACK[note % 12] : (scale_mask(t) >> ((note - t->p[P_ROOT] + 120) % 12)) & 1u) cv_rect(PR_X0, y, 16 * PR_CW + 1, PR_RH, T_LANE);
-        cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[note % 12] ? 5 : 9, PR_RH - 1, !micro_active(t) && KEY_BLACK[note % 12] ? T_DIM : T_RAISE);
-        if ((held >> row) & 1u) cv_rect(PR_KX, y, 9, PR_RH - 1, T_ACCENT);
+        if (!(micro_active(t) ? ((note - 60) & 1) == 0 : scale_mask(t) == 0xFFFu ? !KEY_BLACK[note % 12] : (scale_mask(t) >> ((note - t->p[P_ROOT] + 120) % 12)) & 1u)) cv_rect(PR_X0, y, 16 * PR_CW + 1, PR_RH, T_QUIET);   /* (out of the scale: darker) */
+        cv_rect(PR_KX, y, !micro_active(t) && KEY_BLACK[note % 12] ? 7 : 12, PR_RH - 1, !micro_active(t) && KEY_BLACK[note % 12] ? T_DIM : T_RAISE);
+        if ((held >> row) & 1u) cv_rect(PR_KX, y, 12, PR_RH - 1, T_ACCENT);
         if (micro_active(t) ? ((note - 60) % (int32_t)scale_note_period(t) == 0) : note % 12 == 0) {
             char name[8];
             if (micro_active(t)) str_cpy(name, "D1", sizeof name); else note_name(name, (uint32_t)note);
-            cv_text_r(23, y - 5, &AF_S, name, T_DIM, T_SURF);
+            cv_text_on(PR_KX, y, &AF_X, name, T_MID, T_RAISE);
         }
     }
     uint32_t base = notes_base(), end = base + notes_span();
@@ -381,15 +282,8 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
     for (uint32_t step = base; step <= end; step++) {
         int32_t x = notes_x(recording_prefix(t, period, step), a, b);
         cv_rect(x, PR_Y0, 1, bottom - PR_Y0, step % 4u ? T_GRID : T_RAISE);
-        if (step < end && step == ui.cursor) {
-            int32_t xe = notes_x(recording_prefix(t, period, step + 1u), a, b);
-            cv_frame(x, PR_Y0 - 2, xe - x + 1, bottom - PR_Y0 + 4, T_MID);
-        }
     }
-    if (song.playing) {
-        uint32_t phase = recording_prefix(t, period, t->seq_idx) + t->seq_pos;
-        if (phase >= a && phase < b) cv_rect(notes_x(phase, a, b), PR_Y0, 1, bottom - PR_Y0, T_ACCENT);
-    }
+    if (proll.play >= 0) cv_rect(proll.play, PR_Y0, 1, bottom - PR_Y0, T_ACCENT);   /* (set by the caller: notes_play_x) */
     /* Manual notes use the same time axis and selection language. Ties
      * appear as a continuous note, including a tail wrapping into this view. */
     uint32_t selected_start = notes_manual_start(t);
@@ -402,8 +296,10 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
         for (uint32_t j = 0; j < st->n; j++) {
             int32_t y = pr_row_y(st->note[j]);
             int selected = chosen >= RECORD_MAX && source == selected_start && (j == notes_manual_slot(st) || (st->n > 1u && ui.hot_t && (ui.hot_col == 2u || ui.hot_col == 3u)));
+            /* (a note tied on: no gap at its column's end, one bar) */
+            int32_t lead = source == si ? 2 : 0, cont = si + 1u < end && pr_src(t, si + 1u, step_pattern_len(t)) == source;
             if (y < PR_Y0 || y >= bottom) { cv_rect(x + 1, y < PR_Y0 ? PR_Y0 : bottom - 1, xe - x - 1, 1, c); continue; }
-            cv_rect(x + (source == si ? 2 : 0), y + 1, xe - x - (source == si ? 3 : 0), PR_RH - 2, selected ? T_ACCENT : c);
+            cv_rect(x + lead, y + 1, xe - x - lead - (cont ? 0 : 1), PR_RH - 2, selected ? T_ACCENT : c);
             if (selected) cv_frame(x + (source == si ? 1 : 0), y, xe - x - (source == si ? 2 : 0), PR_RH, T_TEXT);
             uint32_t next = (si + 1u) % step_pattern_len(t);
             const step_t *ns = &seq_steps(t)[next];
@@ -416,6 +312,11 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
         if (i != chosen && recording_active(t, i)) notes_bar(t, i, period, a, b, c, 0);
     if (chosen < RECORD_MAX) notes_bar(t, chosen, period, a, b, T_ACCENT, 1);
+    if (ui.cursor >= base && ui.cursor < end) {         /* the cursor's column, last: its right side is the next step's
+                                                         * line, its left a tied note's bar (both drawn over it before) */
+        int32_t x = notes_x(recording_prefix(t, period, ui.cursor), a, b), xe = notes_x(recording_prefix(t, period, ui.cursor + 1u), a, b);
+        cv_frame(x, PR_Y0 - 2, xe - x + 1, bottom - PR_Y0 + 4, T_TEXT);
+    }
 }
 
 /* SEQ > STEP on a DRUM track: the grid, 8 lanes x the 16 steps of the page shown. Lanes by their two-letter
@@ -535,17 +436,6 @@ static void graph_chord(const track_t *t, uint16_t c)
     }
 }
 /* the four sends as faders under their cards: a RAISE slot, the THEME fill from the bottom, a cap */
-static void graph_fx(const track_t *t, uint16_t c)
-{
-    uint32_t i;
-    for (i = 0; i < 4u; i++) {
-        int32_t h = t->p[P_DIST + i] * 76 / 127, x = CARD_X(i) + 26;
-        cv_rrect(x, 6, 4, 82, 2, T_RAISE, T_SURF);
-        if (h > 3)
-            cv_rrect(x, 88 - h, 4, h, 2, c, T_RAISE);
-        cv_rrect(x - 4, 85 - h, 12, 6, 3, c, T_SURF);
-    }
-}
 /* SLICER page: the pattern's 16 steps, a 'x' step a full bar; a '.' step: GATE a bar as high as it stays
  * open (DEPTH), STUT hatched (it repeats the last 'x'); the step playing underlined. Grey when OFF. */
 static void graph_slicer(const track_t *t, uint16_t c)
@@ -567,31 +457,6 @@ static void graph_slicer(const track_t *t, uint16_t c)
         }
         if (mode != SL_OFF && i == cur)
             cv_rect(x, 84, 9, 2, T_ACCENT);
-    }
-}
-/* MOD page: the four slots as rows "1 LFO > CUT +50%", the one KNOB 2..4 edit selected, slots that do
- * nothing (SRC, DST or AMT at 0) dim */
-static void graph_mod(const track_t *t, uint16_t c)
-{
-    uint32_t k;
-    for (k = 0; k < NMSLOT; k++) {
-        const int16_t *p = &t->p[P_M1SRC + 3u * k];
-        int32_t y = 14 + (int32_t)k * 24, on = p[0] && p[1] && p[2], sel = k == mod_ui_slot;
-        uint16_t bg = sel ? T_THEME : T_SURF, col = sel ? T_INK : on ? c : T_DIM;
-        char b[8];
-        const char *unit;
-        if (sel)
-            cv_rrect(6, y, 228, 17, 4, T_THEME, T_SURF);
-        b[0] = (char)('1' + k);
-        b[1] = 0;
-        cv_text_on(14, y + 1, &AF_S, b, sel ? T_INK : T_MID, bg);
-        cv_text_on(34, y + 1, &AF_S, N_MSRC[clamp(p[0], 0, MS_N - 1)], col, bg);
-        cv_line(78, y + 8, 92, y + 8, col);              /* an arrow */
-        cv_line(88, y + 4, 92, y + 8, col);
-        cv_line(88, y + 12, 92, y + 8, col);
-        cv_text_on(102, y + 1, &AF_S, mod_dst_name(t, p[1]), col, bg);
-        param_format(&TP[P_M1AMT], p[2], b, &unit);
-        cv_text_on(cv_text_on(170, y + 1, &AF_S, b, col, bg) + 2, y + 1, &AF_S, unit, sel ? T_INK : T_DIM, bg);
     }
 }
 
@@ -936,7 +801,8 @@ static const char *graph_project_name(uint32_t slot)  /* (after graph_project_us
     return graph_pname[slot & 3u];
 }
 
-static uint32_t graph_signature(void)
+/* play 0: without the playhead of NOTES and the drum grid (ui_pages.c sends it alone) */
+static uint32_t graph_sig(int play)
 {
     const page_t *pg = cur_page();
     const track_t *t = TSEL;
@@ -947,22 +813,15 @@ static uint32_t graph_signature(void)
     if (pg->graph == GR_NONE || pg->graph == GR_ARP || pg->graph == GR_MOTION) h ^= ui.frame / 2u;
     for (i = 0; i < P_COUNT; i++)
         h = (h ^ (uint32_t)t->p[i]) * 16777619u;
-    h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u +
-         ui.ppick * 1299709u;
-    if (pg->graph == GR_SCALE_PICKER) {
-        h ^= ui.scale_family * 40503u;
-        for (i = 16u; i < 32u; i++) h = (h ^ favorites.factory[14][i]) * 16777619u;
-    }
+    h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u;
     if (pg->graph == GR_ROLL && !grid_on()) {
-        uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), a, b, chosen = notes_selected(t);
-        notes_window(t, period, &a, &b);
+        uint32_t chosen = notes_selected(t);
         notes_follow(t);
         h ^= recording_generation * 7919u + chosen * 40503u + ui.note_zoom * 104729u + ui.cursor * 613u + ui.note_slot * 937u + proll.lo * 3001u + (ui.hot_t && (ui.hot_col == 2u || ui.hot_col == 3u) ? 8191u : 0u);
         if (song.playing && (song.rec & (1u << trk_index(t)))) h ^= ui.frame / 2u;
         h = (h ^ steps_hash(t)) * 16777619u;
         h ^= (uint32_t)song.g[G_SWING] * 65537u + pr_held() * 15331u;
-        uint32_t phase = recording_prefix(t, period, t->seq_idx) + t->seq_pos;
-        h ^= (song.playing && phase >= a && phase < b ? (uint32_t)notes_x(phase, a, b) : 0xFFFFu) * 31u;
+        if (play) h ^= (uint32_t)(notes_play_x(t) + 1) * 31u;
     }
     if (pg->graph == GR_CHORD) {                     /* the last chord played */
         h = (h ^ (chord_last[song.sel].root + 131u * chord_last[song.sel].mask)) * 16777619u;
@@ -970,46 +829,31 @@ static uint32_t graph_signature(void)
             h = (h ^ chord_last[song.sel].note[i]) * 16777619u;
         h ^= (uint32_t)t->engine * 389u;             /* (MONO and kits follow the sounding engine) */
     }
-    if (pg->graph == GR_BROWSE)                      /* LIST, the place pending, the favourites */
-        h ^= list_mode() * 131071u + (browse_pending() ? brw.n + 1u : 0u) * 524287u + (uint32_t)favorites.filter * 8191u;
-    if (pg->graph == GR_MOD)
-        h ^= (mod_ui_slot + 1u) * 40503u;
     if (pg->scope == SC_FM6 || pg->scope == SC_FMOP) {   /* FM6's pages: the patch, switches, functions, bank */
         h ^= fm6_pgen[song.sel % NTRK] * 2654435761u + fm6_on[song.sel % NTRK] * 40503u + fm6_opsel * 131u +
-             fm6_bslot * 7919u + up_gen * 104729u;
+             up_gen * 104729u;
         for (i = 0; i < FM6_NFN; i++)
             h = (h ^ fm6_fn[song.sel % NTRK][i]) * 16777619u;
     }
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
-    if (pg->graph == GR_SLOTS) {                     /* (a checksum over each slot), BOOT, the template */
-        for (i = 0; i < 4u; i++)
-            h ^= (uint32_t)graph_project_used(i) << (20u + i);
-        h += graph_pname_sig + settings_boot * 977u + (uint32_t)template_used() * 40503u;
-    }
-    if (pg->graph == GR_MOTION) h ^= motion_count(t) * 131u + motion_enabled(t);
 #if MELODEE_SLICE
     if (pg->graph == GR_SLICES && slice_page_ok()) h ^= slice_sig();
 #endif
-    if (pg->graph == GR_CHANCE) h ^= ui.cursor * 40503u + step_chance(&t->step[ui.cursor]);
     if (pg->scope == SC_ENGINE && ((MELODEE_LEGACY_EXTRAS && t->eng_req % NENGINES == 7u) || t->eng_req % NENGINES == ENGI_FM6 ||
                                    (MELODEE_FM4 && t->eng_req % NENGINES == ENGI_DIGITAL)))
         h ^= (ui.hot_t ? ui.hot_col + 1u : 0u) * 65537u;
     if (pg->scope == SC_ENGINE && t->eng_req % NENGINES == ENGI_FM6)   /* the patch (PAT's algorithm, levels, FB) */
         h ^= (fm6_pgen[(t - trk) % NTRK] + 1u) * 2246822519u + fm6_fn[(t - trk) % NTRK][FN_ENGINE] * 40503u;
-    if (pg->graph == GR_STEPS || pg->graph == GR_ROLL || pg->graph == GR_DRUMHIT || pg->graph == GR_CHANCE) {
+    if (pg->graph == GR_STEPS || pg->graph == GR_ROLL || pg->graph == GR_DRUMHIT) {
         uint32_t ph = song.playing ? t->seq_idx : 0xFFFFu;
-        if (pg->graph != GR_STEPS && ph / 16u != ui.bank)
+        if (pg->graph != GR_STEPS && (ph / 16u != ui.bank || (!play && pg->graph == GR_ROLL)))
             ph = 0xFFFFu;                            /* the roll shows the cursor's bank only */
         h ^= steps_hash(t) + ph * 31u + ui.cursor * 7919u + ui.lane * 104723u + ui.bank * 613u;
-        if (pg->graph == GR_CHANCE && !drum_track(t)) {   /* the roll: its view and the keys held */
-            pr_follow(t);
-            h = (h ^ (proll.lo + 1u)) * 16777619u;
-            h = (h ^ pr_held()) * 16777619u;
-        }
     }
     return h;
 }
+static uint32_t graph_signature(void) { return graph_sig(1); }
 /* 4-letter engine tags of the preset list */
 static const char *eng_abbr(const char *name)
 {
@@ -1062,38 +906,6 @@ static void panel_note(const char *a, const char *b, const char *c)
 
 /* preset browser: the global list (every engine), the current one selected; tag DIM, name TEXT,
  * favourites starred (the accent), the selected row's suggested pattern at its right */
-static void graph_scale_picker(void)
-{
-    uint32_t scale = (uint32_t)clamp(TSEL->p[P_SCALE], 0, SCALE_TOTAL - 1u);
-    uint32_t total = scale_picker_count(), rank = scale_picker_rank();
-    char detail[32];
-    cv_text_fit(12, 3, &AF_S, SCALE_TITLE[scale], T_TEXT, T_SURF, scale_favorite(scale) ? 192 : 216);
-    if (scale_favorite(scale)) cv_icon_on(214, 5, 12, ICON_X_STAR, T_ACCENT, T_SURF);
-    fmt_int(detail, SCALE_DEGREES[scale]); str_cpy(detail + str_len(detail), " NOTES", 7);
-    cv_text_on(12, 20, &AF_S, detail, T_MID, T_SURF);
-    if (!total) {
-        note_line(57, "NO FAVORITES", T_TEXT);
-        note_line(80, "NEXT SCL PAGE: FAV ON", T_DIM);
-        return;
-    }
-    detail[0] = 0;
-    if (rank < total) { fmt_int(detail, (int32_t)rank + 1); str_cpy(detail + str_len(detail), "/", 2); }
-    fmt_int(detail + str_len(detail), (int32_t)total);
-    cv_text_r(226, 20, &AF_S, detail, T_MID, T_SURF);
-    uint32_t first = rank < total && rank > 2u ? rank - 2u : 0u;
-    if (total > 5u && first > total - 5u) first = total - 5u;
-    for (uint32_t row = 0; row < 5u && first + row < total; row++) {
-        uint32_t id = scale_picker_at(first + row);
-        int selected = id == scale;
-        int32_t y = 35 + (int32_t)row * 17;
-        uint16_t bg = selected ? T_THEME : T_SURF, fg = selected ? T_INK : T_TEXT;
-        if (selected) cv_rrect(6, y, 228, 16, 4, T_THEME, T_SURF);
-        cv_free_text(12, y + 1, &AF_S, SCALE_TITLE[id], fg, bg, 183);
-        fmt_int(detail, SCALE_DEGREES[id]);
-        cv_text_r(226, y + 1, &AF_S, detail, selected ? T_INK : T_DIM, bg);
-        if (scale_favorite(id)) cv_icon_on(196, y + 2, 12, ICON_X_STAR, selected ? T_INK : T_ACCENT, bg);
-    }
-}
 
 /* a list entry's tag and name, as the browser shows them: "P5" "It's a Proph", "F012" (native), "U07" (user preset) */
 static void entry_label(uint32_t e, uint32_t k, char *tag, char *nm)
@@ -1112,38 +924,6 @@ static void entry_label(uint32_t e, uint32_t k, char *tag, char *nm)
     } else {
         str_cpy(tag, eng_abbr(ENGINES[e % NENGINES]->name), 6);
         str_cpy(nm, ENGINES[e % NENGINES]->presets[k].name, 13);
-    }
-}
-static void graph_browse(void)
-{
-    uint32_t total, cur = preset_pos(&total), e, k, m = list_mode();
-    int pending = browse_pending();
-    int32_t row;
-    if (!total) {
-        if (m == LM_FAV)
-            panel_note("NO FAVORITES", "LIST ALL TO ADD SOUNDS", 0);
-        else
-            panel_note(m == LM_RECENT ? "NO RECENT SOUNDS" : "NO SOUNDS IN LIST", 0, 0);
-        return;
-    }
-    for (row = -3; row <= 3; row++) {
-        int32_t y = LIST_Y(row + 3), x1 = 212;
-        char tag[6], nm[13], pt[4], pn[13];
-        uint32_t index = preset_visible(cur, total, (uint32_t)(row + 3));
-        int sel = index == cur;
-        int32_t hint = sel && !pending ? preset_pat_hint() : -1;    /* the suggested pattern (of a loaded sound) */
-        if (index >= total) continue;
-        e = preset_at(index, &k);
-        entry_label(e, k, tag, nm);
-        if (hint >= 0) {
-            pat_label((uint32_t)hint, pt, pn);
-            x1 = 206 - text_w(&AF_S, pt) - 6;
-        }
-        list_row(y, sel, tag, T_DIM, nm, T_TEXT, x1);
-        if (hint >= 0)
-            cv_text_r(206, y + 1, &AF_S, pt, T_INK, T_THEME);
-        if (favorite_has(e, k))
-            cv_icon_on(214, y + 2, 12, ICON_X_STAR, sel ? T_INK : T_ACCENT, sel ? T_THEME : T_SURF);
     }
 }
 /* the EDIT layer (ui_layer.c): the sound loaded, as the browser's selected row: "03" (its place in KNOB 2's list,
@@ -1173,63 +953,6 @@ static void engine_sound_row(int32_t y)
     if (fav)
         cv_icon_on(214, y + 2, 12, ICON_X_STAR, T_INK, T_THEME);
     (void)total;
-}
-/* user preset slots around the selected one: "U07  NAME" / EMPTY */
-static void graph_user(void)
-{
-    ui.uslot %= user_limit();
-    int32_t row, first = clamp((int32_t)ui.uslot - 3, 0, user_limit() - 7);
-    for (row = 0; row < 7; row++) {
-        uint32_t k = (uint32_t)(first + row);
-        char tag[5], nm[13];
-        int used = user_used(k);
-        user_label(tag, k);
-        if (used)
-            user_name(k, nm);
-        else
-            str_cpy(nm, "--", sizeof nm);
-        list_row(LIST_Y(row), k == ui.uslot, tag, T_MID, nm, used ? T_TEXT : T_DIM, 232);
-    }
-}
-/* FM6 STORE lists the same user preset slots as SAVE > USER. */
-static void graph_fmbank(void)
-{
-    uint8_t keep = ui.uslot;
-    ui.uslot = fm6_bslot;
-    graph_user();
-    ui.uslot = keep;
-}
-/* SEQ > PATTERNS: the pattern list around the one picked ("03  MELODY", "U07  MY BASS") */
-static void graph_pats(void)
-{
-    uint32_t n = pat_count(), cur = pat_pick();
-    int32_t row, first = clamp((int32_t)cur - 3, 0, (int32_t)n > 7 ? (int32_t)n - 7 : 0);
-    for (row = 0; row < 7 && (uint32_t)(first + row) < n; row++) {
-        uint32_t k = (uint32_t)(first + row);
-        char tag[4], nm[13];
-        pat_label(k, tag, nm);
-        list_row(LIST_Y(row), k == cur, tag, T_MID, nm, T_TEXT, 232);
-    }
-}
-/* project slots A..D and the template (T): the name (none: USED, TEMPLATE) / --, the selected one filled; BOOT at
- * the right of what power-on loads (BOOT's slot; BOOT OFF or an empty slot: the template, when there is one) */
-static void graph_slots(void)
-{
-    uint32_t i, boot = settings_boot && graph_project_used(settings_boot - 1u) ? settings_boot
-                     : template_used() ? (uint32_t)PROJ_TMPL : 0u;
-    for (i = 0; i < (uint32_t)PROJ_TMPL; i++) {
-        int32_t y = 4 + (int32_t)i * 19;
-        char b[4];
-        int sel = (int32_t)i + 1 == song.g[G_SLOT] && !ui.proj_new, tm = i + 1u == (uint32_t)PROJ_TMPL;
-        int used = tm ? template_used() : graph_project_used(i);
-        const char *n = tm ? "TEMPLATE" : graph_project_name(i);
-        b[0] = (char)(tm ? 'T' : 'A' + i);
-        b[1] = 0;
-        list_row(y, sel, b, T_MID, !used ? "--" : n[0] ? n : "USED", used ? T_TEXT : T_DIM, boot == i + 1u ? 186 : 232);
-        if (boot == i + 1u)
-            cv_text_r(226, y + 1, &AF_S, "BOOT", sel ? T_INK : T_ACCENT, sel ? T_THEME : T_SURF);
-    }
-    list_row(4 + PROJ_TMPL * 19, ui.proj_new, "+", T_MID, "NEW SONG", T_TEXT, 232);   /* KNOB 1 past TMPL */
 }
 /* MIXER page: four SURF columns, one under each card: the circled numeral (filled and in the accent:
  * the selected track) with a REC / ARM / MUTE badge (P_MUTE, KNOB 1), the sound's short name (a MUTE badge
@@ -1314,77 +1037,6 @@ static void trk_short_name(uint32_t c, char *b)      /* the track's sound, b hol
         str_cpy(b, e->name, 13);
 }
 
-static void draw_tracks(void)
-{
-    uint32_t c;
-    if (ui.force) {
-        lcd_fill(0, Y_GRAPH, 240, H_GRAPH, T_BG);
-        for (c = 0; c < NTRK; c++)
-            ts.meter[c] = 0;
-    }
-    for (c = 0; c < NTRK; c++) {
-        track_t *t = &trk[c];
-        uint32_t sel = c == song.sel, lvl = trk_level(c), mute = t->p[P_MUTE] != 0;
-        uint32_t arm = (song.rec >> c) & 1u, st = arm ? (song.playing ? 1u : 2u) : mute ? 3u : 0u, sig;
-        uint32_t hot = sel && ui.hot_t ? ui.hot_col + 1u : 0u;   /* the knob just turned (hot_col + 1): 1 LEVEL, 2 PAN,
-                                                                * 3 REV, 4 MUTE (its badge) */
-        int32_t pk = t->peak, m, pan = clamp(t->p[P_PAN], -64, 63), rv = clamp(t->p[P_REV], 0, 127);
-        uint16_t vc = mute ? T_DIM : T_TRK(c);          /* each strip in its track's colour */
-        char b[16];
-        t->peak = 0;
-        trk_short_name(c, b);
-        m = mute ? 0 : meter_px(pk);
-        if (m < ts.meter[c] - 1)
-            m = ts.meter[c] - 1;                     /* falls ~2 dB a frame */
-        ts.meter[c] = (uint8_t)(m < 0 ? 0 : m);
-        sig = str_hash(1u + sel + st * 2u + (mute && arm) * 16u + hot * 32u, b) + lvl * 7919u +
-              ts.meter[c] * 131u + (uint32_t)(pan + 128) * 104729u + (uint32_t)rv * 1299709u + mute * 3u;
-        if (!ui.force && sig == ts.col[c])
-            continue;
-        ts.col[c] = sig;
-        cv_begin(CARD_W, H_GRAPH, T_BG);
-        cv_rrect(0, 0, CARD_W, H_GRAPH, 5, T_SURF, T_BG);
-        cv_icon_on(4, 5, 16, trk_icon(c, sel), T_TRK(c), T_SURF);
-        if (st == 1u || st == 2u)                    /* REC (recording) / ARM (armed, stopped) */
-            cv_keycap(53 - kc_w(st == 1u ? KC_REC : KC_ARM), 6, st == 1u ? KC_REC : KC_ARM, st == 1u ? T_REC : T_ACCENT,
-                      T_INK, T_SURF);
-        else if (st)                                 /* muted (K4 just turned: lit) */
-            cv_keycap(53 - kc_w(KC_MUTE), 6, KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-        if (mute && arm)                             /* armed and muted: MUTE in place of the name */
-            cv_keycap(5, 23, KC_MUTE, hot == 4u ? T_ACCENT : T_KEY, T_INK, T_SURF);
-        else
-            cv_free_text(5, 21, &AF_S, b, mute ? T_DIM : sel ? T_TEXT : T_MID, T_SURF, CARD_W - 10);
-        {   /* LEVEL: the knob, its dB inside (OFF at 0), and the meter of the output */
-            char v[8];
-            knob(KB_X, KB_Y, KNOB_BIG_R, KNOB_BIG_COV, KNOB_BIG_ANG, (int32_t)lvl, 0, 127, hot == 1u ? T_ACCENT : vc);
-            if (lvl) {
-                int32_t d = LEVEL_DB_X10[lvl];
-                fmt_int(v, (d + (d < 0 ? -5 : 5)) / 10);
-                cv_text_on(KB_X + KNOB_BIG_R - text_w(&AF_S, "dB") / 2, KB_Y + KNOB_BIG_R + 5, &AF_S, "dB", T_DIM, T_SURF);
-            } else {
-                str_cpy(v, "OFF", sizeof v);
-            }
-            cv_text_c(KB_X + KNOB_BIG_R, KB_Y + KNOB_BIG_R - 8, &AF_S, v, hot == 1u ? T_ACCENT : lvl ? vc : T_DIM, T_SURF);
-            cv_rrect(45, TS_MY, 4, TS_MH, 2, T_RAISE, T_SURF);
-            if (ts.meter[c])
-                cv_rrect(45, TS_MY + TS_MH - 1 - ts.meter[c], 4, ts.meter[c] + 1, ts.meter[c] >= 4 ? 2 : 0, T_MID, T_RAISE);
-        }
-        {   /* PAN (from the centre) and the REV send: captions, knobs, values */
-            char v[8];
-            uint16_t pc = hot == 2u ? T_ACCENT : vc, rc = hot == 3u ? T_ACCENT : vc;
-            cv_text_c(15, 72, &AF_S, "PAN", T_DIM, T_SURF);
-            cv_text_c(42, 72, &AF_S, "REV", T_DIM, T_SURF);
-            knob(15 - KNOB_SMALL_R, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, pan, -64, 63, pc);
-            knob(42 - KNOB_SMALL_R, KS_Y, KNOB_SMALL_R, KNOB_SMALL_COV, KNOB_SMALL_ANG, rv, 0, 127, rc);
-            v[0] = '+';                              /* the cards' numbers, without the % */
-            fmt_int(pan > 0 ? v + 1 : v, pan * 100 / 64);
-            cv_text_c(15, KS_Y + 17, &AF_S, v, pc, T_SURF);
-            fmt_int(v, (rv * 100 + 63) / 127);
-            cv_text_c(42, KS_Y + 17, &AF_S, v, rc, T_SURF);
-        }
-        cv_blit((uint32_t)CARD_X(c), Y_GRAPH);
-    }
-}
 /* HOME note/chord names: the same recognizer as next, with the 1.0 fonts and palette. */
 static const struct {
     uint16_t iv;                                     /* bit i: i semitones over the root */
@@ -1476,33 +1128,27 @@ static void graph_scope(uint16_t c, int32_t top, int32_t h)
     }
 }
 
-/* Each arrangement row selects one bank per track. */
+/* Each arrangement row selects one bank per track. graph_y, graph_h: the panel's place (ui_pages.c: under its rings) */
+static int32_t graph_y = Y_GRAPH, graph_h = H_GRAPH, graph_oy = GOY;   /* (graph_oy: the 100 px scale's top) */
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
     const track_t *t = TSEL;
     uint16_t c = ACC;
     uint32_t sig;
-    if (!ui.home && pg->graph == GR_TRK) {
-        draw_tracks();
-        return;
-    }
     sig = graph_signature();
     if (!ui.force && sig == ui.graph_sig)
         return;
     ui.graph_sig = sig;
-    cv_begin(240, H_GRAPH, T_BG);
-    cv_rrect(3, 0, 234, H_GRAPH, 5, T_SURF, T_BG);   /* the panel */
+    cv_begin(240, (uint32_t)graph_h, T_BG);
+    cv_rrect(3, 0, 234, graph_h, 5, T_SURF, T_BG);   /* the panel */
     cv_bg = T_SURF;                                  /* (text drawn with cv_text lands on it) */
-    cv_oy = GOY;                                     /* graphs on a 100 px scale */
+    cv_oy = graph_oy;                                /* graphs on a 100 px scale */
     if (ui.home) {                                   /* (Stage draws its own panel: ui_stage.c) */
         cv_oy = 0;
         graph_scope(c, 0, H_GRAPH);
     } else {
         switch (pg->graph) {
-        case GR_ADSR:
-            graph_adsr(t, c);
-            break;
         case GR_LFO:
             graph_lfo(t, c);
             break;
@@ -1513,18 +1159,7 @@ static void draw_graph(void)
         case GR_ROLL:
             cv_oy = 0;
             if (grid_on()) graph_grid(t, c);
-            else graph_recorded_notes(t, c);
-            break;
-        case GR_CHANCE:
-            cv_oy = 0;
-            if (drum_track(t))
-                graph_grid(t, c);
-            else
-                graph_roll(t, c);
-            break;
-        case GR_SCALE_PICKER:
-            cv_oy = 0;
-            graph_scale_picker();
+            else { proll.play = notes_play_x(t); graph_recorded_notes(t, c); }
             break;
         case GR_SCALE:
             if (scale_settings_page(pg)) {
@@ -1538,35 +1173,8 @@ static void draw_graph(void)
             cv_oy = 0;
             graph_chord(t, c);
             break;
-        case GR_FX:
-            graph_fx(t, c);
-            break;
         case GR_SLCR:
             graph_slicer(t, c);
-            break;
-        case GR_MOD:
-            cv_oy = 0;
-            graph_mod(t, c);
-            break;
-        case GR_BROWSE:
-            cv_oy = 0;
-            graph_browse();
-            break;
-        case GR_SLOTS:
-            cv_oy = 0;
-            graph_slots();
-            break;
-        case GR_USER:
-            cv_oy = 0;
-            graph_user();
-            break;
-        case GR_PATS:
-            cv_oy = 0;
-            graph_pats();
-            break;
-        case GR_TOOLS:
-            cv_oy = 0;
-            panel_note("TURN TO PICK", "[OCT+] CONFIRM", 0);
             break;
 #if MELODEE_SLICE
         case GR_SLICES:
@@ -1581,10 +1189,6 @@ static void draw_graph(void)
         }
         case GR_FMPEG:                                   /* FM6: the pitch envelope */
             graph_dxenv(fm6_patch[song.sel % NTRK] + FP_PR1, fm6_patch[song.sel % NTRK] + FP_PL1, 1, c);
-            break;
-        case GR_FMSTORE:                                 /* FM6: the bank slots around fm6_bslot */
-            cv_oy = 0;
-            graph_fmbank();
             break;
         default:
 #if MELODEE_LEGACY_EXTRAS
@@ -1602,5 +1206,5 @@ static void draw_graph(void)
         }
     }
     cv_oy = 0;
-    cv_blit(0, Y_GRAPH);
+    cv_blit(0, (uint32_t)graph_y);
 }

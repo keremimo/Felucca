@@ -1,0 +1,70 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--surface-1:#2a2a2e;--text-secondary:#aaa}
+body{background:#111;color:#eee;font-family:system-ui;margin:12px;width:1100px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+</style></head><body><style>
+@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500&display=swap');
+.mg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:1rem 0}
+.mc{background:var(--surface-1);border-radius:12px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.mc svg{width:100%;max-width:300px;border-radius:8px;font-family:Rubik,system-ui,sans-serif}
+.cap{font-size:13px;color:var(--text-secondary);text-align:center}
+h3{font:500 15px system-ui;color:#ccc;margin:18px 0 0}
+</style>
+<h2 class="sr-only">Sound pages, fast: PRESETS jumps between an engine's sections, SELECT turns the pages inside one; EDIT on an EDIT page opens the engine's map; EDIT held puts the sections on the keys.</h2>
+<h3>Two levels: PRESETS the section, SELECT the page in it</h3>
+<div class="mg">
+<div class="mc"><svg viewBox="0 0 240 240" id="a_p5"></svg><div class="cap">Prophet: sections as tabs under the header (PRESETS), the pages of one as dots (SELECT)</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="a_fm6"></svg><div class="cap">FM6: the operators are sections (PRESETS, as today), their six pages on SELECT</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="a_turn"></svg><div class="cap">PRESETS turning: the section names slide past, the page lands on the section's last-used page</div></div>
+</div>
+<h3>The map: EDIT pressed on an EDIT page</h3>
+<div class="mg">
+<div class="mc"><svg viewBox="0 0 240 240" id="b_p5map"></svg><div class="cap">Prophet's map: a row a section, a tile a page; KNOB 1 / 2 move, OCT+ opens</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="b_fm6map"></svg><div class="cap">FM6's map: operators x their pages as a grid, the rest above and below</div></div>
+<div class="mc"><svg viewBox="0 0 240 240" id="c_keys"></svg><div class="cap">EDIT held: the sections on the white keys, one press to any of them</div></div>
+</div>
+<script>
+const C=['#FF7A5C','#FFC145','#46D9B0','#9D8CFF'],TX='#F3EEF8',MD='#9A93A8',DM='#5A5468',LN='#2E2939',SF='#221E2C',BG='#17141F',PN='#1D1926',RS='#262033',SC='#C9C2D6',QT='#1A1722';
+const t=(x,y,s,f,c,a,w)=>`<text x="${x}" y="${y}" font-size="${f}" fill="${c}" ${a?`text-anchor="${a}"`:''} font-weight="${w?500:400}">${s}</text>`;
+const r=(x,y,w,h,f,rx,st,dash,sw)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx==null?4:rx}" fill="${f}" ${st?`stroke="${st}" stroke-width="${sw||1}"`:''} ${dash?'stroke-dasharray="3 2"':''}/>`;
+const mix=(a,b,k)=>{const p=h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16));const A=p(a),B=p(b);return '#'+A.map((v,i)=>Math.round(v*k+B[i]*(1-k)).toString(16).padStart(2,'0')).join('')};
+const path=(d,c,w)=>`<path d="${d}" fill="none" stroke="${c}" stroke-width="${w||2}" stroke-linejoin="round" stroke-linecap="round"/>`;
+const arc=(cx,cy,R,f,c,w)=>{const L=2*Math.PI*R,a=`transform="rotate(135 ${cx} ${cy})"`;return `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${LN}" stroke-width="${w}" stroke-dasharray="${L*.75} ${L}" ${a} stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${c}" stroke-width="${w}" stroke-dasharray="${L*.75*f} ${L}" ${a} stroke-linecap="round"/>`};
+const head=(chip,c,sel,pages,pg)=>{let s=t(8,14,'▶',10,TX)+t(20,14,'124',11,TX,0,1)+[0,1,2,3].map(i=>`<circle cx="${54+i*8}" cy="10" r="2.5" fill="${i==sel?TX:DM}"/>`).join('');
+ let x=96;for(let i=0;i<pages;i++){const w=i==pg?12:4;s+=r(x,8,w,4,i==pg?c:LN,2);x+=w+5}
+ const w=Math.max(46,chip.length*6.4+16);return s+r(232-w,3,w,14,c,4)+t(232-w/2,13.5,chip,9,BG,'middle',1)};
+/* the section tabs under the header: the current one filled, its neighbours fading */
+const tabs=(L,cur,c)=>{let s='',x=6;L.forEach((q,i)=>{const w=q.length*5.6+12,on=i==cur,d=Math.abs(i-cur);if(x+w>236)return;s+=r(x,21,w,14,on?mix(c,BG,.22):'none',4,on?c:null)+t(x+w/2,31,q,8.5,on?c:d>2?DM:MD,'middle',1);x+=w+3});return s};
+const rings=(K,c,hot,y0)=>{let s='';K.forEach((k,i)=>{const cx=30+i*60,cy=y0+34,h=i==hot;if(h)s+=r(cx-29,y0-2,58,78,RS,8,c);s+=t(cx,y0+9,k[0],8.5,c,'middle',1)+arc(cx,cy,15,k[3],c,3)+t(cx,cy+34,k[1]+`<tspan font-size="9" fill="${MD}" font-weight="400">${k[2]?' '+k[2]:''}</tspan>`,14,TX,'middle',1)});return s};
+const sound=(eng,name,c)=>t(8,232,eng,8.5,c,0,1)+t(8+eng.length*6.2+6,232,name,11,SC);
+const c=C[1];
+const put=(id,s)=>document.getElementById(id).innerHTML=r(0,0,240,240,BG,0)+s;
+const P5=['Osc','Mixer','Filter','Amp','Mod','LFO','Wheel','Voice'];
+/* Prophet page with section tabs */
+{let s=head('FILTER',c,1,2,0)+tabs(P5,2,c)+rings([['CUTOFF','62','%',.62],['RESO','30','%',.3],['ENV AMT','+41','',.7],['KEYTRACK','Half','',.5]],c,0,40);
+ s+=r(4,122,232,96,'#1D1926',6);let p='M14 186 ';for(let x=0;x<=212;x+=4){const f=x/212,y=186-34*(f<.55?1:Math.max(0,1-(f-.55)*3))-Math.exp(-((f-.55)**2)/0.002)*16;p+=`L${14+x} ${Math.min(210,y).toFixed(1)} `}s+=path(p,c,2);
+ s+=sound('PROPHET','Pickle Pincher',c);put('a_p5',s)}
+/* FM6 op page */
+{let s=head('OP3 EG RATE',c,1,6,2)+tabs(['Algo','OP1','OP2','OP3','OP4','OP5','OP6','Pitch','LFO'],3,c)+rings([['R1','95','',.95],['R2','20','',.2],['R3','20','',.2],['R4','50','',.5]],c,2,40);
+ s+=r(4,122,232,96,'#1D1926',6)+path('M14 206 L40 136 L92 156 L150 172 L176 172 L226 206',c,2.5)+sound('FM6','Tine EP',c);put('a_fm6',s)}
+/* PRESETS turning: the tabs as a wheel */
+{let s=head('MOD',c,1,6,0)+rings([['FLT ENV','40','%',.4],['OSC B','0','%',0],['PW','0','%',0],['DEST','Freq A','',.3]],c,-1,40).replace(/fill="#F3EEF8"/g,`fill="${DM}"`);
+ s+=`<rect x="0" y="18" width="240" height="222" fill="${BG}" opacity=".6"/>`+r(20,64,200,60,'#221E2C',10,LN);
+ ['Filter','Amp','Mod','LFO','Wheel'].forEach((q,i)=>{const x=30+i*38,on=i==2;s+=t(x+(on?0:0),on?100:98,q,on?15:10,on?TX:Math.abs(i-2)>1?DM:MD,0,on)});
+ s+=r(96,104,48,3,c,1.5)+t(120,116,'6 pages',8.5,MD,'middle');put('a_turn',s)}
+/* Prophet map */
+{let s=head('PROPHET',c,1,0,0);const M=[['Osc',['Osc A','Osc B','B waves']],['Mixer',['Mixer']],['Filter',['Filter','Flt env']],['Amp',['Amp env']],['Mod',['Env mod','Poly mod','Mod flt']],['LFO',['LFO']],['Wheel',['Wheel','Wheel 2']],['Voice',['Unison','Bend','Store']]];
+ M.forEach((m,i)=>{const y=24+i*26;s+=t(10,y+15,m[0],9,i==2?c:MD,0,1);m[1].forEach((p,j)=>{const x=56+j*60,on=i==2&&j==0,cur=i==4&&j==1;s+=r(x,y,56,22,on?RS:'#1D1926',5,on?c:cur?MD:null,cur?1:0)+t(x+28,y+15,p,9,on?TX:SC,'middle',on)})});
+ s+=t(232,234,'16 pages',8.5,MD,'end');put('b_p5map',s)}
+/* FM6 map: grid */
+{let s=head('FM6',c,1,0,0)+t(10,36,'Algo',9,MD,0,1)+r(56,24,56,18,'#1D1926',5)+t(84,37,'Algorithm',8.5,SC,'middle')+r(116,24,56,18,'#1D1926',5)+t(144,37,'Store',8.5,SC,'middle');
+ const cols=['Freq','Out','Rate','Level','Scale','Curve'];cols.forEach((q,j)=>s+=t(56+j*30+14,56,q,7.5,MD,'middle',1));
+ for(let o=0;o<6;o++){const y=62+o*20;s+=t(10,y+13,'OP'+(o+1),9,o==2?c:MD,0,1);for(let j=0;j<6;j++){const x=56+j*30,on=o==2&&j==2;s+=r(x,y,27,16,on?c:'#1D1926',4,on?null:null)+(on?t(x+13.5,y+11.5,'●',7,BG,'middle'):'')}}
+ [['Pitch',['Pitch EG','Pitch lv']],['LFO',['LFO','LFO 2']],['Ctrl',['Bend','Porta','Wh/ft','Br/at']]].forEach((m,i)=>{const y=186+i*18;s+=t(10,y+12,m[0],9,MD,0,1);m[1].forEach((p,j)=>s+=r(56+j*45,y,42,15,'#1D1926',4)+t(77+j*45,y+11,p,8,SC,'middle'))});
+ put('b_fm6map',s)}
+/* EDIT held: sections on the keys */
+{let s=head('EDIT',c,1,0,0)+`<rect x="0" y="18" width="240" height="222" fill="${BG}" opacity=".5"/>`+r(4,40,232,192,'#221E2C',10,LN)+t(14,58,'Prophet · sections',9,MD,0,1);
+ P5.forEach((q,i)=>{const x=10+i*28,on=i==2;s+=r(x,120,26,104,on?c:'#1D1926',4,on?null:LN)+t(x+13,214,q.length>5?q.slice(0,4):q,8,on?BG:SC,'middle',1)});
+ [[0,'Init'],[1,'Fav'],[3,'Undo'],[4,'Store']].forEach(([i,q])=>{const x=10+i*28+14;s+=r(x,70,26,42,'#1A1722',4,LN)+t(x+13,96,q,7.5,MD,'middle',1)});
+ put('c_keys',s)}
+</script></body></html>

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Kerem Kilic (Ellic Studio) */
-/* Eight manual STEP edits of the selected track (SEQ > STEP and CHANCE): note / chord entry with its held length,
+/* Eight manual STEP edits of the selected track (SEQ > NOTES; CHANCE: the note's sheet): note / chord entry with its held length,
  * SCL + SELECT moves, ENV + SELECT lengths, PITCH, LENGTH, VEL, SLIDE and CHANCE turns. SAVE held undoes the last one (with nothing to undo here:
  * the sound / pattern load undo, ui.c undo_swap); OCT- / OCT+ with SAVE or FX held undo further / redo
  * (ui_input.c). The frames of a held entry or move are one edit; a new edit drops the redo. Exact comparisons start

@@ -29,10 +29,15 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 
 /* host tests hook in here (layout lint, draw cost); nothing in the firmware */
 #ifndef GFX_HOOK_TEXT
-#define GFX_HOOK_TEXT(x0, y0, x1, y1, s, flags) ((void)0)   /* an ink box; flags 1 ellipsised, 2 cut, 4 icon, 8 free text, 32 in a scrolled view */
+#define GFX_HOOK_TEXT(x0, y0, x1, y1, s, flags) ((void)0)   /* an ink box; flags 1 ellipsised, 2 cut, 4 icon, 8 free text,
+                                                              * 16 under a question (cv_dim), 32 in a scrolled view */
 #define GFX_HOOK_BLIT(x, y, r0) ((void)0)
 #define GFX_HOOK_BEGIN() ((void)0)
 #define GFX_HOOK_PIXELS(n) ((void)0)
+#endif
+#ifndef GFX_HOOK_WHOLE
+#define GFX_HOOK_WHOLE(x, y, r0, fill) ((void)0)   /* what the screen would hold sent whole: canvas rows r0.. at x, y (or a
+                                                     * fill) (tests/ui_render.c: the diff checked against it) */
 #endif
 #ifndef GFX_HOOK_CELL
 #define GFX_HOOK_CELL(x0, y0, x1, y1) ((void)0)    /* a cell, card, row or button (cv_rrect): a box touching it lies inside it */
@@ -42,7 +47,7 @@ typedef struct { uint16_t off; uint8_t w; const char *label; } kc_t;
 /* Most regions (cards, header, footer) fit the small second canvas. Draw
  * there while SPI reads the first; large graphs reuse the full canvas only
  * after its transfer finishes. No second full-screen-sized allocation. */
-#define CV_ALT_MAX (240u * 32u)
+#define CV_ALT_MAX (240u * 24u)                   /* (240 x 24: the diff's hashes took the rest, below) */
 static uint16_t cv_primary[CV_MAX] __attribute__((section(".pool")));
 static uint16_t cv_alt[CV_ALT_MAX] __attribute__((section(".pool")));
 static uint16_t *cv_px = cv_primary;
@@ -197,22 +202,348 @@ static void cv_begin(uint32_t w, uint32_t h, uint16_t bg)
         cv_px[i] = s;
 }
 
+/* cv_dim: a canvas goes out darkened (72 % toward BG): the page under a question (ui_draw.c); cv_under: the page under
+ * a popup, dimmed or not (a knob's picker: not), its texts covered on purpose (the lint's flag 16) */
+static uint8_t cv_dim, cv_under;
+static uint16_t mix565(uint16_t bg, uint16_t fg, uint32_t a);
+static void cv_dim_rows(uint32_t r0)
+{
+    uint32_t i;
+    for (i = r0 * cv_w; i < cv_w * cv_h; i++)
+        cv_px[i] = swap16(mix565(T_BG, swap16(cv_px[i]), 9u));
+}
+/* ------------------------------------------------------------- diff --- */
+/* The SPI (12 MHz) is the UI's bottleneck: the whole screen takes ~77 ms. So a big canvas sent where it was sent
+ * before (the same x, y, w, h) sends only what changed: DF_N such places keep 16-bit hashes of their 4-row bands and
+ * 8-column blocks as last sent, and a blit sends the dirty band runs x the dirty block runs. Anything else written
+ * over a place (another canvas, a fill: gfx_fill) marks the bands and blocks it covered dirty: sent again next time */
+#define DF_N 14u
+#ifndef DF_MIN
+#define DF_MIN 2048u                                    /* (smaller canvases: sent whole) */
+#endif
+#define DF_BAND 4u
+#define DF_BLK 8u
+#define DF_NB (240u / DF_BAND)
+#define DF_NK (240u / DF_BLK)
+static struct { uint64_t pb; uint32_t pk; uint8_t x, y, w, h, on; uint16_t use; } df_key[DF_N];   /* pb, pk: bands and
+                                                                                    * blocks drawn over since (dirty) */
+static uint16_t df_sum[DF_N][DF_NB + DF_NK] __attribute__((section(".pool")));
+static uint16_t df_now[DF_NB + DF_NK] __attribute__((section(".pool")));
+static uint16_t df_clock;
+
+static void df_damage(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t keep)   /* (keep: a place spared) */
+{
+    uint32_t i, j;
+    for (i = 0; i < DF_N; i++) {
+        uint32_t ex = df_key[i].x, ey = df_key[i].y, ex1 = ex + df_key[i].w, ey1 = ey + df_key[i].h, a0, a1, b0, b1;
+        if (i == keep || !df_key[i].on || x >= ex1 || x + w <= ex || y >= ey1 || y + h <= ey)
+            continue;
+        a0 = (y > ey ? y : ey) - ey;                    /* the canvas rows a0 .. a1-1, columns b0 .. b1-1 covered */
+        a1 = (y + h < ey1 ? y + h : ey1) - ey;
+        b0 = (x > ex ? x : ex) - ex;
+        b1 = (x + w < ex1 ? x + w : ex1) - ex;
+        if (!a0 && a1 == ey1 - ey && !b0 && b1 == ex1 - ex) {
+            df_key[i].on = 0;                           /* (all of it: forgotten) */
+            continue;
+        }
+        for (j = a0 / DF_BAND; j <= (a1 - 1u) / DF_BAND; j++)
+            df_key[i].pb |= 1ull << j;
+        for (j = b0 / DF_BLK; j <= (b1 - 1u) / DF_BLK; j++)
+            df_key[i].pk |= 1u << j;
+    }
+}
+static uint32_t df_find(uint32_t x, uint32_t y)        /* the canvas's place (DF_N: none) */
+{
+    uint32_t i;
+    for (i = 0; i < DF_N; i++)
+        if (df_key[i].on && df_key[i].x == x && df_key[i].y == y && df_key[i].w == cv_w && df_key[i].h == cv_h)
+            return i;
+    return DF_N;
+}
+static void df_hash(void)                               /* the canvas's bands, then its blocks, into df_now */
+{
+    uint32_t nk = (cv_w + DF_BLK - 1u) / DF_BLK, r, k, i, band = 2166136261u, blk[DF_NK];
+    for (k = 0; k < nk; k++)
+        blk[k] = 2166136261u;
+    for (r = 0; r < cv_h; r++) {
+        const uint16_t *p = cv_px + r * cv_w;
+        for (k = 0; k < nk; k++) {
+            uint32_t h = 2166136261u, e = (k + 1u) * DF_BLK < cv_w ? (k + 1u) * DF_BLK : cv_w;
+            for (i = k * DF_BLK; i < e; i++)
+                h = (h ^ p[i]) * 16777619u;
+            blk[k] = (blk[k] ^ h) * 16777619u;
+            band = (band ^ h) * 16777619u;
+        }
+        if (r % DF_BAND == DF_BAND - 1u || r + 1u == cv_h) {
+            df_now[r / DF_BAND] = (uint16_t)(band ^ band >> 16);
+            band = 2166136261u;
+        }
+    }
+    for (k = 0; k < nk; k++)
+        df_now[DF_NB + k] = (uint16_t)(blk[k] ^ blk[k] >> 16);
+}
+static void df_keep(uint32_t x, uint32_t y)             /* the canvas just sent whole: its place remembered */
+{
+    uint32_t i, at = 0;
+    for (i = 0; i < DF_N; i++) {                        /* a free place, else the one used longest ago */
+        if (!df_key[i].on) {
+            at = i;
+            break;
+        }
+        if ((uint16_t)(df_clock - df_key[i].use) > (uint16_t)(df_clock - df_key[at].use))
+            at = i;
+    }
+    df_key[at].x = (uint8_t)x; df_key[at].y = (uint8_t)y; df_key[at].w = (uint8_t)cv_w; df_key[at].h = (uint8_t)cv_h;
+    df_key[at].on = 1;
+    df_key[at].pb = 0;
+    df_key[at].pk = 0;
+    df_key[at].use = ++df_clock;
+    for (i = 0; i < DF_NB + DF_NK; i++)
+        df_sum[at][i] = df_now[i];
+}
+/* canvas columns c0 .. c0+w-1 of rows r0 .. r0+h-1 to the screen: whole rows straight from the canvas, else gathered
+ * into the small canvas (the canvas is it, or they do not fit: whole rows) */
+static void df_send(uint32_t x, uint32_t y, uint32_t c0, uint32_t w, uint32_t r0, uint32_t h, uint32_t keep)
+{
+    uint32_t r, i;
+    if (w < cv_w && (cv_px == cv_alt || w * h > CV_ALT_MAX)) {
+        c0 = 0;
+        w = cv_w;
+    }
+    df_damage(x + c0, y + r0, w, h, keep);
+    if (w == cv_w) {
+        lcd_blit(x, y + r0, w, h, cv_px + r0 * cv_w);
+        cv_flight = cv_px;
+        return;
+    }
+    if (cv_flight == cv_alt) {
+        lcd_sync();
+        cv_flight = 0;
+    }
+    for (r = 0; r < h; r++)
+        for (i = 0; i < w; i++)
+            cv_alt[r * w + i] = cv_px[(r0 + r) * cv_w + c0 + i];
+    lcd_blit(x + c0, y + r0, w, h, cv_alt);
+    cv_flight = cv_alt;
+}
+/* runs of the dirty marks d[0..n-1] (gaps up to gap joined), up to 6: run k from a[k] to b[k] */
+static uint32_t df_runs(const uint8_t *d, uint32_t n, uint32_t gap, uint8_t *a, uint8_t *b)
+{
+    uint32_t i, nr = 0;
+    for (i = 0; i < n; i++) {
+        if (!d[i])
+            continue;
+        if (nr && i - b[nr - 1u] <= gap + 1u)
+            b[nr - 1u] = (uint8_t)i;
+        else if (nr < 6u) {
+            a[nr] = b[nr] = (uint8_t)i;
+            nr++;
+        } else
+            b[nr - 1u] = (uint8_t)i;
+    }
+    return nr;
+}
+/* the canvas (hashed: df_now) sent where it was before: only what changed. 0: no place known (send it whole) */
+static int df_diff(uint32_t x, uint32_t y)
+{
+    uint32_t e = df_find(x, y), nb = (cv_h + DF_BAND - 1u) / DF_BAND, nk = (cv_w + DF_BLK - 1u) / DF_BLK, i, j, nr, nc;
+    uint32_t anyb = 0, anyk = 0;
+    uint8_t db[DF_NB], dk[DF_NK], ra[6], rb[6], ca[6], cb[6];
+    if (e >= DF_N)
+        return 0;
+    for (i = 0; i < nb; i++)
+        anyb |= db[i] = df_now[i] != df_sum[e][i] || ((df_key[e].pb >> i) & 1u);
+    for (i = 0; i < nk; i++)
+        anyk |= dk[i] = df_now[DF_NB + i] != df_sum[e][DF_NB + i] || ((df_key[e].pk >> i) & 1u);
+    df_key[e].use = ++df_clock;
+    df_key[e].pb = 0;
+    df_key[e].pk = 0;
+    if (!anyb && !anyk)
+        return 1;
+    for (i = 0; i < nb && !anyb; i++)                   /* (one way's hashes collided: all of it that way) */
+        db[i] = 1;
+    for (i = 0; i < nk && !anyk; i++)
+        dk[i] = 1;
+    for (i = 0; i < DF_NB + DF_NK; i++)
+        df_sum[e][i] = df_now[i];
+    nr = df_runs(db, nb, 1u, ra, rb);
+    nc = df_runs(dk, nk, 2u, ca, cb);
+    if (nr * nc > 6u) {                                 /* scattered: their bounding box */
+        rb[0] = rb[nr - 1u]; cb[0] = cb[nc - 1u];
+        nr = nc = 1;
+    }
+    for (j = 0; j < nc; j++) {
+        uint32_t c0 = ca[j] * DF_BLK, c1 = (cb[j] + 1u) * DF_BLK < cv_w ? (cb[j] + 1u) * DF_BLK : cv_w;
+        if ((c1 - c0) * 4u >= cv_w * 3u) {              /* (most of the width: whole rows, no gathering) */
+            c0 = 0;
+            c1 = cv_w;
+        }
+        for (i = 0; i < nr; i++) {
+            uint32_t r0 = ra[i] * DF_BAND, r1 = (rb[i] + 1u) * DF_BAND < cv_h ? (rb[i] + 1u) * DF_BAND : cv_h;
+            df_send(x, y, c0, c1 - c0, r0, r1 - r0, e);
+        }
+        if (c0 == 0 && c1 == cv_w)
+            break;
+    }
+    return 1;
+}
+
+/* While a frame is drawn (ui_draw: gfx_frame) fills wait: a canvas sent over one later takes its place out of it, and
+ * what is left is filled when the frame ends. A page drawn again whole (ui.force: its background filled, then its
+ * canvases) so sends what changed, not the screen */
+#define FQ_N 40u
+static struct { uint8_t x, y, w, h; uint16_t c; } fq[FQ_N] __attribute__((section(".pool")));
+static uint32_t fq_n;
+static uint8_t fq_on;
+static void fq_flush(void)
+{
+    uint32_t i;
+    for (i = 0; i < fq_n; i++) {
+        df_damage(fq[i].x, fq[i].y, fq[i].w, fq[i].h, DF_N);
+        lcd_fill(fq[i].x, fq[i].y, fq[i].w, fq[i].h, fq[i].c);
+    }
+    fq_n = 0;
+}
+static void fq_cover(uint32_t x, uint32_t y, uint32_t w, uint32_t h)   /* a canvas about to go to (x, y, w, h) */
+{
+    uint32_t i = 0, j;
+    while (i < fq_n) {
+        uint32_t fx = fq[i].x, fy = fq[i].y, fx1 = fx + fq[i].w, fy1 = fy + fq[i].h, n = 0, m0, m1;
+        uint8_t p[4][4];
+        uint16_t c = fq[i].c;
+        if (x >= fx1 || x + w <= fx || y >= fy1 || y + h <= fy) {
+            i++;
+            continue;
+        }
+        m0 = y > fy ? y : fy;                           /* the rows they share */
+        m1 = y + h < fy1 ? y + h : fy1;
+        if (y > fy) { p[n][0] = (uint8_t)fx; p[n][1] = (uint8_t)fy; p[n][2] = (uint8_t)(fx1 - fx); p[n][3] = (uint8_t)(y - fy); n++; }
+        if (y + h < fy1) { p[n][0] = (uint8_t)fx; p[n][1] = (uint8_t)(y + h); p[n][2] = (uint8_t)(fx1 - fx); p[n][3] = (uint8_t)(fy1 - y - h); n++; }
+        if (x > fx) { p[n][0] = (uint8_t)fx; p[n][1] = (uint8_t)m0; p[n][2] = (uint8_t)(x - fx); p[n][3] = (uint8_t)(m1 - m0); n++; }
+        if (x + w < fx1) { p[n][0] = (uint8_t)(x + w); p[n][1] = (uint8_t)m0; p[n][2] = (uint8_t)(fx1 - x - w); p[n][3] = (uint8_t)(m1 - m0); n++; }
+        if (fq_n - 1u + n > FQ_N) {                     /* (too many pieces: all the fills now, before the canvas) */
+            fq_flush();
+            return;
+        }
+        if (!n)                                         /* the pieces in its place (the order of the fills kept) */
+            for (j = i + 1u; j < fq_n; j++)
+                fq[j - 1u] = fq[j];
+        else
+            for (j = fq_n; j > i + 1u; j--)
+                fq[j - 2u + n] = fq[j - 1u];
+        for (j = 0; j < n; j++) {
+            fq[i + j].x = p[j][0]; fq[i + j].y = p[j][1]; fq[i + j].w = p[j][2]; fq[i + j].h = p[j][3]; fq[i + j].c = c;
+        }
+        fq_n = fq_n - 1u + n;
+        i += n;
+    }
+}
+static void gfx_frame(int on)                           /* a frame begins (1) / ends (0: what fills are left, sent) */
+{
+    if (!on)
+        fq_flush();
+    fq_on = (uint8_t)on;
+}
+static void gfx_forget(void)                            /* the panel's memory not to be trusted: all sent whole next */
+{
+    uint32_t i;
+    for (i = 0; i < DF_N; i++)
+        df_key[i].on = 0;
+}
+
 static void cv_blit(uint32_t x, uint32_t y)
 {
+    uint32_t big = cv_w * cv_h >= DF_MIN;
+    if (fq_n)
+        fq_cover(x, y, cv_w, cv_h);
     GFX_HOOK_BLIT(x, y, 0u);
+    if (cv_dim)
+        cv_dim_rows(0);
+    GFX_HOOK_WHOLE(x, y, 0u, 0);
+    if (big) {
+        df_hash();
+        if (df_diff(x, y))
+            return;
+    }
+    df_damage(x, y, cv_w, cv_h, DF_N);
     lcd_blit(x, y, cv_w, cv_h, cv_px);
     cv_flight = cv_px;
+    if (big)
+        df_keep(x, y);
 }
 
 /* canvas rows r0 .. cv_h-1 only, to screen row y + r0 */
 static void cv_blit_from(uint32_t x, uint32_t y, uint32_t r0)
 {
+    if (fq_n && r0 < cv_h)
+        fq_cover(x, y + r0, cv_w, cv_h - r0);
     GFX_HOOK_BLIT(x, y, r0);
+    if (cv_dim && r0 < cv_h)
+        cv_dim_rows(r0);
+    GFX_HOOK_WHOLE(x, y, r0, 0);
     if (r0 < cv_h) {
+        df_damage(x, y + r0, cv_w, cv_h - r0, DF_N);
         lcd_blit(x, y + r0, cv_w, cv_h - r0, cv_px + r0 * cv_w);
         cv_flight = cv_px;
     }
 }
+
+/* the caller knows only columns a0 .. a0+aw-1 and b0 .. b0+bw-1 changed (bw 0: one span; a playhead moved over a big
+ * view): only they are sent, faster than df_diff finds them (8-column blocks) */
+static void cv_blit_spans(uint32_t x, uint32_t y, uint32_t a0, uint32_t aw, uint32_t b0, uint32_t bw)
+{
+    uint32_t e;
+    if (cv_dim || cv_w * cv_h < DF_MIN) {
+        cv_blit(x, y);
+        return;
+    }
+    if (fq_n)
+        fq_cover(x, y, cv_w, cv_h);
+    GFX_HOOK_WHOLE(x, y, 0u, 0);
+    df_hash();
+    e = df_find(x, y);
+    if (e >= DF_N) {                                    /* (nothing known there: all of it) */
+        GFX_HOOK_BLIT(x, y, 0u);
+        df_damage(x, y, cv_w, cv_h, DF_N);
+        lcd_blit(x, y, cv_w, cv_h, cv_px);
+        cv_flight = cv_px;
+        df_keep(x, y);
+        return;
+    }
+    GFX_HOOK_BLIT(x, y, 0u);
+    if (df_key[e].pb || df_key[e].pk) {                 /* (drawn over since: what changed, found) */
+        df_diff(x, y);
+        return;
+    }
+    for (uint32_t i = 0; i < DF_NB + DF_NK; i++)
+        df_sum[e][i] = df_now[i];
+    df_key[e].use = ++df_clock;
+    if (a0 < cv_w && aw)
+        df_send(x, y, a0, aw < cv_w - a0 ? aw : cv_w - a0, 0, cv_h, e);
+    if (b0 < cv_w && bw)
+        df_send(x, y, b0, bw < cv_w - b0 ? bw : cv_w - b0, 0, cv_h, e);
+}
+
+static void gfx_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)   /* every fill from here on */
+{
+    if (!w || !h || x >= 240u || y >= 240u)
+        return;
+    if (w > 240u - x)
+        w = 240u - x;
+    if (h > 240u - y)
+        h = 240u - y;
+    GFX_HOOK_WHOLE(x, y, w | h << 16, c | 1u << 16);
+    if (!fq_on) {
+        df_damage(x, y, w, h, DF_N);
+        lcd_fill(x, y, w, h, c);
+        return;
+    }
+    if (fq_n == FQ_N)
+        fq_flush();
+    fq[fq_n].x = (uint8_t)x; fq[fq_n].y = (uint8_t)y; fq[fq_n].w = (uint8_t)w; fq[fq_n].h = (uint8_t)h; fq[fq_n].c = c;
+    fq_n++;
+}
+#define lcd_fill gfx_fill
 
 static inline void cv_pset(int32_t x, int32_t y, uint16_t c)
 {
@@ -557,8 +888,8 @@ static int32_t glyph_at(const aafont_t *f, uint32_t ch)
 static uint32_t glyph(const aafont_t *f, uint32_t ch)
 {
     int32_t k;
-    if (ch >= 'a' && ch <= 'z' && f->last < 'a')
-        ch -= 32u;                                   /* L has capitals only */
+    if (ch >= 'a' && ch <= 'z' && f->last < 'a' && glyph_at(f, ch) < 0)
+        ch -= 32u;                                   /* (a face without the small letter: its capital) */
     if ((k = glyph_at(f, ch)) < 0 && (ch != (uint8_t)ELLIPSIS || (k = glyph_at(f, '.')) < 0) &&
         (k = glyph_at(f, '?')) < 0)
         k = 0;
@@ -580,7 +911,10 @@ static int32_t kern(const aafont_t *f, uint32_t a, uint32_t b)       /* 1/16 px 
     return 0;
 }
 
-static uint32_t fold(const aafont_t *f, uint32_t c) { return c >= 'a' && c <= 'z' && f->last < 'a' ? c - 32u : c; }
+static uint32_t fold(const aafont_t *f, uint32_t c)
+{
+    return c >= 'a' && c <= 'z' && f->last < 'a' && glyph_at(f, c) < 0 ? c - 32u : c;
+}
 
 static int32_t text_w(const aafont_t *f, const char *s)
 {
@@ -652,6 +986,8 @@ static int32_t cv_text_flags(int32_t x, int32_t y, const aafont_t *f, const char
             if (y0 + cv_oy < cv_cy0) y0 = cv_cy0 - cv_oy;
             if (y1 + cv_oy > cv_cy1) y1 = cv_cy1 - cv_oy;
         }
+        if (cv_dim || cv_under)                      /* (the page under a question: covered on purpose) */
+            flags |= 16u;
         GFX_HOOK_TEXT(x0, y0 + cv_oy, x1, y1 + cv_oy, s0, flags);
     }
     (void)s0;
@@ -780,9 +1116,9 @@ static int32_t cv_keycap(int32_t x, int32_t y, uint32_t id, uint16_t fill, uint1
     const uint16_t *rv = kc_ramp(under, fill, ink);
     cv_alpha(x, y, k->w, KC_H, KC_DATA + k->off, rv);
     if (x < 0 || x + k->w > (int32_t)cv_w || y + cv_oy < 0 || y + KC_H + cv_oy > (int32_t)cv_h)
-        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 6u);      /* cut by the canvas */
+        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 6u | (cv_dim || cv_under ? 16u : 0u));   /* cut */
     else
-        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 4u);
+        GFX_HOOK_TEXT(x, y + cv_oy, x + k->w, y + KC_H + cv_oy, k->label, 4u | (cv_dim || cv_under ? 16u : 0u));
     return x + k->w;
 }
 

@@ -109,7 +109,7 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
     const aafont_t *f = k < ROLL_BPM ? &AF_M : &AF_S;
     uint32_t e = (uint8_t)(ui.frame - ui.roll[k].t0) + 1u, i, p = 0;
     const char *a = ui.roll[k].from;
-    int32_t cy = k < ROLL_BPM ? ROLL_Y : 0, h = k < ROLL_BPM ? ROLL_H : H_HEAD;
+    int32_t cy = k < ROLL_BPM ? y : 0, h = k < ROLL_BPM ? ROLL_H : H_HEAD;   /* (a card's value: at ROLL_Y) */
     uint16_t bg = k < ROLL_BPM ? roll_bg : T_BG;
     char t[8], ch[2] = {0, 0};
     if (e >= ROLL_FRAMES)
@@ -149,18 +149,65 @@ static int32_t roll_text(uint32_t k, int32_t x, int32_t y, const char *s, uint16
  * (the selected one in text, one armed in REC's red, the others dim), the octave shift or the song row; at the right a
  * chip in the track's colour naming where you are (Stage: the engine; a page: its title), or a message in its place
  * (a layer: its name); a battery glyph only while it runs low */
+static uint32_t page_sheet(void);                       /* ui_popup.c */
+static void list_words(char *d, const char *label, uint32_t n);   /* ui_list.c */
+static int sec_on(void);                                /* ui_sections.c */
+static uint32_t sec_of(uint32_t i);
+static void sec_chip(uint32_t i, char *b, uint32_t n);
+static int sec_map_on(void);
 static void sound_name(const track_t *t, char *b);
 static void head_chip_text(char *b)
 {
     const page_t *pg = cur_page();
     uint32_t e = TSEL->eng_req % NENGINES;
-    if (ui.home) {                                      /* Stage: the engine (a kit: its name, "909 KIT") */
+    if (new_on()) {                                     /* NEW SONG */
+        str_cpy(b, "NEW SONG", 16);
+    } else if (ui.home) {                               /* Stage: the engine (a kit: its name, "909 KIT") */
         if (browse_pending()) { uint32_t kk, s = browse_shown(&kk); e = src_engine(s, kk); }
         if (ENGINES[eng_idx(e)] == &ENG_DRUM && !browse_pending()) sound_name(TSEL, b);
         else str_cpy(b, ENGINES[eng_idx(e)]->name, 16);
+    } else if (sec_map_on()) {                          /* the map: the engine */
+        str_cpy(b, ENGINES[e]->name, 16);
+    } else if (pg->graph == GR_ROLL && grid_on()) {     /* the drum grid */
+        str_cpy(b, "STEP", 16);
+    } else if (pg->graph == GR_FMEG) {                  /* FM6's EG RATE / LVL: "OP3 EG" */
+        str_cpy(b, "OP1 EG", 16);
+        b[2] = (char)('1' + fm6_opsel % 6u);
+    } else if (pg->scope != SC_ENGINE && sec_on()) {   /* an engine in sections: the page's name in its section */
+        sec_chip(ui.page, b, 16);
     } else {
         const char *t = pg->scope == SC_ENGINE ? ENGINES[e]->page_title[pg->id[0] != P_E0] : pg->title;
         str_cpy(b, t, 16);
+    }
+}
+/* the page's place in its family: a dot a page, the page's a pill in the track's colour (no room: "3/12") */
+static void head_pages(int32_t x1)                     /* (x1: where the chip, or the battery, starts) */
+{
+    const page_t *pg = cur_page();
+    uint32_t i, n = 0, k = 0, sc = sec_on() ? sec_of(ui.page) + 1u : 0u;
+    int32_t x = 96;
+    for (i = 0; i < NPAGES; i++)                        /* (an engine in sections: the section's pages) */
+        if (PAGES[i].fam == pg->fam && page_visible(i) &&
+            (!sc || (PAGES[i].scope == SC_FMOP ? PAGES[ui.page].scope == SC_FMOP : sec_of(i) + 1u == sc))) {
+            if (i == ui.page)
+                k = n;
+            n++;
+        }
+    if (n < 2u)
+        return;
+    if (x + (int32_t)n * 9 + 8 > x1 - 6) {              /* (no room for the dots; none for that either: nothing) */
+        char b[8];
+        fmt_int(b, (int32_t)k + 1);
+        str_cpy(b + str_len(b), "/", 2);
+        fmt_int(b + str_len(b), (int32_t)n);
+        if (x + text_w(&AF_X, b) <= x1 - 4)
+            cv_text_on(x, 4, &AF_X, b, T_MID, T_BG);
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        int32_t w = i == k ? 12 : 4;
+        cv_rrect(x, 7, w, 4, 2, i == k ? T_THEME : T_LINE, T_BG);
+        x += w + 5;
     }
 }
 static void draw_head(void)
@@ -171,7 +218,8 @@ static void draw_head(void)
     head_chip_text(chip);
     sig = (uint32_t)seq_erase_active(TSEL) * 8191u + (uint32_t)song.playing * 3u + song.rec * 5u + (uint32_t)(song.octave + 8) * 11u +
           song.sel * 13131u + (msg ? str_hash(7u, ui.msg_t ? ui.msg : layer_head()) : str_hash(5u, chip)) +
-          (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u;
+          (ui.bpm_t != 0) * 31u + low * 7777u + (chain.running ? (chain.row + 1u) * 104729u : 0u) + ux.gen * 977u +
+          (ui.home ? 0u : ui.page * 2654435761u) + page_sheet() * 524287u;
     if (song.g[G_BPM] != ui.roll_bpm) {
         char a[8];
         fmt_int(a, ui.roll_bpm);
@@ -203,7 +251,9 @@ static void draw_head(void)
         cv_free_hint(88, 3, ui.msg_t ? ui.msg : layer_head(), T_TEXT, T_BG, 236 - 88);
     } else {
         int32_t cw = text_w(&AF_X, chip) + 16;
-        if (cw < 82) cw = 82;
+        if (cw < (ui.home ? 82 : 46)) cw = ui.home ? 82 : 46;   /* (a page: its name's, the dots beside it) */
+        if (!ui.home && !song.octave && !chain.running)   /* a page: where it is in its family */
+            head_pages(232 - cw - (low ? 20 : 0) - (page_sheet() ? 16 : 0));
         if (song.octave || chain.running) {             /* the octave shift, or the song's row */
             if (chain.running) { str_cpy(b, "ROW ", 8); fmt_int(b + 4, (int32_t)chain.row + 1); }
             else { str_cpy(b, song.octave > 0 ? "OCT +" : "OCT ", 8); fmt_int(b + str_len(b), song.octave); }
@@ -211,6 +261,8 @@ static void draw_head(void)
         }
         if (low)                                        /* the battery, only when it runs low */
             cv_icon_mid(232 - cw - 18, H_HEAD / 2, 12, batt_level() ? ICON_X_BAT1 : ICON_X_BAT0, T_REC, T_BG);
+        if (page_sheet())                               /* the page has a sheet (OCT+ held) */
+            cv_text_r(232 - cw - 6 - (low ? 18 : 0), 2, &AF_S, "\x85", T_MID, T_BG);
         if (!ui.home && cur_page()->graph == GR_PATGRID) {   /* PATTERNS: its name plain (the grid is in colour) */
             cv_text_r(232, 4, &AF_X, "patterns", T_MID, T_BG);
         } else {
@@ -245,6 +297,22 @@ static void draw_frame(int stage)
  * a label too long to share the card with its icon goes without it.
  * vc: the value's colour (T_THEME, T_DIM inactive, T_ACCENT the knob just turned) */
 static uint8_t stage_drop_rows;                         /* Stage's knobs dropping in: the cards' bottom rows only, 0 all */
+static void col_old_value(uint32_t c, char *ov)          /* the value card c drew before (in its cache key), 16 bytes */
+{
+    const char *k = ui.col[c];
+    uint32_t i = 0;
+    while (*k && *k != '|')
+        k++;
+    while (*k && k[1] && k[1] != '|' && i + 1u < 16u)
+        ov[i++] = *++k;
+    ov[i] = 0;
+}
+enum { CS_CARD, CS_STRIP, CS_RING, CS_FADER, CS_CHIP, CS_CAPTURE };   /* how draw_column draws a knob (ui_pages.c;
+                                                                      * CS_CAPTURE: kept for a list's rows, ui_list.c) */
+static void list_capture(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc);
+static uint8_t col_style;                               /* (ui_pages.c pv_column) */
+static void pv_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc, int32_t ratio,
+                      int hot);
 static void draw_column(uint32_t c, const char *label, const char *val, const char *unit, uint16_t vc,
                         int32_t ratio, uint32_t icon)
 {
@@ -256,6 +324,11 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     const aafont_t *vf = &AF_M;
     uint32_t n, kn;
     int32_t kid = kc_tag(val, &kn);
+    if (col_style == CS_CAPTURE) {                      /* a list's row (ui_list.c) */
+        list_capture(c, label, val, unit, vc);
+        fmt_named = 0;
+        return;
+    }
     fmt_named = 0;                                      /* (params.c: a name, for this card only) */
     if (str_eq(unit, label))
         unit = "";                                      /* "BPM 124 BPM", "USB OFF USB": the label says it */
@@ -288,6 +361,21 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     strip = !snap && str_eq(key, ui.col[c]);
     if (strip && !ui.roll[c].from[0])
         return;
+    if (col_style != CS_CARD) {                         /* the redesign's pages (ui_pages.c): the cell again, rolling */
+        if (!strip) {                                   /* (or not: strips' and chips' values snap) */
+            char ov[16];
+            col_old_value(c, ov);
+            ui.roll[c].sig = sig;
+            if (!str_eq(ov, val))
+                roll_note(c, ov, val, snap || named || vf != &AF_M || kid >= 0 || col_style == CS_STRIP ||
+                          col_style == CS_CHIP);
+            else if (snap)
+                ui.roll[c].from[0] = 0;
+            str_cpy(ui.col[c], key, sizeof ui.col[c]);
+        }
+        pv_column(c, label, val, unit, vc, ratio, hot);
+        return;
+    }
     roll_bg = cbg;
     if (strip) {                                        /* rolling: the value strip only */
         cv_begin(COL_W, ROLL_H, cbg);
@@ -298,13 +386,7 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         cv_oy = -ROLL_Y;
     } else {
         char ov[16];                                    /* the value drawn before (in the cache key) */
-        const char *k = ui.col[c];
-        uint32_t i = 0;
-        while (*k && *k != '|')
-            k++;
-        while (*k && k[1] && k[1] != '|' && i + 1u < sizeof ov)
-            ov[i++] = *++k;
-        ov[i] = 0;
+        col_old_value(c, ov);
         ui.roll[c].sig = sig;
         if (!str_eq(ov, val))
             roll_note(c, ov, val, snap || named || vf != &AF_M || kid >= 0);
@@ -357,18 +439,7 @@ static void foot_hint(char *a, char *b)
     uint32_t c = act_col();
     str_cpy(a, "OCT+ ", 8);
     str_cpy(a + 5, c ? act_name(c - 1u) : "--", 8);
-    str_cpy(b, ui.act && cur_page()->graph != GR_PATS ? "OCT- CANCEL" : "OCT- BACK", 16);
-}
-
-/* SAVE > USER / PROJECT: EDIT renames the selected slot (ui_name.c); 0 = not such a page, 1 an empty slot, 2 used */
-static uint32_t foot_rename(void)
-{
-    uint32_t g = ui.home ? GR_NONE : cur_page()->graph;
-    if (g == GR_USER)
-        return 1u + (uint32_t)user_used(ui.uslot % user_limit());
-    if (g == GR_SLOTS)                                 /* (the template has no name) */
-        return song.g[G_SLOT] == PROJ_TMPL ? 0u : 1u + (uint32_t)graph_project_used((uint32_t)song.g[G_SLOT] - 1u);
-    return 0;
+    str_cpy(b, ui.act ? "OCT- CANCEL" : "OCT- BACK", 16);
 }
 
 /* the sound's name on the track: a user preset or the engine's preset (b holds 16) */
@@ -467,12 +538,11 @@ static void draw_foot(void)
     if (act_cols()) {                                  /* the hint, and whether OCT+ would act */
         char ha[16], hb[16];
         foot_hint(ha, hb);
-        sig += str_hash(str_hash(act_ready() ? 7u : 3u, ha), hb) + foot_rename() * 7717u;
+        sig += str_hash(str_hash(act_ready() ? 7u : 3u, ha), hb);
     }
     if (grid_on())
         sig += 0x51EDu + (uint32_t)black_held(GK_ACC) * 977u;
     if (pg->graph == GR_ROLL) sig += (uint32_t)seq_erase_active(t) * 8191u + (uint32_t)live_rec_sel() * 113u + recording_generation * 7919u + ui.note_pick * 40503u + ui.note_zoom * 937u + ui.step_mods * 613u;
-    if (pg->graph == GR_SCALE_PICKER) sig += ui.scale_family * 40503u;
     if (!ui.force && sig == ui.foot_sig)
         return;
     ui.foot_sig = sig;
@@ -480,23 +550,13 @@ static void draw_foot(void)
     if (act_cols()) {                                 /* row 1: the OCT+ / OCT- hint in place of the steps */
         char ha[16], hb[16];
         khint_t kh[3];
-        uint32_t rn = foot_rename();
         foot_hint(ha, hb);                            /* "OCT+ LOAD", "OCT- BACK": keycaps and their words */
         kh[0] = (khint_t){KC_OCTUP, ha + 5};
         kh[1] = (khint_t){KC_OCTDN, hb + 5};
-        if (rn) {                                     /* USER / PROJECT: "EDIT NAME" between them */
-            kh[2] = kh[1];
-            kh[1] = (khint_t){KC_EDIT, "NAME"};
-            cv_key_row(8, 232, 2, kh, 3, (act_ready() ? 1u : 0u) | (rn == 2u ? 2u : 0u) | 4u, T_BG);
-        } else {
-            cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
-        }
-    } else if (pg->graph == GR_SCALE_PICKER && !ui.home) {
-        cv_text_on(8, 2, &AF_S, SCALE_FAMILY_TITLE[ui.scale_family], T_THEME, T_BG);
-        cv_key_hint(232 - kh_w(KC_KEYS, "PLAY"), 2, KC_KEYS, "PLAY", 1, T_BG);
+        cv_key_row(8, 232, 2, kh, 2, act_ready() ? 3u : 2u, T_BG);
     } else if (pg->graph == GR_ROLL && !ui.home && !grid_on()) {
         char detail[24];
-        str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : "SEL NOTE  PRE ZOOM", sizeof detail);
+        str_cpy(detail, (ui.step_mods & (1u << panel.btn[B_ENV])) ? "ENV LENGTH / SLIDE" : "K1 NOTE  PRE ZOOM", sizeof detail);
         cv_text_on(8, 2, &AF_S, detail, T_THEME, T_BG);
         fmt_int(detail, (int32_t)notes_span());
         str_cpy(detail + str_len(detail), " ST", 4);
@@ -512,7 +572,7 @@ static void draw_foot(void)
         if (black_held(GK_ACC))
             cv_text_r(232, 2, &AF_S, "ACCENT", T_ACCENT, T_BG);
         else if(pg->scope==SC_DRUMHIT)
-            cv_text_r(232,2,&AF_S,"SEL HIT / KEYS STEP",T_MID,T_BG);
+            cv_text_r(232,2,&AF_S,"K1 HIT / KEYS STEP",T_MID,T_BG);
         else
             cv_key_hint(232 - kh_w(KC_KEYS, "STEPS"), 2, KC_KEYS, "STEPS", 1, T_BG);   /* the keys are the steps */
     } else {
@@ -552,7 +612,7 @@ static void draw_foot(void)
     if (MELODEE_ICONS)                                /* row 2: engine icon + name, sound, page */
         x += cv_icon_on(x, 20, 12, engine_icon(ename), T_MID, T_BG) + 5;
     x = cv_text_fit(x, 19, &AF_S, ename, T_THEME, T_BG, 80);
-    {   /* the page title at the right, its icon before it (MIXER, PHRASES, SONG, CHANCE, MOTION) */
+    {   /* the page title at the right, its icon before it (MIXER, SONG, MOTION) */
         uint32_t pi = ui.home ? ICON_NONE : page_icon(pg);
         int32_t tx = 232 - text_w(&AF_S, ti) - (pi != ICON_NONE ? 16 : 0);
         cv_free_text(x + 10, 19, &AF_S, pn, T_TEXT, T_BG, tx - 12 - (x + 10));
@@ -562,15 +622,18 @@ static void draw_foot(void)
     cv_blit(0, Y_FOOT);
 }
 /* the EDIT layer's cards (ui_layer.c): ENG (the engine), No. (its sounds: KNOB 2's list), FAV, an empty card */
-static void engine_columns(void)
+#include "ui_sections.c"                                /* the EDIT pages in sections, the map */
+static void engine_columns(void)                        /* EDIT held: KNOB 1 the section, 2 the sound, 3 FAV */
 {
-    uint32_t total, cur = eng_list_pos(&total), e = TSEL->eng_req % NENGINES;
-    char val[8], u[8];
+    uint32_t total, cur = eng_list_pos(&total), k;
+    char val[8], u[8], sn[16];
     fmt_int(val, (int32_t)cur + 1);
     str_cpy(u, "/", 8);
     fmt_int(u + 1, (int32_t)total);
-    draw_column(0, "ENG", ENGINES[e]->name, "", VAL(0u), (int32_t)eng_rank(e) * 1000 / (NENG_SHOWN > 1 ? NENG_SHOWN - 1 : 1),
-                engine_icon(ENGINES[e]->name));
+    sec_build();
+    k = !ui.home && cur_page()->fam == FAM_EDIT ? sec_of(ui.page) : 0u;
+    str_cpy(sn, sec.n ? sec.name[k] : "-", sizeof sn);
+    draw_column(0, "SECTION", sn, "", VAL(0u), sec.n > 1u ? (int32_t)(k * 1000u / (sec.n - 1u)) : -1, ICON_NONE);
     draw_column(1, "No.", val, u, VAL(1u), total > 1u ? (int32_t)(cur * 1000u / (total - 1u)) : 0, ICON_NONE);
     draw_column(2, "FAV", preset_favorite() ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
     draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
@@ -603,29 +666,6 @@ static void draw_columns(void)
     const char *unit;
     if (ui.home)                                        /* Stage: its knobs drop in when turned (ui_stage.c stage_knobs) */
         return;
-    if (cur_page()->graph == GR_CHANCE) {
-        fmt_int(val, (int32_t)ui.cursor + 1);
-        draw_column(0, "STEP", val, "", VAL(0u), -1, ICON_AUTO);
-        fmt_int(val, (int32_t)step_chance(&TSEL->step[ui.cursor]));
-        draw_column(1, "CHANCE", val, "%", VAL(1u), -1, ICON_PROB);   /* the die */
-        draw_column(2, "", "", "", T_THEME, -1, ICON_NONE);
-        draw_column(3, "", "", "", T_THEME, -1, ICON_NONE);
-        return;
-    }
-    if (cur_page()->graph == GR_MOTION) {
-        draw_column(0, "PLAY", motion_enabled(TSEL) ? "ON" : "OFF", "", VAL(0u), -1, motion_icon());
-        fmt_int(val, (int32_t)motion_count(TSEL));
-        draw_column(1, "EVENT", val, "", T_MID, -1, ICON_NONE);
-        draw_column(2, "", "", "", T_THEME, -1, ICON_NONE);
-        draw_act_column(3, "CLEAR", T_MID, ICON_X_MOTION_DEL);
-        return;
-    }
-    if (cur_page()->graph == GR_TOOLS) {
-        static const char *const labels[] = {"PAT", "SOUND", "ROW", "SONG"};
-        static const uint8_t icons[] = {ICON_AUTO, ICON_AUTO, ICON_X_SONG, ICON_X_SONG};   /* ROW, SONG: the song's */
-        for (c = 0; c < 4u; c++) draw_act_column(c, labels[c], VAL(c), icons[c]);
-        return;
-    }
     if (cur_page()->scope == SC_TRK) {                 /* LEVEL PAN REV MUTE of the selected track */
         const track_t *t = TSEL;
         uint32_t lvl = trk_level(song.sel);
@@ -648,39 +688,6 @@ static void draw_columns(void)
         draw_column(3, "QNT", val, unit, VAL(3u), -1, ICON_AUTO);
         return;
     }
-    if (cur_page()->graph == GR_BROWSE) {              /* the sound shown: the pending one while browsing */
-        uint32_t total, cur = preset_pos(&total), k, src = browse_shown(&k), eng = src_engine(src, k);
-        char u[8];
-        if (cur < total) fmt_int(val, (int32_t)cur + 1);
-        else str_cpy(val, "--", 8);
-        str_cpy(u, "/", 8);
-        fmt_int(u + 1, (int32_t)total);
-        draw_column(0, "No.", val, u, VAL(0u), -1, ICON_NONE);
-        draw_column(1, "ENG", eng == ENGI_PROPHET ? "P5" : ENGINES[eng]->name, "", VAL(1u), -1, engine_icon(ENGINES[eng]->name));
-        draw_column(2, "FAV", favorite_has(src, k) ? "ON" : "OFF", "", VAL(2u), -1, ICON_X_STAR);
-        draw_column(3, "LIST", list_name(list_mode()), "", VAL(3u), -1, ICON_X_FOLDER);
-        return;
-    }
-    if (cur_page()->graph == GR_PATS) {                  /* PAT, then LOAD (a GO button) */
-        uint32_t n = pat_count(), k = pat_pick();
-        char tag[4], nm[13];
-        pat_label(k, tag, nm);
-        draw_column(0, "PAT", tag, "", VAL(0u), (int32_t)k * 1000 / (int32_t)(n > 1u ? n - 1u : 1u), ICON_X_PATTERN);
-        draw_act_column(1, "LOAD", T_THEME, ICON_AUTO);
-        draw_column(2, "", "", "", T_THEME, -1, ICON_AUTO);
-        draw_column(3, "", "", "", T_THEME, -1, ICON_AUTO);
-        return;
-    }
-    if (cur_page()->graph == GR_USER) {                  /* SLOT, then three GO buttons */
-        ui.uslot %= user_limit();
-        int used = user_used(ui.uslot);
-        user_label(val, ui.uslot);
-        draw_column(0, "SLOT", val, "", VAL(0u), (int32_t)ui.uslot * 1000 / (int32_t)(user_limit() - 1u), ICON_AUTO);
-        draw_act_column(1, "LOAD", used ? T_THEME : T_DIM, ICON_AUTO);
-        draw_act_column(2, "ERASE", used ? T_THEME : T_DIM, ICON_AUTO);
-        draw_act_column(3, "SAVE", T_THEME, ICON_AUTO);
-        return;
-    }
 #if MELODEE_SLICE
     if (cur_page()->graph == GR_SLICES) {                /* SLICE POS, then SPLIT JOIN (ui_slice.c) */
         uint32_t n = slice_count(), j = slice_sel(), src, div, ok = slice_src(&src, &div) && src;
@@ -701,16 +708,18 @@ static void draw_columns(void)
         return;
     }
 #endif
-    if (cur_page()->graph == GR_MOD) {                   /* SLOT, then that slot's SRC DST AMT */
+    if (cur_page()->graph == GR_MOD) {                   /* the route's SRC, the route, its DST AMT */
         const track_t *t = TSEL;
         uint32_t id = P_M1SRC + 3u * mod_ui_slot;
         int32_t s = t->p[id], d = t->p[id + 1u], a = t->p[id + 2u];
+        list_words(val, N_MSRC[clamp(s, 0, MS_N - 1)], sizeof val);   /* (the chips: words, no labels) */
+        draw_column(0, "", val, "", s ? VAL(0u) : T_DIM, -1, mod_src_icon(s));
         fmt_int(val, (int32_t)mod_ui_slot + 1);
-        draw_column(0, "SLOT", val, "/4", VAL(0u), (int32_t)mod_ui_slot * 1000 / 3, mod_src_icon(MS_OFF));   /* (the mod icon) */
-        draw_column(1, "SRC", N_MSRC[clamp(s, 0, MS_N - 1)], "", s ? VAL(1u) : T_DIM, -1, mod_src_icon(s));
-        draw_column(2, "DST", mod_dst_name(t, d), "", d ? VAL(2u) : T_DIM, -1, mod_dst_icon(t, d));
+        draw_column(1, "SLOT", val, "/4", VAL(1u), (int32_t)mod_ui_slot * 1000 / 3, mod_src_icon(MS_OFF));   /* (the mod icon) */
+        list_words(val, mod_dst_name(t, d), sizeof val);
+        draw_column(2, "", val, "", d ? VAL(2u) : T_DIM, -1, mod_dst_icon(t, d));
         param_format(&TP[id + 2u], a, val, &unit);
-        draw_column(3, "AMT", val, unit, a ? VAL(3u) : T_DIM, RATIO(&TP[id + 2u], a), mod_src_icon(MS_OFF));
+        draw_column(3, "", val, unit[0] ? " %" : "", a ? VAL(3u) : T_DIM, RATIO(&TP[id + 2u], a), mod_src_icon(MS_OFF));
         return;
     }
     if (cur_page()->graph == GR_ROLL && !grid_on()) {
@@ -756,7 +765,7 @@ static void draw_columns(void)
         str_cpy(sl, "/", 8);
         fmt_int(sl + 1, TSEL->p[P_SLEN]);
         draw_column(0, "STEP", sn, sl, VAL(0u), -1, ICON_AUTO);
-        draw_column(1, "LANE", drum_lane_name(TSEL, ui.lane), "", VAL(1u), -1, ICON_AUTO);
+        draw_column(1, "", drum_lane_name(TSEL, ui.lane), "", VAL(1u), -1, ICON_AUTO);   /* (its chip: "Snare") */
         draw_column(2, "HIT", on ? "ON" : "--", "", on ? VAL(2u) : T_DIM, -1, ICON_AUTO);
         draw_column(3, "ACC", ac ? "ON" : "--", "", ac ? VAL(3u) : T_DIM, -1, ICON_AUTO);
         return;
@@ -865,9 +874,9 @@ static void draw_uboot(void)
 
 /* the OCT- / OCT+ dialog: what it does (ui.confirm, ui.confirm_trk) on two lines, on a surface */
 #define DLG_X 16
-#define DLG_Y 62
+#define DLG_Y 58
 #define DLG_W 208
-#define DLG_H 116
+#define DLG_H 124
 static void confirm_text(char *a, char *b)
 {
     uint32_t k = ui.confirm_trk;
@@ -881,7 +890,13 @@ static void confirm_text(char *a, char *b)
         str_cpy(a, "OVERWRITE PROJECT A?", 24);
         a[18] = (char)('A' + (k & 3u));
         if (!project_name(k & 3u, b) || !b[0])          /* the project's name, else what SONG plays from it */
-            str_cpy(b, "SONG PATTERN CHANGES", 24);
+            str_cpy(b, "Its song and patterns change", 32);
+        break;
+    case CF_ERASE_PROJ:
+        str_cpy(a, "ERASE PROJECT A?", 24);
+        a[14] = (char)('A' + (k & 3u));
+        if (!project_name(k & 3u, b) || !b[0])
+            str_cpy(b, "Its song and patterns go", 32);
         break;
     case CF_DEL_ROW:
         str_cpy(a, "DELETE SONG ROW?", 24);
@@ -891,12 +906,12 @@ static void confirm_text(char *a, char *b)
         break;
     case CF_NEW_SONG:                                   /* what is lost */
         str_cpy(a, "START A NEW SONG?", 24);
-        str_cpy(b, "UNSAVED CHANGES", 24);
+        str_cpy(b, "Unsaved changes", 24);
         break;
     case CF_TAKE_JAM:                                   /* the rows it replaces */
         str_cpy(a, "SONG FROM JAM?", 24);
         fmt_int(b, (int32_t)chain_config.count);
-        str_cpy(b + str_len(b), " ROWS REPLACED", 16);
+        str_cpy(b + str_len(b), " rows replaced", 16);
         break;
     case CF_INIT_SOUND:
         str_cpy(a, "INITIALIZE SOUND?", 24);
@@ -916,54 +931,118 @@ static void confirm_text(char *a, char *b)
         str_cpy(a + str_len(a), "?", 2);
         user_name(k, b);
         break;
-    case CF_LOAD_PAT: {
-        char tag[4];
-        str_cpy(a, "REPLACE T1 SEQUENCE?", 24);
-        a[9] = (char)('1' + k % NTRK);
-        pat_label(pat_pick(), tag, b);               /* with the pattern picked */
-        break;
-    }
     default:
         str_cpy(a, "CLEAR T1 SEQUENCE?", 24);     /* the header (T1..T4) is hidden */
         a[7] = (char)('1' + k % NTRK);
         break;
     }
 }
+/* the question (docs/design: mock/r5_pages, ref/dialog): a card over the page dimmed (ui_draw: drawn under cv_dim):
+ * the warning in a tinted ring, the question in words, its detail, OCT- as "↶ No" and OCT+ as "✓ Yes" (the track's
+ * colour) */
+static void confirm_words(char *s)                      /* "OVERWRITE PROJECT A?" -> "Overwrite project A?" */
+{
+    uint32_t i;
+    for (i = 1; s[i]; i++) {
+        int single = s[i - 1] == ' ' && (s[i + 1] == '?' || !s[i + 1]);   /* (a slot's letter at the end) */
+        if (s[i] >= 'A' && s[i] <= 'Z' && !single)
+            s[i] = (char)(s[i] + 32);
+    }
+}
 static void draw_confirm(void)
 {
-    char a[24], b[24];
+    char a[24], b[32];
     const aafont_t *tf = &AF_M;
+    uint16_t ring = ux_mix(T_SURF, T_THEME, 20);
     confirm_text(a, b);
-    lcd_fill(0, H_HEAD, 240, 240 - H_HEAD, T_BG);
-    ui.head_sig = ~0u;
-    cv_begin(DLG_W, DLG_H, T_BG);                     /* a SURF card: warning, the question, the detail, two buttons */
-    cv_rrect(0, 0, DLG_W, DLG_H, 8, T_SURF, T_BG);
-    cv_icon_on(DLG_W / 2 - 8, 12, 16, ui.confirm == CF_CLEAR_MOTION ? ICON_X_MOTION_DEL : ICON_X_WARN, T_ACCENT, T_SURF);
+    confirm_words(a);
+    cv_begin(DLG_W, DLG_H, T_BG);
+    cv_rrect(0, 0, DLG_W, DLG_H, 10, T_LINE, T_BG);
+    cv_rrect(1, 1, DLG_W - 2, DLG_H - 2, 9, T_SURF, T_LINE);
+    cv_disc(DLG_W / 2, 26, 22, ring, 0);
+    cv_icon_mid(DLG_W / 2 - 6, 26, 12, ui.confirm == CF_CLEAR_MOTION ? ICON_X_MOTION_DEL : ICON_X_WARN, T_THEME, ring);
     if (text_w(tf, a) > DLG_W - 16)
         tf = &AF_S;
-    cv_text_c(DLG_W / 2, 34, tf, a, T_TEXT, T_SURF);
+    cv_text_c(DLG_W / 2, 45, tf, a, T_TEXT, T_SURF);
     if (b[0]) {
         char f[32];
         text_fit(f, sizeof f, b, &AF_S, DLG_W - 16);    /* a name: free text */
-        cv_text_flags(DLG_W / 2 - text_w(&AF_S, f) / 2, 56, &AF_S, f, T_MID, T_SURF, 8u | (f[str_len(f) - 1u] == ELLIPSIS));
+        cv_text_flags(DLG_W / 2 - text_w(&AF_S, f) / 2, 67, &AF_S, f, T_MID, T_SURF, 8u | (f[str_len(f) - 1u] == ELLIPSIS));
     }
-    cv_rrect(10, 80, 90, 26, 6, T_RAISE, T_SURF);     /* OCT-: NO */
-    cv_key_hint(55 - kh_w(KC_OCTDN, "NO") / 2, 87, KC_OCTDN, "NO", 1, T_RAISE);
-    cv_rrect(108, 80, 90, 26, 6, T_THEME, T_SURF);    /* OCT+: YES (on the THEME fill: an INK keycap, THEME label) */
-    {
-        int32_t x = 153 - kh_w(KC_OCTUP, "YES") / 2;
-        x = cv_keycap(x, 87, KC_OCTUP, T_INK, T_THEME, T_THEME);
-        cv_text_on(x + KH_GAP, 86, &AF_S, "YES", T_INK, T_THEME);
-    }
+    cv_rrect(16, 92, 80, 22, 6, T_LINE, T_SURF);       /* OCT-: no */
+    cv_rrect(17, 93, 78, 20, 5, T_PANEL, T_LINE);
+    cv_icon_mid(56 - 6 - text_w(&AF_S, "No") / 2 - 4, 103, 12, ICON_X_UNDO, T_MID, T_PANEL);
+    cv_text_on(56 - text_w(&AF_S, "No") / 2 + 6, 96, &AF_S, "No", T_MID, T_PANEL);
+    cv_rrect(112, 92, 80, 22, 6, T_THEME, T_SURF);     /* OCT+: yes */
+    cv_icon_mid(152 - 6 - text_w(&AF_S, "Yes") / 2 - 4, 103, 12, ICON_X_CHECK, T_INK, T_THEME);
+    cv_text_on(152 - text_w(&AF_S, "Yes") / 2 + 6, 96, &AF_S, "Yes", T_INK, T_THEME);
     cv_blit(DLG_X, DLG_Y);
 }
 
+#include "ui_pages.c"                                   /* the redesign's other pages (R5) */
+#include "ui_list.c"                                    /* list pages */
+#include "ui_popup.c"                                   /* action sheets, pickers */
+#include "ui_slots.c"                                   /* PROJECT, USER, the STOREs: their slots */
+#include "ui_motion.c"                                  /* MOTION: its lanes */
+#include "ui_scales.c"                                  /* SCALES: a screen of its own */
 static int own_screen(void)                             /* a page drawn whole by its own code, no cards or footer */
 {
     uint32_t g = cur_page()->graph;
-    return !ui.home && (g == GR_BROWSE || g == GR_PATGRID || g == GR_SONG);
+    return !ui.home && (g == GR_BROWSE || g == GR_PATGRID || g == GR_SONG || g == GR_SCALE_PICKER);
 }
-static void ui_draw(void)
+/* the page (or Stage): its own screen, the redesign's, else its cards, panel and footer */
+static void draw_page(void)
+{
+    if (!ui.home && !page_visible(ui.page)) {          /* an OP page of a track that is not DIGITAL (without
+                                                         * MELODEE_FM4: any track): EDIT 1 */
+        ui.page = (uint8_t)page_first(FAM_EDIT);
+        page_entered();
+    }
+    cursor_fix();
+    if (!own_screen() && slot_kind()) {                 /* a slot page (ui_slots.c) */
+        slot_draw();
+    } else if (!own_screen() && motion_page()) {        /* MOTION's lanes (ui_motion.c) */
+        motion_draw();
+    } else if (!own_screen() && list_on()) {            /* a list page (ui_list.c) */
+        list_draw();
+    } else if (!own_screen() && pv_kind()) {            /* the redesign's other pages (ui_pages.c) */
+        pv_draw();
+    } else if (own_screen()) {                          /* the browser, PATTERNS, SONG: screens of their own */
+        if (cur_page()->graph == GR_BROWSE)
+            browser_draw();
+        else if (cur_page()->graph == GR_SCALE_PICKER)
+            scales_draw();
+        else if (cur_page()->graph == GR_SONG)
+            song_draw();
+        else {
+            draw_head();
+            patterns_draw();
+        }
+    } else {
+        if (ui.force)
+            draw_frame(ui.home);
+        melodee_dbg.stage = 3;
+        draw_head();
+        melodee_dbg.stage = 4;
+        draw_columns();
+        melodee_dbg.stage = 5;
+        if (ui.home)                                    /* Stage: its panel and the lanes (ui_stage.c), no footer */
+            stage_draw();
+        else
+            draw_graph();
+    }
+    melodee_dbg.stage = 6;
+    if (!ui.home && !own_screen() && !pv_kind() && !list_on() && !slot_kind() && !motion_page())
+        draw_foot();
+}
+static void ui_draw_frame(void);
+static void ui_draw(void)                               /* (gfx.c: the fills wait for the frame's canvases) */
+{
+    gfx_frame(1);
+    ui_draw_frame();
+    gfx_frame(0);
+}
+static void ui_draw_frame(void)
 {
     if (!scr_frame()) return;
     ui.frame++;
@@ -984,11 +1063,40 @@ static void ui_draw(void)
         return;
     }
     if (ui.confirm) {                                   /* the OCT- / OCT+ dialog */
-        if (ui.force) {
+        if (ui.force) {                                 /* over the page, dimmed (each canvas darkened as it goes) */
+            uint8_t cf = ui.confirm;
+            ui.confirm = 0;
+            cv_dim = 1;
+            draw_page();
+            cv_dim = 0;
+            ui.confirm = cf;
+            ui.force = 1;
             draw_confirm();
             ui.force = 0;
         }
         draw_head();                                    /* recording remains visible over confirmations */
+        return;
+    }
+    if (smap.on && (ui.home || cur_page()->fam != FAM_EDIT || ui.layer))
+        smap.on = 0;
+    if (smap.on) {                                      /* an engine's map (ui_sections.c) */
+        smap_draw();
+        ui.force = 0;
+        return;
+    }
+    pick_poll();
+    if (pop.on) {                                       /* a popup over the page, dimmed (ui_popup.c); a knob's picker
+                                                         * over it as it is (it comes with every turn of a list knob:
+                                                         * dimming sent the whole screen twice, ~150 ms on the SPI) */
+        if (ui.force) {
+            cv_dim = pop.on != POP_PICK;
+            cv_under = 1;
+            draw_page();
+            cv_dim = cv_under = 0;
+            ui.force = 1;
+        }
+        pop_draw();
+        ui.force = 0;
         return;
     }
     if (name_on()) {                                    /* NAME: a user preset's or a project's (ui_name.c) */
@@ -1016,34 +1124,7 @@ static void ui_draw(void)
         ui.force = 0;
         return;
     }
-    if (!ui.home && !page_visible(ui.page)) {          /* an OP page of a track that is not DIGITAL (without
-                                                         * MELODEE_FM4: any track): EDIT 1 */
-        ui.page = (uint8_t)page_first(FAM_EDIT);
-        page_entered();
-    }
-    cursor_fix();
-    if (own_screen()) {                                 /* the browser, PATTERNS, SONG: screens of their own */
-        if (cur_page()->graph == GR_BROWSE)
-            browser_draw();
-        else if (cur_page()->graph == GR_SONG)
-            song_draw();
-        else {
-            draw_head();
-            patterns_draw();
-        }
-    } else {
-        if (ui.force)
-            draw_frame(ui.home);
-        melodee_dbg.stage = 3;
-        draw_head();
-        melodee_dbg.stage = 4;
-        draw_columns();
-        melodee_dbg.stage = 5;
-        if (ui.home)                                    /* Stage: its panel and the lanes (ui_stage.c), no footer */
-            stage_draw();
-        else
-            draw_graph();
-    }
+    draw_page();
     if (ui.msg_t && !--ui.msg_t && ui.msg2[0]) {     /* the second message (ui_notices) */
         str_cpy(ui.msg, ui.msg2, sizeof ui.msg);
         ui.msg2[0] = 0;
@@ -1053,9 +1134,6 @@ static void ui_draw(void)
         ui.bpm_t--;
     if (ui.hot_t)
         ui.hot_t--;
-    melodee_dbg.stage = 6;
-    if (!ui.home && !own_screen())
-        draw_foot();
     ui.force = 0;
     scr_shown();
 }

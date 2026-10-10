@@ -35,11 +35,27 @@ static int led_get(const uint8_t *nl, uint32_t id)
 static const uint8_t FAM_BTN[FAM_COUNT] = {B_HOME, B_ENV, B_LFO, B_FX, B_SCL, B_EDIT, B_GLO, B_SAVE,
                                            B_ARP, B_SEQ, B_GLO};   /* GLO: mixer + global settings; REC is transport */
 
-static uint32_t cur_fam(void) { return ui.home ? FAM_HOME : cur_page()->fam; }
+static uint32_t cur_fam(void)                       /* (an engine's own envelope / LFO page: ENV / LFO, ui.c native_page) */
+{
+    return ui.home ? FAM_HOME : native_page(ui.page, FAM_ENV) ? FAM_ENV : native_page(ui.page, FAM_LFO) ? FAM_LFO :
+           cur_page()->fam;
+}
 
 static int layer_set_open(void);                       /* (ui_layer.c) */
+/* OCT- / OCT+ shift the octave on Stage (HOME) only; everywhere else, and over Stage's menu, dialogs and popups,
+ * they are Esc / Enter (docs/design/README.md, Navigation) */
+static int oct_nav(void)
+{
+    return !ui.home || ui.menu || ui.confirm || name_on() || new_on() || layer_set_open() || pop.on || smap.on;
+}
+static int oct_enter_ok(void)                           /* OCT+ would do something here */
+{
+    return list_on() || slot_kind() || motion_page() || (!ui.home && cur_page()->graph == GR_SCALE_PICKER) || page_sheet() || pop.on || smap.on || (!ui.home && cur_page()->graph == GR_BROWSE);
+}
+
 /* the OCT LEDs, bit 0 OCT-, bit 1 OCT+. In the dialogs, the menu and on action pages OCT- (back) is
- * lit and OCT+ blinks while it would do something; elsewhere they show the octave shift */
+ * lit and OCT+ blinks while it would do something; off Stage OCT- lit, OCT+ lit where it enters; on Stage
+ * they show the octave shift */
 static uint32_t oct_leds(void)
 {
     uint32_t blink = ((fm1_ms / 250u) & 1u) == 0u;
@@ -49,6 +65,8 @@ static uint32_t oct_leds(void)
         return 1u;
     if (ui.confirm || ui.menu || act_cols())
         return 1u | (blink && (ui.confirm || (ui.menu ? ui.menu == 1u : act_ready())) ? 2u : 0u);
+    if (oct_nav())
+        return 1u | (oct_enter_ok() ? 2u : 0u);
     return (song.octave < 0 ? 1u : 0u) | (song.octave > 0 ? 2u : 0u);
 }
 
@@ -210,42 +228,46 @@ static void ui_leds(void)
 }
 
 /* ---------------------------------------------------------- input --- */
-/* Knob acceleration, after Felucca 1.4 (#52): each decoded detent is one step, and a fast turn of a wide value (range
- * above 32; a list of names passes 0) moves it 2..4 steps a detent, up to 8 over a range above 64. MENU > KNOB ACCEL
- * OFF (PREF_ACCEL_OFF) keeps every detent one step. The main loop reads the knobs many times a frame (main.c), so a read
- * holds one detent as a rule: the speed is the time per detent, ACC_RATE / ms -> 25 ms x2, 16 ms x3, 12 ms x4,
- * 10 ms x5 .. 6 ms or less x8. Only the longer of this read's and the previous read's time counts, and only while the
- * turn goes on (both under ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a single quick
- * detent (a bounce) and a reversal are one step per detent, and the sign is always the detents'. *fast (if asked): this
- * detent followed the previous one within ACC_GAP ms, in the same direction (the browser waits for such a turn to rest).
- * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per detent (127 slow) */
-#define ACC_GAP 40u
-#define ACC_RATE 50u
+/* Knob acceleration, after Felucca 1.4 (#52), with fm1-x0x's curve (tuned on the hardware): a slow turn is one step a
+ * detent, and a few clicks are one step each however quick. Only a spin speeds up: from the fourth read of a turn,
+ * each under ACC_GAP ms a detent after the one before in the same direction, 3 steps a detent under 45 ms, 5 under
+ * 25 ms and 8 under 12 ms, so a quick half turn sweeps 0..127. cap: the most for the value (accel, list_accel); a cap
+ * over 8 (the tempo, the long lists) doubles them. MENU > KNOB ACCEL OFF (PREF_ACCEL_OFF) keeps every detent one step.
+ * The main loop reads the knobs many times a frame (main.c), so a read holds one detent as a rule; a read of several is
+ * timed per detent and counts once (a few detents read at once are not a spin). A pause or a reversal starts a new
+ * turn, and the sign is always the detents'. *fast (if asked): this detent followed the previous one within ACC_GAP ms,
+ * in the same direction (the browser waits for such a turn to rest).
+ * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 the reads of its turn */
+#define ACC_GAP 60u
+#define ACC_SPIN 4u
 static int32_t accel_by(uint32_t role, int32_t s, uint32_t cap, uint32_t *fast)
 {
-    uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role % NE], up = s > 0, pi = st >> 25, a, i, m = 1;
+    uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role % NE], up = s > 0, run = st >> 25, a, dt, m = 1;
     if (fast)
         *fast = 0;
     if ((PREF_BITS & PREF_ACCEL_OFF) || !s)
         return s;
     a = (uint32_t)(s < 0 ? -s : s);
-    i = ((now - st) & 0xFFFFFFu) / a;                   /* ms per detent of this read */
-    if (!st || ((st >> 24) & 1u) != up || i >= ACC_GAP) {
-        i = 127u;                                       /* a new turn, or reversed */
+    dt = ((now - st) & 0xFFFFFFu) / a;                  /* ms per detent of this read */
+    if (!st || ((st >> 24) & 1u) != up || dt >= ACC_GAP) {
+        run = 1;                                        /* a new turn, or reversed */
     } else {
         if (fast)
             *fast = 1;
-        if (pi < ACC_GAP) {
-            m = ACC_RATE / (i > pi ? i : pi ? pi : 1u);
-            m = m < 1u ? 1u : m > cap ? cap : m;
-        }
+        run++;
+        if (run >= ACC_SPIN)
+            m = dt < 12u ? 8u : dt < 25u ? 5u : dt < 45u ? 3u : 1u;
+        if (cap > 8u && m > 1u)
+            m *= 2u;
+        m = m > cap ? cap : m;
     }
-    ui.enc_t[role % NE] = now | up << 24 | (i ? i : 1u) << 25;
+    ui.enc_t[role % NE] = now | up << 24 | (run > 127u ? 127u : run) << 25;
     return s * (int32_t)m;
 }
+/* a value of range steps: none up to 24 (and a list of names passes 0), x3 at most under 100, x8, x16 over 150 */
 static int32_t accel(uint32_t role, int32_t s, int32_t range)
 {
-    return range <= 32 ? s : accel_by(role, s, range > 64 ? 8u : 4u, 0);
+    return range <= 24 ? s : accel_by(role, s, range < 100 ? 3u : range > 150 ? 16u : 8u, 0);
 }
 static int32_t desc_range(const param_desc_t *d)     /* (a list of names: no acceleration) */
 {
@@ -563,10 +585,11 @@ static void drum_sound_edit(uint32_t slot,int32_t delta)
     else {int8_t *p=&drum_patch[song.sel].c[ui.drum_sound][field-1];*p=(int8_t)clamp(*p+delta,field==1?-24:-64,field==1?24:63);}
     fm1_irq_on();ui.force=1;
 }
+static void drum_hit_jog(int32_t delta);
 static void drum_hit_edit(uint32_t slot,int32_t delta)
 {
     ui.drum_sound%=drum_sound_count(TSEL);
-    if(!slot){cursor_set(ui.cursor+delta);return;}
+    if(!slot){drum_hit_jog(delta);return;}         /* KNOB 1: the hits one by one, the steps */
     if(slot==1){ui.drum_sound=(uint8_t)clamp(ui.drum_sound+delta,0,drum_sound_count(TSEL)-1);ui.lane=(uint8_t)drum_lane(drum_sound_note(TSEL,ui.drum_sound));ui.note_pick=0;ui.force=1;notes_preview();return;}
     if(chain_busy() || live_rec_sel()){ui_message("STOP TO EDIT");return;}
     step_history_end();step_history_finish();fm1_irq_off();step_history_sync_locked();
@@ -605,7 +628,7 @@ static void drum_hit_edit(uint32_t slot,int32_t delta)
 
 static void drum_hit_jog(int32_t delta)
 {
-    notes_jog(delta);uint32_t i=notes_selected(TSEL);
+    notes_step_jog(delta);uint32_t i=notes_selected(TSEL);
     if(i<RECORD_MAX){ui.drum_sound=(uint8_t)drum_sound_of(TSEL,recording[i].note);ui.lane=(uint8_t)drum_lane(recording[i].note);}
     notes_preview();ui.force=1;
 }
@@ -639,8 +662,11 @@ static void drum_hit_key(uint32_t accent)
 
 static void step_edit(uint32_t slot, int32_t steps)
 {
-    if (slot == 0u) {
-        if (!ui.entry_open) cursor_set(ui.cursor + steps);
+    if (slot == 0u) {                                   /* KNOB 1: the notes one by one, the steps (empty ones too) */
+        if (!ui.entry_open) {
+            if (cur_page()->graph == GR_ROLL && !grid_on()) notes_step_jog(steps);
+            else cursor_set(ui.cursor + steps);
+        }
         return;
     }
     if (live_rec_sel()) { ui_message("STOP RECORDING"); return; }
@@ -683,21 +709,6 @@ static void edit_param(uint32_t slot, int32_t steps)
     const page_t *pg = cur_page();
     const param_desc_t *d;
     int32_t v;
-    if (pg->graph == GR_CHANCE) {
-        if (slot == 0u) cursor_set(ui.cursor + steps);
-        else if (slot == 1u) {
-            if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-            step_t *st = &TSEL->step[ui.cursor];
-            step_set_chance(st, (uint32_t)clamp((int32_t)step_chance(st) + steps, 0, 100));
-        }
-        return;
-    }
-    if (pg->graph == GR_MOTION) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (slot == 0u) motion_set_enabled(TSEL, steps > 0);
-        else if (slot == 3u) ui.act = steps > 0 ? 4u : 0u;
-        return;
-    }
     if (pg->graph == GR_SLOTS && slot == 0u && (ui.proj_new || (steps > 0 && song.g[G_SLOT] == PROJ_TMPL))) {
         ui.proj_new = steps > 0;                        /* past TMPL: NEW (SLOT itself stays) */
         if (!ui.proj_new && ui.act == 4u) ui.act = 0;
@@ -707,18 +718,20 @@ static void edit_param(uint32_t slot, int32_t steps)
         patgrid_edit(slot, steps);
         return;
     }
-    if (pg->graph == GR_SONG && slot == 3u) {         /* KNOB 4: TAKE JAM picked (right) or dropped */
-        ui.act = steps > 0 && jam.n ? 4u : 0u;
-        return;
-    }
-    if (pg->graph == GR_SONG) {
+    if (pg->graph == GR_SONG) {                       /* KNOB 1 the section, 2 the track, 3 its pattern there, 4 the
+                                                       * section's repeats (TAKE JAM: REC held) */
         if (slot == 0u) {
             ui.song_row = (uint8_t)clamp((int32_t)ui.song_row + steps, 0,
                 chain_config.count < CHAIN_ROWS ? chain_config.count : CHAIN_ROWS - 1u);
             return;
         }
+        if (slot == 1u) {
+            track_select((uint32_t)clamp((int32_t)song.sel + (steps > 0 ? 1 : -1), 0, NTRK - 1));
+            return;
+        }
         if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (slot == 3u) return;               /* PLAY is a button; no duplicate row-count knob */
+        if (slot == 3u && ui.song_row >= chain_config.count)
+            return;                                 /* (repeats of the column to add: none yet; KNOB 3 adds it) */
         if (ui.song_row >= chain_config.count) {
             chain_row_t *r = &chain_config.row[ui.song_row];
             r->slot = 0;
@@ -726,12 +739,12 @@ static void edit_param(uint32_t slot, int32_t steps)
             else for (uint32_t k = 0; k < NTRK; k++) chain_patterns[ui.song_row][k] = trk[k].pattern;
             r->repeat = 1;
             chain_config.count = ui.song_row + 1u;
-            if (slot == 1u) return;
+            if (slot == 2u) return;
         }
-        if (slot == 1u)
+        if (slot == 2u)
             chain_patterns[ui.song_row][song.sel] = (uint8_t)clamp((int32_t)chain_patterns[ui.song_row][song.sel] + steps, 0, NPAT - 1u);
         chain_config.row[ui.song_row].slot = chain_patterns[ui.song_row][0];
-        if (slot == 2u)
+        if (slot == 3u)
             chain_config.row[ui.song_row].repeat = (uint8_t)clamp((int32_t)chain_config.row[ui.song_row].repeat + steps, 1, 16);
         return;
     }
@@ -786,8 +799,7 @@ static void edit_param(uint32_t slot, int32_t steps)
     }
 #endif
     if ((act_cols() >> slot) & 1u) {                      /* an action's knob picks it (right) or drops it (left); */
-        if (pg->graph != GR_PATS)                         /* OCT+ does it (act_do) */
-            ui.act = steps > 0 ? (uint8_t)(slot + 1u) : ui.act == slot + 1u ? 0u : ui.act;
+        ui.act = steps > 0 ? (uint8_t)(slot + 1u) : ui.act == slot + 1u ? 0u : ui.act;   /* (OCT+ does it: act_do) */
         return;
     }
     if (pg->graph == GR_USER) {                           /* KNOB 1 the slot */
@@ -795,12 +807,7 @@ static void edit_param(uint32_t slot, int32_t steps)
             ui.uslot = (uint8_t)clamp((int32_t)ui.uslot + list_accel(EN_K1, steps, user_limit(), 0), 0, user_limit() - 1);
         return;
     }
-    if (pg->graph == GR_PATS) {                          /* KNOB 1 the pattern */
-        if (slot == 0u)
-            ui.ppick = (uint8_t)clamp((int32_t)pat_pick() + steps, 0, (int32_t)pat_count() - 1);
-        return;
-    }
-    if (pg->graph == GR_MOD && slot == 0u) {             /* MOD: KNOB 1 the slot, 2..4 its SRC DST AMT */
+    if (pg->graph == GR_MOD && slot == 1u) {             /* MOD: KNOB 2 the route; 1 its SRC, 3 DST, 4 AMT */
         mod_ui_slot = (uint8_t)clamp((int32_t)mod_ui_slot + (steps > 0 ? 1 : -1), 0, 3);
         return;
     }
@@ -902,38 +909,9 @@ static void act_do(void)
         ui.force = 1;
         return;
     }
-    if (cur_page()->graph == GR_MOTION) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        confirm_open(CF_CLEAR_MOTION, song.sel);
-        return;
-    }
-    if (cur_page()->graph == GR_TOOLS) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (!act_ready()) {                               /* nothing there to clear or delete */
-            ui_message(c == 2u ? "NOTHING TO DELETE" : "NOTHING TO CLEAR");
-            return;
-        }
-        confirm_open(c == 0u ? CF_CLEAR_SEQ : c == 1u ? CF_INIT_SOUND :
-                     c == 2u ? CF_DEL_ROW : CF_CLEAR_SONG, c == 2u ? ui.song_row : song.sel);
-        return;
-    }
-    if (cur_page()->graph == GR_SONG && c == 3u) {      /* TAKE JAM: over a song with rows, the dialog first */
-        if (chain_busy()) ui_message("STOP TO EDIT");
-        else if (chain_config.count) confirm_open(CF_TAKE_JAM, 0);
-        else jam_take();
-        return;
-    }
     if (cur_page()->graph == GR_SONG) {
         if (song.playing || seq_counting() || chain_busy()) transport_req = 2;
         else chain_play_ui();
-        return;
-    }
-    if (cur_page()->graph == GR_PATS) {
-        if (chain_busy()) { ui_message("STOP TO EDIT"); return; }
-        if (pat_needs_confirm(TSEL))                      /* the user's steps: the dialog */
-            confirm_open(CF_LOAD_PAT, song.sel);
-        else                                              /* empty, or a pattern loaded and untouched */
-            pat_load_ui(TSEL, pat_pick());
         return;
     }
 #if MELODEE_SLICE
@@ -1013,8 +991,11 @@ static void act_do(void)
     }
 }
 
-/* OCT- / OCT+ where they answer (the dialogs, the menu, action pages): on release, and only a press
- * that began there; both down together (UPDATE MODE, main.c) is no tap. Bit 0 OCT-, bit 1 OCT+ */
+/* OCT- / OCT+ as Esc / Enter (oct_nav): on release, and only a press that began there; both down together
+ * (UPDATE MODE, main.c) is no tap. Bit 0 OCT-, bit 1 OCT+ */
+static uint8_t oct_eat;                                 /* OCT taps not to come (held for a sheet, used in a combo) */
+static uint8_t oct_deferred;                            /* OCT+ pressed on Stage (its sheet when held): the octave on
+                                                         * release */
 static uint32_t oct_taps(uint32_t pressed, int here)
 {
     static uint8_t down, chord;
@@ -1030,13 +1011,15 @@ static uint32_t oct_taps(uint32_t pressed, int here)
         tap = 0;
         chord = now != 0u;
     }
+    tap &= ~(uint32_t)oct_eat;
+    oct_eat &= (uint8_t)now;
     return tap;
 }
 
 /* SEQ step entry, acid style: the keys pressed together (POLY: up to 4 notes, MONO:
  * the last one) become the cursor step; releasing all keys moves on. With CHRD on a key
  * writes what it sounds, as live recording does: POLY its chord, MONO the chord's root */
-static int step_page(void) { return !ui.home && (cur_page()->scope == SC_STEP || cur_page()->scope==SC_DRUMHIT); }   /* SEQ > STEP, CHANCE */
+static int step_page(void) { return !ui.home && (cur_page()->scope == SC_STEP || cur_page()->scope==SC_DRUMHIT); }   /* SEQ > NOTES, DRUM HIT */
 /* ENV / SCL / EDIT held on STEP: their note gestures (SELECT resizes, moves; EDIT + OCT-/+ undoes, redoes; EDIT tapped
  * deletes), armed and playing too. EDIT's quick layer: off the synth STEP */
 static int step_modifier_context(void)
@@ -1044,9 +1027,7 @@ static int step_modifier_context(void)
     return step_page() && (!drum_track(TSEL) || !grid_on() || (cur_page()->graph == GR_ROLL && live_rec_sel())) &&
            !ui.menu && !ui.confirm && !ui.ly && !name_on();
 }
-/* .. and OCT taps move the cursor, but not while recording live: the keys played need the octave buttons then */
-static int step_oct_context(void) { return step_modifier_context() && !live_rec_sel(); }
-static uint32_t step_modifier_mask(void)                /* (EDIT: STEP only, not CHANCE) */
+static uint32_t step_modifier_mask(void)                /* (EDIT: NOTES only) */
 {
     if (grid_on() && live_rec_sel()) return 1u << panel.btn[B_EDIT];
     return (1u << panel.btn[B_ENV]) | (1u << panel.btn[B_SCL]) |
@@ -1363,6 +1344,14 @@ static void page_tap(uint32_t b)
 {
     uint32_t f;
     if (b == B_EDIT && ui.erase_gesture) return;
+    if (b == B_EDIT && smap.on) {                       /* the map open: EDIT closes it */
+        smap_close();
+        return;
+    }
+    if (b == B_EDIT && sec_on()) {                      /* an EDIT page of an engine in sections: its map */
+        smap_open();
+        return;
+    }
     if(b==B_EDIT && !ui.home && cur_page()->scope==SC_DRUMHIT){drum_hit_delete();return;}
     if (b == B_GLO) {
         open_global();                                  /* MIXER -> GLOBAL -> SYSTEM -> MIXER */
@@ -1480,8 +1469,18 @@ static void ui_input(void)
     uint32_t rec = btn_hold(&ui.rec_t0, B_REC, now, !ui.menu && !ui.confirm && !name_on());   /* held: MIXER */
     uint32_t seq = btn_hold(&ui.seq_t0, B_SEQ, now, !ui.menu && !ui.confirm);
     uint32_t save = btn_hold(&ui.save_t0, B_SAVE, now, !ui.menu && !ui.confirm);   /* held: UNDO (ui.c undo_swap) */
-    uint32_t oct = oct_taps(pressed, ui.menu || ui.confirm || act_cols() || name_on() || new_on() || layer_set_open() ||
-                            step_oct_context());
+    uint32_t octup = btn_hold(&ui.oct_t0, B_OCTUP, now, page_sheet() != 0u);   /* held: the page's sheet */
+    uint32_t oct;
+    if (octup == BT_HOLD) {
+        oct_eat |= 2u;                                  /* (its release is no OCT+) */
+        oct_deferred = 0;
+        page_sheet_open();
+    } else if (octup == BT_TAP && oct_deferred) {
+        song.octave += song.octave < 3 ? 1 : 0;         /* (OCT+ pressed on a page with a sheet: on release) */
+    }
+    if (octup != BT_NONE || !((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u))
+        oct_deferred = 0;
+    oct = oct_taps(pressed, oct_nav());
     uint32_t lay, knob_layer, combo = 0, lytap, lkeys;
     int32_t s, ks[4] = {0, 0, 0, 0};
     seq_erase_update(pressed);
@@ -1576,7 +1575,10 @@ static void ui_input(void)
     } else if (rec == BT_TAP) {
         rec_tap();
     } else if (rec == BT_HOLD) {
-        capture_take();
+        if (!ui.home && cur_page()->graph == GR_SONG)    /* SONG: TAKE JAM (the jam's rows as the song) */
+            ps_jam();
+        else
+            capture_take();
     }
     if (ui.menu) {
         momentary_restore();                                      /* HOME / SAVE / REC taps do nothing here */
@@ -1621,9 +1623,8 @@ static void ui_input(void)
                 name_open(NK_USER_SAVE, ui.confirm_trk);
             } else if (kind == CF_ERASE_USER) {
                 user_ui_named(1u, ui.confirm_trk, 0);
-            } else if (kind == CF_LOAD_PAT) {
-                pat_load_ui(&trk[ui.confirm_trk % NTRK], pat_pick());
-                str_cpy(ui.msg2, "[SAVE] HOLD TO UNDO", sizeof ui.msg2);
+            } else if (kind == CF_ERASE_PROJ) {
+                project_erase(ui.confirm_trk & 3u);
             } else if (kind == CF_CLEAR_MOTION) {
                 track_t *t = &trk[ui.confirm_trk % NTRK];
                 if (!chain_busy()) { load_begin(t, UNDO_PAT); motion_clear(t); load_end(t); ui_message("MOTION CLEARED"); }
@@ -1667,6 +1668,29 @@ static void ui_input(void)
         }
         ui.pg_down = 0;
         enc_drop();
+        return;
+    }
+    if (smap.on) {                                      /* the map: KNOB 1 / 2, OCT+ / OCT- (ui_sections.c); EDIT */
+        int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);   /* closes it too (page_tap) */
+        smap_input(k1, k2, oct);
+        if (lytap)
+            layer_tap(lytap);
+        b = ui.pg_down & ~fm1_in.buttons;
+        ui.pg_down &= (uint16_t)~b;
+        for (id = 0; b; id++, b >>= 1)
+            if (b & 1u)
+                page_tap(panel_btn_of(id));
+        enc_drop();
+        return;
+    }
+    if (pop.on == POP_SHEET || pop.on == POP_LIST) {   /* an action sheet, a value's list: KNOB 1 / 2, OCT+ / OCT-
+                                                         * (ui_popup.c) */
+        int32_t k1 = panel_enc(EN_K1), k2 = panel_enc(EN_K2);
+        if (pop.on == POP_LIST) vlist_input(k2, oct);
+        else sheet_input(k1, k2, oct);
+        ui.pg_down = 0;
+        enc_drop();
+        step_history_end();                             /* (a note's sheet: its CHANCE, LENGTH, ... edits undo too) */
         return;
     }
     if (lytap)                                          /* a layer's button acts on release (held: the layer) */
@@ -1724,12 +1748,20 @@ static void ui_input(void)
             break;
         case B_OCTDN:
         case B_OCTUP: {
-            uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]);
-            if (act_cols() || layer_set_open())         /* action pages: enter / back (below); SET layers: OCT- */
+            uint32_t both = (1u << panel.btn[B_OCTDN]) | (1u << panel.btn[B_OCTUP]), bit = b == B_OCTUP ? 2u : 1u;
+            if (pop.on == POP_PICK) {                   /* a picker: either closes it (ui_popup.c) */
+                pop_close();
+                oct_eat |= (uint8_t)bit;
+                break;
+            }
+            if (act_cols() || layer_set_open() || list_on())   /* action, list pages: enter / back (below); SET layers:
+                                                                 * OCT- */
                 break;
             if (step_page() && ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u)) {   /* SAVE held: undo further / redo */
                 ui.save_t0 |= 2u;                       /* (no page, no other undo when SAVE is let go) */
-                ui.step_oct_used |= b == B_OCTUP ? 2u : 1u;
+                ui.oct_t0 |= 2u;                        /* (OCT+: no tap, no sheet) */
+                ui.step_oct_used |= (uint8_t)bit;
+                oct_eat |= (uint8_t)bit;                /* (its release: no Esc / Enter) */
                 if (chain_busy())
                     ui_message("STOP TO UNDO");
                 else if (!step_history_apply(b == B_OCTUP))
@@ -1738,6 +1770,8 @@ static void ui_input(void)
             }
             if ((fm1_in.buttons >> panel.btn[B_SAVE]) & 1u) {   /* SAVE held elsewhere: OCT- undoes a load further, */
                 ui.save_t0 |= 2u;                       /* OCT+ redoes (no page, no undo when SAVE is let go) */
+                ui.oct_t0 |= 2u;
+                oct_eat |= (uint8_t)bit;
                 if (chain_busy())
                     ui_message("STOP TO UNDO");
                 else
@@ -1746,14 +1780,20 @@ static void ui_input(void)
             }
             if (!ui.home && cur_page()->graph == GR_BROWSE) {   /* the browser: OCT- back, OCT+ keep (ui_browser.c) */
                 browser_key(b == B_OCTUP);
+                oct_eat |= (uint8_t)bit;
                 break;
             }
-            if (step_oct_context())                    /* STEP OCT taps: the cursor; EDIT consumes them below */
+            if (oct_nav())                              /* off Stage: Esc / Enter, on release (below) */
                 break;
-            if ((fm1_in.buttons & both) == both)
+            if ((fm1_in.buttons & both) == both) {
                 song.octave = 0;
-            else
+                ui.oct_t0 |= 2u;                        /* (OCT+ then neither a tap nor a sheet) */
+                oct_deferred = 0;
+            } else if (b == B_OCTUP && page_sheet() == 1u) {
+                oct_deferred = 1;                       /* Stage: OCT+ on release, held: the sound's sheet */
+            } else {
                 song.octave += b == B_OCTDN ? (song.octave > -3 ? -1 : 0) : (song.octave < 3 ? 1 : 0);
+            }
             break;
         }
         default:                                        /* page buttons (GLO SCL ENV LFO EDIT ARP): when let go */
@@ -1768,13 +1808,43 @@ static void ui_input(void)
     for (id = 0; b; id++, b >>= 1)
         if (b & 1u)
             page_tap(panel_btn_of(id));
-    if (act_cols() && (oct & 2u)) {                     /* action pages: OCT+ does the picked action, */
+    if (list_on() && (oct & 2u)) {                      /* a list page: OCT+ the row's list, OCT- Stage */
+        list_enter();
+    } else if (list_on() && (oct & 1u)) {
+        go_home();
+    } else if (act_cols() && (oct & 2u)) {              /* action pages: OCT+ does the picked action, */
         act_do();
     } else if (act_cols() && (oct & 1u)) {              /* OCT- drops it, or (none picked) goes HOME */
-        if (cur_page()->graph != GR_PATS && ui.act)
+        if (ui.act)
             ui.act = 0;
         else
             go_home();
+    } else if (oct_nav() && !ui.layer && (oct & 2u)) {  /* any other page: OCT+ Enter (a slot's sheet, the page's), */
+        if (slot_kind())
+            slot_enter();
+        else if (motion_page())
+            motion_enter();
+        else if (cur_page()->graph == GR_SCALE_PICKER)  /* SCALES: done, SCL's list */
+            scales_back();
+        else if (step_enter())
+            ;
+        else if (page_sheet())
+            page_sheet_open();
+    } else if (oct_nav() && !ui.layer && (oct & 1u)) {  /* OCT- Esc: SCALES back to SCL's list, else Stage */
+        uint32_t p = page_titled("SCL");
+        if (str_eq(cur_page()->title, "SCALES") && p < NPAGES) {
+            ui.page = (uint8_t)p;
+            page_entered();
+        } else if (str_eq(cur_page()->title, "PATTERNS") && patterns_queued()) {   /* PATTERNS: the queue first */
+            uint32_t k, f = motion_guard();
+            for (k = 0; k < NTRK; k++)
+                trk[k].pattern_next = 0xFFu;
+            motion_unguard(f);
+            ui_message("QUEUE CLEARED");
+            ui.force = 1;
+        } else {
+            go_home();
+        }
     }
     song.grid = (uint8_t)keys_mode();                 /* (seq.c: the keys are the grid's) */
 #if MELODEE_SLICE
@@ -1787,7 +1857,7 @@ static void ui_input(void)
     } else if (song.grid) {
         if (!seq_erase_active(TSEL)) grid_keys(notes);
         else seq_midi_events(0);
-    } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* STEP (not CHANCE: its knobs only) */
+    } else if (song.seq_mode && cur_page()->graph == GR_ROLL) {   /* NOTES */
         if (live_rec_sel()) {                           /* armed and playing: the keys and MIDI record live, */
             ui.entry_open = 0;                          /* not into the cursor step too */
             seq_midi_events(0);
@@ -1814,6 +1884,9 @@ static void ui_input(void)
     } else if (s && !ui.home && cur_page()->graph == GR_ROLL && !grid_on()) {
         ui.note_zoom = (uint8_t)clamp((int32_t)ui.note_zoom + s, 0, 4);
         ui.force = 1;
+    } else if (s && sec_on()) {                         /* an engine in sections: the next / previous one (FM6's
+                                                         * operators are sections: ui_sections.c) */
+        sec_turn(s);
     } else if (s && !ui.home && cur_page()->scope == SC_FMOP) {   /* FM6's operator pages: the operator */
         fm6_opsel = (uint8_t)clamp((int32_t)fm6_opsel + (s > 0 ? 1 : -1), 0, 5);
         ui.force = 1;
@@ -1830,11 +1903,7 @@ static void ui_input(void)
             if (pattern_request(TSEL, (uint32_t)clamp((int32_t)from + s, 0, NPAT - 1u))) ui_message("STOP SONG TO SWITCH");
             ui.force = 1;
         } else if (step_gesture(s)) {                   /* ENV / SCL / a key held: the note's length, its place */
-        } else if (!ui.home && cur_page()->graph == GR_ROLL && !grid_on()) {
-            notes_jog(s);
-        } else if(!ui.home && cur_page()->scope==SC_DRUMHIT){
-            drum_hit_jog(s);
-        } else if (!ui.home) {                          /* the section's pages (BPM: SEQ > TEMPO; the STEP cursor:
+        } else if (!ui.home) {                          /* the section's pages (BPM: SEQ > TEMPO; the notes, the hits:
                                                          * KNOB 1) */
             page_scroll(s);
         }
@@ -1848,11 +1917,24 @@ static void ui_input(void)
         if (k == 0u && pg->graph == GR_ROLL && step_gesture(s))   /* KNOB 1 too, as SELECT (ENV / SCL / a key held) */
             continue;
         if (ui.home || pg->scope == SC_STEP || pg->scope == SC_TRK || ((pg->scope==SC_DRUM || pg->scope==SC_DRUMHIT) && pg->id[k]!=255) || page_desc(pg, k, &hv) ||
-            ((pg->graph == GR_USER || pg->graph == GR_MOD || pg->graph == GR_PATS) && k == 0u)
+            (pg->graph == GR_USER && k == 0u) || (pg->graph == GR_MOD && k == 1u)
             || pg->graph == GR_SONG || pg->graph == GR_PATGRID || pg->graph == GR_SCALE_PICKER || (scale_settings_page(pg) && k == 1u)
             || (pg->graph == GR_SLICES && k < 2u)) {   /* (not an empty column) */
             ui.hot_col = (uint8_t)k;
             ui.hot_t = 40;
+        }
+        if (list_on()) {                                /* a list page: KNOB 2 the row, KNOB 1 its value (ui_list.c) */
+            list_knob(k, s);
+            continue;
+        }
+        if (slot_kind()) {                              /* a slot page: KNOB 1 / 2 the slot (ui_slots.c) */
+            if (k < 2u)
+                edit_param(0, s);
+            continue;
+        }
+        if (motion_page()) {                            /* MOTION: KNOB 2 the lane, KNOB 1 Play (ui_motion.c) */
+            motion_knob(k, s);
+            continue;
         }
         momentary_take(k);
         if (ui.home) {                                  /* Stage: the selected track's engine's four, as its pages; they drop in */
@@ -1862,6 +1944,7 @@ static void ui_input(void)
             page_over = 0;
         } else {
             edit_param(k, s);
+            pick_touch(k);                              /* a name from a long list: its picker (ui_popup.c) */
         }
     }
     if (step_modifier_context()) {
@@ -1871,6 +1954,7 @@ static void ui_input(void)
             uint32_t dir = ((combo_oct >> panel.btn[B_OCTDN]) & 1u) | (((combo_oct >> panel.btn[B_OCTUP]) & 1u) << 1);
             ui.step_used |= (uint16_t)ed;
             ui.step_oct_used |= (uint8_t)dir;
+            oct_eat |= (uint8_t)dir;                   /* (their release: no Esc / Enter) */
             if (chain_busy()) ui_message("STOP TO UNDO");
             else if (dir == 3u) ui_message("USE ONE OCT BUTTON");
             else {
@@ -1894,11 +1978,8 @@ static void ui_input(void)
             }
             ui.step_used &= (uint16_t)~bit;
         }
-        if (step_oct_context()) {
-            if (oct & ~ui.step_oct_used) cursor_set(ui.cursor + ((oct & 2u) ? 1 : -1));
-            ui.step_oct_used &= (uint8_t)(((fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u) |
-                                         (((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) << 1));
-        }
+        ui.step_oct_used &= (uint8_t)(((fm1_in.buttons >> panel.btn[B_OCTDN]) & 1u) |
+                                     (((fm1_in.buttons >> panel.btn[B_OCTUP]) & 1u) << 1));
         ui.step_move = (ui.step_mods & ui.step_used) != 0u;
     }
 

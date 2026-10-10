@@ -482,9 +482,9 @@ static void p5_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vm
 
 /* INIT, then Sequential's factory programs in their order (111..588 on the
  * Prophet: preset k is program k-1 of the v1.03 bank). Dry, as the Prophet. */
-#define P5_FACTORY_PRESET(n) {n,{0,0,0,0,0,0,0,0},{0,0,127,0},0,0,FX(0,0,0,0),PAT(1)},
+#define P5_FACTORY_PRESET(n) {n,{0,0,0,0,0,0,0,0},{0,0,127,0},0,0,FX(0,0,0,0)},
 static const preset_t P5_TEST_PRESETS[] = {
-    {"INIT PROPHET",{0,0,0,0,0,0,0,0},{0,0,127,0},0,0,FX(0,0,0,0),PAT(1)},
+    {"INIT PROPHET",{0,0,0,0,0,0,0,0},{0,0,127,0},0,0,FX(0,0,0,0)},
     P5_FACTORY_PRESETS(P5_FACTORY_PRESET)
 };
 _Static_assert(NELEM(P5_TEST_PRESETS)==P5_FACTORY_N+1u, "Prophet factory presets");

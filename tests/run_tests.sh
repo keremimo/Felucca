@@ -119,7 +119,7 @@ $CC -o "$OUT/upreset_test" tests/upreset_test.c
 run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM -> DRUM, grid records, DIGITAL kept)" "$OUT/upreset_test"
 
 $CC -o "$OUT/input_test" tests/input_test.c
-run "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders" "$OUT/input_test"
+run "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders, fast spins" "$OUT/input_test"
 
 $CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
 run "TRS MIDI parser" "$OUT/midi_uart_test"
@@ -254,7 +254,7 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "double-tap layers, FX LATCH, FX key map, SCREEN OFF, LFO 2 SYNC / TRIG / POL" "$OUT/layer_screen_test"
     $CC -O1 -w -DMELODEE_USB_AUDIO=1 -Ibuild/gen -Ifirmware/src -o "$OUT/punch_fx_test" tests/punch_fx_test.c -lm
     run "punch FX: exclusive knob routing, release detents, DEPTH direction and double-press lock" "$OUT/punch_fx_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/phase_test" tests/phase_test.c -lm
+    $CC -DMELODEE_LEGACY_EXTRAS=1 -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/phase_test" tests/phase_test.c -lm
     run "CZ: oscillator boundaries, native rate/target envelopes and independent lines" "$OUT/phase_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/cz1_knob_test" tests/cz1_knob_test.c -lm
     run "CZ-1: every knob changes a full tone; the dim ones leave INIT and factory tones bit for bit" "$OUT/cz1_knob_test"
@@ -282,7 +282,7 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "DRUM: 808 instruments, velocity, hat choke, release, eight lanes and shared voice budget" "$OUT/drum_test" build/drum_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/drum_editor_test" tests/drum_editor_test.c -lm
     run "DRUM EDITOR: synthesized 909, sound controls, individual pitch/length, undo and storage" "$OUT/drum_editor_test"
-    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
+    $CC -DMELODEE_LEGACY_EXTRAS=1 -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/noise_test" tests/noise_test.c -lm
     mkdir -p build/noise_demo
     run "NOISE: colour slopes, key-tracked filter and clock, META period, DC, clipping, retrigger, cost, demos" "$OUT/noise_test" build/noise_demo
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/fm6_test" tests/fm6_test.c -lm

@@ -17,6 +17,7 @@ static void fm1_irq_off(void)
 }
 static void fm1_irq_on(void) {}
 static void lcd_sync(void) {}
+static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
 #define MELODEE_FLASH 1
@@ -260,7 +261,7 @@ int main(void)
         v5.t[0].p[P_LEVEL] = 900;                                  /* out of range */
         v5.t[0].step[0] = (step10_t){{255, 128, 160, 200}, 255, 255, 0, 96, 255, 5};
         v5.sum = proj_hash(&v5, sizeof v5 - 4u);
-        st_save(OBJ_PROJECT0 + 3u, &v5, sizeof v5);
+        st_save(OBJ_BANK0 + 3u, &v5, sizeof v5);                 /* (an old record in a project slot) */
         memset(proj_slot[3].raw, 0, 4);
         project_load(3);
         bad += check("FUN5 load bounds steps and masks lane accents", trk[0].step[0].n == 4u &&

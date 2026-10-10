@@ -118,9 +118,9 @@ static int timing_geometry_and_context(void)
     seq_advance(3u*span/8u);input_on(t,64,110);seq_advance(span/8u);input_off(t,64);seq_stop();song.rec=0;
     go_page(GR_ROLL);cursor_set(0);turn(EN_PRESET,4);
     uint32_t a,b;notes_window(t,period,&a,&b);
-    int32_t x=notes_x(recording_raw_on(t,&recording[0],period),a,b), y=pr_row_y(61)+Y_GRAPH;
+    int32_t x=notes_x(recording_raw_on(t,&recording[0],period),a,b), y=pr_row_y(61)+PR_TOP;
     int bad=check("swung off-grid notes draw at their original quarter-step position at maximum zoom",
-                  x==PR_X0+48&&pr_is_bar((uint32_t)x+1u,(uint32_t)y+2u)&&!pr_is_bar((uint32_t)x-2u,(uint32_t)y+2u));
+                  x==PR_X0+4*PR_CW&&pr_is_bar((uint32_t)x+1u,(uint32_t)y+2u)&&!pr_is_bar((uint32_t)x-2u,(uint32_t)y+2u));
     notes_cycle(1); frame();uint16_t selection=ui.note_pick;
     t->p[P_RECQ]=3;frame();
     bad+=check("playback quantization leaves the displayed original onset unchanged",
@@ -160,7 +160,7 @@ static int control_clashes(void)
     }
     track_t *t=clash_setup();recorded_note_t saved[3];memcpy(saved,recording,sizeof saved);
     fm1_in.buttons|=1u<<panel.btn[B_EDIT];host_pressed|=1u<<panel.btn[B_EDIT];frame();
-    host_enc[panel.enc[EN_SELECT]]+=panel.dir[EN_SELECT];fm1_in.buttons&=~(1u<<panel.btn[B_EDIT]);frame();
+    host_enc[panel.enc[EN_K1]]+=panel.dir[EN_K1];fm1_in.buttons&=~(1u<<panel.btn[B_EDIT]);frame();
     bad+=check("release-frame selection consumes EDIT without deleting a note",notes_selected(t)==1&&!memcmp(saved,recording,sizeof saved));
     t=clash_setup();press(B_EDIT);
     fm1_in.buttons|=1u<<panel.btn[B_EDIT];host_pressed|=1u<<panel.btn[B_EDIT];frame();
@@ -208,9 +208,9 @@ static int property_edits_and_mixed_patterns(void)
 {
     track_t *t=clash_setup();
     recorded_note_t original[3];memcpy(original,recording,sizeof original);
-    uint32_t count=0;for(uint32_t p=0;p<NPAGES;p++)if(PAGES[p].fam==FAM_SEQ&&PAGES[p].scope==SC_STEP&&PAGES[p].graph!=GR_CHANCE)count++;
+    uint32_t count=0;for(uint32_t p=0;p<NPAGES;p++)if(PAGES[p].fam==FAM_SEQ&&PAGES[p].scope==SC_STEP)count++;
     int bad=check("sequence navigation exposes exactly one note editor",count==1&&str_eq(cur_page()->title,"NOTES"));
-    turn(EN_SELECT,1);uint32_t selected=notes_selected(t);
+    turn(EN_K1,1);uint32_t selected=notes_selected(t);
     turn(EN_K2,3);
     bad+=check("PITCH edits only the highlighted hit and keeps exact timing",selected==1&&recording[1].note==67&&recording[1].on==original[1].on&&recording[1].duration==original[1].duration&&!memcmp(&original[0],&recording[0],sizeof original[0])&&!memcmp(&original[2],&recording[2],sizeof original[2]));
     hold(B_SAVE);bad+=check("pitch undo restores exact event bytes and selection",!memcmp(original,recording,sizeof original)&&notes_selected(t)==1);
@@ -225,10 +225,12 @@ static int property_edits_and_mixed_patterns(void)
     fm1_in.buttons|=1u<<panel.btn[B_SCL];host_pressed|=1u<<panel.btn[B_SCL];frame();turn(EN_K1,2);fm1_in.buttons&=~(1u<<panel.btn[B_SCL]);frame();
     bad+=check("MOVE preserves a captured note's fractional onset, duration and neighbours",ui.cursor==2&&notes_selected(t)==1&&(recording[1].step&63u)==2&&recording[1].on==original[1].on&&recording[1].duration==original[1].duration&&recording[0].vel==100&&recording[2].vel==95);
     hold(B_SAVE);bad+=check("move undo restores position and focus without dropping prior edits",ui.cursor==0&&notes_selected(t)==1&&!memcmp(&recording[1].on,&original[1].on,sizeof original[1].on)&&recording[1].vel==70);
-    cursor_set(0);turn(EN_SELECT,-1);bad+=check("reverse selection crosses empty intervals to the preceding recorded note",ui.cursor==1&&notes_selected(t)==2);
+    cursor_set(0);turn(EN_K1,-1);bad+=check("KNOB 1 back from a step's first note: the step before, an empty one too",ui.cursor==step_pattern_len(t)-1u&&notes_selected(t)>=RECORD_MAX);
+    cursor_set(2);turn(EN_K1,-1);bad+=check("..the step before on its last recorded note",ui.cursor==1&&notes_selected(t)==2);
     cursor_set(4);frame();queued(0x90,72,100,1);frame();queued(0x80,72,0,1);frame();
     bad+=check("MIDI can add a manual note in free space beside a recorded take",t->step[4].n==1&&t->step[4].note[0]==72&&!(t->step[4].flags&SF_RECORDED)&&recording[0].vel==100&&recording[1].vel==70);
-    cursor_set(0);turn(EN_SELECT,-1);bad+=check("the same note jog reaches manual and recorded notes",ui.cursor==4&&notes_manual_start(t)==4);
+    cursor_set(5);turn(EN_K1,-1);int manual=ui.cursor==4&&notes_manual_start(t)==4;turn(EN_K1,-3);
+    bad+=check("the same KNOB 1 jog reaches manual and recorded notes",manual&&ui.cursor==1&&notes_selected(t)==2);
     project_capture(&proj_scratch);int packed=bank_pack(proj_wire_u.raw,&proj_scratch,1);project_restore_runtime(&proj_scratch);if(packed)bank_restore(proj_wire_u.raw);
     bad+=check("property edits and mixed note types survive save/load",packed&&recording[1].vel==70&&t->step[4].note[0]==72&&recording_active(t,0)&&recording_active(t,1));
     raw_replay();seq_advance(600);bad+=check("neighbouring recorded pitch still plays after editing and reload",gate_note(t,60));seq_advance(1200);bad+=check("edited recorded note still plays on its original timeline",gate_note(t,64));seq_stop();
@@ -239,14 +241,14 @@ static int manual_chord_controls(void)
     raw_begin();seq_stop();song.rec=0;track_t *t=&trk[0];
     t->step[0]=(step_t){.time=ST_NOTE,.n=3,.note={60,64,67},.flags=SF_ACCENT};
     step_note_resize(t,0,3);go_page(GR_ROLL);cursor_set(0);frame();
-    turn(EN_SELECT,1);turn(EN_K2,2);
+    turn(EN_K1,1);turn(EN_K2,2);
     int bad=check("manual chords select and transpose one pitch at a time",ui.note_slot==1&&t->step[0].note[0]==60&&t->step[0].note[1]==66&&t->step[0].note[2]==67);
     press(B_EDIT);bad+=check("DELETE removes the highlighted chord pitch and retains other pitches and tails",t->step[0].n==2&&t->step[0].note[0]==60&&t->step[0].note[1]==67&&step_note_length(t,0)==3);
     hold(B_SAVE);bad+=check("chord deletion undo restores the selected pitch and its focus",ui.note_slot==1&&t->step[0].n==3&&t->step[0].note[1]==66);
     turn(EN_K4,-10);bad+=check("manual velocity edits control playback even after an accent",t->step[0].vel==117&&!(t->step[0].flags&SF_ACCENT));
     fm1_in.buttons|=1u<<panel.btn[B_ENV];host_pressed|=1u<<panel.btn[B_ENV];frame();turn(EN_K4,1);fm1_in.buttons&=~(1u<<panel.btn[B_ENV]);frame();
     bad+=check("ENV plus VEL retains manual slide editing without opening a page",(t->step[0].flags&SF_SLIDE)&&cur_page()->graph==GR_ROLL&&t->step[0].vel==117);
-    turn(EN_PRESET,3);step_t saved=t->step[0];turn(EN_SELECT,1);turn(EN_K1,7);
+    turn(EN_PRESET,3);step_t saved=t->step[0];turn(EN_K1,1);turn(EN_K1,7);
     bad+=check("zoom and navigation never mutate a manual chord",ui.note_zoom==3&&!memcmp(&saved,&t->step[0],sizeof saved));
     return bad;
 }
@@ -256,7 +258,7 @@ static int dense_selection_and_protection(void)
     raw_begin();track_t *t=&trk[0];
     for(uint32_t n=0;n<40;n++){seq_advance(60);input_on(t,60,100);seq_advance(60);input_off(t,60);}
     seq_advance(6144u+600u-4800u);input_on(t,67,100);seq_advance(300);input_off(t,67);seq_stop();song.rec=0;
-    go_page(GR_ROLL);cursor_set(1);frame();turn(EN_SELECT,-1);
+    go_page(GR_ROLL);cursor_set(1);frame();turn(EN_K1,-1);
     int bad=check("reverse note navigation reaches the final hit in dense intervals",notes_selected(t)==39&&ui.cursor==0);
     recorded_note_t saved[41];memcpy(saved,recording,sizeof saved);
     t->step[3].time=ST_NOTE;t->step[3].n=1;t->step[3].note[0]=72;step_note_resize(t,3,3);frame();
@@ -374,7 +376,7 @@ static int live_erase_scope_and_drums(void)
         if(mode==0)song.rec=0;
         if(mode==1){song.sel=1;song.rec=3;manual_hit(TSEL,1,64);}
         if(mode==2)pattern_switch(t,1);
-        if(mode==3)go_page(GR_CHANCE);
+        if(mode==3)go_page(GR_STEPS);
         if(mode==4){seq_stop();seq_start();seq_advance(0);}
         frame();seq_advance(6144);
         bad+=check("disarm, track/bank/page changes and stop/restart cancel the captured erase gesture",!seq_erase_active(TSEL)&&((mode==2)||step_on(&t->step[1]))&&(mode!=1||step_on(&TSEL->step[1])));
@@ -407,7 +409,7 @@ static int erase_edit_hold_conflicts(void)
     for(uint32_t context=0;context<3;context++) {
         raw_begin();track_t *t=TSEL;manual_hit(t,0,60);
         if(context==0)go_home();
-        if(context==1)go_page(GR_CHANCE);
+        if(context==1)go_page(GR_STEPS);
         if(context==2){set_engine_of(t,ENGI_DRUM);t->engine=t->eng_req;seq_stop();song.rec=0;go_page(GR_ROLL);}
         frame();step_t before=t->step[0];erase_down();frames(500);
         int normal=layer_open()==LAYER_EDIT&&!seq_erase_active(t);

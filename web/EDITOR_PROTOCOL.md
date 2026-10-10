@@ -220,8 +220,8 @@ A user preset = engine (0..NENGINES−1), name (1..12 chars, ASCII 32..126; the 
 case), all P_COUNT instrument parameters (v14 each, the same order as `DUMP`), and a 16-step pattern:
 16 × (note 0..127 (0 = rest), flags: 1 accent, 2 slide, 4 tie). Loading one applies the engine and
 the parameters of the sound, as a factory preset (the track's own parameters, the steps and LEN stay; see
-"Sound loads and undo"). The stored pattern is kept and returned by `UP_GET`; on the device SEQ > PHRASES
-lists it as "U07" and loads it, with the stored LEN (at most 16), DIV, SWING and GATE. The slots are
+"Sound loads and undo"). The stored pattern is kept and returned by `UP_GET`; the device no longer loads
+it (its phrase list, SEQ > PHRASES, was removed in 2026-10). The slots are
 numbered 0..63 (the device shows U01..U64).
 
 - `UP_LIST`: count is cut at 16 and at the last slot (start ≥ 32: count 0, no entries).
@@ -281,9 +281,8 @@ grid lives in the steps themselves, so every engine has it:
   send `0, 0, 0` to clear them.
 - **Notes on lanes.** A step's notes keep playing as before; the device shows each note on the lane
   it strikes (GM 35..81, the others folded into their octave of 36..47: a low tom 41 on TOM, a crash 49 on
-  BELL). When the device edits a lane of a step, notes on that lane become the lane's hit. Patterns
-  loaded on the device into a DRUM track (SEQ > PHRASES, e.g. 12 BEAT), and DRUM tracks of projects saved
-  before the grid, get their lanes' own notes as hits (the same notes and velocities play).
+  BELL). When the device edits a lane of a step, notes on that lane become the lane's hit. DRUM tracks of
+  projects saved before the grid get their lanes' own notes as hits (the same notes and velocities play).
 - **Sound loads never convert steps** (as before): switching a track to or from DRUM keeps its notes
   and hits.
 - **User presets.** A user preset stored from a DRUM track whose first 16 steps strike a lane holds a
@@ -376,11 +375,10 @@ grid lives in the steps themselves, so every engine has it:
   ARP pages, SCL and LEN / DIV / SWING / GATE (17..32), the SLICER (45..48). It does drop the track's recorded
   motion (the device's SAVE held brings it back). (Before 1.0 a preset also
   set the arp and replaced the steps with its pattern; a factory preset turned the SLICER off.) The byte
-  layout of every command is unchanged. Patterns are loaded on the device (SEQ > PHRASES) or written by
-  the editor with `STEP_SET` / `TRACK_STEP`.
+  layout of every command is unchanged. Steps are recorded on the device or written by the editor with
+  `STEP_SET` / `TRACK_STEP` (the device's factory phrases were removed in 2026-10).
   The device keeps one copy of the track from before the last load (any track); SAVE held 0.7 s on the
-  device swaps back what the load changed (the sound; after a SEQ > PHRASES load, the steps and LEN / DIV
-  / SWING / GATE). Loads in a row on one track with nothing changed between them keep the copy from before
+  device swaps back what the load changed (the sound). Loads in a row on one track with nothing changed between them keep the copy from before
   the first; `SET` (scope 0) within 1.5 s of a load on the selected track counts as part of that load, so
   an audition (`G_ENGSEL`, then the patch's values by `SET`, the track's own parameters skipped as
   `UP_LOAD` skips them) and the next one still undo to the state before the first. `PROJECT` load takes no

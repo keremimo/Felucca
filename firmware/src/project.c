@@ -845,8 +845,7 @@ static int proj_read_slot(uint32_t slot)
     proj_wire_gen++;
 #if MELODEE_FLASH
     if (flash_ok) {
-        n = st_load(OBJ_BANK0 + slot, proj_wire_u.raw, sizeof proj_wire_u.raw);
-        if (n < 0) n = st_load(OBJ_PROJECT0 + slot, proj_wire_u.raw, sizeof proj_wire_u.raw);
+        n = st_load(OBJ_BANK0 + slot, proj_wire_u.raw, sizeof proj_wire_u.raw);   /* (the legacy objects: retired) */
     }
 #else
     if (bank_valid(proj_bank_slot[slot], BANK_STORE_SIZE) &&
@@ -1031,6 +1030,24 @@ static int project_rename(uint32_t slot, const char *name)
     if (flash_ok) { ui_message("RENAMED"); return 0; }
 #endif
     ui_message("RENAMED (RAM)");
+    return 0;
+}
+
+/* slot -> empty (PROJECT's Erase, after its question): an empty record, read as no project; 0 done */
+static int project_erase(uint32_t slot)
+{
+    if (transport_busy()) {
+        ui_message("STOP TO SAVE");
+        return 1;
+    }
+    slot &= 3u;
+    if (proj_write_slot(slot, proj_wire_u.raw, 0)) { ui_message("SAVE ERROR"); return 2; }
+    if (proj_cur == slot)
+        proj_cur = PROJ_NO_SLOT;
+#if MELODEE_FLASH
+    if (flash_ok) { ui_message("ERASED"); return 0; }
+#endif
+    ui_message("ERASED (RAM)");
     return 0;
 }
 

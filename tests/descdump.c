@@ -98,7 +98,7 @@ int main(void)
                 v[i] = p->env[i];
             printf(",\"env\":");
             js_ints(v, 4);
-            printf(",\"mono\":%d,\"pat\":%d}", p->mono, p->pat);
+            printf(",\"mono\":%d}", p->mono);
         }
         printf("]}");
     }
@@ -108,21 +108,9 @@ int main(void)
             putchar(',');
         js_str(ENGINES[eng_vis(k)]->name);
     }
-    printf("],\n\"PATTERNS\":[");
-    for (k = 0; k < NPATTERNS; k++) {
-        printf("%s\n [", k ? "," : "");
-        for (i = 0; i < 16u; i++)
-            v[i] = PATTERNS[k].note[i];
-        js_ints(v, 16);
-        putchar(',');
-        for (i = 0; i < 16u; i++)
-            v[i] = PATTERNS[k].flags[i];
-        js_ints(v, 16);
-        putchar(']');
-    }
     printf("],\n\"TRK_DEF\":[");
     for (k = 0; k < NPART; k++)
-        printf("%s[%d,%d,%d]", k ? "," : "", TRK_DEF[k][0], TRK_DEF[k][1], TRK_DEF[k][2]);
+        printf("%s[%d,%d]", k ? "," : "", TRK_DEF[k][0], TRK_DEF[k][1]);
     printf("],\n\"FM6\":{\"bank\":%u,\"init\":", 0u);   /* FM6: the packed patches */
     for (i = 0; i < FM6_PACKED; i++)
         printf("%s%d", i ? "," : "[", FM6_INIT[i]);
@@ -154,7 +142,7 @@ int main(void)
             v[i] = p->fx[i];
         printf(",\"fenv\":%d,\"mono\":%d,\"fx\":", p->fenv, p->mono);
         js_ints(v, 4);
-        printf(",\"pat\":%d}", p->pat);
+        putchar('}');
     }
     printf("],\"to_fm6\":");
     for (k = 0; k < FM4_NPRESETS; k++)
