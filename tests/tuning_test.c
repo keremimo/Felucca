@@ -39,7 +39,6 @@ static uint32_t oscillator_step(uint32_t eng, uint32_t hz, uint32_t osc)
     t->p[P_SUS] = 127; t->p[P_VOICE] = V_POLY;
     if (eng == 0) t->p[P_E1] = 12; /* exercise ANALOG's rebuilt detuned oscillator */
     if (eng == 2) t->p[P_E4] = 1;  /* enable PHASE's second line */
-    if (eng == 3) t->p[P_E5] = 0;  /* internal chip vibrato off */
     if (eng == 6) { t->p[P_E0] = 0; t->p[P_E1] = 7; t->p[P_E2] = -12; } /* three pitches */
     if (eng == 15) cz_patch[0].raw[0] = (cz_patch[0].raw[0] & ~3u) | 2u; /* LINE 1 + 1' */
     trk_note_on(t, 69, 100);
@@ -59,7 +58,8 @@ static void engines(void)
         for (uint32_t osc = 0; osc < oscillators[k]; osc++) {
             uint32_t a = oscillator_step(eng[k], 440, osc);
             uint32_t b = oscillator_step(eng[k], 432, osc);
-            ok &= a && near_ratio(b, a, 432);
+            ok &= a && (eng[k] == 3 ? fabs(b - (double)a * 432 / 440) <= (SID_FREQ_K16 >> 16) /* SID: to its 16-bit */
+                                    : near_ratio(b, a, 432));                                     /* frequency register */
         }
         char msg[100]; snprintf(msg, sizeof msg, "%s: all oscillator pitches follow A4=432", ENGINES[eng[k]]->name);
         verify(msg, ok);

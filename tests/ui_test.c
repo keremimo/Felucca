@@ -328,15 +328,15 @@ static int test_sound_loads(void)
                  t->p[P_TRANS] == 5 && t->p[P_SLCR] == SL_GATE && t->p[P_SLPAT] == 4 && t->p[P_LEVEL] == 90);
     bad += check("..and no warning about the sequence", !msg_is("T1 SEQ REPLACED"));
     for (i = 0; i < ENGINES[3]->npresets; i++)
-        if (str_eq(ENGINES[3]->presets[i].name, "ARP 8BIT"))
+        if (str_eq(ENGINES[3]->presets[i].name, "ARP BASS"))
             break;
     t->p[P_AMODE] = 0;
     t->preset = (uint8_t)(i - 1u);
     turn(EN_PRESET, 1);
-    bad += check("ARP 8BIT (an ARP preset) leaves the arp off", t->preset == i && t->p[P_AMODE] == 0);
+    bad += check("ARP BASS (an arp-named preset) leaves the track arp off", t->preset == i && t->p[P_AMODE] == 0);
     t->p[P_AMODE] = 2;
     before = *t;
-    for (i = 0; i < 6u; i++)                      /* several loads, into the next engine */
+    for (i = 0; i < ENGINES[3]->npresets - before.preset + 1u; i++) /* through SID's remaining sounds, into next engine */
         turn(EN_PRESET, 1);
     bad += check("browsing on, into another engine: the steps still untouched", t->eng_req != before.eng_req &&
                  !memcmp(t->step, before.step, sizeof t->step) && t->p[P_AMODE] == 2);
@@ -1818,7 +1818,7 @@ static int test_native_env_lfo(void)
     go_home();
     set_engine_of(TSEL, 3);
     open_family(FAM_ENV);
-    bad += check("ENV on LOFI: the track's ADSR", str_eq(cur_page()->title, "ENV"));
+    bad += check("ENV on SID: the track's ADSR", str_eq(cur_page()->title, "ENV"));
     o = song.octave;
     press(B_OCTDN);
     bad += check("OCT- on a sound page: Stage, no octave", ui.home && song.octave == o);
@@ -3337,7 +3337,7 @@ static int test_slices(void)
         TSEL->p[P_E1] = SLC_DIV_MAN;
         go_page(GR_SLICES); frame();
         keep = *slc_man_of(slc_get(1));
-        set_engine(3u);                              /* LOFI, as ed_service's SET G_ENGSEL */
+        set_engine(3u);                              /* SID, as ed_service's SET G_ENGSEL */
         TSEL->p[P_E0] = 1;
         before = *TSEL;
         slc_man_save = 0;
@@ -4238,7 +4238,7 @@ static int test_fm4_retired(void)
 #if MELODEE_LEGACY_EXTRAS
                                             "PHASE",
 #endif
-                                            "CZ-1", "LOFI",
+                                            "CZ-1", "SID",
 #if MELODEE_LEGACY_EXTRAS
                                             "VOICE", "TRIO", "WHEEL", "PHYS", "NOISE",
 #endif
@@ -4257,7 +4257,7 @@ static int test_fm4_retired(void)
             last = e;
             r++;
         }
-        bad += check("engines shown PROPHET FM6 CZ-1 LOFI ... DRUM (ENGINE_ORDER); PRESETS lists them so",
+        bad += check("engines shown PROPHET FM6 CZ-1 SID ... DRUM (ENGINE_ORDER); PRESETS lists them so",
                      ok && r == NENG_SHOWN);
     }
     /* a user preset stored with engine 1: kept as it is, it loads as FM6 with the converted patch */

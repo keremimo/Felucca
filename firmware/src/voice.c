@@ -671,6 +671,8 @@ static __attribute__((noinline)) uint32_t track_render_audio(track_t *t, int32_t
             if (e->amp)                                 /* the engine's own amplitude curve */
                 env = e->amp(t, v, env);
             m.envq15 = e->ownenv ? 0 : env;
+            if (e == &ENG_SID)                          /* the chip's envelope counter (ENV3): ENV DEST, the matrix */
+                m.envq15 = sid_env_q15(t, v);
             m.amp1 = e->ownenv ? env : mulq15(env, v->vel * 258);
             if (p[P_LD_AMP])
                 m.amp1 = mulq15(m.amp1, 32767 - mulq15(p[P_LPOL] ? lfo : (lfo + 32768) >> 1, p[P_LD_AMP] * 258));

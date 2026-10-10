@@ -256,6 +256,8 @@ if [ -f build/gen/melodee_tables.h ]; then
     run "punch FX: exclusive knob routing, release detents, DEPTH direction and double-press lock" "$OUT/punch_fx_test"
     $CC -DMELODEE_LEGACY_EXTRAS=1 -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/phase_test" tests/phase_test.c -lm
     run "CZ: oscillator boundaries, native rate/target envelopes and independent lines" "$OUT/phase_test"
+    $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/sid_test" tests/sid_test.c -lm
+    run "SID: oscillator/LFSR/register semantics, revisions and 32 factory presets" "$OUT/sid_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/cz1_knob_test" tests/cz1_knob_test.c -lm
     run "CZ-1: every knob changes a full tone; the dim ones leave INIT and factory tones bit for bit" "$OUT/cz1_knob_test"
     $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm

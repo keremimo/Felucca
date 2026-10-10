@@ -422,7 +422,7 @@ calibration; the FPU conversion does not establish hardware fidelity.
   portamento, wheel, foot, breath and aftertouch), saved with the project and the template
 - **PHASE**: phase distortion with LINK/SPLIT envelopes and its own six presets.
 - **CZ-1**: native Casio tones, with separate eight-point pitch, timbre and volume envelopes on each line
-- **LOFI**: chiptune; pulse, triangle, saw, noise and a 4-bit wave RAM, stepped envelope, sweep, arpeggio
+- **SID**: a Commodore MOS 6581 / 8580 per note, modelled at the register level after reSID: three oscillators on the 16-bit frequency register (pulse width 12 bits, the 23-bit noise register, ring modulation, hard sync, combined waveforms sampled from real chips), the chip's envelope generator (16 rates, exponential decay, the ADSR delay), each revision's DACs and cutoff curve, the 6581's thump through the C64's output stage; 32 factory presets
 - **VOICE**: formant oscillator, sung vowels
 - **NOISE**: noise from analog to digital: colours, crackle, shift-register and metallic tones
 - **DRUM**: synthesized TR-808 circuit models on eight lanes with the General MIDI key map.

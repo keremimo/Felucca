@@ -216,7 +216,7 @@ static uint32_t engine_icon(const char *name)
 #if MELODEE_FM4
         {"DIGITAL", ICON_ALGORITHM},
 #endif
-        {"PHASE", ICON_PHASE}, {"LOFI", ICON_BITS},
+        {"PHASE", ICON_PHASE}, {"SID", ICON_BITS},
         {"SAMPLE", ICON_SAMPLE}, {"VOICE", ICON_MOUTH}, {"TRIO", ICON_TRIO}, {"WHEEL", ICON_DRAWBAR},
         {"SLICE", ICON_SLICE},
         {"GRAIN", ICON_GRAIN},

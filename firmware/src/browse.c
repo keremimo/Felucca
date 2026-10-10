@@ -28,7 +28,7 @@ static const char *const PRESET_CAT[NENGINES] = {
     [5] = "PLBF",                                       /* VOICE: CHOIR AAH, VOX LEAD, WOW BASS, WHISPER */
     [11] = "FFFF",                                      /* NOISE */
 #endif
-    [3] = "LBULL",                                      /* LOFI */
+    [3] = "OLBBBBBBLLLLLLLLPSPPGGKKUUERFFFF",          /* SID */
     [10] = "DD",                                        /* DRUM: the kits */
     [12] = "KEBRPEGUKRBEEKGSPLUEWEBE",                  /* FM6 */
     [ENGI_CZ] = "ORRRSSSSSUUUBBBBURWSWWWWUKKKKKKKKGGGGGPPPEEEEEDEESSULLLLFDDDEFFFF",   /* INIT TONE, Casio's 64 */

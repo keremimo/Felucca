@@ -123,8 +123,188 @@ def main(path):
     # soft clip curve for |x| in 0..2 (Q12 in, Q15 out): tanh
     L += arr("TANH_Q15", "int16_t", [int(32767 * math.tanh(i / 256 * 2)) for i in range(257)])
     L += fm6_tables()
+    L += sid_tables()
     Path(path).write_text("\n".join(L) + "\n")
     print(f"tables: {path}")
+
+
+SID_CLOCK = 985248                                  # PAL C64: 17.734475 MHz / 18
+SID_WAVES = Path(__file__).resolve().parent.parent / "assets/resid"   # reSID's combined waveforms (its README)
+SID_RATE = [9, 32, 63, 95, 149, 220, 267, 313, 392, 977, 1954, 3126, 3907, 11720, 19532, 31251]
+
+
+def sid_dac_bits(bits, r2r, term):
+    """reSID 1.0 dac.cc build_dac_table: the voltage each bit of an R-2R ladder gives on its own, 2R / R = r2r,
+    term: terminated (8580) or not (6581); any code is the sum of its bits (superposition)"""
+    vbit = []
+    for set_bit in range(bits):
+        vn, r, r2 = 1.0, 1.0, r2r
+        rn = r2 if term else math.inf
+        for _ in range(set_bit):                    # the "tail" below the bit, by parallel substitution
+            rn = r + r2 if rn == math.inf else r + r2 * rn / (r2 + rn)
+        if rn == math.inf:                          # source transformation for the bit's voltage
+            rn = r2
+        else:
+            rn = r2 * rn / (r2 + rn)
+            vn = vn * rn / r2
+        for _ in range(set_bit + 1, bits):          # up to the output, by repeated source transformation
+            rn += r
+            i = vn / rn
+            rn = r2 * rn / (r2 + rn)
+            vn = rn * i
+        vbit.append(vn * ((1 << bits) - 1))
+    return vbit
+
+
+def sid_spline(points):
+    """reSID 0.16 spline.h interpolate(): piecewise cubic through (x, y), repeated end points; y at x = 0..2047"""
+    y = [0.0] * 2048
+    for j in range(len(points) - 3):
+        (x0, y0), (x1, y1), (x2, y2), (x3, y3) = points[j:j + 4]
+        if x1 == x2:
+            continue
+        if x0 == x1 and x2 == x3:
+            k1 = k2 = (y2 - y1) / (x2 - x1)
+        elif x0 == x1:
+            k2 = (y3 - y1) / (x3 - x1)
+            k1 = (3 * (y2 - y1) / (x2 - x1) - k2) / 2
+        elif x2 == x3:
+            k1 = (y2 - y0) / (x2 - x0)
+            k2 = (3 * (y2 - y1) / (x2 - x1) - k1) / 2
+        else:
+            k1 = (y2 - y0) / (x2 - x0)
+            k2 = (y3 - y1) / (x3 - x1)
+        dx, dy = x2 - x1, y2 - y1                   # cubic with f(x1) = y1, f(x2) = y2, f'(x1) = k1, f'(x2) = k2
+        a = ((k1 + k2) - 2 * dy / dx) / dx ** 2
+        b = ((k2 - k1) / dx - 3 * (x1 + x2) * a) / 2
+        c = k1 - (3 * x1 * a + 2 * b) * x1
+        d = y1 - ((x1 * a + b) * x1 + c) * x1
+        for x in range(x1, x2 + 1):
+            y[x] = ((a * x + b) * x + c) * x + d
+    return y
+
+
+def sid_lz(t):
+    """eng_sid.c sid_unpack's format: c < 0x80: c + 1 bytes follow; c >= 0x80: (c & 0x7f) + 3 bytes copied from
+    d + 1 back, d in the next two bytes (little endian). Greedy longest match within the table"""
+    out, lit, i = bytearray(), bytearray(), 0
+
+    def flush():
+        while lit:
+            k = min(len(lit), 128)
+            out.append(k - 1)
+            out.extend(lit[:k])
+            del lit[:k]
+    while i < len(t):
+        best, dist = 0, 0
+        for d in range(1, min(i, 4096) + 1):
+            n = 0
+            while n < 130 and i + n < len(t) and t[i + n] == t[i + n - d]:
+                n += 1
+            if n > best:
+                best, dist = n, d
+                if n == 130:
+                    break
+        if best >= 3:
+            flush()
+            out += bytes([0x80 | (best - 3), (dist - 1) & 0xff, (dist - 1) >> 8])
+            i += best
+        else:
+            lit.append(t[i])
+            i += 1
+    flush()
+    return bytes(out)
+
+
+def sid_unlz(b, n):
+    o, i = bytearray(), 0
+    while len(o) < n:
+        c = b[i]
+        if c < 0x80:
+            o += b[i + 1:i + c + 2]
+            i += c + 2
+        else:
+            d = b[i + 1] + (b[i + 2] << 8) + 1
+            for _ in range((c & 0x7f) + 3):
+                o.append(o[-d])
+            i += 3
+    return bytes(o)
+
+
+def sid_tables():
+    """SID (eng_sid.c): the MOS 6581 / 8580 as reSID models them (Dag Lem, reSID 0.16 and 1.0, GPL-2.0-or-later)"""
+    L = []
+    # waveform DAC (12 bits) and envelope DAC (8 bits): the 6581's ladders are 2R / R = 2.20 without termination
+    # (bit 0 weighs 2.07, bit 11 1983 of 4095: uneven steps, 0x7FF above 0x800), the 8580's exact. Waveform: code ->
+    # DAC x 4 (0..16380) as LO[code & 63] + HI[code >> 6]; envelope: Q15 (full = 32767) as LO[e & 15] + HI[e >> 4]
+    for name, bits, half, scale in (("SID_WDAC", 12, 6, 4.0), ("SID_EDAC", 8, 4, None)):
+        rows = []
+        for r2r, term in ((2.20, False), (2.00, True)):
+            vb = sid_dac_bits(bits, r2r, term)
+            s = scale if scale else 32767 / sum(vb)
+            for part in (vb[:half], vb[half:]):
+                rows.append([int(round(s * sum(w for j, w in enumerate(part) if code >> j & 1)))
+                             for code in range(1 << half)])
+        L += [f"static const int16_t {name}[2][2][{1 << half}] = {{   /* [6581, 8580][low, high bits] */"]
+        for m in range(2):
+            L += ["    {" + ", ".join("{" + ", ".join(str(v) for v in rows[2 * m + h]) + "}" for h in range(2)) + "},"]
+        L += ["};"]
+    # filter cutoff: reSID 0.16's measured curves, FC (11 bits) -> Hz, spline-interpolated; the 6581's has its jump
+    # at FC 0x400. As g = tan(pi f / FS) (Q12) at FC = 16 i (i = 128: FC 2047), linear between
+    f6581 = [(0, 220), (0, 220), (128, 230), (256, 250), (384, 300), (512, 420), (640, 780), (768, 1600), (832, 2300),
+             (896, 3200), (960, 4300), (992, 5000), (1008, 5400), (1016, 5700), (1023, 6000), (1023, 6000),
+             (1024, 4600), (1024, 4600), (1032, 4800), (1056, 5300), (1088, 6000), (1120, 6600), (1152, 7200),
+             (1280, 9500), (1408, 12000), (1536, 14500), (1664, 16000), (1792, 17100), (1920, 17700), (2047, 18000),
+             (2047, 18000)]
+    f8580 = [(0, 0), (0, 0), (128, 800), (256, 1600), (384, 2500), (512, 3300), (640, 4100), (768, 4800), (896, 5600),
+             (1024, 6500), (1152, 7500), (1280, 8400), (1408, 9200), (1536, 9800), (1664, 10500), (1792, 11000),
+             (1920, 11700), (2047, 12500), (2047, 12500)]
+    L += ["static const uint16_t SID_FC_G[2][129] = {   /* [6581, 8580] */"]
+    for pts in (f6581, f8580):
+        hz = sid_spline(pts)
+        g = [int(round(4096 * math.tan(math.pi * min(max(hz[min(16 * i, 2047)], 0.0), 0.45 * FS) / FS)))
+             for i in range(129)]
+        L += ["    {" + ", ".join(str(v) for v in g) + "},"]
+    L += ["};"]
+    # resonance (4 bits) -> SVF damping 1/Q, Q12. 6581 (reSID 1.0 filter.h): its ladder gives 1/Q = ~res / 8 (Q 0.53
+    # .. 8, unbounded at 15), which its low-gain op-amps never reach: a loss of 1/4 keeps Q <= 4. 8580: 1/Q =
+    # 2^((4 - res) / 8): Q 0.71 .. 2.6
+    k6581 = [int(round(4096 * ((15 - r) / 8 + 0.25))) for r in range(16)]
+    k8580 = [int(round(4096 * 2 ** ((4 - r) / 8))) for r in range(16)]
+    L += ["static const uint16_t SID_RES_K[2][16] = {{" + ", ".join(map(str, k6581)) + "}, {" +
+          ", ".join(map(str, k8580)) + "}};"]
+    # the track's ADSR (0..127: 1 ms .. 10 s) -> the nearest of SID's 16 rates (log time): attack 255 steps,
+    # decay / release 756 rate periods (the exponential counter's 1 2 4 8 16 30). Low nibble attack, high decay
+    def exp_period(c):
+        return 1 if c > 0x5d else 2 if c > 0x36 else 4 if c > 0x1a else 8 if c > 0x0e else 16 if c > 0x06 else 30
+    steps_dr = sum(exp_period(c) for c in range(255, 0, -1))
+    att = [math.log(r * 255 / SID_CLOCK) for r in SID_RATE]
+    dr = [math.log(r * steps_dr / SID_CLOCK) for r in SID_RATE]
+    near = lambda tab, x: min(range(16), key=lambda r: abs(tab[r] - x))
+    L += arr("SID_ADSR_RATE", "uint8_t",
+             [near(att, math.log(10 ** (4 * v / 127) / 1000)) | near(dr, math.log(10 ** (4 * v / 127) / 1000)) << 4
+              for v in range(128)], 16)
+    # combined waveforms: reSID's samples of a real 6581 and 8580 (assets/resid/README.md), the top 8 of 12 output
+    # bits by accumulator >> 12 for TRI+SAW, TRI+PULSE, SAW+PULSE, all three; packed (sid_lz, checked here)
+    packed, at = bytearray(), []
+    for m in ("6581", "8580"):
+        for w in ("_ST", "P_T", "PS_", "PST"):
+            t = (SID_WAVES / f"wave{m}_{w}.dat").read_bytes()
+            e = sid_lz(t)
+            assert len(t) == 4096 and sid_unlz(e, 4096) == t
+            at.append(len(packed))
+            packed += e
+    L += arr("SID_WAVE_LZ", "uint8_t", list(packed), 24)
+    L += ["static const uint16_t SID_WAVE_AT[2][4] = {{" + ", ".join(map(str, at[:4])) + "}, {" +
+          ", ".join(map(str, at[4:])) + "}};   /* [6581, 8580][TRI+SAW, TRI+PULSE, SAW+PULSE, all] */"]
+    # clocks: SID cycles per control tick (Q16), 32-bit phase step per frequency register unit (Q16), its inverse
+    # (Q32); the C64's output stage: 16 kHz RC low pass (Q15), 16 Hz coupling capacitor (Q16) (reSID extfilt)
+    L += [f"#define SID_CYC_Q16 {round(SID_CLOCK * CTL * 65536 / FS)}u",
+          f"#define SID_FREQ_K16 {round(SID_CLOCK * 256 * 65536 / FS)}u",
+          f"#define SID_FREQ_R32 {round(2 ** 32 * FS / (SID_CLOCK * 256))}u",
+          f"#define SID_XLP_A {round(32768 * (1 - math.exp(-100000 / FS)))}",
+          f"#define SID_XHP_A {round(65536 * (1 - math.exp(-100 / FS)))}"]
+    return L
 
 
 def fm6_tables():

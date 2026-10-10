@@ -8,7 +8,7 @@ audition_tick 129
 click_render 30
 analog_render 393
 phase_render 127
-lofi_render 78
+sid_render 1204
 formant_render 314
 trio_render 341
 trio_pass 175

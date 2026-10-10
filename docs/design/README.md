@@ -132,7 +132,7 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   (the track's ADSR and ENV DEST do nothing there), so ENV visits theirs (P5 FLT ENV, AMP ENV, ENV MOD; FM6 EG RATE,
   EG LVL, PITCH EG, PITCH LV; CZ-1 each line's pitch, wave and amp envelope) and the track ADSR hides; LFO visits
   theirs first (P5 LFO, WHEEL; FM LFO; CZ VIBRATO), then the track LFO (it modulates any engine through LFO DEST
-  and is the matrix's LFO) and MOD. LOFI, DRUM, SLICE keep the track's.
+  and is the matrix's LFO) and MOD. SID (its ADSR: the chip's rates), DRUM, SLICE keep the track's.
 - Defaults (Kerem, 2026-10-10): OCT+ (tapped, or held about 0.7 s) opens a page's own sheet; CHANCE lives in
   the note / hit sheets (its page retired, Kerem 2026-10-10); a picker closes ST_KNOB_MS after the last turn or on OCT-.
 
