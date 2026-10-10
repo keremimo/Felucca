@@ -258,8 +258,10 @@ BRASS WIND PLUCK BELL DRUM FX OTHER**. Every factory sound, the Prophet, CZ-1 an
 category; native and user slots take the category of a factory sound with the same name, otherwise the words in
 their name (BASS, PIANO, STRINGS, ...). The chosen category is kept with the device settings.
 
-Knobs accelerate: a slow turn moves one step a detent, a fast one up to 8 steps on wide values and up to 16 entries
-in long lists, so the end of a 400-sound list is a flick away. Lists of names (waveforms, modes) never accelerate.
+Knobs accelerate: a slow turn moves one step a detent, and a few clicks are one step each however quick. Only a spin
+(four detents or more in a row) speeds up, to 3, 5 and then 8 steps a detent on wide values, so a quick half turn
+sweeps 0–127; the tempo and lists of more than 256 entries go twice as far, so the end of a 400-sound list is a flick
+away. Lists of names (waveforms, modes) never accelerate.
 MENU > **KNOB ACCEL** OFF keeps every detent one step. While the list moves fast, the screen follows at once and the
 sound loads when the knob rests, so a flick does not load every sound it passes; playing a key or changing the track
 loads it at once. Hold **SAVE** to return to the sound you had before browsing.
