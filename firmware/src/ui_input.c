@@ -228,42 +228,46 @@ static void ui_leds(void)
 }
 
 /* ---------------------------------------------------------- input --- */
-/* Knob acceleration, after Felucca 1.4 (#52): each decoded detent is one step, and a fast turn of a wide value (range
- * above 32; a list of names passes 0) moves it 2..4 steps a detent, up to 8 over a range above 64. MENU > KNOB ACCEL
- * OFF (PREF_ACCEL_OFF) keeps every detent one step. The main loop reads the knobs many times a frame (main.c), so a read
- * holds one detent as a rule: the speed is the time per detent, ACC_RATE / ms -> 25 ms x2, 16 ms x3, 12 ms x4,
- * 10 ms x5 .. 6 ms or less x8. Only the longer of this read's and the previous read's time counts, and only while the
- * turn goes on (both under ACC_GAP ms) in one direction: a slow turn, the first two detents of a turn, a single quick
- * detent (a bounce) and a reversal are one step per detent, and the sign is always the detents'. *fast (if asked): this
- * detent followed the previous one within ACC_GAP ms, in the same direction (the browser waits for such a turn to rest).
- * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 its ms per detent (127 slow) */
-#define ACC_GAP 40u
-#define ACC_RATE 50u
+/* Knob acceleration, after Felucca 1.4 (#52), with fm1-x0x's curve (tuned on the hardware): a slow turn is one step a
+ * detent, and a few clicks are one step each however quick. Only a spin speeds up: from the fourth read of a turn,
+ * each under ACC_GAP ms a detent after the one before in the same direction, 3 steps a detent under 45 ms, 5 under
+ * 25 ms and 8 under 12 ms, so a quick half turn sweeps 0..127. cap: the most for the value (accel, list_accel); a cap
+ * over 8 (the tempo, the long lists) doubles them. MENU > KNOB ACCEL OFF (PREF_ACCEL_OFF) keeps every detent one step.
+ * The main loop reads the knobs many times a frame (main.c), so a read holds one detent as a rule; a read of several is
+ * timed per detent and counts once (a few detents read at once are not a spin). A pause or a reversal starts a new
+ * turn, and the sign is always the detents'. *fast (if asked): this detent followed the previous one within ACC_GAP ms,
+ * in the same direction (the browser waits for such a turn to rest).
+ * ui.enc_t[role]: bits 0..23 the ms of its last read, bit 24 its direction (+1), 25..31 the reads of its turn */
+#define ACC_GAP 60u
+#define ACC_SPIN 4u
 static int32_t accel_by(uint32_t role, int32_t s, uint32_t cap, uint32_t *fast)
 {
-    uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role % NE], up = s > 0, pi = st >> 25, a, i, m = 1;
+    uint32_t now = fm1_ms & 0xFFFFFFu, st = ui.enc_t[role % NE], up = s > 0, run = st >> 25, a, dt, m = 1;
     if (fast)
         *fast = 0;
     if ((PREF_BITS & PREF_ACCEL_OFF) || !s)
         return s;
     a = (uint32_t)(s < 0 ? -s : s);
-    i = ((now - st) & 0xFFFFFFu) / a;                   /* ms per detent of this read */
-    if (!st || ((st >> 24) & 1u) != up || i >= ACC_GAP) {
-        i = 127u;                                       /* a new turn, or reversed */
+    dt = ((now - st) & 0xFFFFFFu) / a;                  /* ms per detent of this read */
+    if (!st || ((st >> 24) & 1u) != up || dt >= ACC_GAP) {
+        run = 1;                                        /* a new turn, or reversed */
     } else {
         if (fast)
             *fast = 1;
-        if (pi < ACC_GAP) {
-            m = ACC_RATE / (i > pi ? i : pi ? pi : 1u);
-            m = m < 1u ? 1u : m > cap ? cap : m;
-        }
+        run++;
+        if (run >= ACC_SPIN)
+            m = dt < 12u ? 8u : dt < 25u ? 5u : dt < 45u ? 3u : 1u;
+        if (cap > 8u && m > 1u)
+            m *= 2u;
+        m = m > cap ? cap : m;
     }
-    ui.enc_t[role % NE] = now | up << 24 | (i ? i : 1u) << 25;
+    ui.enc_t[role % NE] = now | up << 24 | (run > 127u ? 127u : run) << 25;
     return s * (int32_t)m;
 }
+/* a value of range steps: none up to 24 (and a list of names passes 0), x3 at most under 100, x8, x16 over 150 */
 static int32_t accel(uint32_t role, int32_t s, int32_t range)
 {
-    return range <= 32 ? s : accel_by(role, s, range > 64 ? 8u : 4u, 0);
+    return range <= 24 ? s : accel_by(role, s, range < 100 ? 3u : range > 150 ? 16u : 8u, 0);
 }
 static int32_t desc_range(const param_desc_t *d)     /* (a list of names: no acceleration) */
 {

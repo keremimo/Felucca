@@ -11,7 +11,7 @@
  *     release each, no note ending while the key is held, none hanging 12 ms after the last bounce;
  *   - a stray closed sample (a 150 us glitch) plays nothing;
  *   - fast repeats (40 ms apart) are all heard;
- *   - the encoders still count one step per detent (their decoder is not touched).
+ *   - the encoders count one step per detent, in a fast spin (a state a frame) and a flick too.
  * The GPIO / timer helpers of the header are compiled, never called. */
 #include <stdint.h>
 #include <stdio.h>
@@ -117,6 +117,13 @@ static void reset(void)
 }
 
 /* run until `until` us; count rises / falls of id's state and the press edges */
+static void enc_frame(const uint8_t *m, uint32_t st)   /* a frame with encoder m in quadrature state st (A<<1|B) */
+{
+    memset((void *)fm1_in.raw, 0, sizeof fm1_in.raw);
+    fm1_in.raw[m[0]] |= (uint8_t)(((st >> 1) & 1u) << m[1]);
+    fm1_in.raw[m[2]] |= (uint8_t)((st & 1u) << m[3]);
+    fm1__frame();
+}
 static uint32_t rises, falls, edges, first_rise_us, last_fall_us, early_fall;
 static uint32_t held_from, held_to;               /* the key is down (settled) in [held_from, held_to) */
 static void run(uint32_t id, uint32_t until)
@@ -270,7 +277,7 @@ int main(void)
               rises == 10u && edges == 10u && falls == 10u);
     }
 
-    /* encoders: one clockwise detent cycle of encoder 0 = one step (decoder unchanged) */
+    /* encoders: one clockwise detent cycle of encoder 0 = one step */
     {
         static const uint8_t SEQ[] = {0, 1, 3, 2, 0};   /* quadrature states A<<1|B, from the rest */
         uint32_t i, f;
@@ -287,6 +294,52 @@ int main(void)
         s = fm1_in.enc_steps[0];
         printf("encoder 0: one cycle -> %d step(s)\n", (int)s);
         check("an encoder detent cycle is one step", s == 1 || s == -1);
+    }
+    /* a fast spin: ten detents at 4, 2 and 1 frames a state (1 frame ~1.1 ms: ~4.4 ms a detent), both ways, and a
+     * flick that skips a state now and then; every detent counts. A one-frame glitch of a line at rest counts none. */
+    {
+        static const uint8_t CYC[4] = {1, 3, 2, 0};
+        const uint8_t *m = FM1_ENC[0];
+        uint32_t fps, d, q, f, ok = 1;
+        int32_t dir, one = 0;
+        for (dir = 1; dir >= -1; dir -= 2)
+            for (fps = 4; fps >= 1u; fps >>= 1) {
+                uint32_t st = 0;
+                reset();
+                for (f = 0; f < 8u; f++)
+                    enc_frame(m, 0);
+                for (d = 0; d < 10u; d++)
+                    for (q = 0; q < 4u; q++) {
+                        st = dir > 0 ? CYC[q] : CYC[(6u - q) & 3u] ;
+                        for (f = 0; f < fps; f++)
+                            enc_frame(m, st);
+                    }
+                for (f = 0; f < 8u; f++)
+                    enc_frame(m, 0);
+                if (!one)
+                    one = fm1_in.enc_steps[0] / 10;           /* + or - for clockwise (the wiring) */
+                ok &= fm1_in.enc_steps[0] == 10 * one * dir;
+                printf("encoder 0: 10 detents at %u frame(s) a state, %s -> %d\n", (unsigned)fps,
+                       dir > 0 ? "cw" : "ccw", (int)fm1_in.enc_steps[0]);
+            }
+        check("a fast spin: every detent counts at 4, 2 and 1 frames a state, both ways", ok && one);
+        reset();
+        for (f = 0; f < 8u; f++)
+            enc_frame(m, 0);
+        for (d = 0; d < 10u; d++)
+            for (q = 0; q < 4u; q++)
+                if (!(d & 1u) || q != 1u)                       /* every other detent skips a state */
+                    enc_frame(m, CYC[q]);
+        for (f = 0; f < 8u; f++)
+            enc_frame(m, 0);
+        check("a flick that skips states: every detent counts", fm1_in.enc_steps[0] == 10 * one);
+        reset();
+        for (f = 0; f < 8u; f++)
+            enc_frame(m, 0);
+        enc_frame(m, 1);
+        for (f = 0; f < 8u; f++)
+            enc_frame(m, 0);
+        check("a one-frame glitch at rest: no step", fm1_in.enc_steps[0] == 0);
     }
 
     if (fails) {

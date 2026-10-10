@@ -1135,13 +1135,26 @@ static int test_browser(void)
     fm1_ms = 100000u;
     ok = accel_by(EN_K1, 1, 8u, &f1) == 1 && !f1;
     fm1_ms += 10u; ok &= accel_by(EN_K1, 1, 8u, &f2) == 1 && f2;
-    fm1_ms += 10u; ok &= accel_by(EN_K1, 1, 8u, 0) == 5;
-    fm1_ms += 6u; ok &= accel_by(EN_K1, 1, 8u, 0) == 5;
-    fm1_ms += 6u; ok &= accel_by(EN_K1, 1, 8u, 0) == 8;
+    fm1_ms += 10u; ok &= accel_by(EN_K1, 1, 8u, 0) == 1;
+    fm1_ms += 10u; ok &= accel_by(EN_K1, 1, 8u, 0) == 8;
+    fm1_ms += 20u; ok &= accel_by(EN_K1, 1, 8u, 0) == 5;
+    fm1_ms += 30u; ok &= accel_by(EN_K1, 1, 8u, 0) == 3;
+    fm1_ms += 50u; ok &= accel_by(EN_K1, 1, 8u, 0) == 1;
     fm1_ms += 6u; ok &= accel_by(EN_K1, 3, 8u, 0) == 24;
+    fm1_ms += 6u; ok &= accel_by(EN_K1, 1, 3u, 0) == 3;
+    fm1_ms += 6u; ok &= accel_by(EN_K1, 1, 16u, 0) == 16;
+    fm1_ms += 20u; ok &= accel_by(EN_K1, 1, 16u, 0) == 10;
     fm1_ms += 6u; ok &= accel_by(EN_K1, -1, 8u, &f3) == -1 && !f3;
     fm1_ms += 300u; ok &= accel_by(EN_K1, -1, 8u, &f1) == -1 && !f1;
-    bad += check("ACCEL: one step a detent, then x5 at 10 ms, x8 at 6 ms (capped); a reversal and a pause start over", ok);
+    bad += check("ACCEL: a step a detent until the 4th quick one, then x3 under 45 ms, x5 under 25, x8 under 12 (capped, "
+                 "doubled over 8); a reversal and a pause start over", ok);
+    ok = 1;
+    for (i = 0; i < 3u; i++) {
+        fm1_ms += 30u; ok &= accel_by(EN_K3, 1, 8u, 0) == 1;
+    }
+    fm1_ms += 300u; ok &= accel_by(EN_K3, 1, 8u, 0) == 1;
+    fm1_ms += 30u; ok &= accel_by(EN_K3, 1, 8u, 0) == 1;
+    bad += check("ACCEL: three quick clicks, a pause, another: one step each", ok);
     ok = accel(EN_K2, 5, 20) == 5 && desc_range(&(param_desc_t){"X", F_ENUM, 0, 99, 0, 0, 0}) == 0;
     PREF_BITS |= PREF_ACCEL_OFF;
     fm1_ms += 6u; ok &= accel_by(EN_K1, -1, 8u, 0) == -1;
@@ -1184,8 +1197,8 @@ static int test_browser(void)
     before = *TSEL;
     first = list_cur(&total);
     spin(EN_PRESET, 1, 12);
-    want = first + 1u + 1u + 10u * 3u;                     /* a slow first detent, then 16 ms a detent: x3 */
-    bad += check("BROWSE: a fast turn loads its first detent only, the list moves on (x3 at 16 ms a detent)",
+    want = first + 3u + 9u * 10u;                          /* three single steps, then 16 ms a detent: x5, doubled */
+    bad += check("BROWSE: a fast turn loads its first detent only, the list moves on (x10 at 16 ms a detent)",
                  browse_pending() && preset_pos(&total) == want && list_cur(&total) == first + 1u &&
                  !memcmp(TSEL->step, before.step, sizeof before.step));
     e = browse_shown(&k);
