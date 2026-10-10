@@ -347,13 +347,11 @@ static void pv_cols(uint32_t y, int32_t from, int32_t to, int32_t w)
 {
     if (from >= 0 && to >= 0 && from < to + w + 8 && to < from + w + 8) {
         int32_t a = from < to ? from : to, b = from < to ? to : from;
-        cv_blit_cols(0, y, (uint32_t)a, (uint32_t)(b - a + w));
-        return;
+        cv_blit_spans(0, y, (uint32_t)a, (uint32_t)(b - a + w), 0, 0);
+    } else {
+        cv_blit_spans(0, y, from >= 0 ? (uint32_t)from : 0u, from >= 0 ? (uint32_t)w : 0u, to >= 0 ? (uint32_t)to : 0u,
+                      to >= 0 ? (uint32_t)w : 0u);
     }
-    if (from >= 0)
-        cv_blit_cols(0, y, (uint32_t)from, (uint32_t)w);
-    if (to >= 0)
-        cv_blit_cols(0, y, (uint32_t)to, (uint32_t)w);
 }
 /* a label on a panel: below the labels already on it that it would cover (pv.nbox: a panel's), moved up off a slice's
  * seam, drawn in the slice that holds it */
@@ -775,8 +773,7 @@ static void pv_picture(void)
 {
     int32_t cut, res;
     uint32_t pic = pv_pic(&cut, &res), sig = pv_curve_sig() ^ pic * 131u ^ (uint32_t)(cut + 1) * 7919u, i;
-    int32_t pp = pic == 6u && song.playing ? (int32_t)(TSEL->seq_idx % (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP)) : -1,
-            from = pv.pplay, cols;
+    int32_t pp = pic == 6u && song.playing ? (int32_t)(TSEL->seq_idx % (uint32_t)clamp(TSEL->p[P_SLEN], 1, NSTEP)) : -1;
     sig ^= pic == 0u ? (ui.frame >> 1) * 2654435761u : 0u;   /* (the scope: every other frame) */
     if (pic >= 5u) {                                    /* ARP, PATTERN, SLICER: the keys, steps, the SLICER's step */
         sig ^= steps_hash(TSEL) + (song.playing ? 1u + sl[song.sel].idx * 257u : 0u) * 2246822519u;
@@ -794,9 +791,8 @@ static void pv_picture(void)
     }
     if (!ui.force && sig == pv.panel && pp == pv.pplay)
         return;
-    cols = !ui.force && sig == pv.panel;                /* PATTERN: the step playing alone moved (pv_cols) */
-    pv.panel = sig;
-    pv.pplay = pp;
+    pv.panel = sig;                                     /* (PATTERN, the step playing alone moved: cv_blit sends its */
+    pv.pplay = pp;                                      /*  two dots) */
     {
         int32_t dy = 0;                                 /* (the picture whole under tabs too: the rings shorter) */
         cv_begin(240, (uint32_t)(PV_PIC_H - dy), T_BG);
@@ -811,11 +807,7 @@ static void pv_picture(void)
         else if (pic == 3u) pv_filter(cut, res);
         else stage_wave(T_THEME, 8 + dy / 2, PV_PIC_H - 16 - dy);
         cv_oy = 0;
-        if (cols)
-            pv_cols((uint32_t)(PV_PIC_Y + dy), from >= 0 ? PV_STEP_X((uint32_t)from) - 5 : -1,
-                    pp >= 0 ? PV_STEP_X((uint32_t)pp) - 5 : -1, 11);
-        else
-            cv_blit(0, (uint32_t)(PV_PIC_Y + dy));
+        cv_blit(0, (uint32_t)(PV_PIC_Y + dy));
     }
 }
 
@@ -983,17 +975,10 @@ static void pv_draw(void)
         pv_sound();
         sig = graph_sig(0);
         px = pv_grid_play();
-        if (ui.force || sig != ui.graph_sig) {
+        if (ui.force || sig != ui.graph_sig || px != pv.gplay) {   /* (the step playing alone: cv_blit sends its mark) */
             ui.graph_sig = sig;
             pv.gplay = px;
             pv_panel(PV_GRID_Y, PV_GRID_H, pv_grid);
-        } else if (px != pv.gplay) {                    /* the step playing alone: the panel's top rows, its mark */
-            pv.gplay = px;
-            cv_begin(PV_PANEL_W, 10, T_BG);
-            cv_rrect(0, 0, PV_PANEL_W, PV_GRID_H, 6, T_PANEL, T_BG);
-            cv_bg = T_PANEL;
-            pv_grid_mark();
-            cv_blit(PV_PANEL_X, PV_GRID_Y);
         }
         return;
     }

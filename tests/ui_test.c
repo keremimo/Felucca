@@ -58,9 +58,14 @@ static void fm1_wdt_feed(void) {}
 static void fm1_irq_off(void) {}
 static void fm1_irq_on(void) {}
 static uint16_t host_screen[240 * 240];
+static int host_blit_trace;                       /* (tests/ui_render.c UI_AUDIT_BLITS: each transfer listed) */
+static uint64_t host_sent;                        /* pixels sent to the LCD, blitted or filled (tests/ui_render.c) */
 static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 {
     uint32_t i, j;
+    if (host_blit_trace) fprintf(stderr, " [fill %u,%u %ux%u]", x, y, w, h);
+    if (x < 240u && y < 240u)
+        host_sent += (uint64_t)(w < 240u - x ? w : 240u - x) * (h < 240u - y ? h : 240u - y);
 #ifdef UI_FILL_HOOK
     UI_FILL_HOOK(x, y, w, h);                     /* (tests/ui_render.c: what a fill covers is gone) */
 #endif
@@ -72,11 +77,11 @@ static void lcd_sync(void) {}
 #define SCOPE_N 512u                              /* audio.c: the HOME oscilloscope */
 static int16_t scope_buf[SCOPE_N];
 static uint32_t scope_w;
-static uint64_t host_sent;                        /* pixels sent to the LCD (tests/ui_render.c) */
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 {
     uint32_t i, j;
     host_sent += (uint64_t)w * h;
+    if (host_blit_trace) fprintf(stderr, " [blit %u,%u %ux%u]", x, y, w, h);
     for (j = 0; j < h && y + j < 240u; j++)
         for (i = 0; i < w && x + i < 240u; i++) host_screen[(y + j) * 240u + x + i] = p[j * w + i];
 }
@@ -99,6 +104,15 @@ static struct { uint32_t stage; } melodee_dbg;
 #include "../firmware/src/project.c"
 #include "../firmware/src/fm6_store.c"
 #include "demo_steps.h"
+/* the host screen blanked: the diff (gfx.c) forgets what it sent, as after a fill */
+static void screen_clear(void)
+{
+    memset(host_screen, 0, sizeof host_screen);
+    memset(df_key, 0, sizeof df_key);
+#ifdef UI_REF_SCREEN
+    memset(ref_screen, 0, sizeof ref_screen);
+#endif
+}
 
 static int check(const char *what, int ok)
 {
@@ -1413,7 +1427,7 @@ static int test_mono_screens(void)
             ui_power_on(); set_engine_of(TSEL, e); song.playing = 1; song.rec = 1;
             ui.home = 0; ui.page = (uint8_t)i; page_entered();
             if (!page_visible(i)) continue;
-            memset(host_screen, 0, sizeof host_screen);
+            screen_clear();
             ui.force = 1; ui_draw();
             ok &= screen_gray();
             n++;
@@ -3779,7 +3793,7 @@ static int test_chord_page(void)
     ok &= str_eq(cur_page()->title, "CHORD") && cur_page()->graph == GR_CHORD && cur_page()->fam == FAM_SCL;
     bad += check("SCL cycles SCALES, SCL, then CHORD: the CHORD page (CHRD VOIC, the chord graph)", ok && cur_page()->id[0] == P_CHRD &&
                  cur_page()->id[1] == P_VOIC);
-    memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
+    screen_clear(); ui.force = 1; ui_draw();
     bad += check("  CHRD OFF: the page says what to do, MONO gray", screen_gray());
     turn(EN_K1, 1); frame();
     turn(EN_K2, 1); frame(); turn(EN_K1, 1); frame();
@@ -3787,7 +3801,7 @@ static int test_chord_page(void)
                  t->p[P_CHRD] == CH_DIA3 && t->p[P_VOIC] == VC_OPEN);
     key_down(7); frame();                                          /* C4 in C (SCALE CHR: the major of C) */
     ok = gates() == 3u && chord_last[song.sel].root == 60;
-    memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
+    screen_clear(); ui.force = 1; ui_draw();
     ok &= screen_gray();
     key_up(7); frame();
     bad += check("  a key plays the chord, the graph shows it (C), MONO gray", ok && !gates());
@@ -3795,7 +3809,7 @@ static int test_chord_page(void)
     apply_preset_to(t, 1);
     bad += check("  a sound load keeps CHRD and VOIC (SCL settings)", t->p[P_CHRD] == CH_MIN7 && t->p[P_VOIC] == VC_BASS);
     set_engine_of(t, ENGI_DRUM); t->engine = t->eng_req; frame();
-    memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
+    screen_clear(); ui.force = 1; ui_draw();
     bad += check("  a kit (DRUM): the page says so, MONO gray", chord_kit(t) && screen_gray());
     ui_power_on();
     t = TSEL;
@@ -3813,7 +3827,7 @@ static int test_chord_page(void)
     bad += check("SCL layer: KNOB 1 ROOT, 3 CHRD, 4 VOIC (QNT TRN untouched); OCT- puts them back", ok &&
                  t->p[P_CHRD] == CH_OFF && t->p[P_VOIC] == VC_CLOSE && t->p[P_ROOT] == 0 && ui.home);
     btn_down(B_SCL); frames(800);
-    memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
+    screen_clear(); ui.force = 1; ui_draw();
     ok = screen_gray();
     btn_up(B_SCL); frame();
     bad += check("  its map and cards MONO gray", ok);
@@ -3864,7 +3878,7 @@ static int test_piano_roll(void)
     demo_pat16(t, DEMO_ACID);                                         /* ACID: A2..A3, ties, accents, slides */
     t->p[P_ROOT] = 9; t->p[P_SCALE] = 2;
     go_page(GR_ROLL); ui.cursor = 0; ui.bank = 0;
-    memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
+    screen_clear(); ui.force = 1; ui_draw();
     ok = pr_columns_match(t, &nb);
     bad += check("piano roll: ACID's bars drawn at their notes' rows, ties carried, rests empty", ok && nb >= 10u);
     bad += check("  the view holds the page's notes (A2..A3 in 14 rows), MONO gray", proll.lo <= 45 && proll.lo + PR_ROWS - 1 >= 57 &&
@@ -3876,7 +3890,7 @@ static int test_piano_roll(void)
         t->step[i + 1u].time = ST_TIE;
     }
     nb = 0;
-    memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
+    screen_clear(); ui.force = 1; ui_draw();
     bad += check("  4-note chords stacked, their ties carry all four", pr_columns_match(t, &nb));
     for (i = 0; i < NSTEP; i++) {                                     /* LEN 32, page 2 */
         step_clear(&t->step[i]);
@@ -3884,7 +3898,7 @@ static int test_piano_roll(void)
     }
     t->p[P_SLEN] = 32; cursor_set(18);
     nb = 0;
-    memset(host_screen, 0, sizeof host_screen); ui.force = 1; ui_draw();
+    screen_clear(); ui.force = 1; ui_draw();
     bad += check("  LEN 32, the cursor on page 2: its 16 steps drawn", ui.bank == 1u && pr_columns_match(t, &nb) && nb == 8u);
     lo0 = proll.lo;                                                   /* two octaves up: the view follows in steps */
     for (i = 16; i < 32u; i++) if (t->step[i].n) t->step[i].note[0] += 24;

@@ -59,6 +59,10 @@ static void hk_blit(uint32_t x, uint32_t y, uint32_t r0, uint32_t w, uint32_t h)
 static void hk_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 #define GFX_HOOK_TEXT(x0, y0, x1, y1, s, flags) hk_text(x0, y0, x1, y1, s, flags)
 #define GFX_HOOK_BLIT(x, y, r0) hk_blit(x, y, r0, cv_w, cv_h)
+#define UI_REF_SCREEN 1
+static uint16_t ref_screen[240 * 240];                  /* the screen as sending every canvas whole leaves it */
+static void hk_whole(uint32_t x, uint32_t y, uint32_t r0, uint32_t fill);
+#define GFX_HOOK_WHOLE(x, y, r0, fill) hk_whole(x, y, r0, fill)
 #define GFX_HOOK_BEGIN() (npend = ncells = 0)
 #define GFX_HOOK_CELL(x0, y0, x1, y1) hk_cell(x0, y0, x1, y1)
 #define GFX_HOOK_PIXELS(n) (px_visited += (n))
@@ -168,12 +172,15 @@ static void fm6_hook(uint32_t kind, uint32_t a, uint32_t b)
     fmp_n++;
 }
 
+static uint8_t aud_on;                                  /* the LCD load audit runs: its frames are not linted */
 static void finding(const char *what, const rbox_t *b, const rbox_t *o)
 {
     static char seen[600][64];
     static uint32_t nseen;
     char key[64];
     uint32_t i;
+    if (aud_on)
+        return;
     nfind++;
     snprintf(key, sizeof key, "%.20s|%.14s|%.24s", cur_name, what, b->s);
     for (i = 0; i < nseen && strcmp(seen[i], key); i++) ;
@@ -253,6 +260,21 @@ static void contain(int32_t x, int32_t y)
             }
         }
     }
+}
+static void hk_whole(uint32_t x, uint32_t y, uint32_t r0, uint32_t fill)
+{
+    uint32_t i, j, w = cv_w, h = cv_h;
+    if (fill) {                                         /* a fill: r0 its w | h << 16, fill its colour | 1 << 16 */
+        uint16_t c = (uint16_t)fill;
+        w = r0 & 0xFFFFu; h = r0 >> 16;
+        for (j = 0; j < h && y + j < 240u; j++)
+            for (i = 0; i < w && x + i < 240u; i++)
+                ref_screen[(y + j) * 240u + x + i] = (uint16_t)((c >> 8) | (c << 8));
+        return;
+    }
+    for (j = r0; j < h && y + j < 240u; j++)
+        for (i = 0; i < w && x + i < 240u; i++)
+            ref_screen[(y + j) * 240u + x + i] = cv_px[j * w + i];
 }
 static void hk_blit(uint32_t x, uint32_t y, uint32_t r0, uint32_t w, uint32_t h)
 {
@@ -1240,7 +1262,7 @@ static void draw(int s)
     nscr = npend = 0;
     ntight = 0;
     tight[0] = 0;
-    memset(host_screen, 0, sizeof host_screen);
+    screen_clear();
     if (s == S_CALIBRATION) {                     /* the blocking setup screen: its two drawing steps */
         setup_title();
         setup_show("TURN RIGHT", "ALGORITHM");
@@ -1399,6 +1421,161 @@ static void roll_frames(const char *dir)
 }
 /* the host cost of a roll frame: the header and the cards (draw_head, draw_columns) while both strips roll,
  * against the same calls on an idle frame (nothing drawn) and a full redraw of the four cards and the header */
+/* the LCD's load (the SPI, 12 MHz: 1000 px ~ 1.3 ms): on every page of every engine, what a KNOB's detent sends (that
+ * frame and the 10 after it, less what the page sends idle: the scope's signal moving), a run of KNOB 1 detents, and a
+ * frame of play; the worst listed in the report (UI_AUDIT=1: all). Every frame checked: the screen as the diff (gfx.c)
+ * left it = every canvas and fill sent whole. UI_AUDIT_TRACE=<page>: its frames' sends; UI_AUDIT_BLITS=1 with it: each
+ * transfer */
+#define AUD_N 900u
+static struct { char name[56]; uint32_t px; } ldl[AUD_N];
+static uint32_t naud;
+static void aud_note(const char *what, const char *page, uint32_t px)
+{
+    uint32_t i, j;
+    for (i = 0; i < naud && ldl[i].px >= px; i++)
+        ;
+    if (i >= AUD_N)
+        return;
+    for (j = naud < AUD_N ? naud : AUD_N - 1u; j > i; j--)
+        ldl[j] = ldl[j - 1u];
+    snprintf(ldl[i].name, sizeof ldl[i].name, "%s %s", page, what);
+    ldl[i].px = px;
+    if (naud < AUD_N) naud++;
+}
+static const char *aud_trace;                          /* UI_AUDIT_TRACE: a page whose frames are listed */
+static uint32_t aud_bad;                                /* frames whose screen was not what a full redraw draws */
+static void aud_verify(void)                            /* the screen as sent (gfx.c diff) = every canvas sent whole */
+{
+    const uint16_t *got = ref_screen;
+    if (memcmp(got, host_screen, sizeof ref_screen)) {
+        uint32_t i, x0 = 240, y0 = 240, x1 = 0, y1 = 0;
+        for (i = 0; i < 240u * 240u; i++)
+            if (got[i] != host_screen[i]) {
+                if (i % 240u < x0) x0 = i % 240u;
+                if (i % 240u > x1) x1 = i % 240u;
+                if (i / 240u < y0) y0 = i / 240u;
+                if (i / 240u > y1) y1 = i / 240u;
+            }
+        if (aud_bad++ < 12u)
+            fprintf(stderr, "ui_render: %s: the screen sent differs from every canvas sent whole at (%u,%u)-(%u,%u)\n",
+                    cur_name ? cur_name : "?", x0, y0, x1, y1);
+    }
+}
+static uint32_t aud_frames(uint32_t n)                  /* n frames: what they send */
+{
+    uint32_t i;
+    uint64_t s = host_sent;
+    for (i = 0; i < n; i++) {
+        uint64_t f = host_sent;
+        uint32_t j;
+        int16_t first = scope_buf[0];                   /* (the scope's signal moves on, as the audio's does) */
+        for (j = 0; j + 1u < SCOPE_N; j++)
+            scope_buf[j] = scope_buf[j + 1u];
+        scope_buf[SCOPE_N - 1u] = first;
+        frame(); nscr = npend = 0;
+        if (aud_trace && cur_name && strstr(cur_name, aud_trace)) fprintf(stderr, " %llu", (unsigned long long)(host_sent - f));
+        aud_verify();
+    }
+    return (uint32_t)(host_sent - s);
+}
+static void aud_page(const char *page, int playing)
+{
+    static const uint32_t K[4] = {EN_K1, EN_K2, EN_K3, EN_K4};
+    uint32_t k, idle, px, worst = 0, wk = 0, i;
+    char what[24];
+    track_t *t = TSEL;
+    if (playing) {                                      /* a frame of play: a sixth of a step a frame */
+        uint32_t period = seq_div_samples((uint32_t)t->p[P_SDIV]), len = step_pattern_len(t), j;
+        song.playing = 1;
+        t->seq_pos = 0;
+        ui.force = 1; frame(); aud_frames(2);
+        px = 0;
+        for (j = 0; j < 48u; j++) {
+            for (i = 0; i < NTRK; i++) {
+                track_t *u = &trk[i];
+                uint32_t ul = step_pattern_len(u) ? step_pattern_len(u) : 1u, pu = seq_div_samples((uint32_t)u->p[P_SDIV]);
+                if (u->seq_pos >= 0x7FFFFFFFu) u->seq_pos = 0;
+                u->seq_pos += pu / 6u;
+                while (u->seq_pos >= step_samples(u, pu, u->seq_idx)) {
+                    u->seq_pos -= step_samples(u, pu, u->seq_idx);
+                    u->seq_idx = (uint16_t)((u->seq_idx + 1u) % ul);
+                }
+            }
+            px += aud_frames(1);
+        }
+        (void)period; (void)len;
+        aud_note("playing, a frame", page, px / 48u);
+        song.playing = 0;
+        return;
+    }
+    song.playing = 0;
+    ui.force = 1; frame(); aud_frames(4);
+    idle = aud_frames(8) / 8u;
+    for (k = 0; k < 4u; k++) {
+        int32_t d;
+        for (d = -1; d <= 1; d += 2) {
+            uint64_t s0 = host_sent;
+            host_blit_trace = aud_trace && strstr(page, aud_trace) && getenv("UI_AUDIT_BLITS");
+            turn(K[k], d); nscr = npend = 0;
+            host_blit_trace = 0;
+            aud_verify();
+            if (aud_trace && strstr(page, aud_trace)) fprintf(stderr, "\n%s K%u %+d: turn %llu, then", page, k + 1u, d, (unsigned long long)(host_sent - s0));
+            aud_frames(10);
+            px = (uint32_t)(host_sent - s0);
+            px = px > idle * 11u ? px - idle * 11u : 0u;
+            if (px > worst) { worst = px; wk = k; }
+        }
+    }
+    snprintf(what, sizeof what, "KNOB %u detent", wk + 1u);
+    aud_note(what, page, worst);
+    {   /* KNOB 1 turned on: 8 detents, a frame each */
+        uint64_t s0 = host_sent;
+        for (i = 0; i < 8u; i++) { host_enc[panel.enc[EN_K1]] += panel.dir[EN_K1]; frame(); nscr = npend = 0; aud_verify(); }
+        px = (uint32_t)(host_sent - s0) / 8u;
+        aud_note("KNOB 1 run, a frame", page, px > idle ? px - idle : 0u);
+    }
+    if (idle > 1000u)
+        aud_note("idle, a frame", page, idle);
+}
+static void audit_sends(FILE *rep)
+{
+    uint32_t e, i, playing;
+    char name[56];
+    aud_trace = getenv("UI_AUDIT_TRACE");
+    aud_on = 1;
+    for (playing = 0; playing < 2u; playing++)
+        for (e = 0; e < NENGINES; e++) {
+            if (!eng_ok(e))
+                continue;
+            for (i = 0; i <= NPAGES; i++) {
+                state();
+                pal(1);
+                demo_pat16(&trk[0], DEMO_ACID);
+                eng(e);
+                if (i == NPAGES) {
+                    go_home();
+                    snprintf(name, sizeof name, "%s/STAGE", ENGINES[e]->name);
+                } else {
+                    ui.home = 0; ui.page = (uint8_t)i; page_entered();
+                    if (!page_visible(i)) continue;
+                    if (playing && PAGES[i].fam != FAM_SEQ) continue;
+                    snprintf(name, sizeof name, "%s/%s", ENGINES[e]->name, PAGES[i].title);
+                }
+                cur_name = name;
+                aud_page(name, (int)playing);
+            }
+            if (playing) break;                         /* (play: one engine; the drum grid below) */
+        }
+    state(); pal(1); drum(0); go_page(GR_ROLL); cur_name = "DRUM/NOTES grid";
+    aud_page("DRUM/NOTES grid", 0);
+    state(); pal(1); drum(0); go_page(GR_ROLL); aud_page("DRUM/NOTES grid", 1);
+    aud_on = 0;
+    fprintf(rep, "\nLCD load, the worst (px sent; the SPI 12 MHz: 1000 px ~ 1.3 ms; a full screen 57600 ~ 77 ms):\n");
+    for (i = 0; i < naud && (i < 40u || getenv("UI_AUDIT")); i++)
+        fprintf(rep, "  %7u  %s\n", ldl[i].px, ldl[i].name);
+    fprintf(rep, "  %u frames not as sending every canvas whole leaves the screen\n", aud_bad);
+    nfind += aud_bad;
+}
 static void roll_cost(void)
 {
     enum { N = 400 };
@@ -1548,6 +1725,7 @@ int main(int argc, char **argv)
             }
         }
         roll_cost();
+        audit_sends(rep);
         {   /* playing, the playhead alone moving (NOTES, the drum grid, PATTERN): only its columns are sent, and the
              * screen is what a full redraw draws */
             static const int P[] = {S_ROLL_PLAYING, S_DRUM, S_PATTERN};
@@ -1560,7 +1738,7 @@ int main(int argc, char **argv)
                 t = TSEL;
                 t->seq_pos = 0;
                 draw(P[k]);
-                host_sent = 0; ui.force = 1; ui_draw(); ui.force = 0; full = host_sent;
+                screen_clear(); host_sent = 0; ui.force = 1; ui_draw(); ui.force = 0; full = host_sent;
                 period = seq_div_samples((uint32_t)t->p[P_SDIV]);
                 len = step_pattern_len(t);
                 for (mv = 0; mv < nmv; mv++) {          /* a quarter step a frame: 10 steps */

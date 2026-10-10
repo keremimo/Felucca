@@ -13,6 +13,7 @@ static int32_t fm1_enc_take(uint32_t e) { (void)e; return 0; }
 static void fm1_irq_off(void) {}
 static void fm1_irq_on(void) {}
 static void lcd_sync(void) {}
+static void lcd_fill(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
 #define MELODEE_FLASH 1

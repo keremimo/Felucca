@@ -107,8 +107,17 @@ TAKE JAM: REC held on SONG (elsewhere REC held captures).
   scaled to what it moves through, the playhead across); a lane's sheet: Play, Clear <lane>, Clear all motion. MOD:
   the four routes as rows (source -> destination, the amount's bar from the middle), the knobs' chips at the bottom.
 - **Picker**: a knob whose value is a list (wave, MOD source / destination, chord, delay division) shows the list
-  around its value while it turns, gone ST_KNOB_MS after the last turn. SCALES keeps its own list page (Kerem: the
-  list is intuitive), no picker.
+  around its value while it turns, gone ST_KNOB_MS after the last turn; over the page as it is, not dimmed (2026-10-10:
+  it comes with every turn of such a knob, and dimming sent the whole screen twice). SCALES keeps its own list page
+  (Kerem: the list is intuitive), no picker.
+
+## Drawing and the LCD (2026-10-10)
+
+- The SPI to the LCD (12 MHz) is the UI's bottleneck: the whole screen takes ~77 ms, 1000 px ~1.3 ms. gfx.c sends a
+  big canvas drawn where it was drawn before only where it changed (4-row bands x 8-column blocks, hashed), and while a
+  frame is drawn its fills wait: the canvases drawn over them later take their place out. A page redrawn whole
+  (ui.force) so sends what changed. tests/ui_render.c's LCD load audit turns every knob of every page of every engine
+  and lists the worst; each of its frames is checked against sending everything whole.
 
 ## Pages: lists or knobs (R6)
 

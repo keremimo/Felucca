@@ -282,10 +282,6 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
     for (uint32_t step = base; step <= end; step++) {
         int32_t x = notes_x(recording_prefix(t, period, step), a, b);
         cv_rect(x, PR_Y0, 1, bottom - PR_Y0, step % 4u ? T_GRID : T_RAISE);
-        if (step < end && step == ui.cursor) {
-            int32_t xe = notes_x(recording_prefix(t, period, step + 1u), a, b);
-            cv_frame(x, PR_Y0 - 2, xe - x + 1, bottom - PR_Y0 + 4, T_TEXT);
-        }
     }
     if (proll.play >= 0) cv_rect(proll.play, PR_Y0, 1, bottom - PR_Y0, T_ACCENT);   /* (set by the caller: notes_play_x) */
     /* Manual notes use the same time axis and selection language. Ties
@@ -316,6 +312,11 @@ static void graph_recorded_notes(const track_t *t, uint16_t c)
     for (uint32_t i = recording_head[recording_owner(t)]; i < RECORD_MAX; i = recording_next[i])
         if (i != chosen && recording_active(t, i)) notes_bar(t, i, period, a, b, c, 0);
     if (chosen < RECORD_MAX) notes_bar(t, chosen, period, a, b, T_ACCENT, 1);
+    if (ui.cursor >= base && ui.cursor < end) {         /* the cursor's column, last: its right side is the next step's
+                                                         * line, its left a tied note's bar (both drawn over it before) */
+        int32_t x = notes_x(recording_prefix(t, period, ui.cursor), a, b), xe = notes_x(recording_prefix(t, period, ui.cursor + 1u), a, b);
+        cv_frame(x, PR_Y0 - 2, xe - x + 1, bottom - PR_Y0 + 4, T_TEXT);
+    }
 }
 
 /* SEQ > STEP on a DRUM track: the grid, 8 lanes x the 16 steps of the page shown. Lanes by their two-letter

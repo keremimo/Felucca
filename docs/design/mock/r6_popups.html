@@ -65,8 +65,8 @@ const put=(id,s)=>document.getElementById(id).innerHTML=r(0,0,240,240,BG,0)+s;
  s+=dim()+sheet('Pickle Pincher','PROPHET',[['Init sound',''],['Save as user…',''],['Favourite','★'],['Undo last load','']],0,c);put('s_edit',s)}
 /* MOD source picker */
 {let s=head('MOD',c,1,0);[0,1,2,3].forEach(i=>s+=r(8,26+i*48,224,42,i==1?RS:PN,6,i==1?c:null));
- s+=dim()+picker(14,['Off','LFO','LFO 2','Envelope','Velocity','Key','Mod wheel','Aftertouch'],6,c,104);put('p_mod',s)}
+ s+=picker(14,['Off','LFO','LFO 2','Envelope','Velocity','Key','Mod wheel','Aftertouch'],6,c,104);put('p_mod',s)}   /* (a picker: the page not dimmed, 2026-10-10: the SPI) */
 /* WAVE picker with shapes */
-{let s=head('OSC',c,1,0);s+=dim();const W=[['Saw','M0 10 L14 0 L14 10'],['Square','M0 10 L0 0 L7 0 L7 10 L14 10'],['Triangle','M0 10 L7 0 L14 10'],['Sine','M0 5 Q3.5 -3 7 5 Q10.5 13 14 5'],['Pulse','M0 10 L0 0 L3 0 L3 10 L14 10']];
+{let s=head('OSC',c,1,0);const W=[['Saw','M0 10 L14 0 L14 10'],['Square','M0 10 L0 0 L7 0 L7 10 L14 10'],['Triangle','M0 10 L7 0 L14 10'],['Sine','M0 5 Q3.5 -3 7 5 Q10.5 13 14 5'],['Pulse','M0 10 L0 0 L3 0 L3 10 L14 10']];
  s+=r(8,40,118,124,SF,10,LN);W.forEach((w,i)=>{const y=48+i*22,on=i==0;if(on)s+=r(12,y,110,20,RS,5,c);s+=`<g transform="translate(20 ${y+5})">${path(w[1],on?c:MD,1.5)}</g>`+t(42,y+14,w[0],on?11:10,on?TX:SC,0,on)});put('p_wave',s)}
 </script></body></html>

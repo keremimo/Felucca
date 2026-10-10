@@ -1035,7 +1035,14 @@ static void draw_page(void)
     if (!ui.home && !own_screen() && !pv_kind() && !list_on() && !slot_kind() && !motion_page())
         draw_foot();
 }
-static void ui_draw(void)
+static void ui_draw_frame(void);
+static void ui_draw(void)                               /* (gfx.c: the fills wait for the frame's canvases) */
+{
+    gfx_frame(1);
+    ui_draw_frame();
+    gfx_frame(0);
+}
+static void ui_draw_frame(void)
 {
     if (!scr_frame()) return;
     ui.frame++;
@@ -1078,11 +1085,14 @@ static void ui_draw(void)
         return;
     }
     pick_poll();
-    if (pop.on) {                                       /* a popup over the page, dimmed (ui_popup.c) */
+    if (pop.on) {                                       /* a popup over the page, dimmed (ui_popup.c); a knob's picker
+                                                         * over it as it is (it comes with every turn of a list knob:
+                                                         * dimming sent the whole screen twice, ~150 ms on the SPI) */
         if (ui.force) {
-            cv_dim = 1;
+            cv_dim = pop.on != POP_PICK;
+            cv_under = 1;
             draw_page();
-            cv_dim = 0;
+            cv_dim = cv_under = 0;
             ui.force = 1;
         }
         pop_draw();
