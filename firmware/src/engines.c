@@ -9,7 +9,7 @@
 #endif
 #include "eng_phase.c"
 #include "eng_cz.c"
-#include "eng_lofi.c"
+#include "eng_sid.c"
 #include "eng_formant.c"
 #include "eng_trio.c"
 #include "eng_wheel.c"
@@ -61,6 +61,7 @@ static uint32_t eng_state_size(uint32_t e)
     case 2:                                         /* (PHASE: CZ-1's core) */
 #endif
     case ENGI_CZ: return sizeof(cz_part_t);
+    case 3: return sizeof(sid_part_t);              /* SID (eng_sid.c) */
     case ENGI_DRUM: return sizeof(drum909_part_t);
     case ENGI_FM6: return sizeof(fm6_part_t);
 #if MELODEE_SLICE
@@ -85,6 +86,7 @@ static drum_lane_t *drum_kit_part(uint32_t part) { return resource_get(RES_ENGIN
 static drw_part_t *drw_of(const track_t *t) { return resource_get(RES_ENGINE0 + (uint32_t)(t - trk), sizeof(drw_part_t)); }
 static fm6_part_t *fm6_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(fm6_part_t)); }
 static cz_part_t *cz_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(cz_part_t)); }
+static sid_part_t *sid_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(sid_part_t)); }
 #if MELODEE_PROPHET
 static p5_part_t *p5_part(uint32_t part) { return resource_get(RES_ENGINE0 + part % NPART, sizeof(p5_part_t)); }
 #endif
@@ -109,7 +111,7 @@ static const engine_t *const ENGINES[NENGINES] = {
 #else
     &ENG_RETIRED,                /* 2: retired PHASE; stored ID reserved (its core: CZ-1's) */
 #endif
-    &ENG_LOFI,                   /* 3 */
+    &ENG_SID,                    /* 3: SID replaces LOFI without reusing a stored ID */
     &ENG_RETIRED,                /* 4: retired SAMPLE; reserved to preserve stored indices */
 #if MELODEE_LEGACY_EXTRAS
     &ENG_FORMANT,                /* 5 VOICE (eng_formant.c: "voice" is a sounding note in voice.c) */
@@ -163,11 +165,11 @@ static const uint8_t ENGINE_ORDER[NENG_SHOWN] = {
     1,                           /* DIGITAL */
 #endif
 #if MELODEE_LEGACY_EXTRAS
-    2, ENGI_CZ, 3, 5,             /* PHASE CZ-1 LOFI VOICE */
+    2, ENGI_CZ, 3, 5,             /* PHASE CZ-1 SID VOICE */
     6, 7, 9,
     11,                          /* NOISE */
 #else
-    ENGI_CZ, 3,                   /* CZ-1 LOFI */
+    ENGI_CZ, 3,                   /* CZ-1 SID */
 #endif
 #if MELODEE_SLICE
     13,                          /* SLICE */
@@ -208,5 +210,5 @@ static uint32_t eng_step(uint32_t e, int32_t dir)
 
 /* the parts at power-on (engine, preset; the steps empty): bass, pad, lead, drums */
 static const uint8_t TRK_DEF[NPART][2] = {{0, 4}, {ENGI_FM6, 4}, {3, 0}, {ENGI_DRUM, 0}}; /* ANALOG ACID,
-                                                                       * FM6 PAD (was DIGITAL PAD), LOFI PULSE LD, DRUM KIT */
+                                                                       * FM6 PAD (was DIGITAL PAD), SID INIT SID, DRUM KIT */
 static uint32_t trk_def_engine(uint32_t i) { return TRK_DEF[i % NPART][0]; }

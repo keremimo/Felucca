@@ -280,7 +280,7 @@ async function editorMock() {
   ok(!prefs.favorites[info.namespace.general][31] && !E.devicePresetRows(info, names, prefs).some((r) => r.user), "editor: erased slot disappears and loses star");
   {   /* the lists in the device's order (engines.c ENGINE_ORDER): FM6 second, DRUM last, "-" never; the numbers stay */
     const shown = E.engineOrder(info.engines).map((i) => info.engines[i]);
-    ok(shown.join() === "PROPHET,FM6,CZ-1,LOFI,DRUM" &&
+    ok(shown.join() === "PROPHET,FM6,CZ-1,SID,DRUM" &&
        E.engineOrder(info.engines)[1] === 12 && E.engineOrder(info.engines).at(-1) === 10,
        "editor: engines listed FM6 second, DRUM last (indices kept)");
     ok(E.engineOrder(["ANALOG", "X", "-", "DRUM", "FM6"]).join() === "0,4,3,1", "editor: an unknown engine follows the known ones");
@@ -600,7 +600,7 @@ async function editorLibrarian() {
   ok(rc === 0 && !b2.slots[11].used && b2.slots[10].used && rcEmpty === 1, "librarian: UP_ERASE, UP_LOAD of an empty slot -> rc 1");
 
   /* audition: a patch that holds a pattern; the sound only, the sequence (with notes) stays */
-  const bass = await E.bank.get(rq, info, 2);   /* LOFI WAVE BASS, with the ACID steps */
+  const bass = await E.bank.get(rq, info, 2);   /* SID BREADBOX, with the ACID steps */
   await rq(E.req.stepSet(20, { n: 1, notes: [50, 0, 0, 0], time: 0, flags: 0, vel: 90 }));
   await rq(E.req.set(0, 29, 24));               /* the track's own: LEN 24, ARP MODE 2 */
   await rq(E.req.set(0, 17, 2));
@@ -649,11 +649,11 @@ async function editorLibrarian() {
   ok(keys[8] === "TQNT" && keys[27] === "QNT" && oldTiming[8] === null && oldTiming[27] === cap.p[27],
     "library file: timing QNT has a separate key and preserves legacy scale QNT");
   ok(back.patches.length === 2 && !back.skipped && eq(back.patches[0].p, cap.p) && eq(back.patches[1].p, bass.p)
-    && js(back.patches[1].pattern) === js(bass.pattern) && back.patches[1].tags.join() === "bass,device" && back.patches[1].engineName === "LOFI",
+    && js(back.patches[1].pattern) === js(bass.pattern) && back.patches[1].tags.join() === "bass,device" && back.patches[1].engineName === "SID",
     "library file: write -> read round trip");
   /* a future firmware: one more parameter at id 5, engines in another order and one of them gone */
   const keys2 = [...keys.slice(0, 5), "NEW", ...keys.slice(5)];
-  const eng2 = ["LOFI", "ANALOG", "SAMPLE"];
+  const eng2 = ["SID", "ANALOG", "SAMPLE"];
   const fut = E.readLibraryFile(file, { keys: keys2, engines: eng2 });
   const p0 = fut.patches[0].p;
   ok(fut.patches.length === 2 && p0.length === 105 && p0[5] === null && p0[6] === cap.p[5] && p0[104] === cap.p[103]

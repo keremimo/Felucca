@@ -15,7 +15,7 @@ import os
 import re
 import sys
 
-FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_render_custom", "phase_render", "lofi_render", "cz_native_render", "cz_native_wave", "formant_render",
+FUNCS = ["analog_render", "digital_render", "digital_render_legacy", "digital_render_custom", "phase_render", "sid_render", "cz_native_render", "cz_native_wave", "formant_render",
          "trio_render", "trio_pass", "wheel_render", "wheel_block",
          "phys_render", "drum_render", "noise_render", "fm6_render", "p5_samples", "p5_mod_samples", "px_modal_block", "px_modal_run", "px_memb_block",
          "px_string_excite", "px_string_run", "px_symp_run",

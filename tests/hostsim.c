@@ -188,7 +188,7 @@ static uint32_t started_since(const track_t *t, uint32_t a0)
 }
 
 /* the demo song: T1 ANALOG ACID (16 steps), T2 the power-on pad (TRK_DEF: FM6 PAD; DIGITAL PAD until it was
- * retired) (32 steps, tied chords), T3 LOFI PULSE LD
+ * retired) (32 steps, tied chords), T3 SID INIT SID
  * (12 steps: 3 against 4), T4 808 DRUM drums (16 steps, up to 3 notes a step); 120 BPM, 8 bars. Bars 5..6:
  * live recording: a clap into the drums just before step 4 (quantised onto it, not triggered twice),
  * MIDI ch 3 into the lead, a two-key chord on the keys into an empty pad step. solo: 0 = the mix,
@@ -455,7 +455,7 @@ static int steal_test(const char *dir)
  * part 1 as a plain sine pad (ANALOG SINE KEY, filter open, slow release, no sends: smooth, so the largest
  * sample step is set by the pitches), (a) a chord held and released, the switch to DIGITAL (its E.PIANO; without
  * MELODEE_FM4 converted: FM6) in its release
- * tail; (b) twice a chord held, the switch to PHASE / LOFI while it is held (the preset change releases
+ * tail; (b) twice a chord held, the switch to PHASE / SID while it is held (the preset change releases
  * it); (c) a switch to SAMPLE with a note in its second block: that note must sound on the new engine. As ui.c
  * set_engine_of + apply_preset_to: eng_req, the new engine's values and panic_req at once (the main loop
  * writes them with the audio IRQ off). Compares the largest sample step in the 10 ms after (a) and (b)

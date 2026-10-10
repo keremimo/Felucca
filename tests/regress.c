@@ -261,7 +261,7 @@ static void job_slicer(const job_t *j)
 }
 
 /* the 4-track mix: T1 ANALOG ACID, T2 the power-on pad (TRK_DEF: FM6 PAD since DIGITAL was retired; DIGITAL PAD
- * before) (tied chords), T3 LOFI lead (12 steps against 16),
+ * before) (tied chords), T3 SID lead (12 steps against 16),
  * T4 808 DRUM drums; 120 BPM, 4 bars (the hostsim TRACKS demo without the recording), stop, the tail.
  * arg 1: with the SLICER (GATE on the pad, STUT on the acid line and the drums, SWING 20 %) */
 static void job_song(const job_t *j)
@@ -486,7 +486,7 @@ static void midi_pkt(uint32_t st, uint32_t d1, uint32_t d2)   /* as usb.c: the q
 }
 
 /* the shared budget: 4 POLY parts (ANALOG, DIGITAL (without MELODEE_FM4 its BELL converted: FM6), VOICE (retired:
- * LOFI), 808 DRUM) play random notes on and off for
+ * SID), 808 DRUM) play random notes on and off for
  * 6 s, up to 8 held each; after every block: at most 8 part voices active, none still fading (a stolen voice
  * fades within its one block), the VOICE part at most 4; then all off: every voice free */
 #define VCAP_E (MELODEE_LEGACY_EXTRAS ? 5u : 3u)

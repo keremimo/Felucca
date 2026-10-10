@@ -548,13 +548,13 @@ static int demos(const char *dir)
         fclose(f);
         n++;
     }
-    /* MODW -> VIB: LOFI WAVE LEAD, the mod wheel (CC1) rises over 4 s: vibrato from none to deep */
-    e = eng_by_name("LOFI");
-    fresh(e, preset_by_name(e, "WAVE LEAD"));
+    /* MODW -> CUT: SID LEAD 6581, the mod wheel (CC1) opens its filter over 4 s */
+    e = eng_by_name("SID");
+    fresh(e, preset_by_name(e, "LEAD 6581"));
     t->p[P_LRATE] = 70;
     t->p[P_LD_PIT] = 0;
     t->p[P_LFADE] = 0;
-    slot(t, 0, MS_MODW, MD_VIB, 12);
+    slot(t, 0, MS_MODW, MD_CUT, 12);
     if ((f = demo_open(dir, "modw_vib", 5u * FS / CTL * CTL))) {
         trk_note_on(t, 69, 100);
         for (k = 0; k < 4u * FS / CTL; k++) {
