@@ -48,6 +48,7 @@ On Linux x86-64 the toolchain runs natively and Docker is not needed.
 string `v0.11.1`; the package is `build/melodee-0.11.1.fwsc`, and `build/release-0.11.1/` holds what a
 release ships: the package, the app (`melodee-0.11.1-app.bin`), `SHA256SUMS`, `LICENSE`, `LICENSING.md` and
 `LICENSES/` (the package contains Apache-2.0 SDK files, so the licence texts travel with it).
+For example, `--release 1.0.0` uses the distinct identity `FM-1_91000`.
 
 Build options (environment, `0` or `1`; defaults in `firmware/src/build_options.h`, `melodee.c`, `core.h` and `icons.c`):
 
