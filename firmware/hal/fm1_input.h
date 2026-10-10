@@ -25,7 +25,7 @@
  * FM1_DEB_RELEASE frames open in a row (~9 ms): a contact bouncing open on the way down, or
  * chattering on the way up, never ends the note early or plays it twice. A key still bouncing
  * when it is let go (open, closed, open..) holds its note until it has been open for that long.
- * Encoders: stock quadrature decoder (2-sample filter, tables 0x2814/0x4182,
+ * Encoders: stock quadrature decoder (no 2-sample filter, for fast turns; tables 0x2814/0x4182,
  * sign flipped so + = clockwise on the hardware), plus detent counting. An FM-1
  * detent is one full quadrature cycle (4 transitions, M0g) and the knob rests in
  * one state: the one seen at power-on (relearned after FM1_REST_FRAMES still
@@ -258,10 +258,12 @@ static void fm1__frame(void)
         uint32_t cur = ((fm1_in.raw[m[0]] >> m[1]) & 1u) << 1 | ((fm1_in.raw[m[2]] >> m[3]) & 1u);
         uint32_t idx;
         volatile int8_t *sub = &fm1_in.enc_sub[e];
+        /* no two-frame filter (as fm1-x0x): a state had to be seen on two frames running (~2.2 ms) to count, so a
+         * fast turn, whose states last less than that, lost its detents and the knob slowed down or stopped. A frame
+         * (~1.1 ms) is longer than a contact bounce, and a step still needs >= 2 net transitions on the detent */
         if (cur != fm1_in.enc_last[e]) {
             fm1_in.enc_last[e] = (uint8_t)cur;
             fm1_in.enc_still[e] = 0;
-            continue;
         }
         if (fm1_in.enc_prev[e] == 0xFF) {          /* first frame: the knob rests here */
             fm1_in.enc_prev[e] = (uint8_t)cur;

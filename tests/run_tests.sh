@@ -119,7 +119,7 @@ $CC -o "$OUT/upreset_test" tests/upreset_test.c
 run "user presets (UP_PUT parser, bank round trip, versions, PHYS DRUM -> DRUM, grid records, DIGITAL kept)" "$OUT/upreset_test"
 
 $CC -o "$OUT/input_test" tests/input_test.c
-run "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders" "$OUT/input_test"
+run "keys and buttons: fast press, long release, bouncy contacts (one note each), glitches, encoders, fast spins" "$OUT/input_test"
 
 $CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
 run "TRS MIDI parser" "$OUT/midi_uart_test"
